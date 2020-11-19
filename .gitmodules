@@ -1,0 +1,3 @@
+[submodule "dependencies/zig-data-structures"]
+	path = dependencies/zig-data-structures
+	url = https://github.com/chwayne/zig-data-structures.git
