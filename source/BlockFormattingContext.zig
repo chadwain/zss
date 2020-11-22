@@ -34,8 +34,8 @@ border_colors: AutoHashMapUnmanaged(MapKey, BorderColor) = .{},
 background_color: AutoHashMapUnmanaged(MapKey, BackgroundColor) = .{},
 
 const Self = @This();
-const MapKey = u16;
-const TreeValue = struct {
+pub const MapKey = u16;
+pub const TreeValue = struct {
     tree_val: u16,
     map_key: MapKey,
 
@@ -43,6 +43,8 @@ const TreeValue = struct {
         return std.math.order(lhs.tree_val, rhs.tree_val);
     }
 };
+
+pub const root_map_key = @as(MapKey, 0);
 
 pub fn init(allocator: *Allocator) !Self {
     return Self{

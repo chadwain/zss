@@ -18,6 +18,7 @@ const std = @import("std");
 
 pub const BlockFormattingContext = @import("BlockFormattingContext.zig");
 pub const properties = @import("properties.zig");
+pub const render_sdl = @import("render_sdl.zig");
 
 test "" {
     std.testing.refAllDecls(@This());
