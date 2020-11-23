@@ -73,23 +73,44 @@ fn exampleBlockContext(surface: *SDL_Surface) !void {
     defer blk_ctx.deinit();
 
     {
-        const key = zss.BlockFormattingContext.root_map_key;
+        const key = @as(zss.BlockFormattingContext.MapKey, 0);
+        try blk_ctx.tree.insert(&[1]zss.BlockFormattingContext.TreeValue{.{ .tree_val = 0, .map_key = key }});
         try blk_ctx.width.putNoClobber(blk_ctx.allocator, key, .{ .width = 800 });
         try blk_ctx.height.putNoClobber(blk_ctx.allocator, key, .{ .height = 600 });
         try blk_ctx.background_color.putNoClobber(blk_ctx.allocator, key, .{ .rgba = 0xff223300 });
+        try blk_ctx.border_padding_left_right.putNoClobber(blk_ctx.allocator, key, .{ .padding_left = 100 });
+        try blk_ctx.border_padding_top_bottom.putNoClobber(blk_ctx.allocator, key, .{ .padding_top = 200 });
     }
 
     {
         const key = @as(zss.BlockFormattingContext.MapKey, 1);
-        try blk_ctx.tree.insert(&[1]zss.BlockFormattingContext.TreeValue{.{ .tree_val = 0, .map_key = key }});
+        try blk_ctx.tree.insert(&[_]zss.BlockFormattingContext.TreeValue{ .{ .tree_val = 0, .map_key = 0 }, .{ .tree_val = 0, .map_key = key } });
         try blk_ctx.width.putNoClobber(blk_ctx.allocator, key, .{ .width = 100 });
         try blk_ctx.height.putNoClobber(blk_ctx.allocator, key, .{ .height = 100 });
         try blk_ctx.background_color.putNoClobber(blk_ctx.allocator, key, .{ .rgba = 0x00df1213 });
+        try blk_ctx.margin_left_right.putNoClobber(blk_ctx.allocator, key, .{ .margin_left = 250 });
+        try blk_ctx.margin_top_bottom.putNoClobber(blk_ctx.allocator, key, .{ .margin_top = 50 });
+    }
+
+    {
+        const key = @as(zss.BlockFormattingContext.MapKey, 2);
+        try blk_ctx.tree.insert(&[_]zss.BlockFormattingContext.TreeValue{ .{ .tree_val = 0, .map_key = 0 }, .{ .tree_val = 0, .map_key = 1 }, .{ .tree_val = 0, .map_key = key } });
+        try blk_ctx.width.putNoClobber(blk_ctx.allocator, key, .{ .width = 40 });
+        try blk_ctx.height.putNoClobber(blk_ctx.allocator, key, .{ .height = 40 });
+        try blk_ctx.background_color.putNoClobber(blk_ctx.allocator, key, .{ .rgba = 0x5c76d3ff });
+    }
+
+    {
+        const key = @as(zss.BlockFormattingContext.MapKey, 3);
+        try blk_ctx.tree.insert(&[_]zss.BlockFormattingContext.TreeValue{ .{ .tree_val = 0, .map_key = 0 }, .{ .tree_val = 1, .map_key = key } });
+        try blk_ctx.width.putNoClobber(blk_ctx.allocator, key, .{ .width = 100 });
+        try blk_ctx.height.putNoClobber(blk_ctx.allocator, key, .{ .height = 100 });
+        try blk_ctx.background_color.putNoClobber(blk_ctx.allocator, key, .{ .rgba = 0x306892ff });
     }
 
     try zss.render_sdl.renderBlockFormattingContext(
         blk_ctx,
         &gpa.allocator,
-        .{ .surface = surface },
+        surface,
     );
 }

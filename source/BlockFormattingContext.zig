@@ -22,7 +22,7 @@ usingnamespace @import("properties.zig");
 const PrefixTree = @import("prefix-tree").PrefixTree;
 
 allocator: *Allocator,
-tree: PrefixTree(TreeValue, TreeValue.cmpFn),
+tree: Tree,
 
 width: AutoHashMapUnmanaged(MapKey, Width) = .{},
 height: AutoHashMapUnmanaged(MapKey, Height) = .{},
@@ -34,6 +34,7 @@ border_colors: AutoHashMapUnmanaged(MapKey, BorderColor) = .{},
 background_color: AutoHashMapUnmanaged(MapKey, BackgroundColor) = .{},
 
 const Self = @This();
+pub const Tree = PrefixTree(TreeValue, TreeValue.cmpFn);
 pub const MapKey = u16;
 pub const TreeValue = struct {
     tree_val: u16,
@@ -43,8 +44,6 @@ pub const TreeValue = struct {
         return std.math.order(lhs.tree_val, rhs.tree_val);
     }
 };
-
-pub const root_map_key = @as(MapKey, 0);
 
 pub fn init(allocator: *Allocator) !Self {
     return Self{

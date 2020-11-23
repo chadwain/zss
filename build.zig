@@ -8,19 +8,21 @@ pub fn build(b: *Builder) void {
     };
     const zssPkg = std.build.Pkg{
         .name = "zss",
-        .path = "source/main.zig",
+        .path = "zss.zig",
         .dependencies = &[_]std.build.Pkg{prefixTreePkg},
     };
 
     const mode = b.standardReleaseOptions();
-    const lib = b.addStaticLibrary("zss", "source/main.zig");
+    const lib = b.addStaticLibrary("zss", "zss.zig");
     lib.setBuildMode(mode);
     lib.addPackage(prefixTreePkg);
     lib.install();
 
-    var main_tests = b.addTest("source/main.zig");
+    var main_tests = b.addTest("zss.zig");
     main_tests.setBuildMode(mode);
     main_tests.addPackage(prefixTreePkg);
+    main_tests.linkSystemLibrary("SDL2");
+    main_tests.linkSystemLibrary("c");
 
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
@@ -28,7 +30,6 @@ pub fn build(b: *Builder) void {
     var extra_tests = b.addTest("test/block_formatting.zig");
     extra_tests.setBuildMode(mode);
     extra_tests.addPackage(zssPkg);
-    extra_tests.addPackage(prefixTreePkg);
     extra_tests.linkSystemLibrary("SDL2");
     extra_tests.linkSystemLibrary("c");
 

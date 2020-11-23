@@ -27,64 +27,84 @@ const assert = std.debug.assert;
 const BlockFormattingContext = @import("BlockFormattingContext.zig");
 usingnamespace @import("properties.zig");
 
-pub const SdlContext = struct {
-    surface: *SDL_Surface,
-};
-
 const RenderState = struct {
     offset_x: i32,
     offset_y: i32,
 };
 
+const StackItem = struct {
+    value: BlockFormattingContext.MapKey,
+    node: ?std.meta.fieldInfo(BlockFormattingContext.Tree, "root").field_type,
+    state: RenderState,
+};
+
 pub fn renderBlockFormattingContext(
     blk_ctx: BlockFormattingContext,
     allocator: *Allocator,
-    sdl_ctx: SdlContext,
+    surface: *SDL_Surface,
 ) !void {
-    var stack = ArrayList(BlockFormattingContext.TreeValue).init(allocator);
+    var stack = ArrayList(StackItem).init(allocator);
     defer stack.deinit();
 
-    var tree_key = ArrayList(BlockFormattingContext.TreeValue).init(allocator);
-    defer tree_key.deinit();
-
-    const tree = &blk_ctx.tree;
-    var state = RenderState{
-        .offset_x = 0,
-        .offset_y = 0,
-    };
-
     {
-        renderBlockElement(blk_ctx, BlockFormattingContext.root_map_key, sdl_ctx, &state);
-
-        const root_node = tree.root;
-        var i = root_node.child_nodes.items.len;
-        while (i > 0) : (i -= 1) {
-            std.debug.print("index {}\n", .{i});
-            //if (root_node.child_nodes.items[i - 1].s) |_| {
-            try stack.append(root_node.edges.items[i - 1]);
-            //}
-        }
+        var state = RenderState{
+            .offset_x = 0,
+            .offset_y = 0,
+        };
+        try addChildrenToStack(&stack, state, blk_ctx, blk_ctx.tree.root);
     }
 
-    // TODO fix this bad loop
     while (stack.items.len > 0) {
-        const elem = stack.pop();
-        renderBlockElement(blk_ctx, elem.map_key, sdl_ctx, &state);
-        std.debug.print("key {}\n", .{elem.map_key});
+        const item = stack.pop();
+        renderBlockElement(blk_ctx, item.value, surface, item.state);
 
-        try tree_key.append(elem);
-        defer _ = tree_key.pop();
-        const tree_node = tree.getNode(tree_key.items) orelse continue;
-
-        var i = tree_node.child_nodes.items.len;
-        while (i > 0) : (i -= 1) {
-            //if (tree_node.child_nodes.items[i - 1].s) |_| {
-            try stack.append(tree_node.edges.items[i - 1]);
-            //}
-        }
-
-        //state.offset_y += getElementHeight(blk_ctx, elem.map_key);
+        if (item.node) |node| {
+            var new_state = updateState1(blk_ctx, item.state, item.value);
+            try addChildrenToStack(&stack, new_state, blk_ctx, node);
+        } else continue;
     }
+}
+
+fn addChildrenToStack(
+    stack: *ArrayList(StackItem),
+    input_state: RenderState,
+    blk_ctx: BlockFormattingContext,
+    node: std.meta.fieldInfo(BlockFormattingContext.Tree, "root").field_type,
+) !void {
+    var state = input_state;
+    const prev_len = stack.items.len;
+    const num_children = node.edges.items.len;
+    try stack.resize(prev_len + num_children);
+
+    var i: usize = 0;
+    while (i < num_children) : (i += 1) {
+        const dest = &stack.items[prev_len..][num_children - 1 - i];
+        dest.* = .{
+            .value = node.edges.items[i].map_key,
+            .node = node.child_nodes.items[i].s,
+            .state = state,
+        };
+        state = updateState2(blk_ctx, state, dest.value);
+    }
+}
+
+fn updateState1(blk_ctx: BlockFormattingContext, state: RenderState, elem_id: BlockFormattingContext.MapKey) RenderState {
+    const bplr = blk_ctx.border_padding_left_right.get(elem_id) orelse BorderPaddingLeftRight{};
+    const bptb = blk_ctx.border_padding_top_bottom.get(elem_id) orelse BorderPaddingTopBottom{};
+    const mlr = blk_ctx.margin_left_right.get(elem_id) orelse MarginLeftRight{};
+    const mtb = blk_ctx.margin_top_bottom.get(elem_id) orelse MarginTopBottom{};
+
+    return RenderState{
+        .offset_x = state.offset_x + mlr.margin_left + bplr.border_left + bplr.padding_left,
+        .offset_y = state.offset_y + mtb.margin_top + bptb.border_top + bptb.padding_top,
+    };
+}
+
+fn updateState2(blk_ctx: BlockFormattingContext, state: RenderState, elem_id: BlockFormattingContext.MapKey) RenderState {
+    return RenderState{
+        .offset_x = state.offset_x,
+        .offset_y = state.offset_y + getElementHeight(blk_ctx, elem_id),
+    };
 }
 
 fn getElementHeight(blk_ctx: BlockFormattingContext, elem_id: BlockFormattingContext.MapKey) i32 {
@@ -95,20 +115,21 @@ fn getElementHeight(blk_ctx: BlockFormattingContext, elem_id: BlockFormattingCon
 }
 
 fn rgbaMap(pixelFormat: *SDL_PixelFormat, color: u32) u32 {
+    const color_le = std.mem.nativeToLittle(u32, color);
     return SDL_MapRGBA(
         pixelFormat,
-        @truncate(u8, color >> 24),
-        @truncate(u8, color >> 16),
-        @truncate(u8, color >> 8),
-        @truncate(u8, color),
+        @truncate(u8, color_le >> 24),
+        @truncate(u8, color_le >> 16),
+        @truncate(u8, color_le >> 8),
+        @truncate(u8, color_le),
     );
 }
 
 fn renderBlockElement(
     blk_ctx: BlockFormattingContext,
     elem_id: BlockFormattingContext.MapKey,
-    sdl_ctx: SdlContext,
-    state: *RenderState,
+    surface: *SDL_Surface,
+    state: RenderState,
 ) void {
     const width = blk_ctx.width.get(elem_id) orelse Width{};
     const height = blk_ctx.height.get(elem_id) orelse Height{};
@@ -125,7 +146,7 @@ fn renderBlockElement(
     const full_width = width.width + bplr.border_left + bplr.border_right + bplr.padding_left + bplr.padding_right;
     const full_height = padding_height + bptb.border_top + bptb.border_bottom;
 
-    const pixel_format = sdl_ctx.surface.*.format;
+    const pixel_format = surface.*.format;
     const colors = [_]u32{
         rgbaMap(pixel_format, bg_color.rgba),
         rgbaMap(pixel_format, border_colors.top_rgba),
@@ -173,8 +194,6 @@ fn renderBlockElement(
     };
 
     for (rects) |_, i| {
-        assert(SDL_FillRect(sdl_ctx.surface, &rects[i], colors[i]) == 0);
+        assert(SDL_FillRect(surface, &rects[i], colors[i]) == 0);
     }
-
-    state.offset_y = border_y + full_height + mtb.margin_bottom;
 }
