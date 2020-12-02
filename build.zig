@@ -15,19 +15,19 @@ pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
     const lib = b.addStaticLibrary("zss", "zss.zig");
     lib.setBuildMode(mode);
-    lib.addPackage(prefixTreePkg);
+    lib.addPackage(zssPkg);
     lib.install();
 
     var main_tests = b.addTest("zss.zig");
     main_tests.setBuildMode(mode);
-    main_tests.addPackage(prefixTreePkg);
+    main_tests.addPackage(zssPkg);
     main_tests.linkSystemLibrary("SDL2");
     main_tests.linkSystemLibrary("c");
 
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
 
-    var extra_tests = b.addTest("test/block_formatting.zig");
+    var extra_tests = b.addTest("test/test.zig");
     extra_tests.setBuildMode(mode);
     extra_tests.addPackage(zssPkg);
     extra_tests.linkSystemLibrary("SDL2");

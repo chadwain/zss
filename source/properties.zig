@@ -60,6 +60,30 @@ pub const MarginTopBottom = struct {
     margin_bottom: CSSUnit = 0,
 };
 
+/// Contains the used values of the properties 'margin-left',
+/// 'margin-right', 'border-left-width', 'border-right-width',
+/// 'padding-left', and 'padding-right'.
+pub const MarginBorderPaddingLeftRight = struct {
+    margin_left: CSSUnit = 0,
+    margin_right: CSSUnit = 0,
+    border_left: CSSUnit = 0,
+    border_right: CSSUnit = 0,
+    padding_left: CSSUnit = 0,
+    padding_right: CSSUnit = 0,
+};
+
+/// Contains the used values of the properties 'margin-top',
+/// 'margin-bottom', 'border-top-width', 'border-bottom-width',
+/// 'padding-top', and 'padding-bottom'.
+pub const MarginBorderPaddingTopBottom = struct {
+    margin_top: CSSUnit = 0,
+    margin_bottom: CSSUnit = 0,
+    border_top: CSSUnit = 0,
+    border_bottom: CSSUnit = 0,
+    padding_top: CSSUnit = 0,
+    padding_bottom: CSSUnit = 0,
+};
+
 /// Contains the used values of the properties 'border-top-color',
 /// 'border-right-color', 'border-bottom-color', and 'border-left-color'.
 pub const BorderColor = struct {

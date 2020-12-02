@@ -14,22 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
-pub const sdl = @cImport({
-    @cInclude("SDL2/SDL.h");
-});
-usingnamespace sdl;
+usingnamespace zss.sdl.sdl;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 
-const BlockFormattingContext = @import("BlockFormattingContext.zig");
-usingnamespace @import("properties.zig");
+const zss = @import("../../../zss.zig");
+const BlockFormattingContext = zss.BlockFormattingContext;
+usingnamespace zss.properties;
 
 const RenderState = struct {
-    offset_x: i32,
-    offset_y: i32,
+    offset_x: CSSUnit,
+    offset_y: CSSUnit,
 };
 
 const StackItem = struct {
@@ -47,7 +45,7 @@ pub fn renderBlockFormattingContext(
     defer stack.deinit();
 
     {
-        var state = RenderState{
+        const state = RenderState{
             .offset_x = 0,
             .offset_y = 0,
         };
@@ -58,10 +56,9 @@ pub fn renderBlockFormattingContext(
         const item = stack.pop();
         renderBlockElement(blk_ctx, item.value, surface, item.state);
 
-        if (item.node) |node| {
-            var new_state = updateState1(blk_ctx, item.state, item.value);
-            try addChildrenToStack(&stack, new_state, blk_ctx, node);
-        } else continue;
+        const node = item.node orelse continue;
+        const new_state = updateState1(blk_ctx, item.state, item.value);
+        try addChildrenToStack(&stack, new_state, blk_ctx, node);
     }
 }
 
@@ -89,10 +86,10 @@ fn addChildrenToStack(
 }
 
 fn updateState1(blk_ctx: BlockFormattingContext, state: RenderState, elem_id: BlockFormattingContext.MapKey) RenderState {
-    const bplr = blk_ctx.border_padding_left_right.get(elem_id) orelse BorderPaddingLeftRight{};
-    const bptb = blk_ctx.border_padding_top_bottom.get(elem_id) orelse BorderPaddingTopBottom{};
-    const mlr = blk_ctx.margin_left_right.get(elem_id) orelse MarginLeftRight{};
-    const mtb = blk_ctx.margin_top_bottom.get(elem_id) orelse MarginTopBottom{};
+    const bplr = blk_ctx.get(elem_id, .border_padding_left_right);
+    const bptb = blk_ctx.get(elem_id, .border_padding_top_bottom);
+    const mlr = blk_ctx.get(elem_id, .margin_left_right);
+    const mtb = blk_ctx.get(elem_id, .margin_top_bottom);
 
     return RenderState{
         .offset_x = state.offset_x + mlr.margin_left + bplr.border_left + bplr.padding_left,
@@ -107,10 +104,10 @@ fn updateState2(blk_ctx: BlockFormattingContext, state: RenderState, elem_id: Bl
     };
 }
 
-fn getElementHeight(blk_ctx: BlockFormattingContext, elem_id: BlockFormattingContext.MapKey) i32 {
-    const height = blk_ctx.height.get(elem_id) orelse Height{};
-    const bptb = blk_ctx.border_padding_top_bottom.get(elem_id) orelse BorderPaddingTopBottom{};
-    const mtb = blk_ctx.margin_top_bottom.get(elem_id) orelse MarginTopBottom{};
+fn getElementHeight(blk_ctx: BlockFormattingContext, elem_id: BlockFormattingContext.MapKey) CSSUnit {
+    const height = blk_ctx.get(elem_id, .height);
+    const bptb = blk_ctx.get(elem_id, .border_padding_top_bottom);
+    const mtb = blk_ctx.get(elem_id, .margin_top_bottom);
     return height.height + bptb.border_top + bptb.border_bottom + bptb.padding_top + bptb.padding_bottom + mtb.margin_top + mtb.margin_bottom;
 }
 
@@ -131,14 +128,14 @@ fn renderBlockElement(
     surface: *SDL_Surface,
     state: RenderState,
 ) void {
-    const width = blk_ctx.width.get(elem_id) orelse Width{};
-    const height = blk_ctx.height.get(elem_id) orelse Height{};
-    const bplr = blk_ctx.border_padding_left_right.get(elem_id) orelse BorderPaddingLeftRight{};
-    const bptb = blk_ctx.border_padding_top_bottom.get(elem_id) orelse BorderPaddingTopBottom{};
-    const mlr = blk_ctx.margin_left_right.get(elem_id) orelse MarginLeftRight{};
-    const mtb = blk_ctx.margin_top_bottom.get(elem_id) orelse MarginTopBottom{};
-    const border_colors = blk_ctx.border_colors.get(elem_id) orelse BorderColor{};
-    const bg_color = blk_ctx.background_color.get(elem_id) orelse BackgroundColor{};
+    const width = blk_ctx.get(elem_id, .width);
+    const height = blk_ctx.get(elem_id, .height);
+    const bplr = blk_ctx.get(elem_id, .border_padding_left_right);
+    const bptb = blk_ctx.get(elem_id, .border_padding_top_bottom);
+    const mlr = blk_ctx.get(elem_id, .margin_left_right);
+    const mtb = blk_ctx.get(elem_id, .margin_top_bottom);
+    const border_colors = blk_ctx.get(elem_id, .border_colors);
+    const bg_color = blk_ctx.get(elem_id, .background_color);
 
     const border_x = state.offset_x + mlr.margin_left;
     const border_y = state.offset_y + mtb.margin_top;

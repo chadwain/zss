@@ -17,21 +17,24 @@
 const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
+
 usingnamespace @import("properties.zig");
 const PrefixTree = @import("prefix-tree").PrefixTree;
 
 allocator: *Allocator,
 tree: Tree,
+line_boxes: ArrayListUnmanaged(LineBox) = .{},
 
 width: AutoHashMapUnmanaged(MapKey, Width) = .{},
 height: AutoHashMapUnmanaged(MapKey, Height) = .{},
-border_padding_left_right: AutoHashMapUnmanaged(MapKey, BorderPaddingLeftRight) = .{},
-border_padding_top_bottom: AutoHashMapUnmanaged(MapKey, BorderPaddingTopBottom) = .{},
-margin_left_right: AutoHashMapUnmanaged(MapKey, MarginLeftRight) = .{},
-margin_top_bottom: AutoHashMapUnmanaged(MapKey, MarginTopBottom) = .{},
+margin_border_padding_left_right: AutoHashMapUnmanaged(MapKey, MarginBorderPaddingLeftRight) = .{},
+margin_border_padding_top_bottom: AutoHashMapUnmanaged(MapKey, MarginBorderPaddingTopBottom) = .{},
 border_colors: AutoHashMapUnmanaged(MapKey, BorderColor) = .{},
 background_color: AutoHashMapUnmanaged(MapKey, BackgroundColor) = .{},
+position: AutoHashMapUnmanaged(MapKey, Position) = .{},
+//data: AutoHashMapUnmanaged(MapKey, Data) = .{},
 
 const Self = @This();
 
@@ -46,15 +49,30 @@ pub const TreeValue = struct {
     }
 };
 
+pub const LineBox = struct {
+    y_pos: CSSUnit,
+    baseline: CSSUnit,
+};
+
+pub const Position = struct {
+    line_box_index: usize,
+    advance: CSSUnit,
+    ascender: CSSUnit,
+};
+
+pub const Data = union(enum) {
+    empty_space,
+};
+
 pub const Properties = enum {
     width,
     height,
-    border_padding_left_right,
-    border_padding_top_bottom,
-    margin_left_right,
-    margin_top_bottom,
+    margin_border_padding_left_right,
+    margin_border_padding_top_bottom,
     border_colors,
     background_color,
+    position,
+    //data,
 
     pub fn toType(comptime self: @This()) type {
         return std.meta.fieldInfo(std.meta.fieldInfo(Self, @tagName(self)).field_type.Entry, "value").field_type;
@@ -70,6 +88,7 @@ pub fn init(allocator: *Allocator) !Self {
 
 pub fn deinit(self: *Self) void {
     self.tree.deinit();
+    self.line_boxes.deinit(self.allocator);
     inline for (std.meta.fields(Properties)) |field| {
         @field(self, field.name).deinit(self.allocator);
     }
@@ -77,12 +96,10 @@ pub fn deinit(self: *Self) void {
 
 pub fn get(self: Self, key: MapKey, comptime property: Properties) property.toType() {
     const T = property.toType();
-    return @field(self, @tagName(property)).get(key) orelse T{};
-}
-
-test "basic test" {
-    const allocator = std.heap.page_allocator;
-    var blk_ctx = try init(allocator);
-    defer blk_ctx.deinit();
-    testing.expect(blk_ctx.tree.exists(&[_]TreeValue{}));
+    const optional = @field(self, @tagName(property)).get(key);
+    if (T == Position) {
+        return optional orelse unreachable;
+    } else {
+        return optional orelse T{};
+    }
 }

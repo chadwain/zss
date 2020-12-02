@@ -6,7 +6,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const zss = @import("zss");
-usingnamespace zss.render_sdl.sdl;
+usingnamespace zss.sdl.sdl;
 
 test "" {
     assert(SDL_Init(SDL_INIT_VIDEO) == 0);
@@ -108,7 +108,7 @@ fn exampleBlockContext(surface: *SDL_Surface) !void {
         try blk_ctx.background_color.putNoClobber(blk_ctx.allocator, key, .{ .rgba = 0x306892ff });
     }
 
-    try zss.render_sdl.renderBlockFormattingContext(
+    try zss.sdl.renderBlockFormattingContext(
         blk_ctx,
         &gpa.allocator,
         surface,
