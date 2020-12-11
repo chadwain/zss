@@ -20,9 +20,13 @@ pub fn build(b: *Builder) void {
 
     var main_tests = b.addTest("zss.zig");
     main_tests.setBuildMode(mode);
+    main_tests.addPackage(prefixTreePkg);
     main_tests.addPackage(zssPkg);
-    main_tests.linkSystemLibrary("SDL2");
     main_tests.linkSystemLibrary("c");
+    main_tests.linkSystemLibrary("freetype");
+    main_tests.addIncludeDir("dependencies/freetype/");
+    main_tests.linkSystemLibrary("harfbuzz");
+    main_tests.linkSystemLibrary("SDL2");
 
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
@@ -30,8 +34,11 @@ pub fn build(b: *Builder) void {
     var extra_tests = b.addTest("test/test.zig");
     extra_tests.setBuildMode(mode);
     extra_tests.addPackage(zssPkg);
-    extra_tests.linkSystemLibrary("SDL2");
     extra_tests.linkSystemLibrary("c");
+    extra_tests.linkSystemLibrary("freetype");
+    extra_tests.addIncludeDir("dependencies/freetype/");
+    extra_tests.linkSystemLibrary("harfbuzz");
+    extra_tests.linkSystemLibrary("SDL2");
 
     const extra_test_step = b.step("extra-test", "Run extra tests");
     extra_test_step.dependOn(&extra_tests.step);

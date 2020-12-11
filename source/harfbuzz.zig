@@ -14,25 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
-const std = @import("std");
-
-pub const sdl = @cImport({
-    @cInclude("SDL2/SDL.h");
+pub const harfbuzz = @cImport({
+    @cInclude("freetype/ftglyph.h");
+    @cInclude("harfbuzz/hb.h");
+    @cInclude("harfbuzz/hb-ft.h");
 });
-
-const block = @import("sdl/block.zig");
-pub const renderBlockFormattingContext = block.renderBlockFormattingContext;
-
-const @"inline" = @import("sdl/inline.zig");
-pub const renderInlineFormattingContext = @"inline".renderInlineFormattingContext;
-
-pub fn rgbaMap(pixelFormat: *sdl.SDL_PixelFormat, color: u32) u32 {
-    const color_le = std.mem.nativeToLittle(u32, color);
-    return sdl.SDL_MapRGBA(
-        pixelFormat,
-        @truncate(u8, color_le >> 24),
-        @truncate(u8, color_le >> 16),
-        @truncate(u8, color_le >> 8),
-        @truncate(u8, color_le),
-    );
-}

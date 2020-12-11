@@ -23,6 +23,7 @@ const assert = std.debug.assert;
 
 const zss = @import("../../../zss.zig");
 const BlockFormattingContext = zss.BlockFormattingContext;
+const rgbaMap = zss.sdl.rgbaMap;
 usingnamespace zss.properties;
 
 const RenderState = struct {
@@ -109,17 +110,6 @@ fn getElementHeight(blk_ctx: BlockFormattingContext, elem_id: BlockFormattingCon
     const bptb = blk_ctx.get(elem_id, .border_padding_top_bottom);
     const mtb = blk_ctx.get(elem_id, .margin_top_bottom);
     return height.height + bptb.border_top + bptb.border_bottom + bptb.padding_top + bptb.padding_bottom + mtb.margin_top + mtb.margin_bottom;
-}
-
-fn rgbaMap(pixelFormat: *SDL_PixelFormat, color: u32) u32 {
-    const color_le = std.mem.nativeToLittle(u32, color);
-    return SDL_MapRGBA(
-        pixelFormat,
-        @truncate(u8, color_le >> 24),
-        @truncate(u8, color_le >> 16),
-        @truncate(u8, color_le >> 8),
-        @truncate(u8, color_le),
-    );
 }
 
 fn renderBlockElement(

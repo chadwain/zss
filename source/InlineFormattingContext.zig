@@ -22,6 +22,7 @@ const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
 usingnamespace @import("properties.zig");
 const PrefixTree = @import("prefix-tree").PrefixTree;
+const hb = @import("../zss.zig").harfbuzz.harfbuzz;
 
 allocator: *Allocator,
 tree: Tree,
@@ -34,7 +35,7 @@ margin_border_padding_top_bottom: AutoHashMapUnmanaged(MapKey, MarginBorderPaddi
 border_colors: AutoHashMapUnmanaged(MapKey, BorderColor) = .{},
 background_color: AutoHashMapUnmanaged(MapKey, BackgroundColor) = .{},
 position: AutoHashMapUnmanaged(MapKey, Position) = .{},
-//data: AutoHashMapUnmanaged(MapKey, Data) = .{},
+data: AutoHashMapUnmanaged(MapKey, Data) = .{},
 
 const Self = @This();
 
@@ -62,6 +63,7 @@ pub const Position = struct {
 
 pub const Data = union(enum) {
     empty_space,
+    text: []hb.FT_BitmapGlyph,
 };
 
 pub const Properties = enum {
@@ -72,7 +74,7 @@ pub const Properties = enum {
     border_colors,
     background_color,
     position,
-    //data,
+    data,
 
     pub fn toType(comptime self: @This()) type {
         return std.meta.fieldInfo(std.meta.fieldInfo(Self, @tagName(self)).field_type.Entry, "value").field_type;
@@ -94,10 +96,14 @@ pub fn deinit(self: *Self) void {
     }
 }
 
+pub fn set(self: *Self, key: MapKey, comptime property: Properties, value: property.toType()) !void {
+    return @field(self, @tagName(property)).putNoClobber(self.allocator, key, value);
+}
+
 pub fn get(self: Self, key: MapKey, comptime property: Properties) property.toType() {
     const T = property.toType();
     const optional = @field(self, @tagName(property)).get(key);
-    if (T == Position) {
+    if (T == Position or T == Data) {
         return optional orelse unreachable;
     } else {
         return optional orelse T{};

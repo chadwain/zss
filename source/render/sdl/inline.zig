@@ -15,6 +15,7 @@
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
 usingnamespace zss.sdl.sdl;
+const hb = zss.harfbuzz.harfbuzz;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -23,6 +24,7 @@ const assert = std.debug.assert;
 
 const zss = @import("../../../zss.zig");
 const InlineFormattingContext = zss.InlineFormattingContext;
+const rgbaMap = zss.sdl.rgbaMap;
 usingnamespace zss.properties;
 
 const RenderState = struct {
@@ -48,7 +50,7 @@ pub fn renderInlineFormattingContext(
 
     while (stack.items.len > 0) {
         const item = stack.pop();
-        renderInlineElement(inl_ctx, item.value, surface, state);
+        try renderInlineElement(inl_ctx, item.value, surface, state);
 
         const node = item.node orelse continue;
         try addChildrenToStack(&stack, inl_ctx, node);
@@ -74,23 +76,12 @@ fn addChildrenToStack(
     }
 }
 
-fn rgbaMap(pixelFormat: *SDL_PixelFormat, color: u32) u32 {
-    const color_le = std.mem.nativeToLittle(u32, color);
-    return SDL_MapRGBA(
-        pixelFormat,
-        @truncate(u8, color_le >> 24),
-        @truncate(u8, color_le >> 16),
-        @truncate(u8, color_le >> 8),
-        @truncate(u8, color_le),
-    );
-}
-
 fn renderInlineElement(
     inl_ctx: InlineFormattingContext,
     elem_id: InlineFormattingContext.MapKey,
     surface: *SDL_Surface,
     state: RenderState,
-) void {
+) !void {
     const width = inl_ctx.get(elem_id, .width);
     const height = inl_ctx.get(elem_id, .height);
     const mbplr = inl_ctx.get(elem_id, .margin_border_padding_left_right);
@@ -98,14 +89,17 @@ fn renderInlineElement(
     const border_colors = inl_ctx.get(elem_id, .border_colors);
     const bg_color = inl_ctx.get(elem_id, .background_color);
     const position = inl_ctx.get(elem_id, .position);
-    //const data = inl_ctx.get(elem_id, .data);
+    const data = inl_ctx.get(elem_id, .data);
 
     const line_box = inl_ctx.line_boxes.items[position.line_box_index];
-    const margin_x = state.offset_x + position.advance;
-    const margin_y = state.offset_y + line_box.y_pos + line_box.baseline - position.ascender;
+    const baseline = state.offset_y + line_box.y_pos + line_box.baseline;
+    const ascender_top = baseline - position.ascender;
 
+    const margin_x = state.offset_x + position.advance;
+    // NOTE This makes the assumption that the top of the content box equals the top of the ascender
+    const content_y = ascender_top;
     const border_x = margin_x + mbplr.margin_left;
-    const border_y = margin_y + mbptb.margin_top;
+    const border_y = content_y - mbptb.padding_top - mbptb.border_top;
     const padding_height = height.height + mbptb.padding_top + mbptb.padding_bottom;
     const full_width = width.width + mbplr.border_left + mbplr.border_right + mbplr.padding_left + mbplr.padding_right;
     const full_height = padding_height + mbptb.border_top + mbptb.border_bottom;
@@ -160,4 +154,61 @@ fn renderInlineElement(
     for (rects) |_, i| {
         assert(SDL_FillRect(surface, &rects[i], colors[i]) == 0);
     }
+
+    try renderInlineElementData(
+        data,
+        .{ .x = border_x + mbplr.border_left + mbplr.padding_left, .y = content_y },
+        baseline,
+        surface,
+    );
+}
+
+fn renderInlineElementData(
+    data: InlineFormattingContext.Data,
+    offsets: struct { x: CSSUnit, y: CSSUnit },
+    line_box_baseline: CSSUnit,
+    surface: *SDL_Surface,
+) !void {
+    switch (data) {
+        .empty_space => {},
+        .text => |glyphs| {
+            for (glyphs) |g| {
+                const bitmap = g.*.bitmap;
+                const glyph_surface = try makeGlyphSurface(bitmap);
+                defer SDL_FreeSurface(glyph_surface);
+
+                assert(SDL_BlitSurface(glyph_surface, null, surface, &SDL_Rect{
+                    .x = offsets.x + g.*.left,
+                    .y = line_box_baseline - g.*.top,
+                    .w = 0,
+                    .h = 0,
+                }) == 0);
+            }
+        },
+    }
+}
+
+fn makeGlyphSurface(bitmap: hb.FT_Bitmap) error{OutOfMemory}!*SDL_Surface {
+    assert(bitmap.pixel_mode == hb.FT_PIXEL_MODE_GRAY);
+    const result = SDL_CreateRGBSurfaceWithFormat(
+        0,
+        @intCast(c_int, bitmap.width),
+        @intCast(c_int, bitmap.rows),
+        32,
+        SDL_PIXELFORMAT_RGBA32,
+    ) orelse return error.OutOfMemory;
+
+    var src_index: usize = 0;
+    var dest_index: usize = 0;
+    while (dest_index < result.*.pitch * result.*.h) : ({
+        dest_index += @intCast(usize, result.*.pitch);
+        src_index += @intCast(usize, bitmap.pitch);
+    }) {
+        const src_row = bitmap.buffer[src_index .. src_index + bitmap.width];
+        const dest_row = @ptrCast([*]u32, @alignCast(4, @ptrCast([*]u8, result.*.pixels.?) + dest_index))[0..@intCast(usize, result.*.w)];
+        for (src_row) |_, i| {
+            dest_row[i] = std.mem.bigToNative(u32, @as(u32, 0xffffff00) | src_row[i]);
+        }
+    }
+    return result;
 }
