@@ -32,10 +32,7 @@ test "" {
     ) orelse unreachable;
     defer SDL_DestroyRenderer(renderer);
 
-    const pixelFormat = SDL_GetWindowPixelFormat(window);
-    const surface = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, pixelFormat) orelse unreachable;
-    defer SDL_FreeSurface(surface);
-    assert(SDL_SetSurfaceBlendMode(surface, SDL_BlendMode.SDL_BLENDMODE_BLEND) == 0);
+    const window_texture = SDL_GetRenderTarget(renderer);
 
     const dpi = blk: {
         var horizontal: f32 = 0;
@@ -63,17 +60,22 @@ test "" {
     defer hb.hb_font_destroy(hbfont);
     hb.hb_ft_font_set_funcs(hbfont);
 
-    try exampleInlineContext(surface, hbfont);
-
-    const texture = SDL_CreateTextureFromSurface(renderer, surface);
+    const texture_pixel_format = SDL_AllocFormat(SDL_PIXELFORMAT_RGBA32) orelse unreachable;
+    defer SDL_FreeFormat(texture_pixel_format);
+    const texture = SDL_CreateTexture(
+        renderer,
+        texture_pixel_format.*.format,
+        SDL_TEXTUREACCESS_TARGET,
+        width,
+        height,
+    ) orelse unreachable;
     defer SDL_DestroyTexture(texture);
-    const textureRect = SDL_Rect{
-        .x = 0,
-        .y = 0,
-        .w = width,
-        .h = height,
-    };
+    assert(SDL_SetRenderTarget(renderer, texture) == 0);
 
+    try exampleInlineContext(renderer, texture_pixel_format, hbfont);
+    SDL_RenderPresent(renderer);
+
+    assert(SDL_SetRenderTarget(renderer, window_texture) == 0);
     var running: bool = true;
     var event: SDL_Event = undefined;
     while (running) {
@@ -86,13 +88,18 @@ test "" {
             }
         }
 
-        std.debug.assert(SDL_RenderClear(renderer) >= 0);
-        std.debug.assert(SDL_RenderCopy(renderer, texture, null, &textureRect) >= 0);
+        assert(SDL_RenderClear(renderer) == 0);
+        assert(SDL_RenderCopy(renderer, texture, null, &SDL_Rect{
+            .x = 0,
+            .y = 0,
+            .w = width,
+            .h = height,
+        }) == 0);
         SDL_RenderPresent(renderer);
     }
 }
 
-fn exampleInlineContext(surface: *SDL_Surface, font: *hb.hb_font_t) !void {
+fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, font: *hb.hb_font_t) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer expect(!gpa.deinit());
 
@@ -209,7 +216,8 @@ fn exampleInlineContext(surface: *SDL_Surface, font: *hb.hb_font_t) !void {
     try zss.sdl.renderInlineFormattingContext(
         inl_ctx,
         &gpa.allocator,
-        surface,
+        renderer,
+        pixelFormat,
         .{ .offset_x = 0, .offset_y = 0 },
     );
 }

@@ -40,7 +40,8 @@ const StackItem = struct {
 pub fn renderInlineFormattingContext(
     inl_ctx: InlineFormattingContext,
     allocator: *Allocator,
-    surface: *SDL_Surface,
+    renderer: *SDL_Renderer,
+    pixel_format: *SDL_PixelFormat,
     state: RenderState,
 ) !void {
     var stack = ArrayList(StackItem).init(allocator);
@@ -50,7 +51,7 @@ pub fn renderInlineFormattingContext(
 
     while (stack.items.len > 0) {
         const item = stack.pop();
-        try renderInlineElement(inl_ctx, item.value, surface, state);
+        try renderInlineElement(inl_ctx, item.value, renderer, pixel_format, state);
 
         const node = item.node orelse continue;
         try addChildrenToStack(&stack, inl_ctx, node);
@@ -79,7 +80,8 @@ fn addChildrenToStack(
 fn renderInlineElement(
     inl_ctx: InlineFormattingContext,
     elem_id: InlineFormattingContext.MapKey,
-    surface: *SDL_Surface,
+    renderer: *SDL_Renderer,
+    pixel_format: *SDL_PixelFormat,
     state: RenderState,
 ) !void {
     const width = inl_ctx.get(elem_id, .width);
@@ -104,7 +106,6 @@ fn renderInlineElement(
     const full_width = width.width + mbplr.border_left + mbplr.border_right + mbplr.padding_left + mbplr.padding_right;
     const full_height = padding_height + mbptb.border_top + mbptb.border_bottom;
 
-    const pixel_format = surface.*.format;
     const colors = [_]u32{
         rgbaMap(pixel_format, bg_color.rgba),
         rgbaMap(pixel_format, border_colors.top_rgba),
@@ -152,14 +153,18 @@ fn renderInlineElement(
     };
 
     for (rects) |_, i| {
-        assert(SDL_FillRect(surface, &rects[i], colors[i]) == 0);
+        var rgba: [4]u8 = undefined;
+        SDL_GetRGBA(colors[i], pixel_format, &rgba[0], &rgba[1], &rgba[2], &rgba[3]);
+        assert(SDL_SetRenderDrawColor(renderer, rgba[0], rgba[1], rgba[2], rgba[3]) == 0);
+        assert(SDL_RenderFillRect(renderer, &rects[i]) == 0);
     }
 
     try renderInlineElementData(
         data,
         .{ .x = border_x + mbplr.border_left + mbplr.padding_left, .y = content_y },
         baseline,
-        surface,
+        renderer,
+        pixel_format,
     );
 }
 
@@ -167,35 +172,47 @@ fn renderInlineElementData(
     data: InlineFormattingContext.Data,
     offsets: struct { x: CSSUnit, y: CSSUnit },
     line_box_baseline: CSSUnit,
-    surface: *SDL_Surface,
+    renderer: *SDL_Renderer,
+    pixel_format: *SDL_PixelFormat,
 ) !void {
     switch (data) {
         .empty_space => {},
         .text => |glyphs| {
+            const texture = SDL_GetRenderTarget(renderer);
+
             for (glyphs) |g| {
-                const bitmap = g.*.bitmap;
-                const glyph_surface = try makeGlyphSurface(bitmap);
+                const glyph_surface = try makeGlyphSurface(g.*.bitmap, pixel_format);
                 defer SDL_FreeSurface(glyph_surface);
 
-                assert(SDL_BlitSurface(glyph_surface, null, surface, &SDL_Rect{
-                    .x = offsets.x + g.*.left,
-                    .y = line_box_baseline - g.*.top,
-                    .w = 0,
-                    .h = 0,
-                }) == 0);
+                const glyph_texture = SDL_CreateTextureFromSurface(renderer, glyph_surface) orelse return error.OutOfMemory;
+                // NOTE Is it a bug to destroy this texture before calling SDL_RenderPresent?
+                defer SDL_DestroyTexture(glyph_texture);
+
+                assert(SDL_RenderCopy(
+                    renderer,
+                    glyph_texture,
+                    null,
+                    &SDL_Rect{
+                        .x = offsets.x + g.*.left,
+                        .y = line_box_baseline - g.*.top,
+                        .w = glyph_surface.*.w,
+                        .h = glyph_surface.*.h,
+                    },
+                ) == 0);
             }
         },
     }
 }
 
-fn makeGlyphSurface(bitmap: hb.FT_Bitmap) error{OutOfMemory}!*SDL_Surface {
+// TODO Find a better way to render glyphs than to allocate a new surface
+fn makeGlyphSurface(bitmap: hb.FT_Bitmap, pixel_format: *SDL_PixelFormat) error{OutOfMemory}!*SDL_Surface {
     assert(bitmap.pixel_mode == hb.FT_PIXEL_MODE_GRAY);
     const result = SDL_CreateRGBSurfaceWithFormat(
         0,
         @intCast(c_int, bitmap.width),
         @intCast(c_int, bitmap.rows),
         32,
-        SDL_PIXELFORMAT_RGBA32,
+        pixel_format.*.format,
     ) orelse return error.OutOfMemory;
 
     var src_index: usize = 0;
@@ -205,9 +222,9 @@ fn makeGlyphSurface(bitmap: hb.FT_Bitmap) error{OutOfMemory}!*SDL_Surface {
         src_index += @intCast(usize, bitmap.pitch);
     }) {
         const src_row = bitmap.buffer[src_index .. src_index + bitmap.width];
-        const dest_row = @ptrCast([*]u32, @alignCast(4, @ptrCast([*]u8, result.*.pixels.?) + dest_index))[0..@intCast(usize, result.*.w)];
+        const dest_row = @ptrCast([*]u32, @alignCast(4, @ptrCast([*]u8, result.*.pixels.?) + dest_index))[0..bitmap.width];
         for (src_row) |_, i| {
-            dest_row[i] = std.mem.bigToNative(u32, @as(u32, 0xffffff00) | src_row[i]);
+            dest_row[i] = rgbaMap(pixel_format, @as(u32, 0xffffff00) | src_row[i]);
         }
     }
     return result;

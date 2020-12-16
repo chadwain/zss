@@ -12,6 +12,12 @@ pub fn build(b: *Builder) void {
         .dependencies = &[_]std.build.Pkg{prefixTreePkg},
     };
 
+    const freetype_system_include_dir = b.option(
+        []const u8,
+        "freetype-dir",
+        "the location of the header files for freetype",
+    ) orelse "/usr/include/freetype2/";
+
     const mode = b.standardReleaseOptions();
     const lib = b.addStaticLibrary("zss", "zss.zig");
     lib.setBuildMode(mode);
@@ -24,7 +30,7 @@ pub fn build(b: *Builder) void {
     main_tests.addPackage(zssPkg);
     main_tests.linkSystemLibrary("c");
     main_tests.linkSystemLibrary("freetype");
-    main_tests.addIncludeDir("dependencies/freetype/");
+    main_tests.addIncludeDir(freetype_system_include_dir);
     main_tests.linkSystemLibrary("harfbuzz");
     main_tests.linkSystemLibrary("SDL2");
 
@@ -36,7 +42,7 @@ pub fn build(b: *Builder) void {
     extra_tests.addPackage(zssPkg);
     extra_tests.linkSystemLibrary("c");
     extra_tests.linkSystemLibrary("freetype");
-    extra_tests.addIncludeDir("dependencies/freetype/");
+    extra_tests.addSystemIncludeDir(freetype_system_include_dir);
     extra_tests.linkSystemLibrary("harfbuzz");
     extra_tests.linkSystemLibrary("SDL2");
 

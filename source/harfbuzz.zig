@@ -15,7 +15,7 @@
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
 pub const harfbuzz = @cImport({
-    @cInclude("freetype/ftglyph.h");
     @cInclude("harfbuzz/hb.h");
     @cInclude("harfbuzz/hb-ft.h");
+    @cInclude("freetype2/freetype/ftglyph.h");
 });
