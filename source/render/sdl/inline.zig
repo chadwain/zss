@@ -27,14 +27,14 @@ const InlineFormattingContext = zss.InlineFormattingContext;
 const rgbaMap = zss.sdl.rgbaMap;
 usingnamespace zss.properties;
 
-const RenderState = struct {
+const InlineRenderState = struct {
     offset_x: CSSUnit,
     offset_y: CSSUnit,
 };
 
 const StackItem = struct {
     value: InlineFormattingContext.MapKey,
-    node: ?std.meta.fieldInfo(InlineFormattingContext.Tree, "root").field_type,
+    node: ?*InlineFormattingContext.Tree,
 };
 
 pub fn renderInlineFormattingContext(
@@ -42,12 +42,12 @@ pub fn renderInlineFormattingContext(
     allocator: *Allocator,
     renderer: *SDL_Renderer,
     pixel_format: *SDL_PixelFormat,
-    state: RenderState,
+    state: InlineRenderState,
 ) !void {
     var stack = ArrayList(StackItem).init(allocator);
     defer stack.deinit();
 
-    try addChildrenToStack(&stack, inl_ctx, inl_ctx.tree.root);
+    try addChildrenToStack(&stack, inl_ctx, inl_ctx.tree);
 
     while (stack.items.len > 0) {
         const item = stack.pop();
@@ -61,7 +61,7 @@ pub fn renderInlineFormattingContext(
 fn addChildrenToStack(
     stack: *ArrayList(StackItem),
     inl_ctx: InlineFormattingContext,
-    node: std.meta.fieldInfo(InlineFormattingContext.Tree, "root").field_type,
+    node: *InlineFormattingContext.Tree,
 ) !void {
     const prev_len = stack.items.len;
     const num_children = node.edges.items.len;
@@ -71,8 +71,8 @@ fn addChildrenToStack(
     while (i < num_children) : (i += 1) {
         const dest = &stack.items[prev_len..][num_children - 1 - i];
         dest.* = .{
-            .value = node.edges.items[i].map_key,
-            .node = node.child_nodes.items[i].s,
+            .value = node.get(i).map_key,
+            .node = node.child(i),
         };
     }
 }
@@ -82,7 +82,7 @@ fn renderInlineElement(
     elem_id: InlineFormattingContext.MapKey,
     renderer: *SDL_Renderer,
     pixel_format: *SDL_PixelFormat,
-    state: RenderState,
+    state: InlineRenderState,
 ) !void {
     const width = inl_ctx.get(elem_id, .width);
     const height = inl_ctx.get(elem_id, .height);

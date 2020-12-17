@@ -21,11 +21,11 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
 usingnamespace @import("properties.zig");
-const PrefixTree = @import("prefix-tree").PrefixTree;
+const PrefixTreeNode = @import("prefix-tree").PrefixTreeNode;
 const hb = @import("../zss.zig").harfbuzz.harfbuzz;
 
 allocator: *Allocator,
-tree: Tree,
+tree: *Tree,
 line_boxes: ArrayListUnmanaged(LineBox) = .{},
 
 width: AutoHashMapUnmanaged(MapKey, Width) = .{},
@@ -39,7 +39,7 @@ data: AutoHashMapUnmanaged(MapKey, Data) = .{},
 
 const Self = @This();
 
-pub const Tree = PrefixTree(TreeValue, TreeValue.cmpFn);
+pub const Tree = PrefixTreeNode(TreeValue, TreeValue.cmpFn);
 pub const MapKey = u16;
 pub const TreeValue = struct {
     tree_val: u16,
@@ -82,14 +82,18 @@ pub const Properties = enum {
 };
 
 pub fn init(allocator: *Allocator) !Self {
+    var tree = try allocator.create(Tree);
+    errdefer allocator.destroy(tree);
+    tree.* = Tree{};
+
     return Self{
         .allocator = allocator,
-        .tree = try Tree.init(allocator),
+        .tree = tree,
     };
 }
 
 pub fn deinit(self: *Self) void {
-    self.tree.deinit();
+    self.tree.deallocRecursive(self.allocator);
     self.line_boxes.deinit(self.allocator);
     inline for (std.meta.fields(Properties)) |field| {
         @field(self, field.name).deinit(self.allocator);

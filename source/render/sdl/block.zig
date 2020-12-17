@@ -26,36 +26,37 @@ const BlockFormattingContext = zss.BlockFormattingContext;
 const rgbaMap = zss.sdl.rgbaMap;
 usingnamespace zss.properties;
 
-const RenderState = struct {
+const BlockRenderState = struct {
     offset_x: CSSUnit,
     offset_y: CSSUnit,
 };
 
 const StackItem = struct {
     value: BlockFormattingContext.MapKey,
-    node: ?std.meta.fieldInfo(BlockFormattingContext.Tree, "root").field_type,
-    state: RenderState,
+    node: ?*BlockFormattingContext.Tree,
+    state: BlockRenderState,
 };
 
 pub fn renderBlockFormattingContext(
     blk_ctx: BlockFormattingContext,
     allocator: *Allocator,
-    surface: *SDL_Surface,
+    renderer: *SDL_Renderer,
+    pixel_format: *SDL_PixelFormat,
 ) !void {
     var stack = ArrayList(StackItem).init(allocator);
     defer stack.deinit();
 
     {
-        const state = RenderState{
+        const state = BlockRenderState{
             .offset_x = 0,
             .offset_y = 0,
         };
-        try addChildrenToStack(&stack, state, blk_ctx, blk_ctx.tree.root);
+        try addChildrenToStack(&stack, state, blk_ctx, blk_ctx.tree);
     }
 
     while (stack.items.len > 0) {
         const item = stack.pop();
-        renderBlockElement(blk_ctx, item.value, surface, item.state);
+        renderBlockElement(blk_ctx, item.value, renderer, pixel_format, item.state);
 
         const node = item.node orelse continue;
         const new_state = updateState1(blk_ctx, item.state, item.value);
@@ -65,41 +66,41 @@ pub fn renderBlockFormattingContext(
 
 fn addChildrenToStack(
     stack: *ArrayList(StackItem),
-    input_state: RenderState,
+    input_state: BlockRenderState,
     blk_ctx: BlockFormattingContext,
-    node: std.meta.fieldInfo(BlockFormattingContext.Tree, "root").field_type,
+    node: *BlockFormattingContext.Tree,
 ) !void {
     var state = input_state;
     const prev_len = stack.items.len;
-    const num_children = node.edges.items.len;
+    const num_children = node.numChildren();
     try stack.resize(prev_len + num_children);
 
     var i: usize = 0;
     while (i < num_children) : (i += 1) {
         const dest = &stack.items[prev_len..][num_children - 1 - i];
         dest.* = .{
-            .value = node.edges.items[i].map_key,
-            .node = node.child_nodes.items[i].s,
+            .value = node.get(i).map_key,
+            .node = node.child(i),
             .state = state,
         };
         state = updateState2(blk_ctx, state, dest.value);
     }
 }
 
-fn updateState1(blk_ctx: BlockFormattingContext, state: RenderState, elem_id: BlockFormattingContext.MapKey) RenderState {
+fn updateState1(blk_ctx: BlockFormattingContext, state: BlockRenderState, elem_id: BlockFormattingContext.MapKey) BlockRenderState {
     const bplr = blk_ctx.get(elem_id, .border_padding_left_right);
     const bptb = blk_ctx.get(elem_id, .border_padding_top_bottom);
     const mlr = blk_ctx.get(elem_id, .margin_left_right);
     const mtb = blk_ctx.get(elem_id, .margin_top_bottom);
 
-    return RenderState{
+    return BlockRenderState{
         .offset_x = state.offset_x + mlr.margin_left + bplr.border_left + bplr.padding_left,
         .offset_y = state.offset_y + mtb.margin_top + bptb.border_top + bptb.padding_top,
     };
 }
 
-fn updateState2(blk_ctx: BlockFormattingContext, state: RenderState, elem_id: BlockFormattingContext.MapKey) RenderState {
-    return RenderState{
+fn updateState2(blk_ctx: BlockFormattingContext, state: BlockRenderState, elem_id: BlockFormattingContext.MapKey) BlockRenderState {
+    return BlockRenderState{
         .offset_x = state.offset_x,
         .offset_y = state.offset_y + getElementHeight(blk_ctx, elem_id),
     };
@@ -115,8 +116,9 @@ fn getElementHeight(blk_ctx: BlockFormattingContext, elem_id: BlockFormattingCon
 fn renderBlockElement(
     blk_ctx: BlockFormattingContext,
     elem_id: BlockFormattingContext.MapKey,
-    surface: *SDL_Surface,
-    state: RenderState,
+    renderer: *SDL_Renderer,
+    pixel_format: *SDL_PixelFormat,
+    state: BlockRenderState,
 ) void {
     const width = blk_ctx.get(elem_id, .width);
     const height = blk_ctx.get(elem_id, .height);
@@ -133,7 +135,6 @@ fn renderBlockElement(
     const full_width = width.width + bplr.border_left + bplr.border_right + bplr.padding_left + bplr.padding_right;
     const full_height = padding_height + bptb.border_top + bptb.border_bottom;
 
-    const pixel_format = surface.*.format;
     const colors = [_]u32{
         rgbaMap(pixel_format, bg_color.rgba),
         rgbaMap(pixel_format, border_colors.top_rgba),
@@ -181,6 +182,9 @@ fn renderBlockElement(
     };
 
     for (rects) |_, i| {
-        assert(SDL_FillRect(surface, &rects[i], colors[i]) == 0);
+        var rgba: [4]u8 = undefined;
+        SDL_GetRGBA(colors[i], pixel_format, &rgba[0], &rgba[1], &rgba[2], &rgba[3]);
+        assert(SDL_SetRenderDrawColor(renderer, rgba[0], rgba[1], rgba[2], rgba[3]) == 0);
+        assert(SDL_RenderFillRect(renderer, &rects[i]) == 0);
     }
 }

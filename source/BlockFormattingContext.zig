@@ -19,10 +19,11 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 usingnamespace @import("properties.zig");
-const PrefixTree = @import("prefix-tree").PrefixTree;
+const PrefixTreeNode = @import("prefix-tree").PrefixTreeNode;
 
 allocator: *Allocator,
-tree: Tree,
+tree: *Tree,
+counter: MapKey = 0,
 
 width: AutoHashMapUnmanaged(MapKey, Width) = .{},
 height: AutoHashMapUnmanaged(MapKey, Height) = .{},
@@ -35,7 +36,7 @@ background_color: AutoHashMapUnmanaged(MapKey, BackgroundColor) = .{},
 
 const Self = @This();
 
-pub const Tree = PrefixTree(TreeValue, TreeValue.cmpFn);
+pub const Tree = PrefixTreeNode(TreeValue, TreeValue.cmpFn);
 pub const MapKey = u16;
 pub const TreeValue = struct {
     tree_val: u16,
@@ -62,17 +63,25 @@ pub const Properties = enum {
 };
 
 pub fn init(allocator: *Allocator) !Self {
+    var tree = try allocator.create(Tree);
+    errdefer allocator.destroy(tree);
+    tree.* = Tree{};
+
     return Self{
         .allocator = allocator,
-        .tree = try Tree.init(allocator),
+        .tree = tree,
     };
 }
 
 pub fn deinit(self: *Self) void {
-    self.tree.deinit();
+    self.tree.deallocRecursive(self.allocator);
     inline for (std.meta.fields(Properties)) |field| {
         @field(self, field.name).deinit(self.allocator);
     }
+}
+
+pub fn set(self: *Self, key: MapKey, comptime property: Properties, value: property.toType()) !void {
+    return @field(self, @tagName(property)).putNoClobber(self.allocator, key, value);
 }
 
 pub fn get(self: Self, key: MapKey, comptime property: Properties) property.toType() {
