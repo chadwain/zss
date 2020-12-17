@@ -114,9 +114,10 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
         });
     }
 
+    const Part = zss.InlineFormattingContext.TreeKeyPart;
+
     {
-        const key = @as(zss.InlineFormattingContext.MapKey, 0);
-        try inl_ctx.tree.insert(&[1]zss.InlineFormattingContext.TreeValue{.{ .tree_val = 0, .map_key = key }}, inl_ctx.allocator);
+        const key = try inl_ctx.new(&[_]Part{}, 0);
         try inl_ctx.set(key, .width, .{ .width = 400 });
         try inl_ctx.set(key, .height, .{ .height = 30 });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0xff223300 });
@@ -125,8 +126,7 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
     }
 
     {
-        const key = @as(zss.InlineFormattingContext.MapKey, 1);
-        try inl_ctx.tree.insert(&[_]zss.InlineFormattingContext.TreeValue{.{ .tree_val = 1, .map_key = key }}, inl_ctx.allocator);
+        const key = try inl_ctx.new(&[_]Part{}, 1);
         try inl_ctx.set(key, .width, .{ .width = 400 });
         try inl_ctx.set(key, .height, .{ .height = 20 });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0x00df1213 });
@@ -135,8 +135,7 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
     }
 
     {
-        const key = @as(zss.InlineFormattingContext.MapKey, 2);
-        try inl_ctx.tree.insert(&[_]zss.InlineFormattingContext.TreeValue{.{ .tree_val = 2, .map_key = key }}, inl_ctx.allocator);
+        const key = try inl_ctx.new(&[_]Part{}, 2);
         try inl_ctx.set(key, .width, .{ .width = 40 });
         try inl_ctx.set(key, .height, .{ .height = 40 });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0x5c76d3ff });
@@ -145,8 +144,7 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
     }
 
     {
-        const key = @as(zss.InlineFormattingContext.MapKey, 3);
-        try inl_ctx.tree.insert(&[_]zss.InlineFormattingContext.TreeValue{.{ .tree_val = 3, .map_key = key }}, inl_ctx.allocator);
+        const key = try inl_ctx.new(&[_]Part{}, 3);
         try inl_ctx.set(key, .width, .{ .width = 40 });
         try inl_ctx.set(key, .height, .{ .height = 40 });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0x306892ff });
@@ -202,8 +200,7 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
     inl_ctx.line_boxes.items[2].baseline = measurements.ascender;
 
     {
-        const key = @as(zss.InlineFormattingContext.MapKey, 4);
-        try inl_ctx.tree.insert(&[1]zss.InlineFormattingContext.TreeValue{.{ .tree_val = 4, .map_key = key }}, inl_ctx.allocator);
+        const key = try inl_ctx.new(&[_]Part{}, 4);
         try inl_ctx.set(key, .width, .{ .width = 400 });
         try inl_ctx.set(key, .height, .{ .height = measurements.height });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0xff223300 });

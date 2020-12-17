@@ -79,7 +79,7 @@ fn addChildrenToStack(
     while (i < num_children) : (i += 1) {
         const dest = &stack.items[prev_len..][num_children - 1 - i];
         dest.* = .{
-            .value = node.get(i).map_key,
+            .value = node.value(i),
             .node = node.child(i),
             .state = state,
         };

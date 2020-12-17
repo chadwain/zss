@@ -79,13 +79,12 @@ fn exampleBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) 
     var blk_ctx = try zss.BlockFormattingContext.init(&gpa.allocator);
     defer blk_ctx.deinit();
 
-    const TreeValue = zss.BlockFormattingContext.TreeValue;
+    const Part = zss.BlockFormattingContext.TreeKeyPart;
 
-    const root = [_]TreeValue{.{ .tree_val = 0, .map_key = 0 }};
+    const root = [_]Part{0};
     {
         const val = root[root.len - 1];
-        const key = val.map_key;
-        try blk_ctx.tree.insertChild(&[_]TreeValue{}, val, blk_ctx.allocator);
+        const key = try blk_ctx.new(root[0 .. root.len - 1], root[root.len - 1]);
         try blk_ctx.set(key, .width, .{ .width = 800 });
         try blk_ctx.set(key, .height, .{ .height = 600 });
         try blk_ctx.set(key, .background_color, .{ .rgba = 0xff223300 });
@@ -93,11 +92,9 @@ fn exampleBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) 
         try blk_ctx.set(key, .border_padding_top_bottom, .{ .padding_top = 200 });
     }
 
-    const root_0 = root ++ [_]TreeValue{.{ .tree_val = 0, .map_key = 1 }};
+    const root_0 = root ++ [_]Part{0};
     {
-        const val = root_0[root_0.len - 1];
-        const key = val.map_key;
-        try blk_ctx.tree.insertChild(&root, val, blk_ctx.allocator);
+        const key = try blk_ctx.new(root_0[0 .. root_0.len - 1], root_0[root_0.len - 1]);
         try blk_ctx.set(key, .width, .{ .width = 100 });
         try blk_ctx.set(key, .height, .{ .height = 100 });
         try blk_ctx.set(key, .background_color, .{ .rgba = 0x00df1213 });
@@ -105,21 +102,17 @@ fn exampleBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) 
         try blk_ctx.set(key, .margin_top_bottom, .{ .margin_top = 50 });
     }
 
-    const root_0_0 = root_0 ++ [_]TreeValue{.{ .tree_val = 0, .map_key = 2 }};
+    const root_0_0 = root_0 ++ [_]Part{0};
     {
-        const val = root_0_0[root_0_0.len - 1];
-        const key = val.map_key;
-        try blk_ctx.tree.insertChild(&root_0, val, blk_ctx.allocator);
+        const key = try blk_ctx.new(root_0_0[0 .. root_0_0.len - 1], root_0_0[root_0_0.len - 1]);
         try blk_ctx.set(key, .width, .{ .width = 40 });
         try blk_ctx.set(key, .height, .{ .height = 40 });
         try blk_ctx.set(key, .background_color, .{ .rgba = 0x5c76d3ff });
     }
 
-    const root_1 = root ++ [_]TreeValue{.{ .tree_val = 1, .map_key = 3 }};
+    const root_1 = root ++ [_]Part{1};
     {
-        const val = root_1[root_1.len - 1];
-        const key = val.map_key;
-        try blk_ctx.tree.insertChild(&root, val, blk_ctx.allocator);
+        const key = try blk_ctx.new(root_1[0 .. root_1.len - 1], root_1[root_1.len - 1]);
         try blk_ctx.set(key, .width, .{ .width = 100 });
         try blk_ctx.set(key, .height, .{ .height = 100 });
         try blk_ctx.set(key, .background_color, .{ .rgba = 0x306892ff });

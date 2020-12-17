@@ -64,14 +64,14 @@ fn addChildrenToStack(
     node: *InlineFormattingContext.Tree,
 ) !void {
     const prev_len = stack.items.len;
-    const num_children = node.edges.items.len;
+    const num_children = node.numChildren();
     try stack.resize(prev_len + num_children);
 
     var i: usize = 0;
     while (i < num_children) : (i += 1) {
         const dest = &stack.items[prev_len..][num_children - 1 - i];
         dest.* = .{
-            .value = node.get(i).map_key,
+            .value = node.value(i),
             .node = node.child(i),
         };
     }

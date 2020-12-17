@@ -19,7 +19,6 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 usingnamespace @import("properties.zig");
-const PrefixTreeNode = @import("prefix-tree").PrefixTreeNode;
 
 allocator: *Allocator,
 tree: *Tree,
@@ -36,16 +35,12 @@ background_color: AutoHashMapUnmanaged(MapKey, BackgroundColor) = .{},
 
 const Self = @This();
 
-pub const Tree = PrefixTreeNode(TreeValue, TreeValue.cmpFn);
+pub const Tree = @import("prefix-tree-map").PrefixTreeMapUnmanaged(TreeKeyPart, MapKey, cmpFn);
+pub const TreeKeyPart = u16;
 pub const MapKey = u16;
-pub const TreeValue = struct {
-    tree_val: u16,
-    map_key: MapKey,
-
-    fn cmpFn(lhs: @This(), rhs: @This()) std.math.Order {
-        return std.math.order(lhs.tree_val, rhs.tree_val);
-    }
-};
+fn cmpFn(lhs: TreeKeyPart, rhs: TreeKeyPart) std.math.Order {
+    return std.math.order(lhs, rhs);
+}
 
 pub const Properties = enum {
     width,
@@ -63,21 +58,23 @@ pub const Properties = enum {
 };
 
 pub fn init(allocator: *Allocator) !Self {
-    var tree = try allocator.create(Tree);
-    errdefer allocator.destroy(tree);
-    tree.* = Tree{};
-
     return Self{
         .allocator = allocator,
-        .tree = tree,
+        .tree = try Tree.init(allocator),
     };
 }
 
 pub fn deinit(self: *Self) void {
-    self.tree.deallocRecursive(self.allocator);
+    self.tree.deinit(self.allocator);
     inline for (std.meta.fields(Properties)) |field| {
         @field(self, field.name).deinit(self.allocator);
     }
+}
+
+pub fn new(self: *Self, parent: []const TreeKeyPart, k: TreeKeyPart) !MapKey {
+    try self.tree.insertChild(parent, k, self.counter, self.allocator);
+    defer self.counter += 1;
+    return self.counter;
 }
 
 pub fn set(self: *Self, key: MapKey, comptime property: Properties, value: property.toType()) !void {
@@ -93,5 +90,5 @@ test "basic test" {
     const allocator = std.heap.page_allocator;
     var blk_ctx = try init(allocator);
     defer blk_ctx.deinit();
-    testing.expect(blk_ctx.tree.exists(&[_]TreeValue{}));
+    testing.expect(!blk_ctx.tree.exists(&[_]TreeKeyPart{}));
 }

@@ -3,8 +3,8 @@ const Builder = std.build.Builder;
 
 pub fn build(b: *Builder) void {
     const prefixTreePkg = std.build.Pkg{
-        .name = "prefix-tree",
-        .path = "dependencies/zig-data-structures/source/prefix_tree.zig",
+        .name = "prefix-tree-map",
+        .path = "dependencies/zig-data-structures/source/prefix_tree_map.zig",
     };
     const zssPkg = std.build.Pkg{
         .name = "zss",
