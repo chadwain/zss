@@ -23,6 +23,7 @@ const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 
 const zss = @import("../../../zss.zig");
+const RenderTree = zss.RenderTree;
 const InlineFormattingContext = zss.InlineFormattingContext;
 const rgbaMap = zss.sdl.rgbaMap;
 usingnamespace zss.properties;
@@ -33,7 +34,7 @@ const InlineRenderState = struct {
 };
 
 const StackItem = struct {
-    value: InlineFormattingContext.MapKey,
+    value: RenderTree.BoxId,
     node: ?*InlineFormattingContext.Tree,
 };
 
@@ -79,7 +80,7 @@ fn addChildrenToStack(
 
 fn renderInlineElement(
     inl_ctx: InlineFormattingContext,
-    elem_id: InlineFormattingContext.MapKey,
+    elem_id: RenderTree.BoxId,
     renderer: *SDL_Renderer,
     pixel_format: *SDL_PixelFormat,
     state: InlineRenderState,

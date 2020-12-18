@@ -18,26 +18,27 @@ const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
+
+const BoxId = @import("../zss.zig").RenderTree.BoxId;
 usingnamespace @import("properties.zig");
 
 allocator: *Allocator,
 tree: *Tree,
-counter: MapKey = 0,
+counter: BoxId = 0,
 
-width: AutoHashMapUnmanaged(MapKey, Width) = .{},
-height: AutoHashMapUnmanaged(MapKey, Height) = .{},
-border_padding_left_right: AutoHashMapUnmanaged(MapKey, BorderPaddingLeftRight) = .{},
-border_padding_top_bottom: AutoHashMapUnmanaged(MapKey, BorderPaddingTopBottom) = .{},
-margin_left_right: AutoHashMapUnmanaged(MapKey, MarginLeftRight) = .{},
-margin_top_bottom: AutoHashMapUnmanaged(MapKey, MarginTopBottom) = .{},
-border_colors: AutoHashMapUnmanaged(MapKey, BorderColor) = .{},
-background_color: AutoHashMapUnmanaged(MapKey, BackgroundColor) = .{},
+width: AutoHashMapUnmanaged(BoxId, Width) = .{},
+height: AutoHashMapUnmanaged(BoxId, Height) = .{},
+border_padding_left_right: AutoHashMapUnmanaged(BoxId, BorderPaddingLeftRight) = .{},
+border_padding_top_bottom: AutoHashMapUnmanaged(BoxId, BorderPaddingTopBottom) = .{},
+margin_left_right: AutoHashMapUnmanaged(BoxId, MarginLeftRight) = .{},
+margin_top_bottom: AutoHashMapUnmanaged(BoxId, MarginTopBottom) = .{},
+border_colors: AutoHashMapUnmanaged(BoxId, BorderColor) = .{},
+background_color: AutoHashMapUnmanaged(BoxId, BackgroundColor) = .{},
 
 const Self = @This();
 
-pub const Tree = @import("prefix-tree-map").PrefixTreeMapUnmanaged(TreeKeyPart, MapKey, cmpFn);
+pub const Tree = @import("prefix-tree-map").PrefixTreeMapUnmanaged(TreeKeyPart, BoxId, cmpFn);
 pub const TreeKeyPart = u16;
-pub const MapKey = u16;
 fn cmpFn(lhs: TreeKeyPart, rhs: TreeKeyPart) std.math.Order {
     return std.math.order(lhs, rhs);
 }
@@ -71,19 +72,19 @@ pub fn deinit(self: *Self) void {
     }
 }
 
-pub fn new(self: *Self, parent: []const TreeKeyPart, k: TreeKeyPart) !MapKey {
+pub fn new(self: *Self, parent: []const TreeKeyPart, k: TreeKeyPart) !BoxId {
     try self.tree.insertChild(parent, k, self.counter, self.allocator);
     defer self.counter += 1;
     return self.counter;
 }
 
-pub fn set(self: *Self, key: MapKey, comptime property: Properties, value: property.toType()) !void {
-    return @field(self, @tagName(property)).putNoClobber(self.allocator, key, value);
+pub fn set(self: *Self, box: BoxId, comptime property: Properties, value: property.toType()) !void {
+    return @field(self, @tagName(property)).putNoClobber(self.allocator, box, value);
 }
 
-pub fn get(self: Self, key: MapKey, comptime property: Properties) property.toType() {
+pub fn get(self: Self, box: BoxId, comptime property: Properties) property.toType() {
     const T = property.toType();
-    return @field(self, @tagName(property)).get(key) orelse T{};
+    return @field(self, @tagName(property)).get(box) orelse T{};
 }
 
 test "basic test" {

@@ -18,6 +18,7 @@ const std = @import("std");
 
 pub const BlockFormattingContext = @import("source/BlockFormattingContext.zig");
 pub const InlineFormattingContext = @import("source/InlineFormattingContext.zig");
+pub const RenderTree = @import("source/RenderTree.zig");
 pub const properties = @import("source/properties.zig");
 pub const harfbuzz = @import("source/harfbuzz.zig");
 pub const sdl = @import("source/render/sdl.zig");

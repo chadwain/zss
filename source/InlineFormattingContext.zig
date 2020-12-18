@@ -20,29 +20,30 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
+const zss = @import("../zss.zig");
+const BoxId = zss.RenderTree.BoxId;
 usingnamespace @import("properties.zig");
 const PrefixTreeNode = @import("prefix-tree").PrefixTreeNode;
-const hb = @import("../zss.zig").harfbuzz.harfbuzz;
+const hb = zss.harfbuzz.harfbuzz;
 
 allocator: *Allocator,
 tree: *Tree,
 line_boxes: ArrayListUnmanaged(LineBox) = .{},
-counter: MapKey = 0,
+counter: BoxId = 0,
 
-width: AutoHashMapUnmanaged(MapKey, Width) = .{},
-height: AutoHashMapUnmanaged(MapKey, Height) = .{},
-margin_border_padding_left_right: AutoHashMapUnmanaged(MapKey, MarginBorderPaddingLeftRight) = .{},
-margin_border_padding_top_bottom: AutoHashMapUnmanaged(MapKey, MarginBorderPaddingTopBottom) = .{},
-border_colors: AutoHashMapUnmanaged(MapKey, BorderColor) = .{},
-background_color: AutoHashMapUnmanaged(MapKey, BackgroundColor) = .{},
-position: AutoHashMapUnmanaged(MapKey, Position) = .{},
-data: AutoHashMapUnmanaged(MapKey, Data) = .{},
+width: AutoHashMapUnmanaged(BoxId, Width) = .{},
+height: AutoHashMapUnmanaged(BoxId, Height) = .{},
+margin_border_padding_left_right: AutoHashMapUnmanaged(BoxId, MarginBorderPaddingLeftRight) = .{},
+margin_border_padding_top_bottom: AutoHashMapUnmanaged(BoxId, MarginBorderPaddingTopBottom) = .{},
+border_colors: AutoHashMapUnmanaged(BoxId, BorderColor) = .{},
+background_color: AutoHashMapUnmanaged(BoxId, BackgroundColor) = .{},
+position: AutoHashMapUnmanaged(BoxId, Position) = .{},
+data: AutoHashMapUnmanaged(BoxId, Data) = .{},
 
 const Self = @This();
 
-pub const Tree = @import("prefix-tree-map").PrefixTreeMapUnmanaged(TreeKeyPart, MapKey, cmpFn);
+pub const Tree = @import("prefix-tree-map").PrefixTreeMapUnmanaged(TreeKeyPart, BoxId, cmpFn);
 pub const TreeKeyPart = u16;
-pub const MapKey = u16;
 fn cmpFn(lhs: TreeKeyPart, rhs: TreeKeyPart) std.math.Order {
     return std.math.order(lhs, rhs);
 }
@@ -93,19 +94,19 @@ pub fn deinit(self: *Self) void {
     }
 }
 
-pub fn new(self: *Self, parent: []const TreeKeyPart, k: TreeKeyPart) !MapKey {
+pub fn new(self: *Self, parent: []const TreeKeyPart, k: TreeKeyPart) !BoxId {
     try self.tree.insertChild(parent, k, self.counter, self.allocator);
     defer self.counter += 1;
     return self.counter;
 }
 
-pub fn set(self: *Self, key: MapKey, comptime property: Properties, value: property.toType()) !void {
-    return @field(self, @tagName(property)).putNoClobber(self.allocator, key, value);
+pub fn set(self: *Self, box: BoxId, comptime property: Properties, value: property.toType()) !void {
+    return @field(self, @tagName(property)).putNoClobber(self.allocator, box, value);
 }
 
-pub fn get(self: Self, key: MapKey, comptime property: Properties) property.toType() {
+pub fn get(self: Self, box: BoxId, comptime property: Properties) property.toType() {
     const T = property.toType();
-    const optional = @field(self, @tagName(property)).get(key);
+    const optional = @field(self, @tagName(property)).get(box);
     if (T == Position or T == Data) {
         return optional orelse unreachable;
     } else {

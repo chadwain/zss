@@ -118,10 +118,13 @@ fn exampleBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) 
         try blk_ctx.set(key, .background_color, .{ .rgba = 0x306892ff });
     }
 
-    try zss.sdl.renderBlockFormattingContext(
-        blk_ctx,
-        &gpa.allocator,
-        renderer,
-        pixel_format,
-    );
+    var render_tree = zss.RenderTree.init(&gpa.allocator);
+    defer render_tree.deinit();
+    const ctxId = try render_tree.newContext(.{ .block = &blk_ctx });
+    render_tree.root_context_id = ctxId;
+
+    var sdl_render = try zss.sdl.RenderState.init(&gpa.allocator, &render_tree);
+    defer sdl_render.deinit();
+
+    try zss.sdl.render(&sdl_render, renderer, pixel_format);
 }
