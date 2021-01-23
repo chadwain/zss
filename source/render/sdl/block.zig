@@ -27,30 +27,33 @@ usingnamespace sdl.sdl;
 usingnamespace zss.properties;
 
 const StackItem = struct {
-    elem_id: RenderTree.BoxId,
-    node: ?*BlockFormattingContext.Tree,
+    elem_id: BlockFormattingContext.IdPart,
+    node: ?std.meta.fieldInfo(BlockFormattingContext, std.meta.stringToEnum(std.meta.FieldEnum(BlockFormattingContext), "tree").?).field_type,
     offset: sdl.Offset,
 };
 
 pub const BlockRenderState = struct {
     context: *const BlockFormattingContext,
-    stack: ArrayList(StackItem),
+    stack: ArrayList(?StackItem),
+    id: ArrayList(BlockFormattingContext.IdPart),
 
     const Self = @This();
 
     pub fn init(blk_ctx: *const BlockFormattingContext, allocator: *Allocator) !Self {
         var result = Self{
             .context = blk_ctx,
-            .stack = ArrayList(StackItem).init(allocator),
+            .stack = ArrayList(?StackItem).init(allocator),
+            .id = ArrayList(BlockFormattingContext.IdPart).init(allocator),
         };
 
-        try addChildrenToStack(&result.stack, sdl.Offset{ .x = 0, .y = 0 }, blk_ctx, blk_ctx.tree);
+        try addChildrenToStack(&result, sdl.Offset{ .x = 0, .y = 0 }, blk_ctx.tree);
 
         return result;
     }
 
     pub fn deinit(self: Self) void {
         self.stack.deinit();
+        self.id.deinit();
     }
 };
 
@@ -63,15 +66,21 @@ pub fn renderBlockFormattingContext(
     this_id: RenderTree.ContextId,
 ) !bool {
     const stack = &state.stack;
+    const id = &state.id;
     while (stack.items.len > 0) {
-        const item = stack.pop();
-        renderBlockElement(state.context, item.offset.add(outer_offset), item.elem_id, renderer, pixel_format);
+        const item = stack.pop() orelse {
+            _ = id.pop();
+            continue;
+        };
 
-        const new_offset = updateState1(state.context, item.offset, item.elem_id);
+        try id.append(item.elem_id);
+        renderBlockElement(state.context, item.offset.add(outer_offset), id.items, renderer, pixel_format);
+
+        const new_offset = updateState1(state.context, item.offset, id.items);
         if (item.node) |node| {
-            try addChildrenToStack(stack, new_offset, state.context, node);
+            try addChildrenToStack(state, new_offset, node);
         } else {
-            if (outer_state.tree.getDescendantOrNull(this_id, item.elem_id)) |desc| {
+            if (outer_state.tree.getDescendantOrNull(RenderTree.BoxId{ .ctx = this_id, .box = id.items })) |desc| {
                 try sdl.pushDescendant(outer_state, desc, new_offset.add(outer_offset));
                 return false;
             }
@@ -81,29 +90,36 @@ pub fn renderBlockFormattingContext(
 }
 
 fn addChildrenToStack(
-    stack: *ArrayList(StackItem),
+    state: *BlockRenderState,
     input_offset: sdl.Offset,
-    blk_ctx: *const BlockFormattingContext,
-    node: *BlockFormattingContext.Tree,
+    node: std.meta.fieldInfo(BlockFormattingContext, std.meta.stringToEnum(std.meta.FieldEnum(BlockFormattingContext), "tree").?).field_type,
 ) !void {
-    var offset = input_offset;
+    const stack = &state.stack;
     const prev_len = stack.items.len;
     const num_children = node.numChildren();
-    try stack.resize(prev_len + num_children);
+    try stack.resize(prev_len + 2 * num_children);
 
+    const id = &state.id;
+    try id.resize(id.items.len + 1);
+    defer id.shrinkRetainingCapacity(id.items.len - 1);
+
+    var offset = input_offset;
     var i: usize = 0;
     while (i < num_children) : (i += 1) {
-        const dest = &stack.items[prev_len..][num_children - 1 - i];
-        dest.* = .{
-            .elem_id = node.value(i),
+        const dest = stack.items[prev_len..][2 * (num_children - 1 - i) ..][0..2];
+        const part = node.parts.items[i];
+        dest[0] = null;
+        dest[1] = StackItem{
+            .elem_id = part,
             .node = node.child(i),
             .offset = offset,
         };
-        offset = updateState2(blk_ctx, offset, dest.elem_id);
+        id.items[id.items.len - 1] = part;
+        offset = updateState2(state.context, offset, id.items);
     }
 }
 
-fn updateState1(blk_ctx: *const BlockFormattingContext, offset: sdl.Offset, elem_id: RenderTree.BoxId) sdl.Offset {
+fn updateState1(blk_ctx: *const BlockFormattingContext, offset: sdl.Offset, elem_id: BlockFormattingContext.Id) sdl.Offset {
     const bplr = blk_ctx.get(elem_id, .border_padding_left_right);
     const bptb = blk_ctx.get(elem_id, .border_padding_top_bottom);
     const mlr = blk_ctx.get(elem_id, .margin_left_right);
@@ -115,14 +131,14 @@ fn updateState1(blk_ctx: *const BlockFormattingContext, offset: sdl.Offset, elem
     };
 }
 
-fn updateState2(blk_ctx: *const BlockFormattingContext, offset: sdl.Offset, elem_id: RenderTree.BoxId) sdl.Offset {
+fn updateState2(blk_ctx: *const BlockFormattingContext, offset: sdl.Offset, elem_id: BlockFormattingContext.Id) sdl.Offset {
     return sdl.Offset{
         .x = offset.x,
         .y = offset.y + getElementHeight(blk_ctx, elem_id),
     };
 }
 
-fn getElementHeight(blk_ctx: *const BlockFormattingContext, elem_id: RenderTree.BoxId) CSSUnit {
+fn getElementHeight(blk_ctx: *const BlockFormattingContext, elem_id: BlockFormattingContext.Id) CSSUnit {
     const height = blk_ctx.get(elem_id, .height);
     const bptb = blk_ctx.get(elem_id, .border_padding_top_bottom);
     const mtb = blk_ctx.get(elem_id, .margin_top_bottom);
@@ -132,7 +148,7 @@ fn getElementHeight(blk_ctx: *const BlockFormattingContext, elem_id: RenderTree.
 fn renderBlockElement(
     blk_ctx: *const BlockFormattingContext,
     offset: sdl.Offset,
-    elem_id: RenderTree.BoxId,
+    elem_id: BlockFormattingContext.Id,
     renderer: *SDL_Renderer,
     pixel_format: *SDL_PixelFormat,
 ) void {

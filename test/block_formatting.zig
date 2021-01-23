@@ -79,43 +79,42 @@ fn exampleBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) 
     var blk_ctx = try zss.BlockFormattingContext.init(&gpa.allocator);
     defer blk_ctx.deinit();
 
-    const Part = zss.BlockFormattingContext.TreeKeyPart;
+    const Part = zss.BlockFormattingContext.IdPart;
 
-    const root = [_]Part{0};
+    const root = &[_]Part{0};
     {
-        const val = root[root.len - 1];
-        const key = try blk_ctx.new(root[0 .. root.len - 1], root[root.len - 1]);
-        try blk_ctx.set(key, .width, .{ .width = 800 });
-        try blk_ctx.set(key, .height, .{ .height = 600 });
-        try blk_ctx.set(key, .background_color, .{ .rgba = 0xff223300 });
-        try blk_ctx.set(key, .border_padding_left_right, .{ .padding_left = 100 });
-        try blk_ctx.set(key, .border_padding_top_bottom, .{ .padding_top = 200 });
+        try blk_ctx.new(root);
+        try blk_ctx.set(root, .width, .{ .width = 800 });
+        try blk_ctx.set(root, .height, .{ .height = 600 });
+        try blk_ctx.set(root, .background_color, .{ .rgba = 0xff223300 });
+        try blk_ctx.set(root, .border_padding_left_right, .{ .padding_left = 100 });
+        try blk_ctx.set(root, .border_padding_top_bottom, .{ .padding_top = 200 });
     }
 
     const root_0 = root ++ [_]Part{0};
     {
-        const key = try blk_ctx.new(root_0[0 .. root_0.len - 1], root_0[root_0.len - 1]);
-        try blk_ctx.set(key, .width, .{ .width = 100 });
-        try blk_ctx.set(key, .height, .{ .height = 100 });
-        try blk_ctx.set(key, .background_color, .{ .rgba = 0x00df1213 });
-        try blk_ctx.set(key, .margin_left_right, .{ .margin_left = 250 });
-        try blk_ctx.set(key, .margin_top_bottom, .{ .margin_top = 50 });
+        try blk_ctx.new(root_0);
+        try blk_ctx.set(root_0, .width, .{ .width = 100 });
+        try blk_ctx.set(root_0, .height, .{ .height = 100 });
+        try blk_ctx.set(root_0, .background_color, .{ .rgba = 0x00df1213 });
+        try blk_ctx.set(root_0, .margin_left_right, .{ .margin_left = 250 });
+        try blk_ctx.set(root_0, .margin_top_bottom, .{ .margin_top = 50 });
     }
 
     const root_0_0 = root_0 ++ [_]Part{0};
     {
-        const key = try blk_ctx.new(root_0_0[0 .. root_0_0.len - 1], root_0_0[root_0_0.len - 1]);
-        try blk_ctx.set(key, .width, .{ .width = 40 });
-        try blk_ctx.set(key, .height, .{ .height = 40 });
-        try blk_ctx.set(key, .background_color, .{ .rgba = 0x5c76d3ff });
+        try blk_ctx.new(root_0_0);
+        try blk_ctx.set(root_0_0, .width, .{ .width = 40 });
+        try blk_ctx.set(root_0_0, .height, .{ .height = 40 });
+        try blk_ctx.set(root_0_0, .background_color, .{ .rgba = 0x5c76d3ff });
     }
 
     const root_1 = root ++ [_]Part{1};
     {
-        const key = try blk_ctx.new(root_1[0 .. root_1.len - 1], root_1[root_1.len - 1]);
-        try blk_ctx.set(key, .width, .{ .width = 100 });
-        try blk_ctx.set(key, .height, .{ .height = 100 });
-        try blk_ctx.set(key, .background_color, .{ .rgba = 0x306892ff });
+        try blk_ctx.new(root_1);
+        try blk_ctx.set(root_1, .width, .{ .width = 100 });
+        try blk_ctx.set(root_1, .height, .{ .height = 100 });
+        try blk_ctx.set(root_1, .background_color, .{ .rgba = 0x306892ff });
     }
 
     var render_tree = zss.RenderTree.init(&gpa.allocator);

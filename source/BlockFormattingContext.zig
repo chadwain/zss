@@ -15,32 +15,32 @@
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
+const assert = std.debug.assert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
-const BoxId = @import("../zss.zig").RenderTree.BoxId;
+const RenderTree = @import("RenderTree.zig");
+pub const Id = RenderTree.ContextSpecificElementId;
+pub const IdPart = RenderTree.ContextSpecificElementIdPart;
 usingnamespace @import("properties.zig");
 
 allocator: *Allocator,
-tree: *Tree,
-counter: BoxId = 0,
+tree: *TreeMap(bool),
 
-width: AutoHashMapUnmanaged(BoxId, Width) = .{},
-height: AutoHashMapUnmanaged(BoxId, Height) = .{},
-border_padding_left_right: AutoHashMapUnmanaged(BoxId, BorderPaddingLeftRight) = .{},
-border_padding_top_bottom: AutoHashMapUnmanaged(BoxId, BorderPaddingTopBottom) = .{},
-margin_left_right: AutoHashMapUnmanaged(BoxId, MarginLeftRight) = .{},
-margin_top_bottom: AutoHashMapUnmanaged(BoxId, MarginTopBottom) = .{},
-border_colors: AutoHashMapUnmanaged(BoxId, BorderColor) = .{},
-background_color: AutoHashMapUnmanaged(BoxId, BackgroundColor) = .{},
+width: *TreeMap(Width),
+height: *TreeMap(Height),
+border_padding_left_right: *TreeMap(BorderPaddingLeftRight),
+border_padding_top_bottom: *TreeMap(BorderPaddingTopBottom),
+margin_left_right: *TreeMap(MarginLeftRight),
+margin_top_bottom: *TreeMap(MarginTopBottom),
+border_colors: *TreeMap(BorderColor),
+background_color: *TreeMap(BackgroundColor),
 
 const Self = @This();
 
-pub const Tree = @import("prefix-tree-map").PrefixTreeMapUnmanaged(TreeKeyPart, BoxId, cmpFn);
-pub const TreeKeyPart = u16;
-fn cmpFn(lhs: TreeKeyPart, rhs: TreeKeyPart) std.math.Order {
-    return std.math.order(lhs, rhs);
+fn TreeMap(comptime V: type) type {
+    return @import("prefix-tree-map").PrefixTreeMapUnmanaged(IdPart, V, RenderTree.cmpPart);
 }
 
 pub const Properties = enum {
@@ -53,43 +53,52 @@ pub const Properties = enum {
     border_colors,
     background_color,
 
-    pub fn toType(comptime self: @This()) type {
-        return std.meta.fieldInfo(std.meta.fieldInfo(Self, @tagName(self)).field_type.Entry, "value").field_type;
+    pub fn toType(comptime prop: @This()) type {
+        const Enum = std.meta.FieldEnum(Self);
+        return std.meta.Child(std.meta.fieldInfo(Self, @intToEnum(Enum, std.meta.fieldIndex(Self, @tagName(prop)).?)).field_type).Value;
     }
 };
 
 pub fn init(allocator: *Allocator) !Self {
-    return Self{
-        .allocator = allocator,
-        .tree = try Tree.init(allocator),
-    };
+    var result = @as(Self, undefined);
+    result.allocator = allocator;
+    result.tree = try TreeMap(bool).init(allocator);
+    errdefer result.tree.deinitRecursive(allocator);
+
+    comptime const fields = std.meta.fields(Properties);
+    var count: usize = 0;
+    errdefer {
+        inline for (fields) |f, i| {
+            if (i < count) @field(result, f.name).deinitRecursive(allocator);
+        }
+    }
+    inline for (fields) |f| {
+        @field(result, f.name) = try std.meta.Child(std.meta.fields(Self)[std.meta.fieldIndex(Self, f.name).?].field_type).init(allocator);
+        count += 1;
+    }
+
+    return result;
 }
 
 pub fn deinit(self: *Self) void {
-    self.tree.deinit(self.allocator);
+    self.tree.deinitRecursive(self.allocator);
     inline for (std.meta.fields(Properties)) |field| {
-        @field(self, field.name).deinit(self.allocator);
+        @field(self, field.name).deinitRecursive(self.allocator);
     }
 }
 
-pub fn new(self: *Self, parent: []const TreeKeyPart, k: TreeKeyPart) !BoxId {
-    try self.tree.insertChild(parent, k, self.counter, self.allocator);
-    defer self.counter += 1;
-    return self.counter;
+pub fn new(self: *Self, id: Id) !void {
+    _ = try self.tree.insert(self.allocator, id, true, false);
 }
 
-pub fn set(self: *Self, box: BoxId, comptime property: Properties, value: property.toType()) !void {
-    return @field(self, @tagName(property)).putNoClobber(self.allocator, box, value);
-}
-
-pub fn get(self: Self, box: BoxId, comptime property: Properties) property.toType() {
+pub fn set(self: *Self, id: Id, comptime property: Properties, value: property.toType()) !void {
+    assert(self.tree.exists(id));
     const T = property.toType();
-    return @field(self, @tagName(property)).get(box) orelse T{};
+    _ = try @field(self, @tagName(property)).insert(self.allocator, id, value, T{});
 }
 
-test "basic test" {
-    const allocator = std.heap.page_allocator;
-    var blk_ctx = try init(allocator);
-    defer blk_ctx.deinit();
-    testing.expect(!blk_ctx.tree.exists(&[_]TreeKeyPart{}));
+pub fn get(self: Self, id: Id, comptime property: Properties) property.toType() {
+    assert(self.tree.exists(id));
+    const T = property.toType();
+    return @field(self, @tagName(property)).get(id) orelse T{};
 }
