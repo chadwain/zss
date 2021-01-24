@@ -1,5 +1,5 @@
 // This file is a part of zss.
-// Copyright (C) 2020 Chadwain Holness
+// Copyright (C) 2020-2021 Chadwain Holness
 //
 // This library is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,8 +21,8 @@ const Allocator = std.mem.Allocator;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
 const RenderTree = @import("RenderTree.zig");
-pub const Id = RenderTree.ContextSpecificElementId;
-pub const IdPart = RenderTree.ContextSpecificElementIdPart;
+pub const Id = RenderTree.ContextSpecificBoxId;
+pub const IdPart = RenderTree.ContextSpecificBoxIdPart;
 usingnamespace @import("properties.zig");
 
 allocator: *Allocator,
@@ -55,7 +55,7 @@ pub const Properties = enum {
 
     pub fn toType(comptime prop: @This()) type {
         const Enum = std.meta.FieldEnum(Self);
-        return std.meta.Child(std.meta.fieldInfo(Self, @intToEnum(Enum, std.meta.fieldIndex(Self, @tagName(prop)).?)).field_type).Value;
+        return std.meta.Child(@TypeOf(@field(@as(Self, undefined), @tagName(prop)))).Value;
     }
 };
 
@@ -73,7 +73,7 @@ pub fn init(allocator: *Allocator) !Self {
         }
     }
     inline for (fields) |f| {
-        @field(result, f.name) = try std.meta.Child(std.meta.fields(Self)[std.meta.fieldIndex(Self, f.name).?].field_type).init(allocator);
+        @field(result, f.name) = try std.meta.Child(@TypeOf(@field(result, f.name))).init(allocator);
         count += 1;
     }
 

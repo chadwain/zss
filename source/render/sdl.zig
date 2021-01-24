@@ -1,5 +1,5 @@
 // This file is a part of zss.
-// Copyright (C) 2020 Chadwain Holness
+// Copyright (C) 2020-2021 Chadwain Holness
 //
 // This library is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,45 +19,36 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
-pub const sdl = @cImport({
-    @cInclude("SDL2/SDL.h");
-});
-
 const zss = @import("../../zss.zig");
 const CSSUnit = zss.properties.CSSUnit;
+const Offset = zss.util.Offset;
 const RenderTree = zss.RenderTree;
 
 const block = @import("sdl/block.zig");
-pub const BlockRenderState = block.BlockRenderState;
-pub const renderBlockFormattingContext = block.renderBlockFormattingContext;
+pub const DrawBlockState = block.DrawBlockState;
+pub const drawBlockContext = block.drawBlockContext;
 const @"inline" = @import("sdl/inline.zig");
-pub const renderInlineFormattingContext = @"inline".renderInlineFormattingContext;
+pub const DrawInlineState = @"inline".DrawInlineState;
+pub const drawInlineContext = @"inline".drawInlineContext;
 
-pub const Offset = struct {
-    x: CSSUnit,
-    y: CSSUnit,
+const sdl = @import("SDL2");
 
-    pub fn add(self: @This(), other: @This()) @This() {
-        return .{ .x = self.x + other.x, .y = self.y + other.y };
-    }
+pub const ContextDrawState = union(enum) {
+    block_state: DrawBlockState,
+    inline_state: DrawInlineState,
 };
 
-pub const StateUnion = union(enum) {
-    block_state: BlockRenderState,
-    //inline_state: InlineRenderState,
-};
-
-pub const StateStackItem = struct {
-    ctxId: RenderTree.ContextId,
-    state: *StateUnion,
+pub const StackItem = struct {
+    context_id: RenderTree.ContextId,
+    state: *ContextDrawState,
     offset: Offset,
 };
 
 pub const RenderState = struct {
     tree: *const RenderTree,
     allocator: *Allocator,
-    stack: ArrayListUnmanaged(StateStackItem) = .{},
-    state_map: AutoHashMapUnmanaged(RenderTree.ContextId, StateUnion) = .{},
+    stack: ArrayListUnmanaged(StackItem) = .{},
+    state_map: AutoHashMapUnmanaged(RenderTree.ContextId, ContextDrawState) = .{},
 
     const Self = @This();
 
@@ -72,8 +63,8 @@ pub const RenderState = struct {
             var it = tree.contexts.iterator();
             while (it.next()) |entry| {
                 const state = switch (entry.value) {
-                    .block => |b| StateUnion{ .block_state = try BlockRenderState.init(b, result.allocator) },
-                    .@"inline" => @panic("unimplemented"),
+                    .block => |b| ContextDrawState{ .block_state = try DrawBlockState.init(b, result.allocator) },
+                    .@"inline" => |i| ContextDrawState{ .inline_state = try DrawInlineState.init(i, allocator) },
                 };
                 try result.state_map.putNoClobber(result.allocator, entry.key, state);
             }
@@ -82,8 +73,8 @@ pub const RenderState = struct {
         const root = tree.root_context_id;
         try result.stack.append(
             result.allocator,
-            StateStackItem{
-                .ctxId = root,
+            StackItem{
+                .context_id = root,
                 .state = &result.state_map.getEntry(root).?.value,
                 .offset = .{ .x = 0, .y = 0 },
             },
@@ -97,7 +88,8 @@ pub const RenderState = struct {
             var it = self.state_map.iterator();
             while (it.next()) |entry| {
                 switch (entry.value) {
-                    .block_state => |b| b.deinit(),
+                    .block_state => |*b| b.deinit(),
+                    .inline_state => |*i| i.deinit(),
                 }
             }
         }
@@ -111,16 +103,20 @@ pub fn render(state: *RenderState, renderer: *sdl.SDL_Renderer, pixel_format: *s
     while (stack.items.len > 0) {
         const item = stack.items[stack.items.len - 1];
         const should_pop = switch (item.state.*) {
-            .block_state => |*b| try renderBlockFormattingContext(b, state, renderer, pixel_format, item.offset, item.ctxId),
-            //.inline_state => |i| try renderInlineFormattingContext(i, renderer, pixel_format),
+            .block_state => |*b| try drawBlockContext(b, state, renderer, pixel_format, item.offset, item.context_id),
+            .inline_state => |*i| try drawInlineContext(i, renderer, pixel_format, item.offset),
         };
         if (should_pop) _ = stack.pop();
     }
 }
 
-pub fn pushDescendant(state: *RenderState, ctxId: RenderTree.ContextId, offset: Offset) !void {
-    const descendant = &(state.state_map.getEntry(ctxId) orelse unreachable).value;
-    try state.stack.append(state.allocator, StateStackItem{ .ctxId = ctxId, .state = descendant, .offset = offset });
+pub fn pushDescendant(state: *RenderState, context_id: RenderTree.ContextId, offset: Offset) !void {
+    const descendant = &(state.state_map.getEntry(context_id) orelse unreachable).value;
+    try state.stack.append(state.allocator, StackItem{ .context_id = context_id, .state = descendant, .offset = offset });
+}
+
+pub fn cssUnitToSdlPixel(css: CSSUnit) i32 {
+    return css;
 }
 
 pub fn rgbaMap(pixel_format: *sdl.SDL_PixelFormat, color: u32) u32 {

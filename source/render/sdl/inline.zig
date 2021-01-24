@@ -1,5 +1,5 @@
 // This file is a part of zss.
-// Copyright (C) 2020 Chadwain Holness
+// Copyright (C) 2020-2021 Chadwain Holness
 //
 // This library is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,9 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
-usingnamespace zss.sdl.sdl;
-const hb = zss.harfbuzz.harfbuzz;
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -25,80 +22,105 @@ const assert = std.debug.assert;
 const zss = @import("../../../zss.zig");
 const RenderTree = zss.RenderTree;
 const InlineFormattingContext = zss.InlineFormattingContext;
+const TreeNode = @TypeOf(@as(InlineFormattingContext, undefined).tree);
+const Offset = zss.util.Offset;
+const cssUnitToSdlPixel = zss.sdl.cssUnitToSdlPixel;
 const rgbaMap = zss.sdl.rgbaMap;
 usingnamespace zss.properties;
 
-const InlineRenderState = struct {
-    offset_x: CSSUnit,
-    offset_y: CSSUnit,
-};
+usingnamespace @import("SDL2");
+const ft = @import("freetype");
 
 const StackItem = struct {
-    value: RenderTree.BoxId,
-    node: ?*InlineFormattingContext.Tree,
+    id_part: InlineFormattingContext.IdPart,
+    node: ?TreeNode,
 };
 
-pub fn renderInlineFormattingContext(
-    inl_ctx: InlineFormattingContext,
-    allocator: *Allocator,
+pub const DrawInlineState = struct {
+    context: *const InlineFormattingContext,
+    stack: ArrayList(?StackItem),
+    id: ArrayList(InlineFormattingContext.IdPart),
+
+    pub fn init(context: *const InlineFormattingContext, allocator: *Allocator) !@This() {
+        var result = @This(){
+            .context = context,
+            .stack = ArrayList(?StackItem).init(allocator),
+            .id = ArrayList(InlineFormattingContext.IdPart).init(allocator),
+        };
+
+        try addChildrenToStack(&result.stack, result.context.tree);
+        return result;
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.stack.deinit();
+        self.id.deinit();
+    }
+};
+
+pub fn drawInlineContext(
+    state: *DrawInlineState,
     renderer: *SDL_Renderer,
     pixel_format: *SDL_PixelFormat,
-    state: InlineRenderState,
-) !void {
-    var stack = ArrayList(StackItem).init(allocator);
-    defer stack.deinit();
-
-    try addChildrenToStack(&stack, inl_ctx, inl_ctx.tree);
-
+    offset: Offset,
+) !bool {
+    const stack = &state.stack;
+    const id = &state.id;
     while (stack.items.len > 0) {
-        const item = stack.pop();
-        try renderInlineElement(inl_ctx, item.value, renderer, pixel_format, state);
+        const item = stack.pop() orelse {
+            _ = id.pop();
+            continue;
+        };
+        try id.append(item.id_part);
+        try drawInlineElement(state.context, id.items, renderer, pixel_format, offset);
 
         const node = item.node orelse continue;
-        try addChildrenToStack(&stack, inl_ctx, node);
+        try addChildrenToStack(stack, node);
     }
+
+    return true;
 }
 
 fn addChildrenToStack(
-    stack: *ArrayList(StackItem),
-    inl_ctx: InlineFormattingContext,
-    node: *InlineFormattingContext.Tree,
+    stack: *ArrayList(?StackItem),
+    node: TreeNode,
 ) !void {
     const prev_len = stack.items.len;
     const num_children = node.numChildren();
-    try stack.resize(prev_len + num_children);
+    try stack.resize(prev_len + 2 * num_children);
 
     var i: usize = 0;
     while (i < num_children) : (i += 1) {
-        const dest = &stack.items[prev_len..][num_children - 1 - i];
-        dest.* = .{
-            .value = node.value(i),
+        const dest = stack.items[prev_len..][2 * (num_children - 1 - i) ..][0..2];
+        dest[0] = null;
+        dest[1] = StackItem{
+            .id_part = node.parts.items[i],
             .node = node.child(i),
         };
     }
 }
 
-fn renderInlineElement(
-    inl_ctx: InlineFormattingContext,
-    elem_id: RenderTree.BoxId,
+fn drawInlineElement(
+    context: *const InlineFormattingContext,
+    id: InlineFormattingContext.Id,
     renderer: *SDL_Renderer,
     pixel_format: *SDL_PixelFormat,
-    state: InlineRenderState,
+    offset: Offset,
 ) !void {
-    const width = inl_ctx.get(elem_id, .width);
-    const height = inl_ctx.get(elem_id, .height);
-    const mbplr = inl_ctx.get(elem_id, .margin_border_padding_left_right);
-    const mbptb = inl_ctx.get(elem_id, .margin_border_padding_top_bottom);
-    const border_colors = inl_ctx.get(elem_id, .border_colors);
-    const bg_color = inl_ctx.get(elem_id, .background_color);
-    const position = inl_ctx.get(elem_id, .position);
-    const data = inl_ctx.get(elem_id, .data);
+    const width = context.get(id, .width);
+    const height = context.get(id, .height);
+    const mbplr = context.get(id, .margin_border_padding_left_right);
+    const mbptb = context.get(id, .margin_border_padding_top_bottom);
+    const border_colors = context.get(id, .border_colors);
+    const bg_color = context.get(id, .background_color);
+    const position = context.get(id, .position);
+    const data = context.get(id, .data);
 
-    const line_box = inl_ctx.line_boxes.items[position.line_box_index];
-    const baseline = state.offset_y + line_box.y_pos + line_box.baseline;
+    const line_box = context.line_boxes.items[position.line_box_index];
+    const baseline = offset.y + line_box.y_pos + line_box.baseline;
     const ascender_top = baseline - position.ascender;
 
-    const margin_x = state.offset_x + position.advance;
+    const margin_x = offset.x + position.advance;
     // NOTE This makes the assumption that the top of the content box equals the top of the ascender
     const content_y = ascender_top;
     const border_x = margin_x + mbplr.margin_left;
@@ -118,38 +140,38 @@ fn renderInlineElement(
     const rects = [_]SDL_Rect{
         // background
         SDL_Rect{
-            .x = border_x,
-            .y = border_y,
-            .w = full_width,
-            .h = full_height,
+            .x = cssUnitToSdlPixel(border_x),
+            .y = cssUnitToSdlPixel(border_y),
+            .w = cssUnitToSdlPixel(full_width),
+            .h = cssUnitToSdlPixel(full_height),
         },
         // top border
         SDL_Rect{
-            .x = border_x,
-            .y = border_y,
-            .w = full_width,
-            .h = mbptb.border_top,
+            .x = cssUnitToSdlPixel(border_x),
+            .y = cssUnitToSdlPixel(border_y),
+            .w = cssUnitToSdlPixel(full_width),
+            .h = cssUnitToSdlPixel(mbptb.border_top),
         },
         // right border
         SDL_Rect{
-            .x = border_x + full_width - mbplr.border_right,
-            .y = border_y + mbptb.border_top,
-            .w = mbplr.border_right,
-            .h = padding_height,
+            .x = cssUnitToSdlPixel(border_x + full_width - mbplr.border_right),
+            .y = cssUnitToSdlPixel(border_y + mbptb.border_top),
+            .w = cssUnitToSdlPixel(mbplr.border_right),
+            .h = cssUnitToSdlPixel(padding_height),
         },
         // bottom border
         SDL_Rect{
-            .x = border_x,
-            .y = border_y + full_height - mbptb.border_bottom,
-            .w = full_width,
-            .h = mbptb.border_bottom,
+            .x = cssUnitToSdlPixel(border_x),
+            .y = cssUnitToSdlPixel(border_y + full_height - mbptb.border_bottom),
+            .w = cssUnitToSdlPixel(full_width),
+            .h = cssUnitToSdlPixel(mbptb.border_bottom),
         },
         //left border
         SDL_Rect{
-            .x = border_x,
-            .y = border_y + mbptb.border_top,
-            .w = mbplr.border_left,
-            .h = padding_height,
+            .x = cssUnitToSdlPixel(border_x),
+            .y = cssUnitToSdlPixel(border_y + mbptb.border_top),
+            .w = cssUnitToSdlPixel(mbplr.border_left),
+            .h = cssUnitToSdlPixel(padding_height),
         },
     };
 
@@ -160,21 +182,21 @@ fn renderInlineElement(
         assert(SDL_RenderFillRect(renderer, &rects[i]) == 0);
     }
 
-    try renderInlineElementData(
+    try drawInlineElementData(
         data,
-        .{ .x = border_x + mbplr.border_left + mbplr.padding_left, .y = content_y },
         baseline,
         renderer,
         pixel_format,
+        Offset{ .x = border_x + mbplr.border_left + mbplr.padding_left, .y = content_y },
     );
 }
 
-fn renderInlineElementData(
+fn drawInlineElementData(
     data: InlineFormattingContext.Data,
-    offsets: struct { x: CSSUnit, y: CSSUnit },
     line_box_baseline: CSSUnit,
     renderer: *SDL_Renderer,
     pixel_format: *SDL_PixelFormat,
+    offset: Offset,
 ) !void {
     switch (data) {
         .empty_space => {},
@@ -194,8 +216,8 @@ fn renderInlineElementData(
                     glyph_texture,
                     null,
                     &SDL_Rect{
-                        .x = offsets.x + g.*.left,
-                        .y = line_box_baseline - g.*.top,
+                        .x = cssUnitToSdlPixel(offset.x) + g.*.left,
+                        .y = cssUnitToSdlPixel(line_box_baseline) - g.*.top,
                         .w = glyph_surface.*.w,
                         .h = glyph_surface.*.h,
                     },
@@ -206,8 +228,8 @@ fn renderInlineElementData(
 }
 
 // TODO Find a better way to render glyphs than to allocate a new surface
-fn makeGlyphSurface(bitmap: hb.FT_Bitmap, pixel_format: *SDL_PixelFormat) error{OutOfMemory}!*SDL_Surface {
-    assert(bitmap.pixel_mode == hb.FT_PIXEL_MODE_GRAY);
+fn makeGlyphSurface(bitmap: ft.FT_Bitmap, pixel_format: *SDL_PixelFormat) error{OutOfMemory}!*SDL_Surface {
+    assert(bitmap.pixel_mode == ft.FT_PIXEL_MODE_GRAY);
     const result = SDL_CreateRGBSurfaceWithFormat(
         0,
         @intCast(c_int, bitmap.width),

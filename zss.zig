@@ -1,5 +1,5 @@
 // This file is a part of zss.
-// Copyright (C) 2020 Chadwain Holness
+// Copyright (C) 2020-2021 Chadwain Holness
 //
 // This library is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,15 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
-const std = @import("std");
-
 pub const BlockFormattingContext = @import("source/BlockFormattingContext.zig");
 pub const InlineFormattingContext = @import("source/InlineFormattingContext.zig");
 pub const RenderTree = @import("source/RenderTree.zig");
 pub const properties = @import("source/properties.zig");
-pub const harfbuzz = @import("source/harfbuzz.zig");
 pub const sdl = @import("source/render/sdl.zig");
+pub const util = @import("source/util.zig");
 
 test "" {
-    std.testing.refAllDecls(@This());
+    @import("std").testing.refAllDecls(@This());
 }

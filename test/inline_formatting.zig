@@ -1,13 +1,11 @@
-//pub const sdl = @cImport({
-//    @cInclude("SDL2/SDL.h");
-//});
-//usingnamespace sdl;
 const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
+
 const zss = @import("zss");
-usingnamespace zss.sdl.sdl;
-const hb = zss.harfbuzz.harfbuzz;
+
+usingnamespace @import("SDL2");
+const hb = @import("harfbuzz");
 
 test "render inline formatting context using SDL" {
     assert(SDL_Init(SDL_INIT_VIDEO) == 0);
@@ -114,10 +112,11 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
         });
     }
 
-    const Part = zss.InlineFormattingContext.TreeKeyPart;
+    const Part = zss.InlineFormattingContext.IdPart;
 
     {
-        const key = try inl_ctx.new(&[_]Part{}, 0);
+        const key = &[_]Part{0};
+        try inl_ctx.new(key);
         try inl_ctx.set(key, .width, .{ .width = 400 });
         try inl_ctx.set(key, .height, .{ .height = 30 });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0xff223300 });
@@ -126,7 +125,8 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
     }
 
     {
-        const key = try inl_ctx.new(&[_]Part{}, 1);
+        const key = &[_]Part{1};
+        try inl_ctx.new(key);
         try inl_ctx.set(key, .width, .{ .width = 400 });
         try inl_ctx.set(key, .height, .{ .height = 20 });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0x00df1213 });
@@ -135,7 +135,8 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
     }
 
     {
-        const key = try inl_ctx.new(&[_]Part{}, 2);
+        const key = &[_]Part{2};
+        try inl_ctx.new(key);
         try inl_ctx.set(key, .width, .{ .width = 40 });
         try inl_ctx.set(key, .height, .{ .height = 40 });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0x5c76d3ff });
@@ -144,7 +145,8 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
     }
 
     {
-        const key = try inl_ctx.new(&[_]Part{}, 3);
+        const key = &[_]Part{3};
+        try inl_ctx.new(key);
         try inl_ctx.set(key, .width, .{ .width = 40 });
         try inl_ctx.set(key, .height, .{ .height = 40 });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0x306892ff });
@@ -200,7 +202,8 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
     inl_ctx.line_boxes.items[2].baseline = measurements.ascender;
 
     {
-        const key = try inl_ctx.new(&[_]Part{}, 4);
+        const key = &[_]Part{4};
+        try inl_ctx.new(key);
         try inl_ctx.set(key, .width, .{ .width = 400 });
         try inl_ctx.set(key, .height, .{ .height = measurements.height });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0xff223300 });
@@ -210,11 +213,13 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
         try inl_ctx.set(key, .data, .{ .text = bitmap_glyphs });
     }
 
-    try zss.sdl.renderInlineFormattingContext(
-        inl_ctx,
-        &gpa.allocator,
+    var drawState = try zss.sdl.DrawInlineState.init(&inl_ctx, &gpa.allocator);
+    defer drawState.deinit();
+
+    _ = try zss.sdl.drawInlineContext(
+        &drawState,
         renderer,
         pixelFormat,
-        .{ .offset_x = 0, .offset_y = 0 },
+        .{ .x = 0, .y = 0 },
     );
 }

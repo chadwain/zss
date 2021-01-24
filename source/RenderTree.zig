@@ -1,5 +1,5 @@
 // This file is a part of zss.
-// Copyright (C) 2020 Chadwain Holness
+// Copyright (C) 2020-2021 Chadwain Holness
 //
 // This library is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -27,26 +27,26 @@ const Self = @This();
 
 pub const ContextId = struct { v: u32 };
 
-pub const ContextSpecificElementId = []const ContextSpecificElementIdPart;
-pub const ContextSpecificElementIdPart = u16;
+pub const ContextSpecificBoxId = []const ContextSpecificBoxIdPart;
+pub const ContextSpecificBoxIdPart = u16;
 
-pub fn cmpPart(lhs: ContextSpecificElementIdPart, rhs: ContextSpecificElementIdPart) std.math.Order {
+pub fn cmpPart(lhs: ContextSpecificBoxIdPart, rhs: ContextSpecificBoxIdPart) std.math.Order {
     return std.math.order(lhs, rhs);
 }
 
 pub const BoxId = struct {
-    ctx: ContextId,
-    box: ContextSpecificElementId,
+    context_id: ContextId,
+    specific_id: ContextSpecificBoxId,
 
     fn hash(a: @This()) u64 {
         var hasher = std.hash.Wyhash.init(0);
-        hasher.update(std.mem.asBytes(&a.ctx));
-        hasher.update(std.mem.sliceAsBytes(a.box));
+        hasher.update(std.mem.asBytes(&a.context_id));
+        hasher.update(std.mem.sliceAsBytes(a.specific_id));
         return hasher.final();
     }
 
     fn eql(a: @This(), b: @This()) bool {
-        return a.ctx.v == b.ctx.v and std.mem.eql(ContextSpecificElementIdPart, a.box, b.box);
+        return a.context_id.v == b.context_id.v and std.mem.eql(ContextSpecificBoxIdPart, a.specific_id, b.specific_id);
     }
 };
 
@@ -80,17 +80,17 @@ pub fn newContext(self: *Self, context: FormattingContext) !ContextId {
     return id;
 }
 
-pub fn getContext(self: Self, ctxId: ContextId) FormattingContext {
-    return self.contexts.get(ctxId) orelse unreachable;
+pub fn getContext(self: Self, context_id: ContextId) FormattingContext {
+    return self.contexts.get(context_id) orelse unreachable;
 }
 
 pub fn setDescendant(self: *Self, box: BoxId, descendant: ContextId) !void {
     assert(blk: {
-        const tree = switch (self.getContext(box.ctx)) {
+        const tree = switch (self.getContext(box.context_id)) {
             .block => |b| b.tree,
             .@"inline" => |i| i.tree,
         };
-        const find_result = tree.find(box.box);
+        const find_result = tree.find(box.specific_id);
         break :blk find_result.wasFound() and find_result.parent.child(find_result.index) == null;
     });
     try self.descendants.putNoClobber(self.allocator, box, descendant);

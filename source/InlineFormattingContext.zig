@@ -1,5 +1,5 @@
 // This file is a part of zss.
-// Copyright (C) 2020 Chadwain Holness
+// Copyright (C) 2020-2021 Chadwain Holness
 //
 // This library is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,20 +15,21 @@
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
+const assert = std.debug.assert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
 const zss = @import("../zss.zig");
-const Id = zss.RenderTree.ContextSpecificElementId;
-const IdPart = zss.RenderTree.ContextSpecificElementIdPart;
+pub const Id = zss.RenderTree.ContextSpecificBoxId;
+pub const IdPart = zss.RenderTree.ContextSpecificBoxIdPart;
 usingnamespace @import("properties.zig");
 const PrefixTreeNode = @import("prefix-tree").PrefixTreeNode;
-const hb = zss.harfbuzz.harfbuzz;
+const ft = @import("freetype");
 
 allocator: *Allocator,
-tree: *TreeMap(void),
+tree: *TreeMap(bool),
 line_boxes: ArrayListUnmanaged(LineBox),
 
 width: *TreeMap(Width),
@@ -59,7 +60,7 @@ pub const Position = struct {
 
 pub const Data = union(enum) {
     empty_space,
-    text: []hb.FT_BitmapGlyph,
+    text: []ft.FT_BitmapGlyph,
 };
 
 pub const Properties = enum {
@@ -72,8 +73,8 @@ pub const Properties = enum {
     position,
     data,
 
-    pub fn toType(comptime self: @This()) type {
-        return std.meta.Child(std.meta.fieldInfo(Self, @tagName(self)).field_type).Value;
+    pub fn toType(comptime prop: @This()) type {
+        return std.meta.Child(@TypeOf(@field(@as(Self, undefined), @tagName(prop)))).Value;
     }
 };
 
@@ -81,7 +82,7 @@ pub fn init(allocator: *Allocator) !Self {
     var result = @as(Self, undefined);
     result.allocator = allocator;
     result.line_boxes = ArrayListUnmanaged(LineBox){};
-    result.tree = try TreeMap(void).init(allocator);
+    result.tree = try TreeMap(bool).init(allocator);
     errdefer result.tree.deinitRecursive(allocator);
 
     comptime const fields = std.meta.fields(Properties);
@@ -92,7 +93,7 @@ pub fn init(allocator: *Allocator) !Self {
         }
     }
     inline for (fields) |f| {
-        @field(result, f.name) = try std.meta.Child(std.meta.fields(Self)[std.meta.fieldIndex(Self, f.name).?].field_type).init(allocator);
+        @field(result, f.name) = try std.meta.Child(@TypeOf(@field(result, f.name))).init(allocator);
         count += 1;
     }
 
@@ -108,13 +109,14 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn new(self: *Self, id: Id) !void {
-    _ = try self.tree.insert(self.allocator, id, {}, {});
+    _ = try self.tree.insert(self.allocator, id, true, false);
 }
 
 pub fn set(self: *Self, id: Id, comptime property: Properties, value: property.toType()) !void {
     assert(self.tree.exists(id));
     const T = property.toType();
-    _ = try @field(self, @tagName(property)).insert(self.allocator, id, value, T{});
+    const filler = if (T == Position or T == Data) undefined else T{};
+    _ = try @field(self, @tagName(property)).insert(self.allocator, id, value, filler);
 }
 
 pub fn get(self: Self, id: Id, comptime property: Properties) property.toType() {

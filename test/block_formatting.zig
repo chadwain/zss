@@ -1,12 +1,10 @@
-//pub const sdl = @cImport({
-//    @cInclude("SDL2/SDL.h");
-//});
-//usingnamespace sdl;
 const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
+
 const zss = @import("zss");
-usingnamespace zss.sdl.sdl;
+
+usingnamespace @import("SDL2");
 
 test "render block formating context using SDL" {
     assert(SDL_Init(SDL_INIT_VIDEO) == 0);
