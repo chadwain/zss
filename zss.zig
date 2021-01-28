@@ -20,6 +20,7 @@ pub const RenderTree = @import("source/RenderTree.zig");
 pub const properties = @import("source/properties.zig");
 pub const sdl = @import("source/render/sdl.zig");
 pub const util = @import("source/util.zig");
+pub const offset_tree = @import("source/offset_tree.zig");
 
 test "" {
     @import("std").testing.refAllDecls(@This());

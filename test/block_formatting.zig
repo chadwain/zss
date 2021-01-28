@@ -82,8 +82,8 @@ fn exampleBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) 
     const root = &[_]Part{0};
     {
         try blk_ctx.new(root);
-        try blk_ctx.set(root, .width, .{ .width = 800 });
-        try blk_ctx.set(root, .height, .{ .height = 600 });
+        try blk_ctx.set(root, .width, .{ .width = 700 });
+        try blk_ctx.set(root, .height, .{ .height = 400 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0xff223300 });
         try blk_ctx.set(root, .border_padding_left_right, .{ .padding_left = 100 });
         try blk_ctx.set(root, .border_padding_top_bottom, .{ .padding_top = 200 });
