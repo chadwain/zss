@@ -22,6 +22,7 @@ const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 const zss = @import("../zss.zig");
 const BlockFormattingContext = zss.BlockFormattingContext;
 const InlineFormattingContext = zss.InlineFormattingContext;
+const OffsetTree = zss.offset_tree.OffsetTree;
 
 const Self = @This();
 
@@ -51,7 +52,10 @@ pub const BoxId = struct {
 };
 
 pub const FormattingContext = union(enum) {
-    block: *BlockFormattingContext,
+    block: struct {
+        context: *BlockFormattingContext,
+        offset_tree: *OffsetTree,
+    },
     @"inline": *InlineFormattingContext,
 };
 
@@ -87,7 +91,7 @@ pub fn getContext(self: Self, context_id: ContextId) FormattingContext {
 pub fn setDescendant(self: *Self, box: BoxId, descendant: ContextId) !void {
     assert(blk: {
         const tree = switch (self.getContext(box.context_id)) {
-            .block => |b| b.tree,
+            .block => |b| b.context.tree,
             .@"inline" => |i| i.tree,
         };
         const find_result = tree.find(box.specific_id);

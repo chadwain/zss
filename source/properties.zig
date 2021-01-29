@@ -28,22 +28,22 @@ pub const Height = struct {
     height: CSSUnit = 0,
 };
 
-/// Contains the used values of the properties 'border-left-width',
-/// 'border-right-width', 'padding-left', and 'padding-right'.
-pub const BorderPaddingLeftRight = struct {
-    border_left: CSSUnit = 0,
+/// Contains the used values of the properties 'border-top-width',
+/// 'border-right-width', 'border-bottom-width', and 'border-left-width'.
+pub const Borders = struct {
+    border_top: CSSUnit = 0,
     border_right: CSSUnit = 0,
-    padding_left: CSSUnit = 0,
-    padding_right: CSSUnit = 0,
+    border_bottom: CSSUnit = 0,
+    border_left: CSSUnit = 0,
 };
 
-/// Contains the used values of the properties 'border-top-width',
-/// 'border-bottom-width', 'padding-top', and 'padding-bottom'.
-pub const BorderPaddingTopBottom = struct {
-    border_top: CSSUnit = 0,
-    border_bottom: CSSUnit = 0,
+/// Contains the used values of the properties 'padding-top',
+/// 'padding-right', 'padding-bottom', and 'padding-left'.
+pub const Padding = struct {
     padding_top: CSSUnit = 0,
+    padding_right: CSSUnit = 0,
     padding_bottom: CSSUnit = 0,
+    padding_left: CSSUnit = 0,
 };
 
 /// Contains the used values of the properties 'margin-left', and

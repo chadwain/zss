@@ -42,8 +42,8 @@ pub const OffsetInfo = struct {
 
 const dummy_margin_tb_node = TreeMap(MarginTopBottom){};
 const dummy_margin_lr_node = TreeMap(MarginLeftRight){};
-const dummy_bord_padd_tb_node = TreeMap(BorderPaddingTopBottom){};
-const dummy_bord_padd_lr_node = TreeMap(BorderPaddingLeftRight){};
+const dummy_borders_node = TreeMap(Borders){};
+const dummy_padding_node = TreeMap(Padding){};
 const dummy_height_node = TreeMap(Height){};
 const dummy_width_node = TreeMap(Width){};
 
@@ -55,8 +55,8 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
         tree: *const TreeMap(bool),
         margin_tb: *const TreeMap(MarginTopBottom),
         margin_lr: *const TreeMap(MarginLeftRight),
-        bord_padd_tb: *const TreeMap(BorderPaddingTopBottom),
-        bord_padd_lr: *const TreeMap(BorderPaddingLeftRight),
+        borders: *const TreeMap(Borders),
+        padding: *const TreeMap(Padding),
         height: *const TreeMap(Height),
         width: *const TreeMap(Width),
         destination: *OffsetTree,
@@ -68,8 +68,8 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
         .tree = context.tree,
         .margin_tb = context.margin_top_bottom,
         .margin_lr = context.margin_left_right,
-        .bord_padd_tb = context.border_padding_top_bottom,
-        .bord_padd_lr = context.border_padding_left_right,
+        .borders = context.borders,
+        .padding = context.padding,
         .height = context.height,
         .width = context.width,
         .destination = result,
@@ -88,8 +88,8 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
         var i: usize = 0;
         var i_margin_tb: usize = 0;
         var i_margin_lr: usize = 0;
-        var i_bord_padd_tb: usize = 0;
-        var i_bord_padd_lr: usize = 0;
+        var i_borders: usize = 0;
+        var i_padding: usize = 0;
         var i_height: usize = 0;
         var i_width: usize = 0;
         while (i < nodes.tree.numChildren()) : (i += 1) {
@@ -98,6 +98,7 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
                 assert(i == try nodes.destination.newEdge(allocator, part, undefined, null));
             }
 
+            // TODO This code is a disaster.
             const mtb: struct { data: MarginTopBottom, child: *const TreeMap(MarginTopBottom) } =
                 if (i_margin_tb < nodes.margin_tb.numChildren() and nodes.margin_tb.parts.items[i_margin_tb] == part)
             blk: {
@@ -106,14 +107,14 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
                 i_margin_tb += 1;
                 break :blk .{ .data = data, .child = child orelse &dummy_margin_tb_node };
             } else .{ .data = MarginTopBottom{}, .child = &dummy_margin_tb_node };
-            const bptb: struct { data: BorderPaddingTopBottom, child: *const TreeMap(BorderPaddingTopBottom) } =
-                if (i_bord_padd_tb < nodes.bord_padd_tb.numChildren() and nodes.bord_padd_tb.parts.items[i_bord_padd_tb] == part)
+            const borders: struct { data: Borders, child: *const TreeMap(Borders) } =
+                if (i_borders < nodes.borders.numChildren() and nodes.borders.parts.items[i_borders] == part)
             blk: {
-                const data = nodes.bord_padd_tb.value(i_bord_padd_tb);
-                const child = nodes.bord_padd_tb.child(i_bord_padd_tb);
-                i_bord_padd_tb += 1;
-                break :blk .{ .data = data, .child = child orelse &dummy_bord_padd_tb_node };
-            } else .{ .data = BorderPaddingTopBottom{}, .child = &dummy_bord_padd_tb_node };
+                const data = nodes.borders.value(i_borders);
+                const child = nodes.borders.child(i_borders);
+                i_borders += 1;
+                break :blk .{ .data = data, .child = child orelse &dummy_borders_node };
+            } else .{ .data = Borders{}, .child = &dummy_borders_node };
             const height: struct { data: Height, child: *const TreeMap(Height) } =
                 if (i_height < nodes.height.numChildren() and nodes.height.parts.items[i_height] == part)
             blk: {
@@ -131,14 +132,14 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
                 i_margin_lr += 1;
                 break :blk .{ .data = data, .child = child orelse &dummy_margin_lr_node };
             } else .{ .data = MarginLeftRight{}, .child = &dummy_margin_lr_node };
-            const bplr: struct { data: BorderPaddingLeftRight, child: *const TreeMap(BorderPaddingLeftRight) } =
-                if (i_bord_padd_lr < nodes.bord_padd_lr.numChildren() and nodes.bord_padd_lr.parts.items[i_bord_padd_lr] == part)
+            const padding: struct { data: Padding, child: *const TreeMap(Padding) } =
+                if (i_padding < nodes.padding.numChildren() and nodes.padding.parts.items[i_padding] == part)
             blk: {
-                const data = nodes.bord_padd_lr.value(i_bord_padd_lr);
-                const child = nodes.bord_padd_lr.child(i_bord_padd_lr);
-                i_bord_padd_lr += 1;
-                break :blk .{ .data = data, .child = child orelse &dummy_bord_padd_lr_node };
-            } else .{ .data = BorderPaddingLeftRight{}, .child = &dummy_bord_padd_lr_node };
+                const data = nodes.padding.value(i_padding);
+                const child = nodes.padding.child(i_padding);
+                i_padding += 1;
+                break :blk .{ .data = data, .child = child orelse &dummy_padding_node };
+            } else .{ .data = Padding{}, .child = &dummy_padding_node };
             const width: struct { data: Width, child: *const TreeMap(Width) } =
                 if (i_width < nodes.width.numChildren() and nodes.width.parts.items[i_width] == part)
             blk: {
@@ -150,16 +151,16 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
 
             offset_info.border_top_left = Offset{ .x = mlr.data.margin_left, .y = offset_info.border_top_left.y + mtb.data.margin_top };
             offset_info.content_top_left = Offset{
-                .x = offset_info.border_top_left.x + bplr.data.border_left + bplr.data.padding_left,
-                .y = offset_info.border_top_left.y + bptb.data.border_top + bptb.data.padding_top,
+                .x = offset_info.border_top_left.x + borders.data.border_left + padding.data.padding_left,
+                .y = offset_info.border_top_left.y + borders.data.border_top + padding.data.padding_top,
             };
             offset_info.content_bottom_right = Offset{
                 .x = offset_info.content_top_left.x + width.data.width,
                 .y = offset_info.content_top_left.y + height.data.height,
             };
             offset_info.border_bottom_right = Offset{
-                .x = offset_info.content_bottom_right.x + bplr.data.border_right + bplr.data.padding_right,
-                .y = offset_info.content_bottom_right.y + bptb.data.border_bottom + bptb.data.padding_bottom,
+                .x = offset_info.content_bottom_right.x + borders.data.border_right + padding.data.padding_right,
+                .y = offset_info.content_bottom_right.y + borders.data.border_bottom + padding.data.padding_bottom,
             };
             nodes.destination.values.items[i] = offset_info;
             offset_info.border_top_left.y = offset_info.border_bottom_right.y + mtb.data.margin_bottom;
@@ -172,8 +173,8 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
                     .tree = child_tree,
                     .margin_tb = mtb.child,
                     .margin_lr = mlr.child,
-                    .bord_padd_tb = bptb.child,
-                    .bord_padd_lr = bplr.child,
+                    .borders = borders.child,
+                    .padding = padding.child,
                     .height = height.child,
                     .width = width.child,
                     .destination = child_destination,
@@ -205,7 +206,7 @@ test "fromBlockContext" {
         try blkctx.new(k);
     }
 
-    try blkctx.set(keys[0], .border_padding_left_right, BorderPaddingLeftRight{ .border_left = 100 });
+    try blkctx.set(keys[0], .borders, Borders{ .border_left = 100 });
     try blkctx.set(keys[0], .height, Height{ .height = 400 });
     try blkctx.set(keys[2], .height, Height{ .height = 50 });
 

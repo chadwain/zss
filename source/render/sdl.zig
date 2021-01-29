@@ -26,7 +26,7 @@ const RenderTree = zss.RenderTree;
 
 const block = @import("sdl/block.zig");
 pub const DrawBlockState = block.DrawBlockState;
-pub const drawBlockContext = block.drawBlockContext;
+pub const drawBackgroundAndBorders = block.drawBackgroundAndBorders;
 const @"inline" = @import("sdl/inline.zig");
 pub const DrawInlineState = @"inline".DrawInlineState;
 pub const drawInlineContext = @"inline".drawInlineContext;
@@ -63,7 +63,7 @@ pub const RenderState = struct {
             var it = tree.contexts.iterator();
             while (it.next()) |entry| {
                 const state = switch (entry.value) {
-                    .block => |b| ContextDrawState{ .block_state = try DrawBlockState.init(b, result.allocator) },
+                    .block => |b| ContextDrawState{ .block_state = try DrawBlockState.init(b.context, b.offset_tree, Offset{ .x = 0, .y = 0 }, result.allocator) },
                     .@"inline" => |i| ContextDrawState{ .inline_state = try DrawInlineState.init(i, allocator) },
                 };
                 try result.state_map.putNoClobber(result.allocator, entry.key, state);
@@ -103,7 +103,7 @@ pub fn render(state: *RenderState, renderer: *sdl.SDL_Renderer, pixel_format: *s
     while (stack.items.len > 0) {
         const item = stack.items[stack.items.len - 1];
         const should_pop = switch (item.state.*) {
-            .block_state => |*b| try drawBlockContext(b, state, renderer, pixel_format, item.offset, item.context_id),
+            .block_state => |*b| try drawBackgroundAndBorders(b, state, renderer, pixel_format, item.context_id),
             .inline_state => |*i| try drawInlineContext(i, renderer, pixel_format, item.offset),
         };
         if (should_pop) _ = stack.pop();

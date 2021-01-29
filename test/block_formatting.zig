@@ -85,8 +85,7 @@ fn exampleBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) 
         try blk_ctx.set(root, .width, .{ .width = 700 });
         try blk_ctx.set(root, .height, .{ .height = 400 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0xff223300 });
-        try blk_ctx.set(root, .border_padding_left_right, .{ .padding_left = 100 });
-        try blk_ctx.set(root, .border_padding_top_bottom, .{ .padding_top = 200 });
+        try blk_ctx.set(root, .padding, .{ .padding_left = 100, .padding_top = 200 });
     }
 
     const root_0 = root ++ [_]Part{0};
@@ -117,7 +116,11 @@ fn exampleBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) 
 
     var render_tree = zss.RenderTree.init(&gpa.allocator);
     defer render_tree.deinit();
-    const ctxId = try render_tree.newContext(.{ .block = &blk_ctx });
+
+    var offset_tree = try zss.offset_tree.fromBlockContext(&blk_ctx, &gpa.allocator);
+    defer offset_tree.deinitRecursive(&gpa.allocator);
+
+    const ctxId = try render_tree.newContext(.{ .block = .{ .context = &blk_ctx, .offset_tree = offset_tree } });
     render_tree.root_context_id = ctxId;
 
     var sdl_render = try zss.sdl.RenderState.init(&gpa.allocator, &render_tree);
