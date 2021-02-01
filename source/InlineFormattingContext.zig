@@ -22,8 +22,8 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
 const zss = @import("../zss.zig");
-pub const Id = zss.RenderTree.ContextSpecificBoxId;
-pub const IdPart = zss.RenderTree.ContextSpecificBoxIdPart;
+pub const Id = zss.context.ContextSpecificBoxId;
+pub const IdPart = zss.context.ContextSpecificBoxIdPart;
 usingnamespace @import("properties.zig");
 const PrefixTreeNode = @import("prefix-tree").PrefixTreeNode;
 const ft = @import("freetype");
@@ -44,7 +44,7 @@ data: *TreeMap(Data),
 const Self = @This();
 
 fn TreeMap(comptime V: type) type {
-    return @import("prefix-tree-map").PrefixTreeMapUnmanaged(IdPart, V, zss.RenderTree.cmpPart);
+    return @import("prefix-tree-map").PrefixTreeMapUnmanaged(IdPart, V, zss.context.cmpPart);
 }
 
 pub const LineBox = struct {

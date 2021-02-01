@@ -20,7 +20,6 @@ const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 
 const zss = @import("../../../zss.zig");
-const RenderTree = zss.RenderTree;
 const InlineFormattingContext = zss.InlineFormattingContext;
 const TreeNode = @TypeOf(@as(InlineFormattingContext, undefined).tree);
 const Offset = zss.util.Offset;
@@ -59,11 +58,15 @@ pub const DrawInlineState = struct {
 };
 
 pub fn drawInlineContext(
-    state: *DrawInlineState,
+    context: *const InlineFormattingContext,
+    allocator: *Allocator,
+    offset: Offset,
     renderer: *SDL_Renderer,
     pixel_format: *SDL_PixelFormat,
-    offset: Offset,
-) !bool {
+) !void {
+    var state = try DrawInlineState.init(context, allocator);
+    defer state.deinit();
+
     const stack = &state.stack;
     const id = &state.id;
     while (stack.items.len > 0) {
@@ -77,8 +80,6 @@ pub fn drawInlineContext(
         const node = item.node orelse continue;
         try addChildrenToStack(stack, node);
     }
-
-    return true;
 }
 
 fn addChildrenToStack(

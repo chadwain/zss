@@ -43,7 +43,7 @@ test "render block formating context using SDL" {
     defer SDL_DestroyTexture(texture);
     assert(SDL_SetRenderTarget(renderer, texture) == 0);
 
-    try exampleBlockContext(renderer, texture_pixel_format);
+    try drawBlockContext(renderer, texture_pixel_format);
     SDL_RenderPresent(renderer);
 
     assert(SDL_SetRenderTarget(renderer, window_texture) == 0);
@@ -70,12 +70,109 @@ test "render block formating context using SDL" {
     }
 }
 
-fn exampleBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !void {
+fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer expect(!gpa.deinit());
 
-    var blk_ctx = try zss.BlockFormattingContext.init(&gpa.allocator);
-    defer blk_ctx.deinit();
+    var ctx1 = try exampleBlockContext1(&gpa.allocator);
+    defer ctx1.deinit();
+
+    var ctx2 = try exampleBlockContext2(&gpa.allocator);
+    defer ctx2.deinit();
+
+    var ctx3 = try exampleBlockContext3(&gpa.allocator);
+    defer ctx3.deinit();
+
+    var ctx4 = try exampleBlockContext4(&gpa.allocator);
+    defer ctx4.deinit();
+
+    var ctx5 = try exampleBlockContext5(&gpa.allocator);
+    defer ctx5.deinit();
+
+    var offset_tree_1 = try zss.offset_tree.fromBlockContext(&ctx1, &gpa.allocator);
+    defer offset_tree_1.deinitRecursive(&gpa.allocator);
+
+    var offset_tree_2 = try zss.offset_tree.fromBlockContext(&ctx2, &gpa.allocator);
+    defer offset_tree_2.deinitRecursive(&gpa.allocator);
+
+    var offset_tree_3 = try zss.offset_tree.fromBlockContext(&ctx3, &gpa.allocator);
+    defer offset_tree_3.deinitRecursive(&gpa.allocator);
+
+    var offset_tree_4 = try zss.offset_tree.fromBlockContext(&ctx4, &gpa.allocator);
+    defer offset_tree_4.deinitRecursive(&gpa.allocator);
+
+    var offset_tree_5 = try zss.offset_tree.fromBlockContext(&ctx5, &gpa.allocator);
+    defer offset_tree_5.deinitRecursive(&gpa.allocator);
+
+    const stacking_context_root = try zss.stacking_context.StackingContextTree.init(&gpa.allocator);
+    defer stacking_context_root.deinitRecursive(&gpa.allocator);
+
+    _ = try stacking_context_root.insert(
+        &gpa.allocator,
+        &[_]u16{0},
+        zss.stacking_context.StackingContext{
+            .midpoint = 2,
+            .offset = zss.util.Offset{ .x = 0, .y = 0 },
+            .offset_tree = offset_tree_1,
+            .root = .{ .block = &ctx1 },
+        },
+        undefined,
+    );
+
+    _ = try stacking_context_root.insert(
+        &gpa.allocator,
+        &[_]u16{ 0, 0 },
+        zss.stacking_context.StackingContext{
+            .midpoint = 0,
+            .offset = zss.util.Offset{ .x = 100, .y = 110 },
+            .offset_tree = offset_tree_2,
+            .root = .{ .block = &ctx2 },
+        },
+        undefined,
+    );
+
+    _ = try stacking_context_root.insert(
+        &gpa.allocator,
+        &[_]u16{ 0, 1 },
+        zss.stacking_context.StackingContext{
+            .midpoint = 0,
+            .offset = zss.util.Offset{ .x = 600, .y = 110 },
+            .offset_tree = offset_tree_3,
+            .root = .{ .block = &ctx3 },
+        },
+        undefined,
+    );
+
+    _ = try stacking_context_root.insert(
+        &gpa.allocator,
+        &[_]u16{ 0, 2 },
+        zss.stacking_context.StackingContext{
+            .midpoint = 1,
+            .offset = zss.util.Offset{ .x = 400, .y = 450 },
+            .offset_tree = offset_tree_4,
+            .root = .{ .block = &ctx4 },
+        },
+        undefined,
+    );
+
+    _ = try stacking_context_root.insert(
+        &gpa.allocator,
+        &[_]u16{ 0, 2, 0 },
+        zss.stacking_context.StackingContext{
+            .midpoint = 0,
+            .offset = zss.util.Offset{ .x = 200, .y = 350 },
+            .offset_tree = offset_tree_5,
+            .root = .{ .block = &ctx5 },
+        },
+        undefined,
+    );
+
+    try zss.sdl.renderStackingContexts(stacking_context_root, &gpa.allocator, renderer, pixel_format);
+}
+
+fn exampleBlockContext1(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
+    var blk_ctx = try zss.BlockFormattingContext.init(allocator);
+    errdefer blk_ctx.deinit();
 
     const Part = zss.BlockFormattingContext.IdPart;
 
@@ -83,9 +180,9 @@ fn exampleBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) 
     {
         try blk_ctx.new(root);
         try blk_ctx.set(root, .width, .{ .width = 700 });
-        try blk_ctx.set(root, .height, .{ .height = 400 });
+        try blk_ctx.set(root, .height, .{ .height = 550 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0xff223300 });
-        try blk_ctx.set(root, .padding, .{ .padding_left = 100, .padding_top = 200 });
+        try blk_ctx.set(root, .padding, .{ .padding_left = 100, .padding_top = 50 });
     }
 
     const root_0 = root ++ [_]Part{0};
@@ -106,25 +203,85 @@ fn exampleBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) 
         try blk_ctx.set(root_0_0, .background_color, .{ .rgba = 0x5c76d3ff });
     }
 
-    const root_1 = root ++ [_]Part{1};
+    return blk_ctx;
+}
+
+fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
+    var blk_ctx = try zss.BlockFormattingContext.init(allocator);
+    errdefer blk_ctx.deinit();
+
+    const Part = zss.BlockFormattingContext.IdPart;
+
+    const root = &[_]Part{0};
     {
-        try blk_ctx.new(root_1);
-        try blk_ctx.set(root_1, .width, .{ .width = 100 });
-        try blk_ctx.set(root_1, .height, .{ .height = 100 });
-        try blk_ctx.set(root_1, .background_color, .{ .rgba = 0x306892ff });
+        try blk_ctx.new(root);
+        try blk_ctx.set(root, .width, .{ .width = 100 });
+        try blk_ctx.set(root, .height, .{ .height = 100 });
+        try blk_ctx.set(root, .borders, .{ .border_top = 5, .border_right = 10, .border_bottom = 15, .border_left = 20 });
+        try blk_ctx.set(root, .background_color, .{ .rgba = 0x306892ff });
     }
 
-    var render_tree = zss.RenderTree.init(&gpa.allocator);
-    defer render_tree.deinit();
+    return blk_ctx;
+}
 
-    var offset_tree = try zss.offset_tree.fromBlockContext(&blk_ctx, &gpa.allocator);
-    defer offset_tree.deinitRecursive(&gpa.allocator);
+fn exampleBlockContext3(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
+    var blk_ctx = try zss.BlockFormattingContext.init(allocator);
+    errdefer blk_ctx.deinit();
 
-    const ctxId = try render_tree.newContext(.{ .block = .{ .context = &blk_ctx, .offset_tree = offset_tree } });
-    render_tree.root_context_id = ctxId;
+    const Part = zss.BlockFormattingContext.IdPart;
 
-    var sdl_render = try zss.sdl.RenderState.init(&gpa.allocator, &render_tree);
-    defer sdl_render.deinit();
+    const root = &[_]Part{0};
+    {
+        try blk_ctx.new(root);
+        try blk_ctx.set(root, .width, .{ .width = 400 });
+        try blk_ctx.set(root, .height, .{ .height = 25 });
+        try blk_ctx.set(root, .background_color, .{ .rgba = 0x592b1cff });
+    }
 
-    try zss.sdl.render(&sdl_render, renderer, pixel_format);
+    const root_0 = root ++ [_]Part{0};
+    {
+        try blk_ctx.new(root_0);
+        try blk_ctx.set(root_0, .width, .{ .width = 100 });
+        try blk_ctx.set(root_0, .height, .{ .height = 100 });
+        try blk_ctx.set(root_0, .background_color, .{ .rgba = 0x9500abff });
+        try blk_ctx.set(root_0, .margin_left_right, .{ .margin_left = -25 });
+        try blk_ctx.set(root_0, .margin_top_bottom, .{ .margin_top = 20 });
+    }
+
+    return blk_ctx;
+}
+
+fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
+    var blk_ctx = try zss.BlockFormattingContext.init(allocator);
+    errdefer blk_ctx.deinit();
+
+    const Part = zss.BlockFormattingContext.IdPart;
+
+    const root = &[_]Part{0};
+    {
+        try blk_ctx.new(root);
+        try blk_ctx.set(root, .width, .{ .width = 150 });
+        try blk_ctx.set(root, .height, .{ .height = 100 });
+        try blk_ctx.set(root, .borders, .{ .border_top = 30, .border_right = 30, .border_bottom = 30, .border_left = 30 });
+        try blk_ctx.set(root, .background_color, .{ .rgba = 0x9104baff });
+    }
+
+    return blk_ctx;
+}
+
+fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
+    var blk_ctx = try zss.BlockFormattingContext.init(allocator);
+    errdefer blk_ctx.deinit();
+
+    const Part = zss.BlockFormattingContext.IdPart;
+
+    const root = &[_]Part{0};
+    {
+        try blk_ctx.new(root);
+        try blk_ctx.set(root, .width, .{ .width = 75 });
+        try blk_ctx.set(root, .height, .{ .height = 200 });
+        try blk_ctx.set(root, .background_color, .{ .rgba = 0xb186afff });
+    }
+
+    return blk_ctx;
 }

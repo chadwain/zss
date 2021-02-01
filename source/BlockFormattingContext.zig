@@ -20,9 +20,9 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
-const RenderTree = @import("RenderTree.zig");
-pub const Id = RenderTree.ContextSpecificBoxId;
-pub const IdPart = RenderTree.ContextSpecificBoxIdPart;
+const zss = @import("../zss.zig");
+pub const Id = zss.context.ContextSpecificBoxId;
+pub const IdPart = zss.context.ContextSpecificBoxIdPart;
 usingnamespace @import("properties.zig");
 
 allocator: *Allocator,
@@ -40,7 +40,7 @@ background_color: *TreeMap(BackgroundColor),
 const Self = @This();
 
 fn TreeMap(comptime V: type) type {
-    return @import("prefix-tree-map").PrefixTreeMapUnmanaged(IdPart, V, RenderTree.cmpPart);
+    return @import("prefix-tree-map").PrefixTreeMapUnmanaged(IdPart, V, zss.context.cmpPart);
 }
 
 pub const Properties = enum {

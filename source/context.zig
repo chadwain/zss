@@ -14,15 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
-pub const BlockFormattingContext = @import("source/BlockFormattingContext.zig");
-pub const InlineFormattingContext = @import("source/InlineFormattingContext.zig");
-pub const context = @import("source/context.zig");
-pub const stacking_context = @import("source/stacking_context.zig");
-pub const properties = @import("source/properties.zig");
-pub const sdl = @import("source/render/sdl.zig");
-pub const util = @import("source/util.zig");
-pub const offset_tree = @import("source/offset_tree.zig");
+const std = @import("std");
 
-test "" {
-    @import("std").testing.refAllDecls(@This());
+pub const ContextSpecificBoxId = []const ContextSpecificBoxIdPart;
+pub const ContextSpecificBoxIdPart = u16;
+
+pub fn cmpPart(lhs: ContextSpecificBoxIdPart, rhs: ContextSpecificBoxIdPart) std.math.Order {
+    return std.math.order(lhs, rhs);
 }

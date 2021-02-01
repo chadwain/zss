@@ -22,8 +22,8 @@ const expect = std.testing.expect;
 
 const zss = @import("../zss.zig");
 usingnamespace zss.properties;
-const ContextSpecificBoxIdPart = zss.RenderTree.ContextSpecificBoxIdPart;
-const cmpPart = zss.RenderTree.cmpPart;
+const ContextSpecificBoxIdPart = zss.context.ContextSpecificBoxIdPart;
+const cmpPart = zss.context.cmpPart;
 const Offset = zss.util.Offset;
 const BlockFormattingContext = zss.BlockFormattingContext;
 const PrefixTreeMapUnmanaged = @import("prefix-tree-map").PrefixTreeMapUnmanaged;

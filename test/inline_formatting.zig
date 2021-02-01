@@ -213,13 +213,41 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
         try inl_ctx.set(key, .data, .{ .text = bitmap_glyphs });
     }
 
-    var drawState = try zss.sdl.DrawInlineState.init(&inl_ctx, &gpa.allocator);
-    defer drawState.deinit();
+    const stacking_context_root = try zss.stacking_context.StackingContextTree.init(&gpa.allocator);
+    defer stacking_context_root.deinitRecursive(&gpa.allocator);
 
-    _ = try zss.sdl.drawInlineContext(
-        &drawState,
-        renderer,
-        pixelFormat,
-        .{ .x = 0, .y = 0 },
+    var blk_ctx = try zss.BlockFormattingContext.init(&gpa.allocator);
+    defer blk_ctx.deinit();
+    {
+        const key = &[_]Part{0};
+        try blk_ctx.new(key);
+    }
+    var blk_offset_tree = try zss.offset_tree.fromBlockContext(&blk_ctx, &gpa.allocator);
+    defer blk_offset_tree.deinitRecursive(&gpa.allocator);
+
+    _ = try stacking_context_root.insert(
+        &gpa.allocator,
+        &[_]u16{0},
+        zss.stacking_context.StackingContext{
+            .midpoint = 0,
+            .offset = zss.util.Offset{ .x = 0, .y = 0 },
+            .offset_tree = blk_offset_tree,
+            .root = .{ .block = &blk_ctx },
+        },
+        undefined,
     );
+
+    _ = try stacking_context_root.insert(
+        &gpa.allocator,
+        &[_]u16{ 0, 0 },
+        zss.stacking_context.StackingContext{
+            .midpoint = 0,
+            .offset = zss.util.Offset{ .x = 0, .y = 0 },
+            .offset_tree = undefined,
+            .root = .{ .@"inline" = &inl_ctx },
+        },
+        undefined,
+    );
+
+    try zss.sdl.renderStackingContexts(stacking_context_root, &gpa.allocator, renderer, pixelFormat);
 }

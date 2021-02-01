@@ -22,97 +22,86 @@ const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 const zss = @import("../../zss.zig");
 const CSSUnit = zss.properties.CSSUnit;
 const Offset = zss.util.Offset;
-const RenderTree = zss.RenderTree;
+usingnamespace zss.stacking_context;
 
 const block = @import("sdl/block.zig");
-pub const DrawBlockState = block.DrawBlockState;
-pub const drawBackgroundAndBorders = block.drawBackgroundAndBorders;
+pub const drawRootElementBlock = block.drawRootElementBlock;
+pub const drawTopElementBlock = block.drawTopElementBlock;
+pub const drawDescendantBlocks = block.drawDescendantBlocks;
 const @"inline" = @import("sdl/inline.zig");
-pub const DrawInlineState = @"inline".DrawInlineState;
 pub const drawInlineContext = @"inline".drawInlineContext;
 
 const sdl = @import("SDL2");
 
-pub const ContextDrawState = union(enum) {
-    block_state: DrawBlockState,
-    inline_state: DrawInlineState,
-};
-
-pub const StackItem = struct {
-    context_id: RenderTree.ContextId,
-    state: *ContextDrawState,
-    offset: Offset,
-};
-
-pub const RenderState = struct {
-    tree: *const RenderTree,
+pub fn renderStackingContexts(
+    stacking_contexts: *const StackingContextTree,
     allocator: *Allocator,
-    stack: ArrayListUnmanaged(StackItem) = .{},
-    state_map: AutoHashMapUnmanaged(RenderTree.ContextId, ContextDrawState) = .{},
+    renderer: *sdl.SDL_Renderer,
+    pixel_format: *sdl.SDL_PixelFormat,
+) !void {
+    const StackItemInner = struct { val: StackingContext, sc: ?*const StackingContextTree };
+    const StackItem = union(enum) {
+        topElemRender: StackItemInner,
+        descendantsRender: StackItemInner,
+    };
+    var stack = std.ArrayList(StackItem).init(allocator);
+    defer stack.deinit();
 
-    const Self = @This();
-
-    pub fn init(allocator: *Allocator, tree: *const RenderTree) !Self {
-        var result = Self{
-            .allocator = allocator,
-            .tree = tree,
-        };
-        errdefer result.deinit();
-
-        {
-            var it = tree.contexts.iterator();
-            while (it.next()) |entry| {
-                const state = switch (entry.value) {
-                    .block => |b| ContextDrawState{ .block_state = try DrawBlockState.init(b.context, b.offset_tree, Offset{ .x = 0, .y = 0 }, result.allocator) },
-                    .@"inline" => |i| ContextDrawState{ .inline_state = try DrawInlineState.init(i, allocator) },
-                };
-                try result.state_map.putNoClobber(result.allocator, entry.key, state);
+    const ops = struct {
+        fn addLeftSubtree(list: *std.ArrayList(StackItem), context: *const StackingContextTree, midpoint: usize) !void {
+            var i = midpoint;
+            while (i > 0) : (i -= 1) {
+                const value = context.value(i - 1);
+                const child = context.child(i - 1);
+                try list.append(.{ .topElemRender = .{ .val = value, .sc = child } });
             }
         }
 
-        const root = tree.root_context_id;
-        try result.stack.append(
-            result.allocator,
-            StackItem{
-                .context_id = root,
-                .state = &result.state_map.getEntry(root).?.value,
-                .offset = .{ .x = 0, .y = 0 },
-            },
-        );
-
-        return result;
-    }
-
-    pub fn deinit(self: *Self) void {
-        {
-            var it = self.state_map.iterator();
-            while (it.next()) |entry| {
-                switch (entry.value) {
-                    .block_state => |*b| b.deinit(),
-                    .inline_state => |*i| i.deinit(),
-                }
+        fn addRightSubtree(list: *std.ArrayList(StackItem), context: *const StackingContextTree, midpoint: usize) !void {
+            var i = context.numChildren();
+            while (i > midpoint) : (i -= 1) {
+                const value = context.value(i - 1);
+                const child = context.child(i - 1);
+                try list.append(.{ .topElemRender = .{ .val = value, .sc = child } });
             }
         }
-        self.stack.deinit(self.allocator);
-        self.state_map.deinit(self.allocator);
-    }
-};
+    };
 
-pub fn render(state: *RenderState, renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat) !void {
-    const stack = &state.stack;
+    {
+        const value = stacking_contexts.value(0);
+        const child = stacking_contexts.child(0);
+        drawRootElementBlock(value.root.block, value.offset_tree, value.offset, renderer, pixel_format);
+        try stack.append(.{ .descendantsRender = .{ .val = value, .sc = child } });
+        if (child) |sc| try ops.addLeftSubtree(&stack, sc, value.midpoint);
+    }
     while (stack.items.len > 0) {
-        const item = stack.items[stack.items.len - 1];
-        const should_pop = switch (item.state.*) {
-            .block_state => |*b| try drawBackgroundAndBorders(b, state, renderer, pixel_format, item.context_id),
-            .inline_state => |*i| try drawInlineContext(i, renderer, pixel_format, item.offset),
-        };
-        if (should_pop) _ = stack.pop();
+        switch (stack.pop()) {
+            .topElemRender => |item| {
+                switch (item.val.root) {
+                    .block => |b| drawTopElementBlock(b, item.val.offset_tree, item.val.offset, renderer, pixel_format),
+                    else => {},
+                }
+                try stack.append(.{ .descendantsRender = item });
+                if (item.sc) |sc| try ops.addLeftSubtree(&stack, sc, item.val.midpoint);
+            },
+            .descendantsRender => |item| {
+                try renderStackingContext(item.val, allocator, renderer, pixel_format);
+                if (item.sc) |sc| try ops.addRightSubtree(&stack, sc, item.val.midpoint);
+            },
+        }
     }
 }
 
-pub fn pushDescendant(state: *RenderState, context_id: RenderTree.ContextId, offset: Offset) !void {
-    const descendant = &(state.state_map.getEntry(context_id) orelse unreachable).value;
-    try state.stack.append(state.allocator, StackItem{ .context_id = context_id, .state = descendant, .offset = offset });
+fn renderStackingContext(
+    context: StackingContext,
+    allocator: *Allocator,
+    renderer: *sdl.SDL_Renderer,
+    pixel_format: *sdl.SDL_PixelFormat,
+) !void {
+    switch (context.root) {
+        .block => |b| try drawDescendantBlocks(b, allocator, context.offset_tree, context.offset, renderer, pixel_format),
+        .@"inline" => |i| try drawInlineContext(i, allocator, context.offset, renderer, pixel_format),
+    }
 }
 
 pub fn cssUnitToSdlPixel(css: CSSUnit) i32 {
