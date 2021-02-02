@@ -26,16 +26,16 @@ pub const IdPart = zss.context.ContextSpecificBoxIdPart;
 usingnamespace @import("properties.zig");
 
 allocator: *Allocator,
-tree: *TreeMap(bool),
+tree: TreeMap(bool) = .{},
 
-width: *TreeMap(Width),
-height: *TreeMap(Height),
-borders: *TreeMap(Borders),
-padding: *TreeMap(Padding),
-margin_left_right: *TreeMap(MarginLeftRight),
-margin_top_bottom: *TreeMap(MarginTopBottom),
-border_colors: *TreeMap(BorderColor),
-background_color: *TreeMap(BackgroundColor),
+width: TreeMap(Width) = .{},
+height: TreeMap(Height) = .{},
+borders: TreeMap(Borders) = .{},
+padding: TreeMap(Padding) = .{},
+margin_left_right: TreeMap(MarginLeftRight) = .{},
+margin_top_bottom: TreeMap(MarginTopBottom) = .{},
+border_colors: TreeMap(BorderColor) = .{},
+background_color: TreeMap(BackgroundColor) = .{},
 
 const Self = @This();
 
@@ -55,29 +55,12 @@ pub const Properties = enum {
 
     pub fn toType(comptime prop: @This()) type {
         const Enum = std.meta.FieldEnum(Self);
-        return std.meta.Child(@TypeOf(@field(@as(Self, undefined), @tagName(prop)))).Value;
+        return @TypeOf(@field(@as(Self, undefined), @tagName(prop))).Value;
     }
 };
 
-pub fn init(allocator: *Allocator) !Self {
-    var result = @as(Self, undefined);
-    result.allocator = allocator;
-    result.tree = try TreeMap(bool).init(allocator);
-    errdefer result.tree.deinitRecursive(allocator);
-
-    comptime const fields = std.meta.fields(Properties);
-    var count: usize = 0;
-    errdefer {
-        inline for (fields) |f, i| {
-            if (i < count) @field(result, f.name).deinitRecursive(allocator);
-        }
-    }
-    inline for (fields) |f| {
-        @field(result, f.name) = try std.meta.Child(@TypeOf(@field(result, f.name))).init(allocator);
-        count += 1;
-    }
-
-    return result;
+pub fn init(allocator: *Allocator) Self {
+    return Self{ .allocator = allocator };
 }
 
 pub fn deinit(self: *Self) void {

@@ -24,22 +24,21 @@ const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 const zss = @import("../zss.zig");
 pub const Id = zss.context.ContextSpecificBoxId;
 pub const IdPart = zss.context.ContextSpecificBoxIdPart;
-usingnamespace @import("properties.zig");
-const PrefixTreeNode = @import("prefix-tree").PrefixTreeNode;
+usingnamespace zss.properties;
 const ft = @import("freetype");
 
 allocator: *Allocator,
-tree: *TreeMap(bool),
-line_boxes: ArrayListUnmanaged(LineBox),
+tree: TreeMap(bool) = .{},
+line_boxes: ArrayListUnmanaged(LineBox) = .{},
 
-width: *TreeMap(Width),
-height: *TreeMap(Height),
-margin_border_padding_left_right: *TreeMap(MarginBorderPaddingLeftRight),
-margin_border_padding_top_bottom: *TreeMap(MarginBorderPaddingTopBottom),
-border_colors: *TreeMap(BorderColor),
-background_color: *TreeMap(BackgroundColor),
-position: *TreeMap(Position),
-data: *TreeMap(Data),
+width: TreeMap(Width) = .{},
+height: TreeMap(Height) = .{},
+margin_border_padding_left_right: TreeMap(MarginBorderPaddingLeftRight) = .{},
+margin_border_padding_top_bottom: TreeMap(MarginBorderPaddingTopBottom) = .{},
+border_colors: TreeMap(BorderColor) = .{},
+background_color: TreeMap(BackgroundColor) = .{},
+position: TreeMap(Position) = .{},
+data: TreeMap(Data) = .{},
 
 const Self = @This();
 
@@ -74,30 +73,12 @@ pub const Properties = enum {
     data,
 
     pub fn toType(comptime prop: @This()) type {
-        return std.meta.Child(@TypeOf(@field(@as(Self, undefined), @tagName(prop)))).Value;
+        return @TypeOf(@field(@as(Self, undefined), @tagName(prop))).Value;
     }
 };
 
-pub fn init(allocator: *Allocator) !Self {
-    var result = @as(Self, undefined);
-    result.allocator = allocator;
-    result.line_boxes = ArrayListUnmanaged(LineBox){};
-    result.tree = try TreeMap(bool).init(allocator);
-    errdefer result.tree.deinitRecursive(allocator);
-
-    comptime const fields = std.meta.fields(Properties);
-    var count: usize = 0;
-    errdefer {
-        inline for (fields) |f, i| {
-            if (i < count) @field(result, f.name).deinitRecursive(allocator);
-        }
-    }
-    inline for (fields) |f| {
-        @field(result, f.name) = try std.meta.Child(@TypeOf(@field(result, f.name))).init(allocator);
-        count += 1;
-    }
-
-    return result;
+pub fn init(allocator: *Allocator) Self {
+    return Self{ .allocator = allocator };
 }
 
 pub fn deinit(self: *Self) void {

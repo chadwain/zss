@@ -47,8 +47,8 @@ const dummy_padding_node = TreeMap(Padding){};
 const dummy_height_node = TreeMap(Height){};
 const dummy_width_node = TreeMap(Width){};
 
-pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allocator) !*OffsetTree {
-    var result = try OffsetTree.init(allocator);
+pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allocator) !OffsetTree {
+    var result = OffsetTree{};
     errdefer result.deinitRecursive(allocator);
 
     const StackItem = struct {
@@ -65,14 +65,14 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
     var node_stack = ArrayList(StackItem).init(allocator);
     defer node_stack.deinit();
     try node_stack.append(StackItem{
-        .tree = context.tree,
-        .margin_tb = context.margin_top_bottom,
-        .margin_lr = context.margin_left_right,
-        .borders = context.borders,
-        .padding = context.padding,
-        .height = context.height,
-        .width = context.width,
-        .destination = result,
+        .tree = &context.tree,
+        .margin_tb = &context.margin_top_bottom,
+        .margin_lr = &context.margin_left_right,
+        .borders = &context.borders,
+        .padding = &context.padding,
+        .height = &context.height,
+        .width = &context.width,
+        .destination = &result,
     });
 
     while (node_stack.items.len > 0) {
@@ -166,7 +166,8 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
             offset_info.border_top_left.y = offset_info.border_bottom_right.y + mtb.data.margin_bottom;
 
             if (nodes.tree.child(i)) |child_tree| {
-                const child_destination = try OffsetTree.init(allocator);
+                const child_destination = try allocator.create(OffsetTree);
+                child_destination.* = OffsetTree{};
                 nodes.destination.child_nodes.items[i].s = child_destination;
 
                 try node_stack.append(StackItem{

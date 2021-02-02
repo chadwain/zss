@@ -104,7 +104,7 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
     var offset_tree_5 = try zss.offset_tree.fromBlockContext(&ctx5, &gpa.allocator);
     defer offset_tree_5.deinitRecursive(&gpa.allocator);
 
-    const stacking_context_root = try zss.stacking_context.StackingContextTree.init(&gpa.allocator);
+    var stacking_context_root = zss.stacking_context.StackingContextTree{};
     defer stacking_context_root.deinitRecursive(&gpa.allocator);
 
     _ = try stacking_context_root.insert(
@@ -113,7 +113,7 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
         zss.stacking_context.StackingContext{
             .midpoint = 2,
             .offset = zss.util.Offset{ .x = 0, .y = 0 },
-            .offset_tree = offset_tree_1,
+            .offset_tree = &offset_tree_1,
             .root = .{ .block = &ctx1 },
         },
         undefined,
@@ -125,7 +125,7 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
         zss.stacking_context.StackingContext{
             .midpoint = 0,
             .offset = zss.util.Offset{ .x = 100, .y = 110 },
-            .offset_tree = offset_tree_2,
+            .offset_tree = &offset_tree_2,
             .root = .{ .block = &ctx2 },
         },
         undefined,
@@ -137,7 +137,7 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
         zss.stacking_context.StackingContext{
             .midpoint = 0,
             .offset = zss.util.Offset{ .x = 600, .y = 110 },
-            .offset_tree = offset_tree_3,
+            .offset_tree = &offset_tree_3,
             .root = .{ .block = &ctx3 },
         },
         undefined,
@@ -149,7 +149,7 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
         zss.stacking_context.StackingContext{
             .midpoint = 1,
             .offset = zss.util.Offset{ .x = 400, .y = 450 },
-            .offset_tree = offset_tree_4,
+            .offset_tree = &offset_tree_4,
             .root = .{ .block = &ctx4 },
         },
         undefined,
@@ -161,17 +161,17 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
         zss.stacking_context.StackingContext{
             .midpoint = 0,
             .offset = zss.util.Offset{ .x = 200, .y = 350 },
-            .offset_tree = offset_tree_5,
+            .offset_tree = &offset_tree_5,
             .root = .{ .block = &ctx5 },
         },
         undefined,
     );
 
-    try zss.sdl.renderStackingContexts(stacking_context_root, &gpa.allocator, renderer, pixel_format);
+    try zss.sdl.renderStackingContexts(&stacking_context_root, &gpa.allocator, renderer, pixel_format);
 }
 
 fn exampleBlockContext1(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
-    var blk_ctx = try zss.BlockFormattingContext.init(allocator);
+    var blk_ctx = zss.BlockFormattingContext.init(allocator);
     errdefer blk_ctx.deinit();
 
     const Part = zss.BlockFormattingContext.IdPart;
@@ -207,7 +207,7 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
 }
 
 fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
-    var blk_ctx = try zss.BlockFormattingContext.init(allocator);
+    var blk_ctx = zss.BlockFormattingContext.init(allocator);
     errdefer blk_ctx.deinit();
 
     const Part = zss.BlockFormattingContext.IdPart;
@@ -225,7 +225,7 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
 }
 
 fn exampleBlockContext3(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
-    var blk_ctx = try zss.BlockFormattingContext.init(allocator);
+    var blk_ctx = zss.BlockFormattingContext.init(allocator);
     errdefer blk_ctx.deinit();
 
     const Part = zss.BlockFormattingContext.IdPart;
@@ -252,7 +252,7 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
 }
 
 fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
-    var blk_ctx = try zss.BlockFormattingContext.init(allocator);
+    var blk_ctx = zss.BlockFormattingContext.init(allocator);
     errdefer blk_ctx.deinit();
 
     const Part = zss.BlockFormattingContext.IdPart;
@@ -270,7 +270,7 @@ fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
 }
 
 fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
-    var blk_ctx = try zss.BlockFormattingContext.init(allocator);
+    var blk_ctx = zss.BlockFormattingContext.init(allocator);
     errdefer blk_ctx.deinit();
 
     const Part = zss.BlockFormattingContext.IdPart;

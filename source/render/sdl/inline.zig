@@ -32,7 +32,7 @@ const ft = @import("freetype");
 
 const StackItem = struct {
     id_part: InlineFormattingContext.IdPart,
-    node: ?TreeNode,
+    node: ?*const TreeNode,
 };
 
 pub const DrawInlineState = struct {
@@ -47,7 +47,7 @@ pub const DrawInlineState = struct {
             .id = ArrayList(InlineFormattingContext.IdPart).init(allocator),
         };
 
-        try addChildrenToStack(&result.stack, result.context.tree);
+        try addChildrenToStack(&result.stack, &result.context.tree);
         return result;
     }
 
@@ -84,7 +84,7 @@ pub fn drawInlineContext(
 
 fn addChildrenToStack(
     stack: *ArrayList(?StackItem),
-    node: TreeNode,
+    node: *const TreeNode,
 ) !void {
     const prev_len = stack.items.len;
     const num_children = node.numChildren();
