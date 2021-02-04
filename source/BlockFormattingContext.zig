@@ -36,6 +36,7 @@ margin_left_right: TreeMap(MarginLeftRight) = .{},
 margin_top_bottom: TreeMap(MarginTopBottom) = .{},
 border_colors: TreeMap(BorderColor) = .{},
 background_color: TreeMap(BackgroundColor) = .{},
+visual_effect: TreeMap(VisualEffect) = .{},
 
 const Self = @This();
 
@@ -52,6 +53,7 @@ pub const Properties = enum {
     margin_top_bottom,
     border_colors,
     background_color,
+    visual_effect,
 
     pub fn toType(comptime prop: @This()) type {
         const Enum = std.meta.FieldEnum(Self);

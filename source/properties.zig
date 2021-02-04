@@ -97,3 +97,9 @@ pub const BorderColor = struct {
 pub const BackgroundColor = struct {
     rgba: u32 = 0,
 };
+
+/// Contains the used value of the properties 'overflow' and 'visibility'.
+pub const VisualEffect = struct {
+    overflow: enum { Visible, Hidden } = .Visible,
+    visibility: enum { Visible, Hidden } = .Visible,
+};

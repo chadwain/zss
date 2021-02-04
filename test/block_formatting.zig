@@ -144,7 +144,7 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
         &[_]u16{ 0, 1 },
         zss.stacking_context.StackingContext{
             .midpoint = 0,
-            .offset = zss.util.Offset{ .x = 600, .y = 110 },
+            .offset = zss.util.Offset{ .x = 500, .y = 110 },
             .inner_context = .{
                 .block = .{
                     .context = &ctx3,
@@ -213,6 +213,7 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
         try blk_ctx.set(root_0, .background_color, .{ .rgba = 0x00df1213 });
         try blk_ctx.set(root_0, .margin_left_right, .{ .margin_left = 250 });
         try blk_ctx.set(root_0, .margin_top_bottom, .{ .margin_top = 50 });
+        try blk_ctx.set(root_0, .visual_effect, .{ .visibility = .Hidden });
     }
 
     const root_0_0 = root_0 ++ [_]Part{0};
@@ -254,8 +255,11 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     {
         try blk_ctx.new(root);
         try blk_ctx.set(root, .width, .{ .width = 400 });
-        try blk_ctx.set(root, .height, .{ .height = 25 });
+        try blk_ctx.set(root, .height, .{ .height = 150 });
+        try blk_ctx.set(root, .padding, .{ .padding_top = 20 });
+        try blk_ctx.set(root, .borders, .{ .border_top = 10, .border_right = 10, .border_bottom = 10, .border_left = 10 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0x592b1cff });
+        try blk_ctx.set(root, .visual_effect, .{ .overflow = .Hidden });
     }
 
     const root_0 = root ++ [_]Part{0};
@@ -263,9 +267,11 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
         try blk_ctx.new(root_0);
         try blk_ctx.set(root_0, .width, .{ .width = 100 });
         try blk_ctx.set(root_0, .height, .{ .height = 100 });
+        try blk_ctx.set(root_0, .borders, .{ .border_top = 10, .border_right = 10, .border_bottom = 10, .border_left = 10 });
+        try blk_ctx.set(root_0, .border_colors, .{ .top_rgba = 0x789b58ff, .right_rgba = 0x789b58ff, .bottom_rgba = 0x789b58ff, .left_rgba = 0x789b58ff });
         try blk_ctx.set(root_0, .background_color, .{ .rgba = 0x9500abff });
         try blk_ctx.set(root_0, .margin_left_right, .{ .margin_left = -25 });
-        try blk_ctx.set(root_0, .margin_top_bottom, .{ .margin_top = 20 });
+        try blk_ctx.set(root_0, .margin_top_bottom, .{ .margin_top = -30 });
     }
 
     return blk_ctx;
