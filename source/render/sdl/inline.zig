@@ -57,6 +57,8 @@ pub const DrawInlineState = struct {
     }
 };
 
+// TODO According to §Appendix E Step 7.2.1, the elements of inline contexts
+// are not drawn in tree order, but rather line box order then tree order.
 pub fn drawInlineContext(
     context: *const InlineFormattingContext,
     allocator: *Allocator,

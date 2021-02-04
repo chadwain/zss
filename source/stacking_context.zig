@@ -24,10 +24,14 @@ const OffsetTree = zss.offset_tree.OffsetTree;
 pub const StackingContext = struct {
     midpoint: usize,
     offset: zss.util.Offset,
-    offset_tree: *const OffsetTree,
-    root: union(enum) {
-        block: *const BlockFormattingContext,
-        @"inline": *const InlineFormattingContext,
+    inner_context: union(enum) {
+        block: struct {
+            context: *const BlockFormattingContext,
+            offset_tree: *const OffsetTree,
+        },
+        inl: struct {
+            context: *const InlineFormattingContext,
+        },
     },
 };
 

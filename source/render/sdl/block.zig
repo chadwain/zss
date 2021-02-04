@@ -34,15 +34,15 @@ fn TreeMap(comptime V: type) type {
     return @import("prefix-tree-map").PrefixTreeMapUnmanaged(zss.context.ContextSpecificBoxIdPart, V, zss.context.cmpPart);
 }
 
-/// Draws the background color, background image, and borders of the
-/// root element box. This function should only be called with the block
-/// context that contains the root element. This implements §Appendix E.2 1.
+/// Draws the background color, background image, and borders of the root
+/// element box. This function should only be called with the block context
+/// that contains the root element. This implements §Appendix E.2 Step 1.
 ///
 /// TODO draw background images differently for the root element
 pub const drawRootElementBlock = drawTopElementBlock;
 
 /// Draws the background color, background image, and borders of a
-/// block box. This implements §Appendix E.2 2.
+/// block box. This implements §Appendix E.2 Step 2.
 ///
 /// TODO support table boxes
 pub fn drawTopElementBlock(
@@ -63,7 +63,7 @@ pub fn drawTopElementBlock(
 
 /// Draws the background color, background image, and borders of all of the
 /// descendant boxes in a block context (i.e. excluding the top element).
-/// This implements §Appendix E.2 4.
+/// This implements §Appendix E.2 Step 4.
 ///
 /// TODO support table boxes
 pub fn drawDescendantBlocks(

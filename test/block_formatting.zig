@@ -113,8 +113,12 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
         zss.stacking_context.StackingContext{
             .midpoint = 2,
             .offset = zss.util.Offset{ .x = 0, .y = 0 },
-            .offset_tree = &offset_tree_1,
-            .root = .{ .block = &ctx1 },
+            .inner_context = .{
+                .block = .{
+                    .context = &ctx1,
+                    .offset_tree = &offset_tree_1,
+                },
+            },
         },
         undefined,
     );
@@ -125,8 +129,12 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
         zss.stacking_context.StackingContext{
             .midpoint = 0,
             .offset = zss.util.Offset{ .x = 100, .y = 110 },
-            .offset_tree = &offset_tree_2,
-            .root = .{ .block = &ctx2 },
+            .inner_context = .{
+                .block = .{
+                    .context = &ctx2,
+                    .offset_tree = &offset_tree_2,
+                },
+            },
         },
         undefined,
     );
@@ -137,8 +145,12 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
         zss.stacking_context.StackingContext{
             .midpoint = 0,
             .offset = zss.util.Offset{ .x = 600, .y = 110 },
-            .offset_tree = &offset_tree_3,
-            .root = .{ .block = &ctx3 },
+            .inner_context = .{
+                .block = .{
+                    .context = &ctx3,
+                    .offset_tree = &offset_tree_3,
+                },
+            },
         },
         undefined,
     );
@@ -149,8 +161,12 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
         zss.stacking_context.StackingContext{
             .midpoint = 1,
             .offset = zss.util.Offset{ .x = 400, .y = 450 },
-            .offset_tree = &offset_tree_4,
-            .root = .{ .block = &ctx4 },
+            .inner_context = .{
+                .block = .{
+                    .context = &ctx4,
+                    .offset_tree = &offset_tree_4,
+                },
+            },
         },
         undefined,
     );
@@ -161,8 +177,12 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
         zss.stacking_context.StackingContext{
             .midpoint = 0,
             .offset = zss.util.Offset{ .x = 200, .y = 350 },
-            .offset_tree = &offset_tree_5,
-            .root = .{ .block = &ctx5 },
+            .inner_context = .{
+                .block = .{
+                    .context = &ctx5,
+                    .offset_tree = &offset_tree_5,
+                },
+            },
         },
         undefined,
     );
