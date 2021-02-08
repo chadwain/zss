@@ -44,8 +44,7 @@ const dummy_margin_tb_node = TreeMap(MarginTopBottom){};
 const dummy_margin_lr_node = TreeMap(MarginLeftRight){};
 const dummy_borders_node = TreeMap(Borders){};
 const dummy_padding_node = TreeMap(Padding){};
-const dummy_height_node = TreeMap(Height){};
-const dummy_width_node = TreeMap(Width){};
+const dummy_dimension_node = TreeMap(Dimension){};
 
 pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allocator) !OffsetTree {
     var result = OffsetTree{};
@@ -57,8 +56,7 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
         margin_lr: *const TreeMap(MarginLeftRight),
         borders: *const TreeMap(Borders),
         padding: *const TreeMap(Padding),
-        height: *const TreeMap(Height),
-        width: *const TreeMap(Width),
+        dimension: *const TreeMap(Dimension),
         destination: *OffsetTree,
     };
 
@@ -70,8 +68,7 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
         .margin_lr = &context.margin_left_right,
         .borders = &context.borders,
         .padding = &context.padding,
-        .height = &context.height,
-        .width = &context.width,
+        .dimension = &context.dimension,
         .destination = &result,
     });
 
@@ -90,23 +87,21 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
         var i_margin_lr: usize = 0;
         var i_borders: usize = 0;
         var i_padding: usize = 0;
-        var i_height: usize = 0;
-        var i_width: usize = 0;
+        var i_dimension: usize = 0;
         while (i < nodes.tree.numChildren()) : (i += 1) {
             const part = nodes.tree.parts.items[i];
             if (!(i < nodes.destination.numChildren() and nodes.destination.parts.items[i] == part)) {
                 assert(i == try nodes.destination.newEdge(allocator, part, undefined, null));
             }
 
-            // TODO This code is a disaster.
-            const mtb: struct { data: MarginTopBottom, child: *const TreeMap(MarginTopBottom) } =
-                if (i_margin_tb < nodes.margin_tb.numChildren() and nodes.margin_tb.parts.items[i_margin_tb] == part)
+            const dimension: struct { data: Dimension, child: *const TreeMap(Dimension) } =
+                if (i_dimension < nodes.dimension.numChildren() and nodes.dimension.parts.items[i_dimension] == part)
             blk: {
-                const data = nodes.margin_tb.value(i_margin_tb);
-                const child = nodes.margin_tb.child(i_margin_tb);
-                i_margin_tb += 1;
-                break :blk .{ .data = data, .child = child orelse &dummy_margin_tb_node };
-            } else .{ .data = MarginTopBottom{}, .child = &dummy_margin_tb_node };
+                const data = nodes.dimension.value(i_dimension);
+                const child = nodes.dimension.child(i_dimension);
+                i_dimension += 1;
+                break :blk .{ .data = data, .child = child orelse &dummy_dimension_node };
+            } else .{ .data = Dimension{}, .child = &dummy_dimension_node };
             const borders: struct { data: Borders, child: *const TreeMap(Borders) } =
                 if (i_borders < nodes.borders.numChildren() and nodes.borders.parts.items[i_borders] == part)
             blk: {
@@ -115,23 +110,6 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
                 i_borders += 1;
                 break :blk .{ .data = data, .child = child orelse &dummy_borders_node };
             } else .{ .data = Borders{}, .child = &dummy_borders_node };
-            const height: struct { data: Height, child: *const TreeMap(Height) } =
-                if (i_height < nodes.height.numChildren() and nodes.height.parts.items[i_height] == part)
-            blk: {
-                const data = nodes.height.value(i_height);
-                const child = nodes.height.child(i_height);
-                i_height += 1;
-                break :blk .{ .data = data, .child = child orelse &dummy_height_node };
-            } else .{ .data = Height{}, .child = &dummy_height_node };
-
-            const mlr: struct { data: MarginLeftRight, child: *const TreeMap(MarginLeftRight) } =
-                if (i_margin_lr < nodes.margin_lr.numChildren() and nodes.margin_lr.parts.items[i_margin_lr] == part)
-            blk: {
-                const data = nodes.margin_lr.value(i_margin_lr);
-                const child = nodes.margin_lr.child(i_margin_lr);
-                i_margin_lr += 1;
-                break :blk .{ .data = data, .child = child orelse &dummy_margin_lr_node };
-            } else .{ .data = MarginLeftRight{}, .child = &dummy_margin_lr_node };
             const padding: struct { data: Padding, child: *const TreeMap(Padding) } =
                 if (i_padding < nodes.padding.numChildren() and nodes.padding.parts.items[i_padding] == part)
             blk: {
@@ -140,30 +118,39 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
                 i_padding += 1;
                 break :blk .{ .data = data, .child = child orelse &dummy_padding_node };
             } else .{ .data = Padding{}, .child = &dummy_padding_node };
-            const width: struct { data: Width, child: *const TreeMap(Width) } =
-                if (i_width < nodes.width.numChildren() and nodes.width.parts.items[i_width] == part)
-            blk: {
-                const data = nodes.width.value(i_width);
-                const child = nodes.width.child(i_width);
-                i_width += 1;
-                break :blk .{ .data = data, .child = child orelse &dummy_width_node };
-            } else .{ .data = Width{}, .child = &dummy_width_node };
 
-            offset_info.border_top_left = Offset{ .x = mlr.data.margin_left, .y = offset_info.border_top_left.y + mtb.data.margin_top };
+            const mtb: struct { data: MarginTopBottom, child: *const TreeMap(MarginTopBottom) } =
+                if (i_margin_tb < nodes.margin_tb.numChildren() and nodes.margin_tb.parts.items[i_margin_tb] == part)
+            blk: {
+                const data = nodes.margin_tb.value(i_margin_tb);
+                const child = nodes.margin_tb.child(i_margin_tb);
+                i_margin_tb += 1;
+                break :blk .{ .data = data, .child = child orelse &dummy_margin_tb_node };
+            } else .{ .data = MarginTopBottom{}, .child = &dummy_margin_tb_node };
+            const mlr: struct { data: MarginLeftRight, child: *const TreeMap(MarginLeftRight) } =
+                if (i_margin_lr < nodes.margin_lr.numChildren() and nodes.margin_lr.parts.items[i_margin_lr] == part)
+            blk: {
+                const data = nodes.margin_lr.value(i_margin_lr);
+                const child = nodes.margin_lr.child(i_margin_lr);
+                i_margin_lr += 1;
+                break :blk .{ .data = data, .child = child orelse &dummy_margin_lr_node };
+            } else .{ .data = MarginLeftRight{}, .child = &dummy_margin_lr_node };
+
+            offset_info.border_top_left = Offset{ .x = mlr.data.left, .y = offset_info.border_top_left.y + mtb.data.top };
             offset_info.content_top_left = Offset{
-                .x = offset_info.border_top_left.x + borders.data.border_left + padding.data.padding_left,
-                .y = offset_info.border_top_left.y + borders.data.border_top + padding.data.padding_top,
+                .x = offset_info.border_top_left.x + borders.data.left + padding.data.left,
+                .y = offset_info.border_top_left.y + borders.data.top + padding.data.top,
             };
             offset_info.content_bottom_right = Offset{
-                .x = offset_info.content_top_left.x + width.data.width,
-                .y = offset_info.content_top_left.y + height.data.height,
+                .x = offset_info.content_top_left.x + dimension.data.width,
+                .y = offset_info.content_top_left.y + dimension.data.height,
             };
             offset_info.border_bottom_right = Offset{
-                .x = offset_info.content_bottom_right.x + borders.data.border_right + padding.data.padding_right,
-                .y = offset_info.content_bottom_right.y + borders.data.border_bottom + padding.data.padding_bottom,
+                .x = offset_info.content_bottom_right.x + borders.data.right + padding.data.right,
+                .y = offset_info.content_bottom_right.y + borders.data.bottom + padding.data.bottom,
             };
             nodes.destination.values.items[i] = offset_info;
-            offset_info.border_top_left.y = offset_info.border_bottom_right.y + mtb.data.margin_bottom;
+            offset_info.border_top_left.y = offset_info.border_bottom_right.y + mtb.data.bottom;
 
             if (nodes.tree.child(i)) |child_tree| {
                 const child_destination = try allocator.create(OffsetTree);
@@ -176,8 +163,7 @@ pub fn fromBlockContext(context: *const BlockFormattingContext, allocator: *Allo
                     .margin_lr = mlr.child,
                     .borders = borders.child,
                     .padding = padding.child,
-                    .height = height.child,
-                    .width = width.child,
+                    .dimension = dimension.child,
                     .destination = child_destination,
                 });
             }
@@ -192,7 +178,7 @@ test "fromBlockContext" {
     defer expect(!gpa.deinit());
     const al = &gpa.allocator;
 
-    var blkctx = try BlockFormattingContext.init(al);
+    var blkctx = BlockFormattingContext.init(al);
     defer blkctx.deinit();
 
     const keys = [_][]const ContextSpecificBoxIdPart{
@@ -207,9 +193,9 @@ test "fromBlockContext" {
         try blkctx.new(k);
     }
 
-    try blkctx.set(keys[0], .borders, Borders{ .border_left = 100 });
-    try blkctx.set(keys[0], .height, Height{ .height = 400 });
-    try blkctx.set(keys[2], .height, Height{ .height = 50 });
+    try blkctx.set(keys[0], .borders, Borders{ .left = 100 });
+    try blkctx.set(keys[0], .dimension, Dimension{ .height = 400 });
+    try blkctx.set(keys[2], .dimension, Dimension{ .height = 50 });
 
     var offsets = try fromBlockContext(&blkctx, al);
     defer offsets.deinitRecursive(al);

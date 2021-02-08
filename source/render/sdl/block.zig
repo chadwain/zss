@@ -166,10 +166,10 @@ pub fn drawDescendantBlocks(
             .Visible => initial_clip_rect,
             .Hidden => blk: {
                 const padding_rect = SDL_Rect{
-                    .x = sdl.cssUnitToSdlPixel(offset.x + offset_info.border_top_left.x + borders.data.border_left),
-                    .y = sdl.cssUnitToSdlPixel(offset.y + offset_info.border_top_left.y + borders.data.border_top),
-                    .w = sdl.cssUnitToSdlPixel((offset_info.border_bottom_right.x - borders.data.border_right) - (offset_info.border_top_left.x + borders.data.border_left)),
-                    .h = sdl.cssUnitToSdlPixel((offset_info.border_bottom_right.y - borders.data.border_bottom) - (offset_info.border_top_left.y + borders.data.border_top)),
+                    .x = sdl.cssUnitToSdlPixel(offset.x + offset_info.border_top_left.x + borders.data.left),
+                    .y = sdl.cssUnitToSdlPixel(offset.y + offset_info.border_top_left.y + borders.data.top),
+                    .w = sdl.cssUnitToSdlPixel((offset_info.border_bottom_right.x - borders.data.right) - (offset_info.border_top_left.x + borders.data.left)),
+                    .h = sdl.cssUnitToSdlPixel((offset_info.border_bottom_right.y - borders.data.bottom) - (offset_info.border_top_left.y + borders.data.top)),
                 };
 
                 var intersect: SDL_Rect = undefined;
@@ -250,10 +250,10 @@ pub fn drawDescendantBlocks(
                     .Visible => stack_item.clip_rect,
                     .Hidden => blk: {
                         const padding_rect = SDL_Rect{
-                            .x = sdl.cssUnitToSdlPixel(stack_item.offset.x + offsets.border_top_left.x + borders.data.border_left),
-                            .y = sdl.cssUnitToSdlPixel(stack_item.offset.y + offsets.border_top_left.y + borders.data.border_top),
-                            .w = sdl.cssUnitToSdlPixel((offsets.border_bottom_right.x - borders.data.border_right) - (offsets.border_top_left.x + borders.data.border_left)),
-                            .h = sdl.cssUnitToSdlPixel((offsets.border_bottom_right.y - borders.data.border_bottom) - (offsets.border_top_left.y + borders.data.border_top)),
+                            .x = sdl.cssUnitToSdlPixel(stack_item.offset.x + offsets.border_top_left.x + borders.data.left),
+                            .y = sdl.cssUnitToSdlPixel(stack_item.offset.y + offsets.border_top_left.y + borders.data.top),
+                            .w = sdl.cssUnitToSdlPixel((offsets.border_bottom_right.x - borders.data.right) - (offsets.border_top_left.x + borders.data.left)),
+                            .h = sdl.cssUnitToSdlPixel((offsets.border_bottom_right.y - borders.data.bottom) - (offsets.border_top_left.y + borders.data.top)),
                         };
                         var intersect: SDL_Rect = undefined;
                         if (stack_item.clip_rect) |*cr| {
@@ -300,7 +300,7 @@ fn drawBackgroundAndBorders(
     const border_y = offset.y + offset_info.border_top_left.y;
     const bg_width = offset_info.border_bottom_right.x - offset_info.border_top_left.x;
     const bg_height = offset_info.border_bottom_right.y - offset_info.border_top_left.y;
-    const border_lr_height = bg_height - borders.border_top - borders.border_bottom;
+    const border_lr_height = bg_height - borders.top - borders.bottom;
     const rects = [_]SDL_Rect{
         // background
         SDL_Rect{
@@ -314,27 +314,27 @@ fn drawBackgroundAndBorders(
             .x = sdl.cssUnitToSdlPixel(border_x),
             .y = sdl.cssUnitToSdlPixel(border_y),
             .w = sdl.cssUnitToSdlPixel(bg_width),
-            .h = sdl.cssUnitToSdlPixel(borders.border_top),
+            .h = sdl.cssUnitToSdlPixel(borders.top),
         },
         // right border
         SDL_Rect{
-            .x = sdl.cssUnitToSdlPixel(border_x + bg_width - borders.border_right),
-            .y = sdl.cssUnitToSdlPixel(border_y + borders.border_top),
-            .w = sdl.cssUnitToSdlPixel(borders.border_right),
+            .x = sdl.cssUnitToSdlPixel(border_x + bg_width - borders.right),
+            .y = sdl.cssUnitToSdlPixel(border_y + borders.top),
+            .w = sdl.cssUnitToSdlPixel(borders.right),
             .h = sdl.cssUnitToSdlPixel(border_lr_height),
         },
         // bottom border
         SDL_Rect{
             .x = sdl.cssUnitToSdlPixel(border_x),
-            .y = sdl.cssUnitToSdlPixel(border_y + bg_height - borders.border_bottom),
+            .y = sdl.cssUnitToSdlPixel(border_y + bg_height - borders.bottom),
             .w = sdl.cssUnitToSdlPixel(bg_width),
-            .h = sdl.cssUnitToSdlPixel(borders.border_bottom),
+            .h = sdl.cssUnitToSdlPixel(borders.bottom),
         },
         //left border
         SDL_Rect{
             .x = sdl.cssUnitToSdlPixel(border_x),
-            .y = sdl.cssUnitToSdlPixel(border_y + borders.border_top),
-            .w = sdl.cssUnitToSdlPixel(borders.border_left),
+            .y = sdl.cssUnitToSdlPixel(border_y + borders.top),
+            .w = sdl.cssUnitToSdlPixel(borders.left),
             .h = sdl.cssUnitToSdlPixel(border_lr_height),
         },
     };

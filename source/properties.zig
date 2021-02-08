@@ -18,46 +18,42 @@
 /// computations.
 pub const CSSUnit = i32;
 
-/// Contains the used value of the 'width' property.
-pub const Width = struct {
+/// Contains the used value of the 'width' and 'height' properties.
+pub const Dimension = struct {
     width: CSSUnit = 0,
-};
-
-/// Contains the used value of the 'height' property.
-pub const Height = struct {
     height: CSSUnit = 0,
 };
 
 /// Contains the used values of the properties 'border-top-width',
 /// 'border-right-width', 'border-bottom-width', and 'border-left-width'.
 pub const Borders = struct {
-    border_top: CSSUnit = 0,
-    border_right: CSSUnit = 0,
-    border_bottom: CSSUnit = 0,
-    border_left: CSSUnit = 0,
+    top: CSSUnit = 0,
+    right: CSSUnit = 0,
+    bottom: CSSUnit = 0,
+    left: CSSUnit = 0,
 };
 
 /// Contains the used values of the properties 'padding-top',
 /// 'padding-right', 'padding-bottom', and 'padding-left'.
 pub const Padding = struct {
-    padding_top: CSSUnit = 0,
-    padding_right: CSSUnit = 0,
-    padding_bottom: CSSUnit = 0,
-    padding_left: CSSUnit = 0,
+    top: CSSUnit = 0,
+    right: CSSUnit = 0,
+    bottom: CSSUnit = 0,
+    left: CSSUnit = 0,
 };
 
 /// Contains the used values of the properties 'margin-left', and
 /// 'margin-right'.
 pub const MarginLeftRight = struct {
-    margin_left: CSSUnit = 0,
-    margin_right: CSSUnit = 0,
+    left: CSSUnit = 0,
+    right: CSSUnit = 0,
 };
 
 /// Contains the used values of the properties 'margin-top', and
 /// 'margin-bottom'.
 pub const MarginTopBottom = struct {
-    margin_top: CSSUnit = 0,
-    margin_bottom: CSSUnit = 0,
+    top: CSSUnit = 0,
+    bottom: CSSUnit = 0,
 };
 
 /// Contains the used values of the properties 'margin-left',

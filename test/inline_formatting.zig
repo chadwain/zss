@@ -117,8 +117,7 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
     {
         const key = &[_]Part{0};
         try inl_ctx.new(key);
-        try inl_ctx.set(key, .width, .{ .width = 400 });
-        try inl_ctx.set(key, .height, .{ .height = 30 });
+        try inl_ctx.set(key, .dimension, .{ .width = 400, .height = 30 });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0xff223300 });
         try inl_ctx.set(key, .position, .{ .line_box_index = 0, .advance = 0, .ascender = 30 });
         try inl_ctx.set(key, .data, .{ .empty_space = {} });
@@ -127,8 +126,7 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
     {
         const key = &[_]Part{1};
         try inl_ctx.new(key);
-        try inl_ctx.set(key, .width, .{ .width = 400 });
-        try inl_ctx.set(key, .height, .{ .height = 20 });
+        try inl_ctx.set(key, .dimension, .{ .width = 400, .height = 20 });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0x00df1213 });
         try inl_ctx.set(key, .position, .{ .line_box_index = 0, .advance = 400, .ascender = 20 });
         try inl_ctx.set(key, .data, .{ .empty_space = {} });
@@ -137,8 +135,7 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
     {
         const key = &[_]Part{2};
         try inl_ctx.new(key);
-        try inl_ctx.set(key, .width, .{ .width = 40 });
-        try inl_ctx.set(key, .height, .{ .height = 40 });
+        try inl_ctx.set(key, .dimension, .{ .width = 40, .height = 40 });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0x5c76d3ff });
         try inl_ctx.set(key, .position, .{ .line_box_index = 1, .advance = 200, .ascender = 40 });
         try inl_ctx.set(key, .data, .{ .empty_space = {} });
@@ -147,8 +144,7 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
     {
         const key = &[_]Part{3};
         try inl_ctx.new(key);
-        try inl_ctx.set(key, .width, .{ .width = 40 });
-        try inl_ctx.set(key, .height, .{ .height = 40 });
+        try inl_ctx.set(key, .dimension, .{ .width = 40, .height = 40 });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0x306892ff });
         try inl_ctx.set(key, .position, .{ .line_box_index = 1, .advance = 240, .ascender = 20 });
         try inl_ctx.set(key, .data, .{ .empty_space = {} });
@@ -204,8 +200,7 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
     {
         const key = &[_]Part{4};
         try inl_ctx.new(key);
-        try inl_ctx.set(key, .width, .{ .width = 400 });
-        try inl_ctx.set(key, .height, .{ .height = measurements.height });
+        try inl_ctx.set(key, .dimension, .{ .width = 400, .height = measurements.height });
         try inl_ctx.set(key, .background_color, .{ .rgba = 0xff223300 });
         try inl_ctx.set(key, .margin_border_padding_top_bottom, .{ .border_top = 10, .border_bottom = 10 });
         try inl_ctx.set(key, .border_colors, .{ .top_rgba = 0xff839175, .bottom_rgba = 0xff839175 });

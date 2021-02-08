@@ -110,8 +110,7 @@ fn drawInlineElement(
     pixel_format: *SDL_PixelFormat,
     offset: Offset,
 ) !void {
-    const width = context.get(id, .width);
-    const height = context.get(id, .height);
+    const dimension = context.get(id, .dimension);
     const mbplr = context.get(id, .margin_border_padding_left_right);
     const mbptb = context.get(id, .margin_border_padding_top_bottom);
     const border_colors = context.get(id, .border_colors);
@@ -128,8 +127,8 @@ fn drawInlineElement(
     const content_y = ascender_top;
     const border_x = margin_x + mbplr.margin_left;
     const border_y = content_y - mbptb.padding_top - mbptb.border_top;
-    const padding_height = height.height + mbptb.padding_top + mbptb.padding_bottom;
-    const full_width = width.width + mbplr.border_left + mbplr.border_right + mbplr.padding_left + mbplr.padding_right;
+    const padding_height = dimension.height + mbptb.padding_top + mbptb.padding_bottom;
+    const full_width = dimension.width + mbplr.border_left + mbplr.border_right + mbplr.padding_left + mbplr.padding_right;
     const full_height = padding_height + mbptb.border_top + mbptb.border_bottom;
 
     const colors = [_]u32{

@@ -199,28 +199,25 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     const root = &[_]Part{0};
     {
         try blk_ctx.new(root);
-        try blk_ctx.set(root, .width, .{ .width = 700 });
-        try blk_ctx.set(root, .height, .{ .height = 550 });
+        try blk_ctx.set(root, .dimension, .{ .width = 700, .height = 550 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0xff223300 });
-        try blk_ctx.set(root, .padding, .{ .padding_left = 100, .padding_top = 50 });
+        try blk_ctx.set(root, .padding, .{ .left = 100, .top = 50 });
     }
 
     const root_0 = root ++ [_]Part{0};
     {
         try blk_ctx.new(root_0);
-        try blk_ctx.set(root_0, .width, .{ .width = 100 });
-        try blk_ctx.set(root_0, .height, .{ .height = 100 });
+        try blk_ctx.set(root_0, .dimension, .{ .width = 100, .height = 100 });
         try blk_ctx.set(root_0, .background_color, .{ .rgba = 0x00df1213 });
-        try blk_ctx.set(root_0, .margin_left_right, .{ .margin_left = 250 });
-        try blk_ctx.set(root_0, .margin_top_bottom, .{ .margin_top = 50 });
+        try blk_ctx.set(root_0, .margin_left_right, .{ .left = 250 });
+        try blk_ctx.set(root_0, .margin_top_bottom, .{ .top = 50 });
         try blk_ctx.set(root_0, .visual_effect, .{ .visibility = .Hidden });
     }
 
     const root_0_0 = root_0 ++ [_]Part{0};
     {
         try blk_ctx.new(root_0_0);
-        try blk_ctx.set(root_0_0, .width, .{ .width = 40 });
-        try blk_ctx.set(root_0_0, .height, .{ .height = 40 });
+        try blk_ctx.set(root_0_0, .dimension, .{ .width = 40, .height = 40 });
         try blk_ctx.set(root_0_0, .background_color, .{ .rgba = 0x5c76d3ff });
     }
 
@@ -236,9 +233,8 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     const root = &[_]Part{0};
     {
         try blk_ctx.new(root);
-        try blk_ctx.set(root, .width, .{ .width = 100 });
-        try blk_ctx.set(root, .height, .{ .height = 100 });
-        try blk_ctx.set(root, .borders, .{ .border_top = 5, .border_right = 10, .border_bottom = 15, .border_left = 20 });
+        try blk_ctx.set(root, .dimension, .{ .width = 100, .height = 100 });
+        try blk_ctx.set(root, .borders, .{ .top = 5, .right = 10, .bottom = 15, .left = 20 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0x306892ff });
     }
 
@@ -254,10 +250,9 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     const root = &[_]Part{0};
     {
         try blk_ctx.new(root);
-        try blk_ctx.set(root, .width, .{ .width = 400 });
-        try blk_ctx.set(root, .height, .{ .height = 150 });
-        try blk_ctx.set(root, .padding, .{ .padding_top = 20 });
-        try blk_ctx.set(root, .borders, .{ .border_top = 10, .border_right = 10, .border_bottom = 10, .border_left = 10 });
+        try blk_ctx.set(root, .dimension, .{ .width = 400, .height = 150 });
+        try blk_ctx.set(root, .padding, .{ .top = 20 });
+        try blk_ctx.set(root, .borders, .{ .top = 10, .right = 10, .bottom = 10, .left = 10 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0x592b1cff });
         try blk_ctx.set(root, .visual_effect, .{ .overflow = .Hidden });
     }
@@ -265,13 +260,12 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     const root_0 = root ++ [_]Part{0};
     {
         try blk_ctx.new(root_0);
-        try blk_ctx.set(root_0, .width, .{ .width = 100 });
-        try blk_ctx.set(root_0, .height, .{ .height = 100 });
-        try blk_ctx.set(root_0, .borders, .{ .border_top = 10, .border_right = 10, .border_bottom = 10, .border_left = 10 });
+        try blk_ctx.set(root_0, .dimension, .{ .width = 100, .height = 100 });
+        try blk_ctx.set(root_0, .borders, .{ .top = 10, .right = 10, .bottom = 10, .left = 10 });
         try blk_ctx.set(root_0, .border_colors, .{ .top_rgba = 0x789b58ff, .right_rgba = 0x789b58ff, .bottom_rgba = 0x789b58ff, .left_rgba = 0x789b58ff });
         try blk_ctx.set(root_0, .background_color, .{ .rgba = 0x9500abff });
-        try blk_ctx.set(root_0, .margin_left_right, .{ .margin_left = -25 });
-        try blk_ctx.set(root_0, .margin_top_bottom, .{ .margin_top = -30 });
+        try blk_ctx.set(root_0, .margin_left_right, .{ .left = -25 });
+        try blk_ctx.set(root_0, .margin_top_bottom, .{ .top = -30 });
     }
 
     return blk_ctx;
@@ -286,9 +280,8 @@ fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     const root = &[_]Part{0};
     {
         try blk_ctx.new(root);
-        try blk_ctx.set(root, .width, .{ .width = 150 });
-        try blk_ctx.set(root, .height, .{ .height = 100 });
-        try blk_ctx.set(root, .borders, .{ .border_top = 30, .border_right = 30, .border_bottom = 30, .border_left = 30 });
+        try blk_ctx.set(root, .dimension, .{ .width = 150, .height = 100 });
+        try blk_ctx.set(root, .borders, .{ .top = 30, .right = 30, .bottom = 30, .left = 30 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0x9104baff });
     }
 
@@ -304,8 +297,7 @@ fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     const root = &[_]Part{0};
     {
         try blk_ctx.new(root);
-        try blk_ctx.set(root, .width, .{ .width = 75 });
-        try blk_ctx.set(root, .height, .{ .height = 200 });
+        try blk_ctx.set(root, .dimension, .{ .width = 75, .height = 200 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0xb186afff });
     }
 

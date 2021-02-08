@@ -31,8 +31,7 @@ allocator: *Allocator,
 tree: TreeMap(bool) = .{},
 line_boxes: ArrayListUnmanaged(LineBox) = .{},
 
-width: TreeMap(Width) = .{},
-height: TreeMap(Height) = .{},
+dimension: TreeMap(Dimension) = .{},
 margin_border_padding_left_right: TreeMap(MarginBorderPaddingLeftRight) = .{},
 margin_border_padding_top_bottom: TreeMap(MarginBorderPaddingTopBottom) = .{},
 border_colors: TreeMap(BorderColor) = .{},
@@ -63,8 +62,7 @@ pub const Data = union(enum) {
 };
 
 pub const Properties = enum {
-    width,
-    height,
+    dimension,
     margin_border_padding_left_right,
     margin_border_padding_top_bottom,
     border_colors,

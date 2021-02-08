@@ -28,8 +28,7 @@ usingnamespace @import("properties.zig");
 allocator: *Allocator,
 tree: TreeMap(bool) = .{},
 
-width: TreeMap(Width) = .{},
-height: TreeMap(Height) = .{},
+dimension: TreeMap(Dimension) = .{},
 borders: TreeMap(Borders) = .{},
 padding: TreeMap(Padding) = .{},
 margin_left_right: TreeMap(MarginLeftRight) = .{},
@@ -45,8 +44,7 @@ fn TreeMap(comptime V: type) type {
 }
 
 pub const Properties = enum {
-    width,
-    height,
+    dimension,
     borders,
     padding,
     margin_left_right,
