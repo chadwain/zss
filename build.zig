@@ -62,6 +62,7 @@ pub fn build(b: *Builder) void {
     graphical_tests.addSystemIncludeDir(freetype_system_include_dir);
     graphical_tests.linkSystemLibrary("harfbuzz");
     graphical_tests.linkSystemLibrary("SDL2");
+    graphical_tests.linkSystemLibrary("SDL2_image");
 
     const graphical_test_step = b.step("graphical-test", "Run graphical tests");
     graphical_test_step.dependOn(&graphical_tests.step);

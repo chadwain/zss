@@ -94,6 +94,15 @@ pub const BackgroundColor = struct {
     rgba: u32 = 0,
 };
 
+pub const Percentage = f32;
+
+pub const BackgroundImage = struct {
+    data: ?usize = null,
+    origin: enum { Padding, Border, Content } = .Padding,
+    clip: enum { Padding, Border, Content } = .Border,
+    position: struct { horizontal: Percentage, vertical: Percentage } = .{ .horizontal = 0, .vertical = 0 },
+};
+
 /// Contains the used value of the properties 'overflow' and 'visibility'.
 pub const VisualEffect = struct {
     overflow: enum { Visible, Hidden } = .Visible,

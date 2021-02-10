@@ -43,7 +43,14 @@ test "render block formating context using SDL" {
     defer SDL_DestroyTexture(texture);
     assert(SDL_SetRenderTarget(renderer, texture) == 0);
 
-    try drawBlockContext(renderer, texture_pixel_format);
+    _ = IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
+    defer IMG_Quit();
+    const zig_png = IMG_LoadTexture(renderer, "test/resources/zig.png") orelse unreachable;
+    defer SDL_DestroyTexture(zig_png);
+    const sunglasses_jpg = IMG_LoadTexture(renderer, "test/resources/sunglasses.jpg") orelse unreachable;
+    defer SDL_DestroyTexture(sunglasses_jpg);
+
+    try drawBlockContext(renderer, texture_pixel_format, zig_png, sunglasses_jpg);
     SDL_RenderPresent(renderer);
 
     assert(SDL_SetRenderTarget(renderer, window_texture) == 0);
@@ -70,17 +77,17 @@ test "render block formating context using SDL" {
     }
 }
 
-fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !void {
+fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat, zig_png: *SDL_Texture, sunglasses_jpg: *SDL_Texture) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer expect(!gpa.deinit());
 
-    var ctx1 = try exampleBlockContext1(&gpa.allocator);
+    var ctx1 = try exampleBlockContext1(&gpa.allocator, zig_png);
     defer ctx1.deinit();
 
     var ctx2 = try exampleBlockContext2(&gpa.allocator);
     defer ctx2.deinit();
 
-    var ctx3 = try exampleBlockContext3(&gpa.allocator);
+    var ctx3 = try exampleBlockContext3(&gpa.allocator, sunglasses_jpg);
     defer ctx3.deinit();
 
     var ctx4 = try exampleBlockContext4(&gpa.allocator);
@@ -144,7 +151,7 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
         &[_]u16{ 0, 1 },
         zss.stacking_context.StackingContext{
             .midpoint = 0,
-            .offset = zss.util.Offset{ .x = 500, .y = 110 },
+            .offset = zss.util.Offset{ .x = 450, .y = 110 },
             .inner_context = .{
                 .block = .{
                     .context = &ctx3,
@@ -190,7 +197,7 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat) !vo
     try zss.sdl.renderStackingContexts(&stacking_context_root, &gpa.allocator, renderer, pixel_format);
 }
 
-fn exampleBlockContext1(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
+fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *SDL_Texture) !zss.BlockFormattingContext {
     var blk_ctx = zss.BlockFormattingContext.init(allocator);
     errdefer blk_ctx.deinit();
 
@@ -202,6 +209,7 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
         try blk_ctx.set(root, .dimension, .{ .width = 700, .height = 550 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0xff223300 });
         try blk_ctx.set(root, .padding, .{ .left = 100, .top = 50 });
+        try blk_ctx.set(root, .background_image, .{ .data = @ptrToInt(zig_png) });
     }
 
     const root_0 = root ++ [_]Part{0};
@@ -241,7 +249,7 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     return blk_ctx;
 }
 
-fn exampleBlockContext3(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
+fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *SDL_Texture) !zss.BlockFormattingContext {
     var blk_ctx = zss.BlockFormattingContext.init(allocator);
     errdefer blk_ctx.deinit();
 
@@ -250,11 +258,12 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     const root = &[_]Part{0};
     {
         try blk_ctx.new(root);
-        try blk_ctx.set(root, .dimension, .{ .width = 400, .height = 150 });
-        try blk_ctx.set(root, .padding, .{ .top = 20 });
+        try blk_ctx.set(root, .dimension, .{ .width = 300, .height = 150 });
+        try blk_ctx.set(root, .padding, .{ .top = 20, .bottom = 35 });
         try blk_ctx.set(root, .borders, .{ .top = 10, .right = 10, .bottom = 10, .left = 10 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0x592b1cff });
         try blk_ctx.set(root, .visual_effect, .{ .overflow = .Hidden });
+        try blk_ctx.set(root, .background_image, .{ .data = @ptrToInt(sunglasses_jpg), .position = .{ .horizontal = 0.4, .vertical = 1.0 }, .clip = .Content });
     }
 
     const root_0 = root ++ [_]Part{0};

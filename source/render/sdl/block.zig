@@ -58,9 +58,27 @@ pub fn drawTopElementBlock(
     const offsets = offset_tree.get(id).?;
     const borders = context.borders.get(id) orelse Borders{};
     const background_color = context.background_color.get(id) orelse BackgroundColor{};
+    const background_image = context.background_image.get(id) orelse BackgroundImage{};
     const border_colors = context.border_colors.get(id) orelse BorderColor{};
 
-    drawBackgroundAndBorders(offset, offsets, borders, background_color, border_colors, renderer, pixel_format);
+    const initial_clip_rect = if (SDL_RenderIsClipEnabled(renderer) == .SDL_TRUE) blk: {
+        var r: SDL_Rect = undefined;
+        SDL_RenderGetClipRect(renderer, &r);
+        break :blk r;
+    } else null;
+    defer if (initial_clip_rect) |*r| {
+        assert(SDL_RenderSetClipRect(renderer, r) == 0);
+    } else {
+        assert(SDL_RenderSetClipRect(renderer, null) == 0);
+    };
+
+    const real_initial_clip_rect = initial_clip_rect orelse blk: {
+        var r: SDL_Rect = undefined;
+        SDL_RenderGetViewport(renderer, &r);
+        break :blk r;
+    };
+
+    drawBackgroundAndBorders(offset, offsets, borders, background_color, background_image, border_colors, real_initial_clip_rect, renderer, pixel_format);
 }
 
 /// Draws the background color, background image, and borders of all of the
@@ -80,6 +98,7 @@ pub fn drawDescendantBlocks(
         const borders_node = TreeMap(Borders){};
         const border_colors_node = TreeMap(BorderColor){};
         const background_color_node = TreeMap(BackgroundColor){};
+        const background_image_node = TreeMap(BackgroundImage){};
         const visual_effect_node = TreeMap(VisualEffect){};
     };
 
@@ -87,18 +106,20 @@ pub fn drawDescendantBlocks(
         offset_tree: *const OffsetTree,
         offset: Offset,
         visible: bool,
-        clip_rect: ?SDL_Rect,
+        clip_rect: SDL_Rect,
         nodes: struct {
             tree: *const TreeMap(bool),
             borders: *const TreeMap(Borders),
             border_colors: *const TreeMap(BorderColor),
             background_color: *const TreeMap(BackgroundColor),
+            background_image: *const TreeMap(BackgroundImage),
             visual_effect: *const TreeMap(VisualEffect),
         },
         indeces: struct {
             tree: usize = 0,
             borders: usize = 0,
             background_color: usize = 0,
+            background_image: usize = 0,
             border_colors: usize = 0,
             visual_effect: usize = 0,
         } = .{},
@@ -109,19 +130,21 @@ pub fn drawDescendantBlocks(
     var stack = ArrayList(StackItem).init(allocator);
     defer stack.deinit();
 
-    const initial_clip_rect = blk: {
+    const initial_clip_rect = if (SDL_RenderIsClipEnabled(renderer) == .SDL_TRUE) blk: {
         var r: SDL_Rect = undefined;
-        if (SDL_RenderIsClipEnabled(renderer) == .SDL_TRUE) {
-            SDL_RenderGetClipRect(renderer, &r);
-            break :blk r;
-        } else {
-            break :blk null;
-        }
-    };
+        SDL_RenderGetClipRect(renderer, &r);
+        break :blk r;
+    } else null;
     defer if (initial_clip_rect) |*r| {
         assert(SDL_RenderSetClipRect(renderer, r) == 0);
     } else {
         assert(SDL_RenderSetClipRect(renderer, null) == 0);
+    };
+
+    const real_initial_clip_rect = initial_clip_rect orelse blk: {
+        var r: SDL_Rect = undefined;
+        SDL_RenderGetViewport(renderer, &r);
+        break :blk r;
     };
 
     {
@@ -152,6 +175,14 @@ pub fn drawDescendantBlocks(
                 break :blk &defaults.background_color_node;
             }
         };
+        const background_image = blk: {
+            const find = context.background_image.find(id);
+            if (find.wasFound()) {
+                break :blk find.parent.?.child(find.index) orelse &defaults.background_image_node;
+            } else {
+                break :blk &defaults.background_image_node;
+            }
+        };
         const visual_effect: struct { data: VisualEffect, child: *const TreeMap(VisualEffect) } = blk: {
             const find = context.visual_effect.find(id);
             if (find.wasFound()) {
@@ -163,7 +194,7 @@ pub fn drawDescendantBlocks(
 
         const offset_info = offset_tree.get(id).?;
         const clip_rect = switch (visual_effect.data.overflow) {
-            .Visible => initial_clip_rect,
+            .Visible => real_initial_clip_rect,
             .Hidden => blk: {
                 const padding_rect = SDL_Rect{
                     .x = sdl.cssUnitToSdlPixel(offset.x + offset_info.border_top_left.x + borders.data.left),
@@ -173,15 +204,13 @@ pub fn drawDescendantBlocks(
                 };
 
                 var intersect: SDL_Rect = undefined;
-                if (initial_clip_rect) |*cr| {
-                    _ = SDL_IntersectRect(cr, &padding_rect, &intersect);
-                } else {
-                    intersect = padding_rect;
-                }
-                assert(SDL_RenderSetClipRect(renderer, &intersect) == 0);
+                // NOTE if there is no intersection here, then
+                // child elements don't need to be rendered
+                _ = SDL_IntersectRect(&real_initial_clip_rect, &padding_rect, &intersect);
                 break :blk intersect;
             },
         };
+        assert(SDL_RenderSetClipRect(renderer, &clip_rect) == 0);
 
         try stack.append(StackItem{
             .offset_tree = offset_tree_child,
@@ -193,6 +222,7 @@ pub fn drawDescendantBlocks(
                 .borders = borders.child,
                 .border_colors = border_colors,
                 .background_color = background_color,
+                .background_image = background_image,
                 .visual_effect = visual_effect.child,
             },
         });
@@ -232,6 +262,14 @@ pub fn drawDescendantBlocks(
                 indeces.background_color += 1;
                 break :blk .{ .data = data, .child = child orelse &defaults.background_color_node };
             } else .{ .data = BackgroundColor{}, .child = &defaults.background_color_node };
+            const background_image: struct { data: BackgroundImage, child: *const TreeMap(BackgroundImage) } =
+                if (indeces.background_image < nodes.background_image.numChildren() and nodes.background_image.parts.items[indeces.background_image] == part)
+            blk: {
+                const data = nodes.background_image.value(indeces.background_image);
+                const child = nodes.background_image.child(indeces.background_image);
+                indeces.background_image += 1;
+                break :blk .{ .data = data, .child = child orelse &defaults.background_image_node };
+            } else .{ .data = BackgroundImage{}, .child = &defaults.background_image_node };
             const visual_effect: struct { data: VisualEffect, child: *const TreeMap(VisualEffect) } =
                 if (indeces.visual_effect < nodes.visual_effect.numChildren() and nodes.visual_effect.parts.items[indeces.visual_effect] == part)
             blk: {
@@ -242,7 +280,7 @@ pub fn drawDescendantBlocks(
             } else .{ .data = VisualEffect{ .visibility = if (stack_item.visible) .Visible else .Hidden }, .child = &defaults.visual_effect_node };
 
             if (visual_effect.data.visibility == .Visible) {
-                drawBackgroundAndBorders(stack_item.offset, offsets, borders.data, background_color.data, border_colors.data, renderer, pixel_format);
+                drawBackgroundAndBorders(stack_item.offset, offsets, borders.data, background_color.data, background_image.data, border_colors.data, stack_item.clip_rect, renderer, pixel_format);
             }
 
             if (nodes.tree.child(indeces.tree)) |child_tree| {
@@ -256,15 +294,13 @@ pub fn drawDescendantBlocks(
                             .h = sdl.cssUnitToSdlPixel((offsets.border_bottom_right.y - borders.data.bottom) - (offsets.border_top_left.y + borders.data.top)),
                         };
                         var intersect: SDL_Rect = undefined;
-                        if (stack_item.clip_rect) |*cr| {
-                            _ = SDL_IntersectRect(cr, &padding_rect, &intersect);
-                        } else {
-                            intersect = padding_rect;
-                        }
-                        assert(SDL_RenderSetClipRect(renderer, &intersect) == 0);
+                        // NOTE if there is no intersection here, then
+                        // child elements don't need to be rendered
+                        _ = SDL_IntersectRect(&stack_item.clip_rect, &padding_rect, &intersect);
                         break :blk intersect;
                     },
                 };
+                assert(SDL_RenderSetClipRect(renderer, &new_clip_rect) == 0);
 
                 try stack.append(StackItem{
                     .offset_tree = stack_item.offset_tree.child(indeces.tree).?,
@@ -276,6 +312,7 @@ pub fn drawDescendantBlocks(
                         .borders = borders.child,
                         .border_colors = border_colors.child,
                         .background_color = background_color.child,
+                        .background_image = background_image.child,
                         .visual_effect = visual_effect.child,
                     },
                 });
@@ -292,7 +329,9 @@ fn drawBackgroundAndBorders(
     offset_info: OffsetInfo,
     borders: Borders,
     background_color: BackgroundColor,
+    background_image: BackgroundImage,
     border_colors: BorderColor,
+    clip_rect: SDL_Rect,
     renderer: *SDL_Renderer,
     pixel_format: *SDL_PixelFormat,
 ) void {
@@ -301,14 +340,70 @@ fn drawBackgroundAndBorders(
     const bg_width = offset_info.border_bottom_right.x - offset_info.border_top_left.x;
     const bg_height = offset_info.border_bottom_right.y - offset_info.border_top_left.y;
     const border_lr_height = bg_height - borders.top - borders.bottom;
+
+    const border_rect = SDL_Rect{
+        .x = sdl.cssUnitToSdlPixel(border_x),
+        .y = sdl.cssUnitToSdlPixel(border_y),
+        .w = sdl.cssUnitToSdlPixel(bg_width),
+        .h = sdl.cssUnitToSdlPixel(bg_height),
+    };
+    const padding_rect = SDL_Rect{
+        .x = sdl.cssUnitToSdlPixel(border_x + borders.left),
+        .y = sdl.cssUnitToSdlPixel(border_y + borders.top),
+        .w = sdl.cssUnitToSdlPixel(bg_width - borders.left - borders.right),
+        .h = sdl.cssUnitToSdlPixel(bg_height - borders.top - borders.bottom),
+    };
+    const content_rect = SDL_Rect{
+        .x = sdl.cssUnitToSdlPixel(offset.x + offset_info.content_top_left.x),
+        .y = sdl.cssUnitToSdlPixel(offset.y + offset_info.content_top_left.y),
+        .w = sdl.cssUnitToSdlPixel(offset_info.content_bottom_right.x - offset_info.content_top_left.x),
+        .h = sdl.cssUnitToSdlPixel(offset_info.content_bottom_right.y - offset_info.content_top_left.y),
+    };
+
+    const bg_clip_rect = switch (background_image.clip) {
+        .Border => border_rect,
+        .Padding => padding_rect,
+        .Content => content_rect,
+    };
+
+    {
+        const bg_color = sdl.rgbaMap(pixel_format, background_color.rgba);
+        var rgba: [4]u8 = undefined;
+        SDL_GetRGBA(bg_color, pixel_format, &rgba[0], &rgba[1], &rgba[2], &rgba[3]);
+        assert(SDL_SetRenderDrawColor(renderer, rgba[0], rgba[1], rgba[2], rgba[3]) == 0);
+        assert(SDL_RenderFillRect(renderer, &bg_clip_rect) == 0);
+    }
+
+    if (background_image.data) |data| {
+        const texture = @intToPtr(*SDL_Texture, data);
+        const dest_rect = blk: {
+            const origin_rect = switch (background_image.origin) {
+                .Border => border_rect,
+                .Padding => padding_rect,
+                .Content => content_rect,
+            };
+
+            var result: SDL_Rect = undefined;
+            assert(SDL_QueryTexture(texture, null, null, &result.w, &result.h) == 0);
+            result.x = origin_rect.x + @floatToInt(c_int, @intToFloat(f32, origin_rect.w - result.w) * background_image.position.horizontal);
+            result.y = origin_rect.y + @floatToInt(c_int, @intToFloat(f32, origin_rect.h - result.h) * background_image.position.vertical);
+            break :blk result;
+        };
+
+        const draw_region = blk: {
+            var result: SDL_Rect = undefined;
+            // NOTE if there is no intersection here, then
+            // the image doesn't need to be rendered
+            _ = SDL_IntersectRect(&clip_rect, &bg_clip_rect, &result);
+            break :blk result;
+        };
+        assert(SDL_RenderSetClipRect(renderer, &draw_region) == 0);
+        defer assert(SDL_RenderSetClipRect(renderer, &clip_rect) == 0);
+
+        assert(SDL_RenderCopy(renderer, texture, null, &dest_rect) == 0);
+    }
+
     const rects = [_]SDL_Rect{
-        // background
-        SDL_Rect{
-            .x = sdl.cssUnitToSdlPixel(border_x),
-            .y = sdl.cssUnitToSdlPixel(border_y),
-            .w = sdl.cssUnitToSdlPixel(bg_width),
-            .h = sdl.cssUnitToSdlPixel(bg_height),
-        },
         // top border
         SDL_Rect{
             .x = sdl.cssUnitToSdlPixel(border_x),
@@ -340,7 +435,6 @@ fn drawBackgroundAndBorders(
     };
 
     const colors = [_]u32{
-        sdl.rgbaMap(pixel_format, background_color.rgba),
         sdl.rgbaMap(pixel_format, border_colors.top_rgba),
         sdl.rgbaMap(pixel_format, border_colors.right_rgba),
         sdl.rgbaMap(pixel_format, border_colors.bottom_rgba),
