@@ -20,6 +20,7 @@ pub const context = @import("source/context.zig");
 pub const stacking_context = @import("source/stacking_context.zig");
 pub const properties = @import("source/properties.zig");
 pub const sdl = @import("source/render/sdl.zig");
+pub const types = @import("source/types.zig");
 pub const util = @import("source/util.zig");
 pub const offset_tree = @import("source/offset_tree.zig");
 

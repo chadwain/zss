@@ -225,7 +225,8 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
         &[_]u16{0},
         zss.stacking_context.StackingContext{
             .midpoint = 0,
-            .offset = zss.util.Offset{ .x = 0, .y = 0 },
+            .offset = .{ .x = 0, .y = 0 },
+            .clip_rect = .{ .x = 0, .y = 0, .w = 2000000, .h = 2000000 },
             .inner_context = .{
                 .block = .{
                     .context = &blk_ctx,
@@ -241,7 +242,8 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
         &[_]u16{ 0, 0 },
         zss.stacking_context.StackingContext{
             .midpoint = 0,
-            .offset = zss.util.Offset{ .x = 0, .y = 0 },
+            .offset = .{ .x = 0, .y = 0 },
+            .clip_rect = .{ .x = 0, .y = 0, .w = 2000000, .h = 2000000 },
             .inner_context = .{ .inl = .{ .context = &inl_ctx } },
         },
         undefined,

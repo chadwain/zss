@@ -23,7 +23,8 @@ const OffsetTree = zss.offset_tree.OffsetTree;
 
 pub const StackingContext = struct {
     midpoint: usize,
-    offset: zss.util.Offset,
+    offset: zss.types.Offset,
+    clip_rect: zss.types.CSSRect,
     inner_context: union(enum) {
         block: struct {
             context: *const BlockFormattingContext,

@@ -24,7 +24,7 @@ const zss = @import("../zss.zig");
 usingnamespace zss.properties;
 const ContextSpecificBoxIdPart = zss.context.ContextSpecificBoxIdPart;
 const cmpPart = zss.context.cmpPart;
-const Offset = zss.util.Offset;
+const Offset = zss.types.Offset;
 const BlockFormattingContext = zss.BlockFormattingContext;
 const PrefixTreeMapUnmanaged = @import("prefix-tree-map").PrefixTreeMapUnmanaged;
 

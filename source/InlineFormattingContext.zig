@@ -22,6 +22,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
 const zss = @import("../zss.zig");
+const CSSUnit = zss.types.CSSUnit;
 pub const Id = zss.context.ContextSpecificBoxId;
 pub const IdPart = zss.context.ContextSpecificBoxIdPart;
 usingnamespace zss.properties;

@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
-/// An integral, indivisible unit of space which is the basis for all CSS layout
-/// computations.
-pub const CSSUnit = i32;
+const types = @import("types.zig");
+const CSSUnit = types.CSSUnit;
+const Percentage = types.Percentage;
 
 /// Contains the used value of the 'width' and 'height' properties.
 pub const Dimension = struct {
@@ -94,10 +94,9 @@ pub const BackgroundColor = struct {
     rgba: u32 = 0,
 };
 
-pub const Percentage = f32;
-
 pub const BackgroundImage = struct {
-    data: ?usize = null,
+    pub const Data = *opaque {};
+    image: ?Data = null,
     origin: enum { Padding, Border, Content } = .Padding,
     clip: enum { Padding, Border, Content } = .Border,
     position: struct { horizontal: Percentage, vertical: Percentage } = .{ .horizontal = 0, .vertical = 0 },

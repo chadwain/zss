@@ -20,9 +20,10 @@ const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 
 const zss = @import("../../../zss.zig");
+const CSSUnit = zss.types.CSSUnit;
 const InlineFormattingContext = zss.InlineFormattingContext;
 const TreeNode = @TypeOf(@as(InlineFormattingContext, undefined).tree);
-const Offset = zss.util.Offset;
+const Offset = zss.types.Offset;
 const cssUnitToSdlPixel = zss.sdl.cssUnitToSdlPixel;
 const rgbaMap = zss.sdl.rgbaMap;
 usingnamespace zss.properties;

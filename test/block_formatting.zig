@@ -119,7 +119,8 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat, zig
         &[_]u16{0},
         zss.stacking_context.StackingContext{
             .midpoint = 2,
-            .offset = zss.util.Offset{ .x = 0, .y = 0 },
+            .offset = .{ .x = 0, .y = 0 },
+            .clip_rect = .{ .x = 0, .y = 0, .w = 1000000, .h = 1000000 },
             .inner_context = .{
                 .block = .{
                     .context = &ctx1,
@@ -135,7 +136,8 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat, zig
         &[_]u16{ 0, 0 },
         zss.stacking_context.StackingContext{
             .midpoint = 0,
-            .offset = zss.util.Offset{ .x = 100, .y = 110 },
+            .offset = .{ .x = 100, .y = 110 },
+            .clip_rect = .{ .x = 0, .y = 0, .w = 1000000, .h = 1000000 },
             .inner_context = .{
                 .block = .{
                     .context = &ctx2,
@@ -151,7 +153,8 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat, zig
         &[_]u16{ 0, 1 },
         zss.stacking_context.StackingContext{
             .midpoint = 0,
-            .offset = zss.util.Offset{ .x = 450, .y = 110 },
+            .offset = .{ .x = 450, .y = 110 },
+            .clip_rect = .{ .x = 0, .y = 0, .w = 1000000, .h = 1000000 },
             .inner_context = .{
                 .block = .{
                     .context = &ctx3,
@@ -167,7 +170,8 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat, zig
         &[_]u16{ 0, 2 },
         zss.stacking_context.StackingContext{
             .midpoint = 1,
-            .offset = zss.util.Offset{ .x = 400, .y = 450 },
+            .offset = .{ .x = 400, .y = 450 },
+            .clip_rect = .{ .x = 0, .y = 0, .w = 1000000, .h = 1000000 },
             .inner_context = .{
                 .block = .{
                     .context = &ctx4,
@@ -183,7 +187,8 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat, zig
         &[_]u16{ 0, 2, 0 },
         zss.stacking_context.StackingContext{
             .midpoint = 0,
-            .offset = zss.util.Offset{ .x = 200, .y = 350 },
+            .offset = .{ .x = 200, .y = 350 },
+            .clip_rect = .{ .x = 0, .y = 0, .w = 1000000, .h = 1000000 },
             .inner_context = .{
                 .block = .{
                     .context = &ctx5,
@@ -209,7 +214,7 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *SDL_Texture) !z
         try blk_ctx.set(root, .dimension, .{ .width = 700, .height = 550 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0xff223300 });
         try blk_ctx.set(root, .padding, .{ .left = 100, .top = 50 });
-        try blk_ctx.set(root, .background_image, .{ .data = @ptrToInt(zig_png) });
+        try blk_ctx.set(root, .background_image, .{ .image = zss.sdl.textureAsBackgroundImage(zig_png) });
     }
 
     const root_0 = root ++ [_]Part{0};
@@ -263,7 +268,7 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *SDL_Text
         try blk_ctx.set(root, .borders, .{ .top = 10, .right = 10, .bottom = 10, .left = 10 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0x592b1cff });
         try blk_ctx.set(root, .visual_effect, .{ .overflow = .Hidden });
-        try blk_ctx.set(root, .background_image, .{ .data = @ptrToInt(sunglasses_jpg), .position = .{ .horizontal = 0.4, .vertical = 1.0 }, .clip = .Content });
+        try blk_ctx.set(root, .background_image, .{ .image = zss.sdl.textureAsBackgroundImage(sunglasses_jpg), .position = .{ .horizontal = 0.4, .vertical = 1.0 }, .clip = .Content });
     }
 
     const root_0 = root ++ [_]Part{0};

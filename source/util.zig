@@ -14,14 +14,35 @@
 // You should have received a copy of the GNU General Public License
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
-const CSSUnit = @import("./properties.zig").CSSUnit;
+const zss = @import("../zss.zig");
+usingnamespace zss.types;
+usingnamespace zss.properties;
+const OffsetInfo = zss.offset_tree.OffsetInfo;
 
-pub const Offset = struct {
-    x: CSSUnit,
-    y: CSSUnit,
+pub fn getThreeBoxes(offset: Offset, offset_info: OffsetInfo, borders: Borders) ThreeBoxes {
+    const border_x = offset.x + offset_info.border_top_left.x;
+    const border_y = offset.y + offset_info.border_top_left.y;
+    const border_w = offset_info.border_bottom_right.x - offset_info.border_top_left.x;
+    const border_h = offset_info.border_bottom_right.y - offset_info.border_top_left.y;
 
-    const Self = @This();
-    pub fn add(lhs: Self, rhs: Self) Self {
-        return Self{ .x = lhs.x + rhs.x, .y = lhs.y + rhs.y };
-    }
-};
+    return ThreeBoxes{
+        .border = CSSRect{
+            .x = border_x,
+            .y = border_y,
+            .w = border_w,
+            .h = border_h,
+        },
+        .padding = CSSRect{
+            .x = border_x + borders.left,
+            .y = border_y + borders.top,
+            .w = border_w - borders.left - borders.right,
+            .h = border_h - borders.top - borders.bottom,
+        },
+        .content = CSSRect{
+            .x = offset.x + offset_info.content_top_left.x,
+            .y = offset.y + offset_info.content_top_left.y,
+            .w = offset_info.content_bottom_right.x - offset_info.content_top_left.x,
+            .h = offset_info.content_bottom_right.y - offset_info.content_top_left.y,
+        },
+    };
+}
