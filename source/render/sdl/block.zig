@@ -319,8 +319,13 @@ fn drawBackgroundAndBorders(
     }
 
     // draw background image
-    if (background_image.image) |texture_ptr| {
+    if (background_image.image) |texture_ptr| stmt: {
         const texture = @ptrCast(*SDL_Texture, texture_ptr);
+        var tw: c_int = undefined;
+        var th: c_int = undefined;
+        assert(SDL_QueryTexture(texture, null, null, &tw, &th) == 0);
+        if (tw == 0 or th == 0) break :stmt;
+
         const dest_rect = blk: {
             const origin_rect = sdl.cssRectToSdlRect(switch (background_image.origin) {
                 .Border => boxes.border,
@@ -329,7 +334,9 @@ fn drawBackgroundAndBorders(
             });
 
             var result: SDL_Rect = undefined;
-            assert(SDL_QueryTexture(texture, null, null, &result.w, &result.h) == 0);
+            // TODO we maybe want to do some rounding here
+            result.w = @floatToInt(c_int, background_image.size.width * @intToFloat(f32, tw));
+            result.h = @floatToInt(c_int, background_image.size.height * @intToFloat(f32, th));
             result.x = origin_rect.x + @floatToInt(c_int, @intToFloat(f32, origin_rect.w - result.w) * background_image.position.horizontal);
             result.y = origin_rect.y + @floatToInt(c_int, @intToFloat(f32, origin_rect.h - result.h) * background_image.position.vertical);
             break :blk result;
