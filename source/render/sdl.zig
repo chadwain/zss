@@ -152,15 +152,18 @@ pub fn sdlRectToCssRect(rect: SDL_Rect) CSSRect {
     };
 }
 
-pub fn rgbaMap(pixel_format: *SDL_PixelFormat, color: u32) u32 {
+pub fn rgbaMap(pixel_format: *SDL_PixelFormat, color: u32) [4]u8 {
     const color_le = std.mem.nativeToLittle(u32, color);
-    return SDL_MapRGBA(
+    const mapped = SDL_MapRGBA(
         pixel_format,
         @truncate(u8, color_le >> 24),
         @truncate(u8, color_le >> 16),
         @truncate(u8, color_le >> 8),
         @truncate(u8, color_le),
     );
+    var rgba = @as([4]u8, undefined);
+    SDL_GetRGBA(mapped, pixel_format, &rgba[0], &rgba[1], &rgba[2], &rgba[3]);
+    return rgba;
 }
 
 pub fn textureAsBackgroundImage(texture: *SDL_Texture) zss.properties.BackgroundImage.Data {

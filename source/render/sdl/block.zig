@@ -312,9 +312,7 @@ fn drawBackgroundAndBorders(
     // draw background color
     {
         const bg_color = sdl.rgbaMap(pixel_format, background_color.rgba);
-        var rgba: [4]u8 = undefined;
-        SDL_GetRGBA(bg_color, pixel_format, &rgba[0], &rgba[1], &rgba[2], &rgba[3]);
-        assert(SDL_SetRenderDrawColor(renderer, rgba[0], rgba[1], rgba[2], rgba[3]) == 0);
+        assert(SDL_SetRenderDrawColor(renderer, bg_color[0], bg_color[1], bg_color[2], bg_color[3]) == 0);
         assert(SDL_RenderFillRect(renderer, &bg_clip_rect) == 0);
     }
 
@@ -356,49 +354,121 @@ fn drawBackgroundAndBorders(
         assert(SDL_RenderCopy(renderer, texture, null, &dest_rect) == 0);
     }
 
-    // draw borders
+    drawBordersSolid(renderer, pixel_format, boxes, &borders, &border_colors);
+}
+
+fn drawBordersSolid(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat, boxes: *const zss.types.ThreeBoxes, borders: *const Borders, colors: *const BorderColor) void {
+    const outer_left = sdl.cssUnitToSdlPixel(boxes.border.x);
+    const inner_left = sdl.cssUnitToSdlPixel(boxes.border.x + borders.left);
+    const inner_right = sdl.cssUnitToSdlPixel(boxes.border.x + boxes.border.w - borders.right);
+    const outer_right = sdl.cssUnitToSdlPixel(boxes.border.x + boxes.border.w);
+
+    const outer_top = sdl.cssUnitToSdlPixel(boxes.border.y);
+    const inner_top = sdl.cssUnitToSdlPixel(boxes.border.y + borders.top);
+    const outer_bottom = sdl.cssUnitToSdlPixel(boxes.border.y + boxes.border.h);
+    const inner_bottom = sdl.cssUnitToSdlPixel(boxes.border.y + boxes.border.h - borders.bottom);
+
+    const colorsMapped = [_][4]u8{
+        sdl.rgbaMap(pixel_format, colors.top_rgba),
+        sdl.rgbaMap(pixel_format, colors.right_rgba),
+        sdl.rgbaMap(pixel_format, colors.bottom_rgba),
+        sdl.rgbaMap(pixel_format, colors.left_rgba),
+    };
+
     const rects = [_]SDL_Rect{
         // top border
         SDL_Rect{
-            .x = sdl.cssUnitToSdlPixel(boxes.border.x),
-            .y = sdl.cssUnitToSdlPixel(boxes.border.y),
-            .w = sdl.cssUnitToSdlPixel(boxes.border.w),
-            .h = sdl.cssUnitToSdlPixel(borders.top),
+            .x = inner_left,
+            .y = outer_top,
+            .w = inner_right - inner_left,
+            .h = inner_top - outer_top,
         },
         // right border
         SDL_Rect{
-            .x = sdl.cssUnitToSdlPixel(boxes.border.x + boxes.border.w - borders.right),
-            .y = sdl.cssUnitToSdlPixel(boxes.border.y + borders.top),
-            .w = sdl.cssUnitToSdlPixel(borders.right),
-            .h = sdl.cssUnitToSdlPixel(boxes.border.h - borders.top - borders.bottom),
+            .x = inner_right,
+            .y = inner_top,
+            .w = outer_right - inner_right,
+            .h = inner_bottom - inner_top,
         },
         // bottom border
         SDL_Rect{
-            .x = sdl.cssUnitToSdlPixel(boxes.border.x),
-            .y = sdl.cssUnitToSdlPixel(boxes.border.y + boxes.border.h - borders.bottom),
-            .w = sdl.cssUnitToSdlPixel(boxes.border.w),
-            .h = sdl.cssUnitToSdlPixel(borders.bottom),
+            .x = inner_left,
+            .y = inner_bottom,
+            .w = inner_right - inner_left,
+            .h = outer_bottom - inner_bottom,
         },
         //left border
         SDL_Rect{
-            .x = sdl.cssUnitToSdlPixel(boxes.border.x),
-            .y = sdl.cssUnitToSdlPixel(boxes.border.y + borders.top),
-            .w = sdl.cssUnitToSdlPixel(borders.left),
-            .h = sdl.cssUnitToSdlPixel(boxes.border.h - borders.top - borders.bottom),
+            .x = outer_left,
+            .y = inner_top,
+            .w = inner_left - outer_left,
+            .h = inner_bottom - inner_top,
         },
     };
 
-    const colors = [_]u32{
-        sdl.rgbaMap(pixel_format, border_colors.top_rgba),
-        sdl.rgbaMap(pixel_format, border_colors.right_rgba),
-        sdl.rgbaMap(pixel_format, border_colors.bottom_rgba),
-        sdl.rgbaMap(pixel_format, border_colors.left_rgba),
-    };
-
-    for (rects) |_, i| {
-        var rgba: [4]u8 = undefined;
-        SDL_GetRGBA(colors[i], pixel_format, &rgba[0], &rgba[1], &rgba[2], &rgba[3]);
-        assert(SDL_SetRenderDrawColor(renderer, rgba[0], rgba[1], rgba[2], rgba[3]) == 0);
+    comptime var i = 0;
+    inline while (i < 4) : (i += 1) {
+        const c = colorsMapped[i];
+        assert(SDL_SetRenderDrawColor(renderer, c[0], c[1], c[2], c[3]) == 0);
         assert(SDL_RenderFillRect(renderer, &rects[i]) == 0);
+    }
+
+    drawBordersSolidCorners(renderer, outer_left, inner_left, outer_top, inner_top, colorsMapped[3], colorsMapped[0], true);
+    drawBordersSolidCorners(renderer, inner_right, outer_right, inner_bottom, outer_bottom, colorsMapped[2], colorsMapped[1], true);
+    drawBordersSolidCorners(renderer, outer_right, inner_right, outer_top, inner_top, colorsMapped[1], colorsMapped[0], false);
+    drawBordersSolidCorners(renderer, inner_left, outer_left, inner_bottom, outer_bottom, colorsMapped[2], colorsMapped[3], false);
+}
+
+// TODO This function doesn't draw in a very satisfactory way.
+// It ends up making borders look asymmetrical by 1 pixel.
+// It's also probably slow because it draws every point 1-by-1
+// instead of drawing lines. In the future I hope to get rid of
+// this function entirely, replacing it with a function that masks
+// out the portion of a border image that shouldn't be drawn. This
+// would allow me to draw all kinds of border styles without
+// needing specific code for each one.
+fn drawBordersSolidCorners(
+    renderer: *SDL_Renderer,
+    x1: c_int,
+    x2: c_int,
+    y_low: c_int,
+    y_high: c_int,
+    first_color: [4]u8,
+    second_color: [4]u8,
+    comptime isTopLeftOrBottomRight: bool,
+) void {
+    const dx = if (isTopLeftOrBottomRight) x2 - x1 else x1 - x2;
+    const dy = y_high - y_low;
+
+    if (isTopLeftOrBottomRight) {
+        var x = x1;
+        while (x < x2) : (x += 1) {
+            const num = (x - x1) * dy;
+            const mod = @mod(num, dx);
+            const y = y_low + @divFloor(num, dx) + @boolToInt(2 * mod >= dx);
+            drawVerticalLine(renderer, x, y, y_low, y_high, first_color, second_color);
+        }
+    } else {
+        var x = x2;
+        while (x < x1) : (x += 1) {
+            const num = (x1 - 1 - x) * dy;
+            const mod = @mod(num, dx);
+            const y = y_low + @divFloor(num, dx) + @boolToInt(2 * mod >= dx);
+            drawVerticalLine(renderer, x, y, y_low, y_high, first_color, second_color);
+        }
+    }
+}
+
+fn drawVerticalLine(renderer: *SDL_Renderer, x: c_int, y: c_int, y_low: c_int, y_high: c_int, first_color: [4]u8, second_color: [4]u8) void {
+    assert(SDL_SetRenderDrawColor(renderer, first_color[0], first_color[1], first_color[2], first_color[3]) == 0);
+    var i = y;
+    while (i < y_high) : (i += 1) {
+        assert(SDL_RenderDrawPoint(renderer, x, i) == 0);
+    }
+
+    assert(SDL_SetRenderDrawColor(renderer, second_color[0], second_color[1], second_color[2], second_color[3]) == 0);
+    i = y_low;
+    while (i < y) : (i += 1) {
+        assert(SDL_RenderDrawPoint(renderer, x, i) == 0);
     }
 }

@@ -170,7 +170,7 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat, zig
         &[_]u16{ 0, 2 },
         zss.stacking_context.StackingContext{
             .midpoint = 1,
-            .offset = .{ .x = 400, .y = 450 },
+            .offset = .{ .x = 400, .y = 400 },
             .clip_rect = .{ .x = 0, .y = 0, .w = 1000000, .h = 1000000 },
             .inner_context = .{
                 .block = .{
@@ -296,6 +296,7 @@ fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
         try blk_ctx.new(root);
         try blk_ctx.set(root, .dimension, .{ .width = 150, .height = 100 });
         try blk_ctx.set(root, .borders, .{ .top = 30, .right = 30, .bottom = 30, .left = 30 });
+        try blk_ctx.set(root, .border_colors, .{ .top_rgba = 0x20f4f4ff, .right_rgba = 0x3faf34ff, .bottom_rgba = 0xa32a7cff, .left_rgba = 0x102458ff });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0x9104baff });
     }
 
@@ -313,6 +314,7 @@ fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
         try blk_ctx.new(root);
         try blk_ctx.set(root, .dimension, .{ .width = 75, .height = 200 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0xb186afff });
+        try blk_ctx.set(root, .border_colors, .{ .top_rgba = 0xdd56faff, .right_rgba = 0x93542cff, .bottom_rgba = 0x2bda86ff, .left_rgba = 0xbca973ff });
     }
 
     return blk_ctx;

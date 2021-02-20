@@ -132,7 +132,7 @@ fn drawInlineElement(
     const full_width = dimension.width + mbplr.border_left + mbplr.border_right + mbplr.padding_left + mbplr.padding_right;
     const full_height = padding_height + mbptb.border_top + mbptb.border_bottom;
 
-    const colors = [_]u32{
+    const colors = [_][4]u8{
         rgbaMap(pixel_format, bg_color.rgba),
         rgbaMap(pixel_format, border_colors.top_rgba),
         rgbaMap(pixel_format, border_colors.right_rgba),
@@ -179,9 +179,8 @@ fn drawInlineElement(
     };
 
     for (rects) |_, i| {
-        var rgba: [4]u8 = undefined;
-        SDL_GetRGBA(colors[i], pixel_format, &rgba[0], &rgba[1], &rgba[2], &rgba[3]);
-        assert(SDL_SetRenderDrawColor(renderer, rgba[0], rgba[1], rgba[2], rgba[3]) == 0);
+        const c = colors[i];
+        assert(SDL_SetRenderDrawColor(renderer, c[0], c[1], c[2], c[3]) == 0);
         assert(SDL_RenderFillRect(renderer, &rects[i]) == 0);
     }
 
@@ -250,7 +249,7 @@ fn makeGlyphSurface(bitmap: ft.FT_Bitmap, pixel_format: *SDL_PixelFormat) error{
         const src_row = bitmap.buffer[src_index .. src_index + bitmap.width];
         const dest_row = @ptrCast([*]u32, @alignCast(4, @ptrCast([*]u8, result.*.pixels.?) + dest_index))[0..bitmap.width];
         for (src_row) |_, i| {
-            dest_row[i] = rgbaMap(pixel_format, @as(u32, 0xffffff00) | src_row[i]);
+            dest_row[i] = SDL_MapRGBA(pixel_format, 0xff, 0xff, 0xff, src_row[i]);
         }
     }
     return result;
