@@ -19,17 +19,18 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 
-const zss = @import("../../../zss.zig");
+const zss = @import("zss");
 const CSSUnit = zss.types.CSSUnit;
 const InlineFormattingContext = zss.InlineFormattingContext;
 const TreeNode = @TypeOf(@as(InlineFormattingContext, undefined).tree);
 const Offset = zss.types.Offset;
-const cssUnitToSdlPixel = zss.sdl.cssUnitToSdlPixel;
+const cssUnitToSdlPixel = render_sdl.cssUnitToSdlPixel;
 const rgbaMap = zss.sdl.rgbaMap;
 usingnamespace zss.properties;
 
+const render_sdl = @import("render_sdl.zig");
 usingnamespace @import("SDL2");
-const ft = @import("freetype");
+const ft = @import("harfbuzz");
 
 const StackItem = struct {
     id_part: InlineFormattingContext.IdPart,

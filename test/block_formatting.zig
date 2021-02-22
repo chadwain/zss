@@ -5,6 +5,7 @@ const expect = std.testing.expect;
 const zss = @import("zss");
 
 usingnamespace @import("SDL2");
+usingnamespace @import("sdl/render_sdl.zig");
 
 test "render block formating context using SDL" {
     assert(SDL_Init(SDL_INIT_VIDEO) == 0);
@@ -199,7 +200,7 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat, zig
         undefined,
     );
 
-    try zss.sdl.renderStackingContexts(&stacking_context_root, &gpa.allocator, renderer, pixel_format);
+    try renderStackingContexts(&stacking_context_root, &gpa.allocator, renderer, pixel_format);
 }
 
 fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *SDL_Texture) !zss.BlockFormattingContext {
@@ -215,7 +216,7 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *SDL_Texture) !z
         try blk_ctx.set(root, .background_color, .{ .rgba = 0xff223300 });
         try blk_ctx.set(root, .padding, .{ .left = 100, .top = 50 });
         try blk_ctx.set(root, .background_image, .{
-            .image = zss.sdl.textureAsBackgroundImage(zig_png),
+            .image = textureAsBackgroundImage(zig_png),
             .position = .{ .vertical = 0.5, .horizontal = 0.5 },
             .size = .{ .width = 0.75, .height = 0.5 },
             .repeat = .{ .x = .Space, .y = .Repeat },
@@ -273,7 +274,7 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *SDL_Text
         try blk_ctx.set(root, .borders, .{ .top = 10, .right = 10, .bottom = 10, .left = 10 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0x592b1cff });
         try blk_ctx.set(root, .visual_effect, .{ .overflow = .Hidden });
-        try blk_ctx.set(root, .background_image, .{ .image = zss.sdl.textureAsBackgroundImage(sunglasses_jpg), .position = .{ .horizontal = 0.4, .vertical = 0.9 }, .clip = .Content });
+        try blk_ctx.set(root, .background_image, .{ .image = textureAsBackgroundImage(sunglasses_jpg), .position = .{ .horizontal = 0.4, .vertical = 0.9 }, .clip = .Content });
     }
 
     const root_0 = root ++ [_]Part{0};

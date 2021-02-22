@@ -4,6 +4,7 @@ const expect = std.testing.expect;
 
 const zss = @import("zss");
 
+usingnamespace @import("sdl/render_sdl.zig");
 usingnamespace @import("SDL2");
 const hb = @import("harfbuzz");
 
@@ -249,5 +250,5 @@ fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, 
         undefined,
     );
 
-    try zss.sdl.renderStackingContexts(&stacking_context_root, &gpa.allocator, renderer, pixelFormat);
+    try renderStackingContexts(&stacking_context_root, &gpa.allocator, renderer, pixelFormat);
 }

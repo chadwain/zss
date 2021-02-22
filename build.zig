@@ -54,6 +54,7 @@ pub fn build(b: *Builder) void {
 
     var graphical_tests = b.addTest("test/test.zig");
     graphical_tests.setBuildMode(mode);
+    graphical_tests.addPackage(prefixTreePkg);
     graphical_tests.addPackage(harfbuzzPkg);
     graphical_tests.addPackage(SDL2Pkg);
     graphical_tests.addPackage(zssPkg);
