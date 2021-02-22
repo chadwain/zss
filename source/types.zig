@@ -29,6 +29,10 @@ pub const CSSUnit = i32;
 
 pub const Percentage = f32;
 
+pub fn Ratio(comptime T: type) type {
+    return struct { num: T, den: T };
+}
+
 pub const Offset = struct {
     x: CSSUnit,
     y: CSSUnit,

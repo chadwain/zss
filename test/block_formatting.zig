@@ -214,7 +214,12 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *SDL_Texture) !z
         try blk_ctx.set(root, .dimension, .{ .width = 700, .height = 550 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0xff223300 });
         try blk_ctx.set(root, .padding, .{ .left = 100, .top = 50 });
-        try blk_ctx.set(root, .background_image, .{ .image = zss.sdl.textureAsBackgroundImage(zig_png), .position = .{ .vertical = 0.5, .horizontal = 0.5 }, .size = .{ .width = 0.75, .height = 0.5 } });
+        try blk_ctx.set(root, .background_image, .{
+            .image = zss.sdl.textureAsBackgroundImage(zig_png),
+            .position = .{ .vertical = 0.5, .horizontal = 0.5 },
+            .size = .{ .width = 0.75, .height = 0.5 },
+            .repeat = .{ .x = .Space, .y = .Repeat },
+        });
     }
 
     const root_0 = root ++ [_]Part{0};
@@ -264,11 +269,11 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *SDL_Text
     {
         try blk_ctx.new(root);
         try blk_ctx.set(root, .dimension, .{ .width = 300, .height = 150 });
-        try blk_ctx.set(root, .padding, .{ .top = 20, .bottom = 35 });
+        //try blk_ctx.set(root, .padding, .{ .top = 20, .bottom = 35 });
         try blk_ctx.set(root, .borders, .{ .top = 10, .right = 10, .bottom = 10, .left = 10 });
         try blk_ctx.set(root, .background_color, .{ .rgba = 0x592b1cff });
         try blk_ctx.set(root, .visual_effect, .{ .overflow = .Hidden });
-        try blk_ctx.set(root, .background_image, .{ .image = zss.sdl.textureAsBackgroundImage(sunglasses_jpg), .position = .{ .horizontal = 0.4, .vertical = 1.0 }, .clip = .Content });
+        try blk_ctx.set(root, .background_image, .{ .image = zss.sdl.textureAsBackgroundImage(sunglasses_jpg), .position = .{ .horizontal = 0.4, .vertical = 0.9 }, .clip = .Content });
     }
 
     const root_0 = root ++ [_]Part{0};

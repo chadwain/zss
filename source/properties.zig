@@ -96,12 +96,14 @@ pub const BackgroundColor = struct {
 
 pub const BackgroundImage = struct {
     pub const Data = *opaque {};
+    pub const Repeat = enum { None, Repeat, Space };
 
     image: ?Data = null,
     origin: enum { Padding, Border, Content } = .Padding,
     clip: enum { Padding, Border, Content } = .Border,
-    position: struct { horizontal: Percentage, vertical: Percentage } = .{ .horizontal = 0, .vertical = 0 },
-    size: struct { width: Percentage, height: Percentage } = .{ .width = 1.0, .height = 1.0 },
+    position: struct { horizontal: Percentage = 0, vertical: Percentage = 0 } = .{},
+    size: struct { width: Percentage = 1.0, height: Percentage = 1.0 } = .{},
+    repeat: struct { x: Repeat = .None, y: Repeat = .None } = .{},
 };
 
 /// Contains the used value of the properties 'overflow' and 'visibility'.

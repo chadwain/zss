@@ -46,3 +46,7 @@ pub fn getThreeBoxes(offset: Offset, offset_info: OffsetInfo, borders: Borders) 
         },
     };
 }
+
+pub fn divCeil(comptime T: type, a: T, b: T) T {
+    return @divFloor(a, b) + @boolToInt(@mod(a, b) != 0);
+}

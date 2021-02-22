@@ -24,8 +24,10 @@ const BlockFormattingContext = zss.BlockFormattingContext;
 const CSSUnit = zss.types.CSSUnit;
 const Offset = zss.types.Offset;
 const CSSRect = zss.types.CSSRect;
+const Ratio = zss.types.Ratio;
 const OffsetTree = zss.offset_tree.OffsetTree;
 const OffsetInfo = zss.offset_tree.OffsetInfo;
+const divCeil = zss.util.divCeil;
 const sdl = zss.sdl;
 usingnamespace zss.properties;
 
@@ -310,50 +312,49 @@ fn drawBackgroundAndBorders(
     });
 
     // draw background color
-    {
-        const bg_color = sdl.rgbaMap(pixel_format, background_color.rgba);
-        assert(SDL_SetRenderDrawColor(renderer, bg_color[0], bg_color[1], bg_color[2], bg_color[3]) == 0);
-        assert(SDL_RenderFillRect(renderer, &bg_clip_rect) == 0);
-    }
+    drawBackgroundColor(renderer, pixel_format, bg_clip_rect, background_color.rgba);
 
     // draw background image
-    if (background_image.image) |texture_ptr| stmt: {
+    if (background_image.image) |texture_ptr| {
         const texture = @ptrCast(*SDL_Texture, texture_ptr);
         var tw: c_int = undefined;
         var th: c_int = undefined;
         assert(SDL_QueryTexture(texture, null, null, &tw, &th) == 0);
-        if (tw == 0 or th == 0) break :stmt;
-
-        const dest_rect = blk: {
-            const origin_rect = sdl.cssRectToSdlRect(switch (background_image.origin) {
-                .Border => boxes.border,
-                .Padding => boxes.padding,
-                .Content => boxes.content,
-            });
-
-            var result: SDL_Rect = undefined;
-            // TODO we maybe want to do some rounding here
-            result.w = @floatToInt(c_int, background_image.size.width * @intToFloat(f32, tw));
-            result.h = @floatToInt(c_int, background_image.size.height * @intToFloat(f32, th));
-            result.x = origin_rect.x + @floatToInt(c_int, @intToFloat(f32, origin_rect.w - result.w) * background_image.position.horizontal);
-            result.y = origin_rect.y + @floatToInt(c_int, @intToFloat(f32, origin_rect.h - result.h) * background_image.position.vertical);
-            break :blk result;
+        const origin_rect = sdl.cssRectToSdlRect(switch (background_image.origin) {
+            .Border => boxes.border,
+            .Padding => boxes.padding,
+            .Content => boxes.content,
+        });
+        const size = SDL_Point{
+            .x = @floatToInt(c_int, background_image.size.width * @intToFloat(f32, tw)),
+            .y = @floatToInt(c_int, background_image.size.height * @intToFloat(f32, th)),
         };
-
-        const clip_rect_sdl = sdl.cssRectToSdlRect(clip_rect);
-        const draw_region = blk: {
-            var result: SDL_Rect = undefined;
-            // NOTE if there is no intersection here, then
-            // the image doesn't need to be rendered
-            _ = SDL_IntersectRect(&clip_rect_sdl, &bg_clip_rect, &result);
-            break :blk result;
-        };
-        assert(SDL_RenderSetClipRect(renderer, &draw_region) == 0);
-        defer assert(SDL_RenderSetClipRect(renderer, &clip_rect_sdl) == 0);
-
-        assert(SDL_RenderCopy(renderer, texture, null, &dest_rect) == 0);
+        drawBackgroundImage(
+            renderer,
+            texture,
+            origin_rect,
+            bg_clip_rect,
+            SDL_Point{
+                .x = origin_rect.x + @floatToInt(c_int, @intToFloat(f32, origin_rect.w - size.x) * background_image.position.horizontal),
+                .y = origin_rect.y + @floatToInt(c_int, @intToFloat(f32, origin_rect.h - size.y) * background_image.position.vertical),
+            },
+            size,
+            .{
+                .x = switch (background_image.repeat.x) {
+                    .None => .NoRepeat,
+                    .Repeat => .Repeat,
+                    .Space => .Space,
+                },
+                .y = switch (background_image.repeat.y) {
+                    .None => .NoRepeat,
+                    .Repeat => .Repeat,
+                    .Space => .Space,
+                },
+            },
+        );
     }
 
+    // draw borders
     drawBordersSolid(renderer, pixel_format, boxes, &borders, &border_colors);
 }
 
@@ -365,10 +366,10 @@ fn drawBordersSolid(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat, box
 
     const outer_top = sdl.cssUnitToSdlPixel(boxes.border.y);
     const inner_top = sdl.cssUnitToSdlPixel(boxes.border.y + borders.top);
-    const outer_bottom = sdl.cssUnitToSdlPixel(boxes.border.y + boxes.border.h);
     const inner_bottom = sdl.cssUnitToSdlPixel(boxes.border.y + boxes.border.h - borders.bottom);
+    const outer_bottom = sdl.cssUnitToSdlPixel(boxes.border.y + boxes.border.h);
 
-    const colorsMapped = [_][4]u8{
+    const color_mapped = [_][4]u8{
         sdl.rgbaMap(pixel_format, colors.top_rgba),
         sdl.rgbaMap(pixel_format, colors.right_rgba),
         sdl.rgbaMap(pixel_format, colors.bottom_rgba),
@@ -408,15 +409,15 @@ fn drawBordersSolid(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat, box
 
     comptime var i = 0;
     inline while (i < 4) : (i += 1) {
-        const c = colorsMapped[i];
+        const c = color_mapped[i];
         assert(SDL_SetRenderDrawColor(renderer, c[0], c[1], c[2], c[3]) == 0);
         assert(SDL_RenderFillRect(renderer, &rects[i]) == 0);
     }
 
-    drawBordersSolidCorners(renderer, outer_left, inner_left, outer_top, inner_top, colorsMapped[3], colorsMapped[0], true);
-    drawBordersSolidCorners(renderer, inner_right, outer_right, inner_bottom, outer_bottom, colorsMapped[2], colorsMapped[1], true);
-    drawBordersSolidCorners(renderer, outer_right, inner_right, outer_top, inner_top, colorsMapped[1], colorsMapped[0], false);
-    drawBordersSolidCorners(renderer, inner_left, outer_left, inner_bottom, outer_bottom, colorsMapped[2], colorsMapped[3], false);
+    drawBordersSolidCorners(renderer, outer_left, inner_left, outer_top, inner_top, color_mapped[3], color_mapped[0], true);
+    drawBordersSolidCorners(renderer, inner_right, outer_right, inner_bottom, outer_bottom, color_mapped[2], color_mapped[1], true);
+    drawBordersSolidCorners(renderer, outer_right, inner_right, outer_top, inner_top, color_mapped[1], color_mapped[0], false);
+    drawBordersSolidCorners(renderer, inner_left, outer_left, inner_bottom, outer_bottom, color_mapped[2], color_mapped[3], false);
 }
 
 // TODO This function doesn't draw in a very satisfactory way.
@@ -471,4 +472,128 @@ fn drawVerticalLine(renderer: *SDL_Renderer, x: c_int, y: c_int, y_low: c_int, y
     while (i < y) : (i += 1) {
         assert(SDL_RenderDrawPoint(renderer, x, i) == 0);
     }
+}
+
+fn drawBackgroundColor(
+    renderer: *SDL_Renderer,
+    pixel_format: *SDL_PixelFormat,
+    painting_area: SDL_Rect,
+    color_rgba: u32,
+) void {
+    const color_mapped = sdl.rgbaMap(pixel_format, color_rgba);
+    assert(SDL_SetRenderDrawColor(renderer, color_mapped[0], color_mapped[1], color_mapped[2], color_mapped[3]) == 0);
+    assert(SDL_RenderFillRect(renderer, &painting_area) == 0);
+}
+
+/// Represents one of the ways in which background images can be repeated.
+/// Note that "background-repeat: round" is not explicitly supported, but can
+/// be achieved by first resizing the image and using '.Repeat'.
+pub const Repeat = enum { NoRepeat, Repeat, Space };
+
+fn drawBackgroundImage(
+    renderer: *SDL_Renderer,
+    texture: *SDL_Texture,
+    positioning_area: SDL_Rect,
+    painting_area: SDL_Rect,
+    position: SDL_Point,
+    size: SDL_Point,
+    repeat: struct { x: Repeat, y: Repeat },
+) void {
+    if (size.x == 0 or size.y == 0) return;
+    const dimensions = blk: {
+        var w: c_int = undefined;
+        var h: c_int = undefined;
+        assert(SDL_QueryTexture(texture, null, null, &w, &h) == 0);
+        break :blk .{ .w = w, .h = h };
+    };
+    if (dimensions.w == 0 or dimensions.h == 0) return;
+
+    const info_x = getBackgroundImageRepeatInfo(
+        repeat.x,
+        @intCast(c_uint, painting_area.w),
+        positioning_area.x - painting_area.x,
+        @intCast(c_uint, positioning_area.w),
+        position.x - positioning_area.x,
+        @intCast(c_uint, size.x),
+    );
+    const info_y = getBackgroundImageRepeatInfo(
+        repeat.y,
+        @intCast(c_uint, painting_area.h),
+        positioning_area.y - painting_area.y,
+        @intCast(c_uint, positioning_area.h),
+        position.y - positioning_area.y,
+        @intCast(c_uint, size.y),
+    );
+
+    var i: c_int = info_x.start_index;
+    while (i < info_x.start_index + @intCast(c_int, info_x.count)) : (i += 1) {
+        var j: c_int = info_y.start_index;
+        while (j < info_y.start_index + @intCast(c_int, info_y.count)) : (j += 1) {
+            const image_rect = SDL_Rect{
+                .x = positioning_area.x + info_x.offset + @divFloor(i * (size.x * @intCast(c_int, info_x.space.den) + @intCast(c_int, info_x.space.num)), @intCast(c_int, info_x.space.den)),
+                .y = positioning_area.y + info_y.offset + @divFloor(j * (size.y * @intCast(c_int, info_y.space.den) + @intCast(c_int, info_y.space.num)), @intCast(c_int, info_y.space.den)),
+                .w = size.x,
+                .h = size.y,
+            };
+            var intersection = @as(SDL_Rect, undefined);
+            assert(SDL_IntersectRect(&painting_area, &image_rect, &intersection) == .SDL_TRUE);
+            assert(SDL_RenderCopy(
+                renderer,
+                texture,
+                &SDL_Rect{
+                    .x = @divTrunc((intersection.x - image_rect.x) * dimensions.w, size.x),
+                    .y = @divTrunc((intersection.y - image_rect.y) * dimensions.h, size.y),
+                    .w = @divTrunc(intersection.w * dimensions.w, size.x),
+                    .h = @divTrunc(intersection.h * dimensions.h, size.y),
+                },
+                &intersection,
+            ) == 0);
+        }
+    }
+}
+
+fn getBackgroundImageRepeatInfo(
+    repeat: Repeat,
+    painting_area_size: c_uint,
+    positioning_area_offset: c_int,
+    positioning_area_size: c_uint,
+    image_offset: c_int,
+    image_size: c_uint,
+) struct {
+    count: c_uint,
+    space: Ratio(c_uint),
+    offset: c_int,
+    start_index: c_int,
+} {
+    return switch (repeat) {
+        .NoRepeat => .{
+            .count = 1,
+            .space = Ratio(c_uint){ .num = 0, .den = 1 },
+            .offset = image_offset,
+            .start_index = 0,
+        },
+        .Repeat => blk: {
+            const before = divCeil(c_int, image_offset + positioning_area_offset, @intCast(c_int, image_size));
+            const after = divCeil(c_int, @intCast(c_int, painting_area_size) - positioning_area_offset - image_offset - @intCast(c_int, image_size), @intCast(c_int, image_size));
+            break :blk .{
+                .count = @intCast(c_uint, before + after + 1),
+                .space = Ratio(c_uint){ .num = 0, .den = 1 },
+                .offset = image_offset,
+                .start_index = -before,
+            };
+        },
+        .Space => blk: {
+            const positioning_area_count = positioning_area_size / image_size;
+            const space = positioning_area_size % image_size;
+            const before = divCeil(c_int, @intCast(c_int, positioning_area_count) * positioning_area_offset, @intCast(c_int, positioning_area_size));
+            const after = divCeil(c_int, @intCast(c_int, positioning_area_size) * (@intCast(c_int, painting_area_size) - @intCast(c_int, positioning_area_size) - positioning_area_offset), @intCast(c_int, positioning_area_size));
+            const count = @intCast(c_uint, before + after + @intCast(c_int, std.math.max(1, positioning_area_count)));
+            break :blk .{
+                .count = count,
+                .space = Ratio(c_uint){ .num = space, .den = std.math.max(2, positioning_area_count) - 1 },
+                .offset = image_offset * @boolToInt(count == 1),
+                .start_index = -before,
+            };
+        },
+    };
 }
