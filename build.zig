@@ -52,19 +52,22 @@ pub fn build(b: *Builder) void {
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
 
-    var graphical_tests = b.addTest("test/test.zig");
-    graphical_tests.setBuildMode(mode);
-    graphical_tests.addPackage(prefixTreePkg);
-    graphical_tests.addPackage(harfbuzzPkg);
-    graphical_tests.addPackage(SDL2Pkg);
-    graphical_tests.addPackage(zssPkg);
-    graphical_tests.linkSystemLibrary("c");
-    graphical_tests.linkSystemLibrary("freetype");
-    graphical_tests.addSystemIncludeDir(freetype_system_include_dir);
-    graphical_tests.linkSystemLibrary("harfbuzz");
-    graphical_tests.linkSystemLibrary("SDL2");
-    graphical_tests.linkSystemLibrary("SDL2_image");
-
     const graphical_test_step = b.step("graphical-test", "Run graphical tests");
-    graphical_test_step.dependOn(&graphical_tests.step);
+    const all_tests = @import("test/tests.zig");
+    inline for (all_tests.tests) |t| {
+        var test_exec = b.addExecutable(t.name, "test/" ++ t.root);
+        test_exec.setBuildMode(mode);
+        test_exec.addPackage(prefixTreePkg);
+        test_exec.addPackage(harfbuzzPkg);
+        test_exec.addPackage(SDL2Pkg);
+        test_exec.addPackage(zssPkg);
+        test_exec.linkSystemLibrary("c");
+        test_exec.linkSystemLibrary("freetype");
+        test_exec.linkSystemLibrary("harfbuzz");
+        test_exec.linkSystemLibrary("SDL2");
+        test_exec.linkSystemLibrary("SDL2_image");
+        test_exec.addSystemIncludeDir(freetype_system_include_dir);
+        test_exec.install();
+        graphical_test_step.dependOn(&graphical_tests.step);
+    }
 }

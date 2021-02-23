@@ -5,38 +5,38 @@ const expect = std.testing.expect;
 const zss = @import("zss");
 
 usingnamespace @import("sdl/render_sdl.zig");
-usingnamespace @import("SDL2");
+const sdl = @import("SDL2");
 const hb = @import("harfbuzz");
 
-test "render inline formatting context using SDL" {
-    assert(SDL_Init(SDL_INIT_VIDEO) == 0);
-    defer SDL_Quit();
+pub fn main() !void {
+    assert(sdl.SDL_Init(sdl.SDL_INIT_VIDEO) == 0);
+    defer sdl.SDL_Quit();
 
     const width = 800;
     const height = 600;
-    const window = SDL_CreateWindow(
-        "An SDL Window.",
-        SDL_WINDOWPOS_CENTERED_MASK,
-        SDL_WINDOWPOS_CENTERED_MASK,
+    const window = sdl.SDL_CreateWindow(
+        "An sdl.SDL Window.",
+        sdl.SDL_WINDOWPOS_CENTERED_MASK,
+        sdl.SDL_WINDOWPOS_CENTERED_MASK,
         width,
         height,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE,
+        sdl.SDL_WINDOW_SHOWN | sdl.SDL_WINDOW_RESIZABLE,
     ) orelse unreachable;
-    defer SDL_DestroyWindow(window);
+    defer sdl.SDL_DestroyWindow(window);
 
-    const renderer = SDL_CreateRenderer(
+    const renderer = sdl.SDL_CreateRenderer(
         window,
         -1,
-        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC,
+        sdl.SDL_RENDERER_ACCELERATED | sdl.SDL_RENDERER_PRESENTVSYNC,
     ) orelse unreachable;
-    defer SDL_DestroyRenderer(renderer);
+    defer sdl.SDL_DestroyRenderer(renderer);
 
-    const window_texture = SDL_GetRenderTarget(renderer);
+    const window_texture = sdl.SDL_GetRenderTarget(renderer);
 
     const dpi = blk: {
         var horizontal: f32 = 0;
         var vertical: f32 = 0;
-        if (SDL_GetDisplayDPI(0, null, &horizontal, &vertical) != 0) {
+        if (sdl.SDL_GetDisplayDPI(0, null, &horizontal, &vertical) != 0) {
             horizontal = 96;
             vertical = 96;
         }
@@ -59,46 +59,46 @@ test "render inline formatting context using SDL" {
     defer hb.hb_font_destroy(hbfont);
     hb.hb_ft_font_set_funcs(hbfont);
 
-    const texture_pixel_format = SDL_AllocFormat(SDL_PIXELFORMAT_RGBA32) orelse unreachable;
-    defer SDL_FreeFormat(texture_pixel_format);
-    const texture = SDL_CreateTexture(
+    const texture_pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
+    defer sdl.SDL_FreeFormat(texture_pixel_format);
+    const texture = sdl.SDL_CreateTexture(
         renderer,
         texture_pixel_format.*.format,
-        SDL_TEXTUREACCESS_TARGET,
+        sdl.SDL_TEXTUREACCESS_TARGET,
         width,
         height,
     ) orelse unreachable;
-    defer SDL_DestroyTexture(texture);
-    assert(SDL_SetRenderTarget(renderer, texture) == 0);
+    defer sdl.SDL_DestroyTexture(texture);
+    assert(sdl.SDL_SetRenderTarget(renderer, texture) == 0);
 
     try exampleInlineContext(renderer, texture_pixel_format, hbfont);
-    SDL_RenderPresent(renderer);
+    sdl.SDL_RenderPresent(renderer);
 
-    assert(SDL_SetRenderTarget(renderer, window_texture) == 0);
+    assert(sdl.SDL_SetRenderTarget(renderer, window_texture) == 0);
     var running: bool = true;
-    var event: SDL_Event = undefined;
+    var event: sdl.SDL_Event = undefined;
     while (running) {
-        while (SDL_PollEvent(&event) != 0) {
-            if (event.@"type" == SDL_WINDOWEVENT) {
-                if (event.window.event == SDL_WINDOWEVENT_CLOSE)
+        while (sdl.SDL_PollEvent(&event) != 0) {
+            if (event.@"type" == sdl.SDL_WINDOWEVENT) {
+                if (event.window.event == sdl.SDL_WINDOWEVENT_CLOSE)
                     running = false;
-            } else if (event.@"type" == SDL_QUIT) {
+            } else if (event.@"type" == sdl.SDL_QUIT) {
                 running = false;
             }
         }
 
-        assert(SDL_RenderClear(renderer) == 0);
-        assert(SDL_RenderCopy(renderer, texture, null, &SDL_Rect{
+        assert(sdl.SDL_RenderClear(renderer) == 0);
+        assert(sdl.SDL_RenderCopy(renderer, texture, null, &sdl.SDL_Rect{
             .x = 0,
             .y = 0,
             .w = width,
             .h = height,
         }) == 0);
-        SDL_RenderPresent(renderer);
+        sdl.SDL_RenderPresent(renderer);
     }
 }
 
-fn exampleInlineContext(renderer: *SDL_Renderer, pixelFormat: *SDL_PixelFormat, font: *hb.hb_font_t) !void {
+fn exampleInlineContext(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFormat, font: *hb.hb_font_t) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer expect(!gpa.deinit());
 

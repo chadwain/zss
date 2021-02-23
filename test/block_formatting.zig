@@ -4,81 +4,81 @@ const expect = std.testing.expect;
 
 const zss = @import("zss");
 
-usingnamespace @import("SDL2");
+const sdl = @import("SDL2");
 usingnamespace @import("sdl/render_sdl.zig");
 
-test "render block formating context using SDL" {
-    assert(SDL_Init(SDL_INIT_VIDEO) == 0);
-    defer SDL_Quit();
+pub fn main() !void {
+    assert(sdl.SDL_Init(sdl.SDL_INIT_VIDEO) == 0);
+    defer sdl.SDL_Quit();
 
     const width = 800;
     const height = 600;
-    const window = SDL_CreateWindow(
-        "An SDL Window.",
-        SDL_WINDOWPOS_CENTERED_MASK,
-        SDL_WINDOWPOS_CENTERED_MASK,
+    const window = sdl.SDL_CreateWindow(
+        "An sdl.SDL Window.",
+        sdl.SDL_WINDOWPOS_CENTERED_MASK,
+        sdl.SDL_WINDOWPOS_CENTERED_MASK,
         width,
         height,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE,
+        sdl.SDL_WINDOW_SHOWN | sdl.SDL_WINDOW_RESIZABLE,
     ) orelse unreachable;
-    defer SDL_DestroyWindow(window);
+    defer sdl.SDL_DestroyWindow(window);
 
-    const renderer = SDL_CreateRenderer(
+    const renderer = sdl.SDL_CreateRenderer(
         window,
         -1,
-        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC,
+        sdl.SDL_RENDERER_ACCELERATED | sdl.SDL_RENDERER_PRESENTVSYNC,
     ) orelse unreachable;
-    defer SDL_DestroyRenderer(renderer);
+    defer sdl.SDL_DestroyRenderer(renderer);
 
-    const window_texture = SDL_GetRenderTarget(renderer);
+    const window_texture = sdl.SDL_GetRenderTarget(renderer);
 
-    const texture_pixel_format = SDL_AllocFormat(SDL_PIXELFORMAT_RGBA32) orelse unreachable;
-    defer SDL_FreeFormat(texture_pixel_format);
-    const texture = SDL_CreateTexture(
+    const texture_pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
+    defer sdl.SDL_FreeFormat(texture_pixel_format);
+    const texture = sdl.SDL_CreateTexture(
         renderer,
         texture_pixel_format.*.format,
-        SDL_TEXTUREACCESS_TARGET,
+        sdl.SDL_TEXTUREACCESS_TARGET,
         width,
         height,
     ) orelse unreachable;
-    defer SDL_DestroyTexture(texture);
-    assert(SDL_SetRenderTarget(renderer, texture) == 0);
+    defer sdl.SDL_DestroyTexture(texture);
+    assert(sdl.SDL_SetRenderTarget(renderer, texture) == 0);
 
-    _ = IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
-    defer IMG_Quit();
-    const zig_png = IMG_LoadTexture(renderer, "test/resources/zig.png") orelse unreachable;
-    defer SDL_DestroyTexture(zig_png);
-    const sunglasses_jpg = IMG_LoadTexture(renderer, "test/resources/sunglasses.jpg") orelse unreachable;
-    defer SDL_DestroyTexture(sunglasses_jpg);
+    _ = sdl.IMG_Init(sdl.IMG_INIT_PNG | sdl.IMG_INIT_JPG);
+    defer sdl.IMG_Quit();
+    const zig_png = sdl.IMG_LoadTexture(renderer, "test/resources/zig.png") orelse unreachable;
+    defer sdl.SDL_DestroyTexture(zig_png);
+    const sunglasses_jpg = sdl.IMG_LoadTexture(renderer, "test/resources/sunglasses.jpg") orelse unreachable;
+    defer sdl.SDL_DestroyTexture(sunglasses_jpg);
 
     try drawBlockContext(renderer, texture_pixel_format, zig_png, sunglasses_jpg);
-    SDL_RenderPresent(renderer);
+    sdl.SDL_RenderPresent(renderer);
 
-    assert(SDL_SetRenderTarget(renderer, window_texture) == 0);
+    assert(sdl.SDL_SetRenderTarget(renderer, window_texture) == 0);
     var running: bool = true;
-    var event: SDL_Event = undefined;
+    var event: sdl.SDL_Event = undefined;
     while (running) {
-        while (SDL_PollEvent(&event) != 0) {
-            if (event.@"type" == SDL_WINDOWEVENT) {
-                if (event.window.event == SDL_WINDOWEVENT_CLOSE)
+        while (sdl.SDL_PollEvent(&event) != 0) {
+            if (event.@"type" == sdl.SDL_WINDOWEVENT) {
+                if (event.window.event == sdl.SDL_WINDOWEVENT_CLOSE)
                     running = false;
-            } else if (event.@"type" == SDL_QUIT) {
+            } else if (event.@"type" == sdl.SDL_QUIT) {
                 running = false;
             }
         }
 
-        assert(SDL_RenderClear(renderer) == 0);
-        assert(SDL_RenderCopy(renderer, texture, null, &SDL_Rect{
+        assert(sdl.SDL_RenderClear(renderer) == 0);
+        assert(sdl.SDL_RenderCopy(renderer, texture, null, &sdl.SDL_Rect{
             .x = 0,
             .y = 0,
             .w = width,
             .h = height,
         }) == 0);
-        SDL_RenderPresent(renderer);
+        sdl.SDL_RenderPresent(renderer);
     }
 }
 
-fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat, zig_png: *SDL_Texture, sunglasses_jpg: *SDL_Texture) !void {
+fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, zig_png: *sdl.SDL_Texture, sunglasses_jpg: *sdl.SDL_Texture) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer expect(!gpa.deinit());
 
@@ -203,7 +203,7 @@ fn drawBlockContext(renderer: *SDL_Renderer, pixel_format: *SDL_PixelFormat, zig
     try renderStackingContexts(&stacking_context_root, &gpa.allocator, renderer, pixel_format);
 }
 
-fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *SDL_Texture) !zss.BlockFormattingContext {
+fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture) !zss.BlockFormattingContext {
     var blk_ctx = zss.BlockFormattingContext.init(allocator);
     errdefer blk_ctx.deinit();
 
@@ -260,7 +260,7 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     return blk_ctx;
 }
 
-fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *SDL_Texture) !zss.BlockFormattingContext {
+fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_Texture) !zss.BlockFormattingContext {
     var blk_ctx = zss.BlockFormattingContext.init(allocator);
     errdefer blk_ctx.deinit();
 
