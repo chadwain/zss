@@ -8,12 +8,14 @@ usingnamespace @import("sdl/render_sdl.zig");
 const sdl = @import("SDL2");
 const hb = @import("harfbuzz");
 
+const viewport_rect = zss.types.CSSSize{ .w = 800, .h = 600 };
+
 pub fn main() !void {
     assert(sdl.SDL_Init(sdl.SDL_INIT_VIDEO) == 0);
     defer sdl.SDL_Quit();
 
-    const width = 800;
-    const height = 600;
+    const width = viewport_rect.w;
+    const height = viewport_rect.h;
     const window = sdl.SDL_CreateWindow(
         "An sdl.SDL Window.",
         sdl.SDL_WINDOWPOS_CENTERED_MASK,
@@ -212,14 +214,18 @@ fn exampleInlineContext(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixel
     var stacking_context_root = zss.stacking_context.StackingContextTree{};
     defer stacking_context_root.deinitRecursive(&gpa.allocator);
 
-    var blk_ctx = zss.BlockFormattingContext.init(&gpa.allocator);
-    defer blk_ctx.deinit();
-    {
-        const key = &[_]Part{0};
-        try blk_ctx.new(key);
-    }
-    var blk_offset_tree = try zss.offset_tree.fromBlockContext(&blk_ctx, &gpa.allocator);
-    defer blk_offset_tree.deinitRecursive(&gpa.allocator);
+    var blk_ctx = blk: {
+        var preorder_array = [_]u16{1};
+        var inline_size = [_]zss.properties.LogicalSize{.{}};
+        var block_size = [_]zss.properties.LogicalSize{.{}};
+        const box_tree = zss.box_tree.BoxTree{
+            .preorder_array = &preorder_array,
+            .inline_size = &inline_size,
+            .block_size = &block_size,
+        };
+        break :blk try zss.solve.generateUsedDataFromBoxTree(&box_tree, &gpa.allocator, viewport_rect);
+    };
+    defer blk_ctx.deinit(&gpa.allocator);
 
     _ = try stacking_context_root.insert(
         &gpa.allocator,
@@ -228,12 +234,7 @@ fn exampleInlineContext(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixel
             .midpoint = 0,
             .offset = .{ .x = 0, .y = 0 },
             .clip_rect = .{ .x = 0, .y = 0, .w = 2000000, .h = 2000000 },
-            .inner_context = .{
-                .block = .{
-                    .context = &blk_ctx,
-                    .offset_tree = &blk_offset_tree,
-                },
-            },
+            .inner_context = .{ .block = &blk_ctx },
         },
         undefined,
     );

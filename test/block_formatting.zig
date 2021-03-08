@@ -7,14 +7,16 @@ const zss = @import("zss");
 const sdl = @import("SDL2");
 usingnamespace @import("sdl/render_sdl.zig");
 
+const viewport_rect = zss.types.CSSSize{ .w = 800, .h = 600 };
+
 pub fn main() !void {
     assert(sdl.SDL_Init(sdl.SDL_INIT_VIDEO) == 0);
     defer sdl.SDL_Quit();
 
-    const width = 800;
-    const height = 600;
+    const width = viewport_rect.w;
+    const height = viewport_rect.h;
     const window = sdl.SDL_CreateWindow(
-        "An sdl.SDL Window.",
+        "An SDL Window.",
         sdl.SDL_WINDOWPOS_CENTERED_MASK,
         sdl.SDL_WINDOWPOS_CENTERED_MASK,
         width,
@@ -83,34 +85,19 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
     defer expect(!gpa.deinit());
 
     var ctx1 = try exampleBlockContext1(&gpa.allocator, zig_png);
-    defer ctx1.deinit();
+    defer ctx1.deinit(&gpa.allocator);
 
     var ctx2 = try exampleBlockContext2(&gpa.allocator);
-    defer ctx2.deinit();
+    defer ctx2.deinit(&gpa.allocator);
 
     var ctx3 = try exampleBlockContext3(&gpa.allocator, sunglasses_jpg);
-    defer ctx3.deinit();
+    defer ctx3.deinit(&gpa.allocator);
 
     var ctx4 = try exampleBlockContext4(&gpa.allocator);
-    defer ctx4.deinit();
+    defer ctx4.deinit(&gpa.allocator);
 
     var ctx5 = try exampleBlockContext5(&gpa.allocator);
-    defer ctx5.deinit();
-
-    var offset_tree_1 = try zss.offset_tree.fromBlockContext(&ctx1, &gpa.allocator);
-    defer offset_tree_1.deinitRecursive(&gpa.allocator);
-
-    var offset_tree_2 = try zss.offset_tree.fromBlockContext(&ctx2, &gpa.allocator);
-    defer offset_tree_2.deinitRecursive(&gpa.allocator);
-
-    var offset_tree_3 = try zss.offset_tree.fromBlockContext(&ctx3, &gpa.allocator);
-    defer offset_tree_3.deinitRecursive(&gpa.allocator);
-
-    var offset_tree_4 = try zss.offset_tree.fromBlockContext(&ctx4, &gpa.allocator);
-    defer offset_tree_4.deinitRecursive(&gpa.allocator);
-
-    var offset_tree_5 = try zss.offset_tree.fromBlockContext(&ctx5, &gpa.allocator);
-    defer offset_tree_5.deinitRecursive(&gpa.allocator);
+    defer ctx5.deinit(&gpa.allocator);
 
     var stacking_context_root = zss.stacking_context.StackingContextTree{};
     defer stacking_context_root.deinitRecursive(&gpa.allocator);
@@ -122,12 +109,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
             .midpoint = 2,
             .offset = .{ .x = 0, .y = 0 },
             .clip_rect = .{ .x = 0, .y = 0, .w = 1000000, .h = 1000000 },
-            .inner_context = .{
-                .block = .{
-                    .context = &ctx1,
-                    .offset_tree = &offset_tree_1,
-                },
-            },
+            .inner_context = .{ .block = &ctx1 },
         },
         undefined,
     );
@@ -139,12 +121,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
             .midpoint = 0,
             .offset = .{ .x = 100, .y = 110 },
             .clip_rect = .{ .x = 0, .y = 0, .w = 1000000, .h = 1000000 },
-            .inner_context = .{
-                .block = .{
-                    .context = &ctx2,
-                    .offset_tree = &offset_tree_2,
-                },
-            },
+            .inner_context = .{ .block = &ctx2 },
         },
         undefined,
     );
@@ -156,12 +133,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
             .midpoint = 0,
             .offset = .{ .x = 450, .y = 110 },
             .clip_rect = .{ .x = 0, .y = 0, .w = 1000000, .h = 1000000 },
-            .inner_context = .{
-                .block = .{
-                    .context = &ctx3,
-                    .offset_tree = &offset_tree_3,
-                },
-            },
+            .inner_context = .{ .block = &ctx3 },
         },
         undefined,
     );
@@ -173,12 +145,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
             .midpoint = 1,
             .offset = .{ .x = 400, .y = 400 },
             .clip_rect = .{ .x = 0, .y = 0, .w = 1000000, .h = 1000000 },
-            .inner_context = .{
-                .block = .{
-                    .context = &ctx4,
-                    .offset_tree = &offset_tree_4,
-                },
-            },
+            .inner_context = .{ .block = &ctx4 },
         },
         undefined,
     );
@@ -190,12 +157,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
             .midpoint = 0,
             .offset = .{ .x = 200, .y = 350 },
             .clip_rect = .{ .x = 0, .y = 0, .w = 1000000, .h = 1000000 },
-            .inner_context = .{
-                .block = .{
-                    .context = &ctx5,
-                    .offset_tree = &offset_tree_5,
-                },
-            },
+            .inner_context = .{ .block = &ctx5 },
         },
         undefined,
     );
@@ -204,124 +166,185 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
 }
 
 fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture) !zss.BlockFormattingContext {
-    var blk_ctx = zss.BlockFormattingContext.init(allocator);
-    errdefer blk_ctx.deinit();
+    var preorder_array = [_]u16{ 3, 2, 1 };
+    var inline_size = [_]zss.properties.LogicalSize{
+        .{
+            .size = .{ .px = 700 },
+            .padding_start = .{ .px = 100 },
+        },
+        .{
+            .size = .{ .px = 100 },
+            .margin_start = .{ .px = 250 },
+        },
+        .{
+            .size = .{ .px = 40 },
+        },
+    };
+    var block_size = [_]zss.properties.LogicalSize{
+        .{
+            .size = .{ .px = 550 },
+            .padding_start = .{ .px = 50 },
+        },
+        .{
+            .size = .{ .px = 100 },
+            .margin_start = .{ .px = 50 },
+        },
+        .{
+            .size = .{ .px = 40 },
+        },
+    };
+    const box_tree = zss.box_tree.BoxTree{
+        .preorder_array = &preorder_array,
+        .inline_size = &inline_size,
+        .block_size = &block_size,
+    };
 
-    const Part = zss.BlockFormattingContext.IdPart;
+    var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect);
 
-    const root = &[_]Part{0};
-    {
-        try blk_ctx.new(root);
-        try blk_ctx.set(root, .dimension, .{ .width = 700, .height = 550 });
-        try blk_ctx.set(root, .background_color, .{ .rgba = 0xff223300 });
-        try blk_ctx.set(root, .padding, .{ .left = 100, .top = 50 });
-        try blk_ctx.set(root, .background_image, .{
-            .image = textureAsBackgroundImage(zig_png),
-            .position = .{ .vertical = 0.5, .horizontal = 0.5 },
-            .size = .{ .width = 0.75, .height = 0.5 },
-            .repeat = .{ .x = .Space, .y = .Repeat },
-        });
-    }
+    context.background_color[0] = .{ .rgba = 0xff223300 };
+    context.background_image[0] = .{
+        .image = textureAsBackgroundImage(zig_png),
+        .position = .{ .vertical = 0.5, .horizontal = 0.5 },
+        .size = .{ .width = 0.75, .height = 0.5 },
+        .repeat = .{ .x = .Space, .y = .Repeat },
+    };
 
-    const root_0 = root ++ [_]Part{0};
-    {
-        try blk_ctx.new(root_0);
-        try blk_ctx.set(root_0, .dimension, .{ .width = 100, .height = 100 });
-        try blk_ctx.set(root_0, .background_color, .{ .rgba = 0x00df1213 });
-        try blk_ctx.set(root_0, .margin_left_right, .{ .left = 250 });
-        try blk_ctx.set(root_0, .margin_top_bottom, .{ .top = 50 });
-        try blk_ctx.set(root_0, .visual_effect, .{ .visibility = .Hidden });
-    }
+    context.background_color[1] = .{ .rgba = 0x00df1213 };
+    context.visual_effect[1] = .{ .visibility = .Hidden };
 
-    const root_0_0 = root_0 ++ [_]Part{0};
-    {
-        try blk_ctx.new(root_0_0);
-        try blk_ctx.set(root_0_0, .dimension, .{ .width = 40, .height = 40 });
-        try blk_ctx.set(root_0_0, .background_color, .{ .rgba = 0x5c76d3ff });
-    }
+    context.background_color[2] = .{ .rgba = 0x5c76d3ff };
+    context.visual_effect[2] = .{ .visibility = .Hidden };
 
-    return blk_ctx;
+    return context;
 }
 
 fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
-    var blk_ctx = zss.BlockFormattingContext.init(allocator);
-    errdefer blk_ctx.deinit();
+    var preorder_array = [_]u16{1};
+    var inline_size = [_]zss.properties.LogicalSize{
+        .{
+            .size = .{ .px = 100 },
+            .border_start_width = .{ .px = 20 },
+            .border_end_width = .{ .px = 10 },
+        },
+    };
+    var block_size = [_]zss.properties.LogicalSize{
+        .{
+            .size = .{ .px = 100 },
+            .border_start_width = .{ .px = 5 },
+            .border_end_width = .{ .px = 15 },
+        },
+    };
+    const box_tree = zss.box_tree.BoxTree{
+        .preorder_array = &preorder_array,
+        .inline_size = &inline_size,
+        .block_size = &block_size,
+    };
 
-    const Part = zss.BlockFormattingContext.IdPart;
+    var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect);
 
-    const root = &[_]Part{0};
-    {
-        try blk_ctx.new(root);
-        try blk_ctx.set(root, .dimension, .{ .width = 100, .height = 100 });
-        try blk_ctx.set(root, .borders, .{ .top = 5, .right = 10, .bottom = 15, .left = 20 });
-        try blk_ctx.set(root, .background_color, .{ .rgba = 0x306892ff });
-    }
+    context.background_color[0] = .{ .rgba = 0x306892ff };
 
-    return blk_ctx;
+    return context;
 }
 
 fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_Texture) !zss.BlockFormattingContext {
-    var blk_ctx = zss.BlockFormattingContext.init(allocator);
-    errdefer blk_ctx.deinit();
+    var preorder_array = [_]u16{ 2, 1 };
+    var inline_size = [_]zss.properties.LogicalSize{
+        .{
+            .size = .{ .px = 300 },
+            .border_start_width = .{ .px = 10 },
+            .border_end_width = .{ .px = 10 },
+        },
+        .{
+            .size = .{ .px = 100 },
+            .border_start_width = .{ .px = 10 },
+            .border_end_width = .{ .px = 10 },
+            .margin_start = .{ .px = -25 },
+        },
+    };
+    var block_size = [_]zss.properties.LogicalSize{
+        .{
+            .size = .{ .px = 150 },
+            .border_start_width = .{ .px = 10 },
+            .border_end_width = .{ .px = 10 },
+        },
+        .{
+            .size = .{ .px = 100 },
+            .border_start_width = .{ .px = 10 },
+            .border_end_width = .{ .px = 10 },
+            .margin_start = .{ .px = -30 },
+        },
+    };
+    const box_tree = zss.box_tree.BoxTree{
+        .preorder_array = &preorder_array,
+        .inline_size = &inline_size,
+        .block_size = &block_size,
+    };
 
-    const Part = zss.BlockFormattingContext.IdPart;
+    var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect);
 
-    const root = &[_]Part{0};
-    {
-        try blk_ctx.new(root);
-        try blk_ctx.set(root, .dimension, .{ .width = 300, .height = 150 });
-        //try blk_ctx.set(root, .padding, .{ .top = 20, .bottom = 35 });
-        try blk_ctx.set(root, .borders, .{ .top = 10, .right = 10, .bottom = 10, .left = 10 });
-        try blk_ctx.set(root, .background_color, .{ .rgba = 0x592b1cff });
-        try blk_ctx.set(root, .visual_effect, .{ .overflow = .Hidden });
-        try blk_ctx.set(root, .background_image, .{ .image = textureAsBackgroundImage(sunglasses_jpg), .position = .{ .horizontal = 0.4, .vertical = 0.9 }, .clip = .Content });
-    }
+    context.background_color[0] = .{ .rgba = 0x592b1cff };
+    context.visual_effect[0] = .{ .overflow = .Hidden };
+    context.background_image[0] = .{ .image = textureAsBackgroundImage(sunglasses_jpg), .position = .{ .horizontal = 0.4, .vertical = 0.9 }, .clip = .Content };
 
-    const root_0 = root ++ [_]Part{0};
-    {
-        try blk_ctx.new(root_0);
-        try blk_ctx.set(root_0, .dimension, .{ .width = 100, .height = 100 });
-        try blk_ctx.set(root_0, .borders, .{ .top = 10, .right = 10, .bottom = 10, .left = 10 });
-        try blk_ctx.set(root_0, .border_colors, .{ .top_rgba = 0x789b58ff, .right_rgba = 0x789b58ff, .bottom_rgba = 0x789b58ff, .left_rgba = 0x789b58ff });
-        try blk_ctx.set(root_0, .background_color, .{ .rgba = 0x9500abff });
-        try blk_ctx.set(root_0, .margin_left_right, .{ .left = -25 });
-        try blk_ctx.set(root_0, .margin_top_bottom, .{ .top = -30 });
-    }
+    context.border_colors[1] = .{ .top_rgba = 0x789b58ff, .right_rgba = 0x789b58ff, .bottom_rgba = 0x789b58ff, .left_rgba = 0x789b58ff };
+    context.background_color[1] = .{ .rgba = 0x9500abff };
 
-    return blk_ctx;
+    return context;
 }
 
 fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
-    var blk_ctx = zss.BlockFormattingContext.init(allocator);
-    errdefer blk_ctx.deinit();
+    var preorder_array = [_]u16{1};
+    var inline_size = [_]zss.properties.LogicalSize{
+        .{
+            .size = .{ .px = 150 },
+            .border_start_width = .{ .px = 30 },
+            .border_end_width = .{ .px = 30 },
+        },
+    };
+    var block_size = [_]zss.properties.LogicalSize{
+        .{
+            .size = .{ .px = 100 },
+            .border_start_width = .{ .px = 30 },
+            .border_end_width = .{ .px = 30 },
+        },
+    };
+    const box_tree = zss.box_tree.BoxTree{
+        .preorder_array = &preorder_array,
+        .inline_size = &inline_size,
+        .block_size = &block_size,
+    };
 
-    const Part = zss.BlockFormattingContext.IdPart;
+    var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect);
 
-    const root = &[_]Part{0};
-    {
-        try blk_ctx.new(root);
-        try blk_ctx.set(root, .dimension, .{ .width = 150, .height = 100 });
-        try blk_ctx.set(root, .borders, .{ .top = 30, .right = 30, .bottom = 30, .left = 30 });
-        try blk_ctx.set(root, .border_colors, .{ .top_rgba = 0x20f4f4ff, .right_rgba = 0x3faf34ff, .bottom_rgba = 0xa32a7cff, .left_rgba = 0x102458ff });
-        try blk_ctx.set(root, .background_color, .{ .rgba = 0x9104baff });
-    }
+    context.border_colors[0] = .{ .top_rgba = 0x20f4f4ff, .right_rgba = 0x3faf34ff, .bottom_rgba = 0xa32a7cff, .left_rgba = 0x102458ff };
+    context.background_color[0] = .{ .rgba = 0x9104baff };
 
-    return blk_ctx;
+    return context;
 }
 
 fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
-    var blk_ctx = zss.BlockFormattingContext.init(allocator);
-    errdefer blk_ctx.deinit();
+    var preorder_array = [_]u16{1};
+    var inline_size = [_]zss.properties.LogicalSize{
+        .{
+            .size = .{ .px = 75 },
+        },
+    };
+    var block_size = [_]zss.properties.LogicalSize{
+        .{
+            .size = .{ .px = 200 },
+        },
+    };
+    const box_tree = zss.box_tree.BoxTree{
+        .preorder_array = &preorder_array,
+        .inline_size = &inline_size,
+        .block_size = &block_size,
+    };
 
-    const Part = zss.BlockFormattingContext.IdPart;
+    var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect);
 
-    const root = &[_]Part{0};
-    {
-        try blk_ctx.new(root);
-        try blk_ctx.set(root, .dimension, .{ .width = 75, .height = 200 });
-        try blk_ctx.set(root, .background_color, .{ .rgba = 0xb186afff });
-        try blk_ctx.set(root, .border_colors, .{ .top_rgba = 0xdd56faff, .right_rgba = 0x93542cff, .bottom_rgba = 0x2bda86ff, .left_rgba = 0xbca973ff });
-    }
+    context.background_color[0] = .{ .rgba = 0xb186afff };
+    context.border_colors[0] = .{ .top_rgba = 0xdd56faff, .right_rgba = 0x93542cff, .bottom_rgba = 0x2bda86ff, .left_rgba = 0xbca973ff };
 
-    return blk_ctx;
+    return context;
 }

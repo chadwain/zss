@@ -79,7 +79,7 @@ pub fn renderStackingContexts(
         const child = stacking_contexts.child(0);
         const b = value.inner_context.block;
 
-        drawRootElementBlock(b.context, b.offset_tree, value.offset, viewport.intersect(value.clip_rect), renderer, pixel_format);
+        drawRootElementBlock(b, value.offset, viewport.intersect(value.clip_rect), renderer, pixel_format);
         try stack.append(.{ .descendantsRender = .{ .val = value, .sc = child } });
         if (child) |sc| try ops.addLeftSubtree(&stack, sc, value.midpoint);
     }
@@ -88,7 +88,7 @@ pub fn renderStackingContexts(
         switch (stack.pop()) {
             .topElemRender => |item| {
                 switch (item.val.inner_context) {
-                    .block => |b| drawTopElementBlock(b.context, b.offset_tree, item.val.offset, viewport.intersect(item.val.clip_rect), renderer, pixel_format),
+                    .block => |b| drawTopElementBlock(b, item.val.offset, viewport.intersect(item.val.clip_rect), renderer, pixel_format),
                     else => {},
                 }
                 try stack.append(.{ .descendantsRender = item });
@@ -110,7 +110,7 @@ fn renderStackingContext(
     pixel_format: *SDL_PixelFormat,
 ) !void {
     switch (context.inner_context) {
-        .block => |b| try drawDescendantBlocks(b.context, allocator, b.offset_tree, context.offset, viewport.intersect(context.clip_rect), renderer, pixel_format),
+        .block => |b| try drawDescendantBlocks(b, allocator, context.offset, viewport.intersect(context.clip_rect), renderer, pixel_format),
         .inl => |i| try drawInlineContext(i.context, allocator, context.offset, renderer, pixel_format),
     }
 }

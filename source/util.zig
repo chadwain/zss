@@ -17,13 +17,12 @@
 const zss = @import("../zss.zig");
 usingnamespace zss.types;
 const used = zss.used_properties;
-const OffsetInfo = zss.offset_tree.OffsetInfo;
 
-pub fn getThreeBoxes(offset: Offset, offset_info: OffsetInfo, borders: used.Borders) ThreeBoxes {
-    const border_x = offset.x + offset_info.border_top_left.x;
-    const border_y = offset.y + offset_info.border_top_left.y;
-    const border_w = offset_info.border_bottom_right.x - offset_info.border_top_left.x;
-    const border_h = offset_info.border_bottom_right.y - offset_info.border_top_left.y;
+pub fn getThreeBoxes(offset: Offset, box_offsets: BoxOffsets, borders: used.Borders) ThreeBoxes {
+    const border_x = offset.x + box_offsets.border_top_left.x;
+    const border_y = offset.y + box_offsets.border_top_left.y;
+    const border_w = box_offsets.border_bottom_right.x - box_offsets.border_top_left.x;
+    const border_h = box_offsets.border_bottom_right.y - box_offsets.border_top_left.y;
 
     return ThreeBoxes{
         .border = CSSRect{
@@ -39,10 +38,10 @@ pub fn getThreeBoxes(offset: Offset, offset_info: OffsetInfo, borders: used.Bord
             .h = border_h - borders.top - borders.bottom,
         },
         .content = CSSRect{
-            .x = offset.x + offset_info.content_top_left.x,
-            .y = offset.y + offset_info.content_top_left.y,
-            .w = offset_info.content_bottom_right.x - offset_info.content_top_left.x,
-            .h = offset_info.content_bottom_right.y - offset_info.content_top_left.y,
+            .x = offset.x + box_offsets.content_top_left.x,
+            .y = offset.y + box_offsets.content_top_left.y,
+            .w = box_offsets.content_bottom_right.x - box_offsets.content_top_left.x,
+            .h = box_offsets.content_bottom_right.y - box_offsets.content_top_left.y,
         },
     };
 }

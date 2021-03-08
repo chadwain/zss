@@ -25,7 +25,6 @@ pub const BlockFormattingContext = @import("source/used/BlockFormattingContext.z
 pub const InlineFormattingContext = @import("source/used/InlineFormattingContext.zig");
 pub const context = @import("source/used/context.zig");
 pub const stacking_context = @import("source/used/stacking_context.zig");
-pub const offset_tree = @import("source/used/offset_tree.zig");
 pub const solve = @import("source/used/solve.zig");
 
 pub const sdl = @import("source/render/sdl.zig");

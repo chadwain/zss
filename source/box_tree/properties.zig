@@ -33,38 +33,6 @@ fn withPercentage(comptime T: type) type {
     return values.mergeUnions(T, values.Percentage);
 }
 
-pub const BoxSize = struct {
-    pub const PaddingValue = withDefaults(values.LengthPercentage);
-    pub const BorderValue = withDefaults(values.LineWidth);
-    pub const MarginValue = withDefaults(withAuto(values.LengthPercentage));
-
-    margin_top: MarginValue,
-    margin_right: MarginValue,
-    margin_bottom: MarginValue,
-    margin_left: MarginValue,
-    border_top_width: BorderValue,
-    border_right_width: BorderValue,
-    border_bottom_width: BorderValue,
-    border_left_width: BorderValue,
-    padding_top: PaddingValue,
-    padding_right: PaddingValue,
-    padding_bottom: PaddingValue,
-    padding_left: PaddingValue,
-};
-
-pub const ContentSize = struct {
-    pub const MinValue = withDefaults(values.LengthPercentage);
-    pub const MaxValue = withDefaults(withNone(values.LengthPercentage));
-    pub const Dimension = withDefaults(withAuto(values.LengthPercentage));
-
-    min_width: MinValue,
-    min_height: MinValue,
-    max_width: MaxValue,
-    max_height: MaxValue,
-    width: Dimension,
-    height: Dimension,
-};
-
 pub const LogicalSize = struct {
     pub const Size = withDefaults(withAuto(values.LengthPercentage));
     pub const MinValue = withDefaults(values.LengthPercentage);
@@ -73,15 +41,17 @@ pub const LogicalSize = struct {
     pub const PaddingValue = withDefaults(values.LengthPercentage);
     pub const MarginValue = withDefaults(withAuto(values.LengthPercentage));
 
-    size: Size,
-    min_size: MinValue,
-    max_size: MaxValue,
-    border_start_width: BorderValue,
-    border_end_width: BorderValue,
-    padding_start: PaddingValue,
-    padding_end: PaddingValue,
-    margin_start: MarginValue,
-    margin_end: MarginValue,
+    size: Size = .{ .auto = {} },
+    min_size: MinValue = .{ .px = 0 },
+    max_size: MaxValue = .{ .none = {} },
+    // NOTE the default value for borders should be 'medium'
+    // but I'm setting it to 0 just to make life easier.
+    border_start_width: BorderValue = .{ .px = 0 },
+    border_end_width: BorderValue = .{ .px = 0 },
+    padding_start: PaddingValue = .{ .px = 0 },
+    padding_end: PaddingValue = .{ .px = 0 },
+    margin_start: MarginValue = .{ .px = 0 },
+    margin_end: MarginValue = .{ .px = 0 },
 };
 
 pub const Display = withNone(union(enum) {

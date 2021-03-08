@@ -15,78 +15,27 @@
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
-const assert = std.debug.assert;
-const testing = std.testing;
 const Allocator = std.mem.Allocator;
-const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
 const zss = @import("../../zss.zig");
-const CSSUnit = zss.types.CSSUnit;
+const BoxOffsets = zss.types.BoxOffsets;
 
-const context = @import("context.zig");
-pub const Id = context.ContextSpecificBoxId;
-pub const IdPart = context.ContextSpecificBoxIdPart;
 usingnamespace @import("properties.zig");
 
-allocator: *Allocator,
-tree: TreeMap(bool) = .{},
+preorder_array: []u16,
+box_offsets: []BoxOffsets,
+borders: []Borders,
+border_colors: []BorderColor,
+background_color: []BackgroundColor,
+background_image: []BackgroundImage,
+visual_effect: []VisualEffect,
 
-dimension: TreeMap(Dimension) = .{},
-borders: TreeMap(Borders) = .{},
-padding: TreeMap(Padding) = .{},
-margin_left_right: TreeMap(MarginLeftRight) = .{},
-margin_top_bottom: TreeMap(MarginTopBottom) = .{},
-border_colors: TreeMap(BorderColor) = .{},
-background_color: TreeMap(BackgroundColor) = .{},
-background_image: TreeMap(BackgroundImage) = .{},
-visual_effect: TreeMap(VisualEffect) = .{},
-
-const Self = @This();
-
-fn TreeMap(comptime V: type) type {
-    return @import("prefix-tree-map").PrefixTreeMapUnmanaged(IdPart, V, context.cmpPart);
-}
-
-pub const Properties = enum {
-    dimension,
-    borders,
-    padding,
-    margin_left_right,
-    margin_top_bottom,
-    border_colors,
-    background_color,
-    background_image,
-    visual_effect,
-
-    pub fn toType(comptime prop: @This()) type {
-        const Enum = std.meta.FieldEnum(Self);
-        return @TypeOf(@field(@as(Self, undefined), @tagName(prop))).Value;
-    }
-};
-
-pub fn init(allocator: *Allocator) Self {
-    return Self{ .allocator = allocator };
-}
-
-pub fn deinit(self: *Self) void {
-    self.tree.deinitRecursive(self.allocator);
-    inline for (std.meta.fields(Properties)) |field| {
-        @field(self, field.name).deinitRecursive(self.allocator);
-    }
-}
-
-pub fn new(self: *Self, id: Id) !void {
-    _ = try self.tree.insert(self.allocator, id, true, false);
-}
-
-pub fn set(self: *Self, id: Id, comptime property: Properties, value: property.toType()) !void {
-    assert(self.tree.exists(id));
-    const T = property.toType();
-    _ = try @field(self, @tagName(property)).insert(self.allocator, id, value, T{});
-}
-
-pub fn get(self: Self, id: Id, comptime property: Properties) property.toType() {
-    assert(self.tree.exists(id));
-    const T = property.toType();
-    return @field(self, @tagName(property)).get(id) orelse T{};
+pub fn deinit(self: *@This(), allocator: *Allocator) void {
+    allocator.free(self.preorder_array);
+    allocator.free(self.box_offsets);
+    allocator.free(self.borders);
+    allocator.free(self.border_colors);
+    allocator.free(self.background_color);
+    allocator.free(self.background_image);
+    allocator.free(self.visual_effect);
 }

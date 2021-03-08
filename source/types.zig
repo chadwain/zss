@@ -43,6 +43,13 @@ pub const Offset = struct {
     }
 };
 
+pub const BoxOffsets = struct {
+    border_top_left: Offset,
+    border_bottom_right: Offset,
+    content_top_left: Offset,
+    content_bottom_right: Offset,
+};
+
 pub const CSSSize = struct {
     w: CSSUnit,
     h: CSSUnit,
