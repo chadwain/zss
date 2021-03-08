@@ -43,6 +43,11 @@ pub const Offset = struct {
     }
 };
 
+pub const CSSSize = struct {
+    w: CSSUnit,
+    h: CSSUnit,
+};
+
 pub const CSSRect = struct {
     x: CSSUnit,
     y: CSSUnit,

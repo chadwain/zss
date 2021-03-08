@@ -26,7 +26,7 @@ const TreeNode = @TypeOf(@as(InlineFormattingContext, undefined).tree);
 const Offset = zss.types.Offset;
 const cssUnitToSdlPixel = render_sdl.cssUnitToSdlPixel;
 const rgbaMap = zss.sdl.rgbaMap;
-usingnamespace zss.properties;
+usingnamespace zss.used_properties;
 
 const render_sdl = @import("render_sdl.zig");
 usingnamespace @import("SDL2");

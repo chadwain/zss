@@ -68,6 +68,6 @@ pub fn build(b: *Builder) void {
         test_exec.linkSystemLibrary("SDL2_image");
         test_exec.addSystemIncludeDir(freetype_system_include_dir);
         test_exec.install();
-        graphical_test_step.dependOn(&graphical_tests.step);
+        graphical_test_step.dependOn(&test_exec.step);
     }
 }

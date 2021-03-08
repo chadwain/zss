@@ -16,10 +16,10 @@
 
 const std = @import("std");
 
-const zss = @import("../zss.zig");
-const BlockFormattingContext = zss.BlockFormattingContext;
-const InlineFormattingContext = zss.InlineFormattingContext;
-const OffsetTree = zss.offset_tree.OffsetTree;
+const zss = @import("../../zss.zig");
+const BlockFormattingContext = @import("BlockFormattingContext.zig");
+const InlineFormattingContext = @import("InlineFormattingContext.zig");
+const OffsetTree = @import("offset_tree.zig").OffsetTree;
 
 pub const StackingContext = struct {
     midpoint: usize,

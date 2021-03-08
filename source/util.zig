@@ -16,10 +16,10 @@
 
 const zss = @import("../zss.zig");
 usingnamespace zss.types;
-usingnamespace zss.properties;
+const used = zss.used_properties;
 const OffsetInfo = zss.offset_tree.OffsetInfo;
 
-pub fn getThreeBoxes(offset: Offset, offset_info: OffsetInfo, borders: Borders) ThreeBoxes {
+pub fn getThreeBoxes(offset: Offset, offset_info: OffsetInfo, borders: used.Borders) ThreeBoxes {
     const border_x = offset.x + offset_info.border_top_left.x;
     const border_y = offset.y + offset_info.border_top_left.y;
     const border_w = offset_info.border_bottom_right.x - offset_info.border_top_left.x;

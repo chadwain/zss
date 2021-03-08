@@ -14,15 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
-pub const BlockFormattingContext = @import("source/BlockFormattingContext.zig");
-pub const InlineFormattingContext = @import("source/InlineFormattingContext.zig");
-pub const context = @import("source/context.zig");
-pub const stacking_context = @import("source/stacking_context.zig");
-pub const properties = @import("source/properties.zig");
-pub const sdl = @import("source/render/sdl.zig");
 pub const types = @import("source/types.zig");
 pub const util = @import("source/util.zig");
-pub const offset_tree = @import("source/offset_tree.zig");
+pub const values = @import("source/box_tree/values.zig");
+pub const properties = @import("source/box_tree/properties.zig");
+pub const box_tree = @import("source/box_tree/box_tree.zig");
+
+pub const used_properties = @import("source/used/properties.zig");
+pub const BlockFormattingContext = @import("source/used/BlockFormattingContext.zig");
+pub const InlineFormattingContext = @import("source/used/InlineFormattingContext.zig");
+pub const context = @import("source/used/context.zig");
+pub const stacking_context = @import("source/used/stacking_context.zig");
+pub const offset_tree = @import("source/used/offset_tree.zig");
+pub const solve = @import("source/used/solve.zig");
+
+pub const sdl = @import("source/render/sdl.zig");
 
 test "" {
     @import("std").testing.refAllDecls(@This());

@@ -14,7 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
-const types = @import("types.zig");
+const zss = @import("../../zss.zig");
+const types = zss.types;
 const CSSUnit = types.CSSUnit;
 const Percentage = types.Percentage;
 

@@ -10,7 +10,7 @@ const CSSRect = zss.types.CSSRect;
 const BlockFormattingContext = zss.BlockFormattingContext;
 const OffsetTree = zss.offset_tree.OffsetTree;
 usingnamespace zss.stacking_context;
-usingnamespace zss.properties;
+usingnamespace zss.used_properties;
 
 usingnamespace @import("SDL2");
 const inl = @import("inline_rendering.zig");
@@ -137,6 +137,6 @@ pub fn sdlRectToCssRect(rect: SDL_Rect) CSSRect {
     };
 }
 
-pub fn textureAsBackgroundImage(texture: *SDL_Texture) zss.properties.BackgroundImage.Data {
-    return @ptrCast(zss.properties.BackgroundImage.Data, texture);
+pub fn textureAsBackgroundImage(texture: *SDL_Texture) BackgroundImage.Data {
+    return @ptrCast(BackgroundImage.Data, texture);
 }

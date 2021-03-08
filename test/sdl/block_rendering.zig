@@ -10,7 +10,7 @@ const CSSRect = zss.types.CSSRect;
 const BlockFormattingContext = zss.BlockFormattingContext;
 const OffsetTree = zss.offset_tree.OffsetTree;
 usingnamespace zss.stacking_context;
-usingnamespace zss.properties;
+usingnamespace zss.used_properties;
 
 const render_sdl = @import("render_sdl.zig");
 usingnamespace @import("SDL2");

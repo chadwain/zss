@@ -20,12 +20,15 @@ const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 
-const zss = @import("../zss.zig");
-usingnamespace zss.properties;
-const ContextSpecificBoxIdPart = zss.context.ContextSpecificBoxIdPart;
-const cmpPart = zss.context.cmpPart;
+const zss = @import("../../zss.zig");
 const Offset = zss.types.Offset;
-const BlockFormattingContext = zss.BlockFormattingContext;
+
+const context_ = @import("context.zig");
+const ContextSpecificBoxIdPart = context_.ContextSpecificBoxIdPart;
+const cmpPart = context_.cmpPart;
+const BlockFormattingContext = @import("BlockFormattingContext.zig");
+usingnamespace @import("properties.zig");
+
 const PrefixTreeMapUnmanaged = @import("prefix-tree-map").PrefixTreeMapUnmanaged;
 
 fn TreeMap(comptime V: type) type {
