@@ -333,6 +333,7 @@ fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     var block_size = [_]zss.properties.LogicalSize{
         .{
             .size = .{ .px = 200 },
+            .min_size = .{ .px = 300 },
         },
     };
     const box_tree = zss.box_tree.BoxTree{

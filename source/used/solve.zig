@@ -38,6 +38,8 @@ const Interval = struct {
 
 const UsedSizeAndMargins = struct {
     size: ?CSSUnit,
+    min_size: CSSUnit,
+    max_size: CSSUnit,
     margin_start: CSSUnit,
     margin_end: CSSUnit,
 };
@@ -67,6 +69,8 @@ const Context = struct {
         // TODO using physical property when we should be using a logical one
         try static_containing_block_block_size_margins.append(UsedSizeAndMargins{
             .size = initial_containing_block.h,
+            .min_size = undefined,
+            .max_size = undefined,
             .margin_start = undefined,
             .margin_end = undefined,
         });
@@ -151,7 +155,7 @@ pub fn generateUsedDataFromBoxTree(tree: *const BoxTree, allocator: *Allocator, 
             const parent_auto_block_size = &context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 2];
 
             // TODO stop repeating code
-            const used_block_size = size_margins.size orelse auto_block_size;
+            const used_block_size = std.math.clamp(size_margins.size orelse auto_block_size, size_margins.min_size, size_margins.max_size);
             box_offsets_ptr.border_top_left.y = parent_auto_block_size.* + size_margins.margin_start;
             box_offsets_ptr.content_top_left.y += box_offsets_ptr.border_top_left.y;
             box_offsets_ptr.content_bottom_right.y = box_offsets_ptr.content_top_left.y + used_block_size;
@@ -177,7 +181,7 @@ pub fn generateUsedDataFromBoxTree(tree: *const BoxTree, allocator: *Allocator, 
         } else {
             // TODO stop repeating code
             const parent_auto_block_size = &context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 1];
-            const used_block_size = size_margins.size orelse 0;
+            const used_block_size = std.math.clamp(size_margins.size orelse 0, size_margins.min_size, size_margins.max_size);
             box_offsets_ptr.border_top_left.y = parent_auto_block_size.* + size_margins.margin_start;
             box_offsets_ptr.content_top_left.y += box_offsets_ptr.border_top_left.y;
             box_offsets_ptr.content_bottom_right.y = box_offsets_ptr.content_top_left.y + used_block_size;
@@ -273,6 +277,18 @@ fn solveInlineSizes(
     };
     const cm_space = containing_block_size - (border_start + border_end + padding_start + padding_end);
 
+    const min_size = switch (sizes.min_size) {
+        .px => |px| length(.{ .px = px }),
+        .percentage => |p| percentage(.{ .percentage = p }, std.math.max(0, containing_block_size)),
+        .initial, .inherit, .unset => unreachable,
+    };
+    const max_size = switch (sizes.max_size) {
+        .px => |px| length(.{ .px = px }),
+        .percentage => |p| percentage(.{ .percentage = p }, std.math.max(0, containing_block_size)),
+        .none => std.math.maxInt(CSSUnit),
+        .initial, .inherit, .unset => unreachable,
+    };
+
     var autos: u3 = 0;
     const size_bit = 4;
     const margin_start_bit = 2;
@@ -308,20 +324,20 @@ fn solveInlineSizes(
 
     if (autos == 0) {
         // TODO(§10.3.3): which margin gets set is affected by the 'direction' property
+        size = std.math.clamp(size, min_size, max_size);
         margin_end = cm_space - size - margin_start;
     } else if (autos & size_bit == 0) {
         const start = autos & margin_start_bit;
         const end = autos & margin_end_bit;
         const shr_amount = @boolToInt(start | end == margin_start_bit | margin_end_bit);
+        size = std.math.clamp(size, min_size, max_size);
         const leftover_margin = std.math.max(0, cm_space - (size + margin_start + margin_end));
         // NOTE: which margin gets the extra 1 unit shall be affected by the 'direction' property
         if (start == 0) margin_start = leftover_margin >> shr_amount;
         if (end == 0) margin_end = (leftover_margin >> shr_amount) + @mod(leftover_margin, 2);
     } else {
-        size = cm_space - margin_start - margin_end;
+        size = std.math.clamp(cm_space - margin_start - margin_end, min_size, max_size);
     }
-
-    // TODO use the min-size and max-size properties
 
     return .{
         .size = size,
@@ -352,6 +368,8 @@ fn getBlockOffsets(tree: *const BoxTree, context: *const Context, key: u16, box_
     // TODO using physical property when we should be using a logical one
     return UsedSizeAndMargins{
         .size = solved.size,
+        .min_size = solved.min_size,
+        .max_size = solved.max_size,
         .margin_start = solved.margin_start,
         .margin_end = solved.margin_end,
     };
@@ -364,6 +382,8 @@ fn solveBlockSizes(
     containing_block_block_size: ?CSSUnit,
 ) struct {
     size: ?CSSUnit,
+    min_size: CSSUnit,
+    max_size: CSSUnit,
     border_start: CSSUnit,
     border_end: CSSUnit,
     padding_start: CSSUnit,
@@ -371,7 +391,7 @@ fn solveBlockSizes(
     margin_start: CSSUnit,
     margin_end: CSSUnit,
 } {
-    const size = switch (sizes.size) {
+    var size = switch (sizes.size) {
         .px => |px| length(.{ .px = px }),
         .percentage => |p| if (containing_block_block_size) |s|
             percentage(.{ .percentage = p }, s)
@@ -405,10 +425,28 @@ fn solveBlockSizes(
         .initial, .inherit, .unset => unreachable,
     };
 
-    // TODO use the min-size and max-size properties
+    const min_size = switch (sizes.min_size) {
+        .px => |px| length(.{ .px = px }),
+        .percentage => |p| if (containing_block_block_size) |s|
+            percentage(.{ .percentage = p }, s)
+        else
+            0,
+        .initial, .inherit, .unset => unreachable,
+    };
+    const max_size = switch (sizes.max_size) {
+        .px => |px| length(.{ .px = px }),
+        .percentage => |p| if (containing_block_block_size) |s|
+            percentage(.{ .percentage = p }, s)
+        else
+            std.math.maxInt(CSSUnit),
+        .none => std.math.maxInt(CSSUnit),
+        .initial, .inherit, .unset => unreachable,
+    };
 
     return .{
         .size = size,
+        .min_size = min_size,
+        .max_size = max_size,
         .border_start = border_start,
         .border_end = border_end,
         .padding_start = padding_start,
