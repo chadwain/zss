@@ -54,11 +54,22 @@ pub const LogicalSize = struct {
     margin_end: MarginValue = .{ .px = 0 },
 };
 
-pub const Display = withNone(union(enum) {
+pub const Display = withDefaults(withNone(union(enum) {
     pub const InnerOuter = struct {
         inner: values.DisplayInner,
         outer: values.DisplayOuter,
     };
 
     inner_outer: InnerOuter,
-});
+}));
+
+pub const PositionInset = struct {
+    pub const PositionValue = withDefaults(values.Position);
+    pub const InsetValue = withDefaults(withAuto(values.LengthPercentage));
+
+    position: PositionValue,
+    block_start: InsetValue,
+    block_end: InsetValue,
+    inline_start: InsetValue,
+    inline_end: InsetValue,
+};

@@ -89,3 +89,11 @@ pub const DisplayInner = union(enum) {
     flow,
     flow_root,
 };
+
+pub const Position = union(enum) {
+    static,
+    relative,
+    absolute,
+    sticky,
+    fixed,
+};

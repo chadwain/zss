@@ -5,5 +5,5 @@ pub const Test = struct {
 
 pub const tests = [_]Test{
     Test{ .name = "block_format", .root = "block_formatting.zig" },
-    Test{ .name = "inline_format", .root = "inline_formatting.zig" },
+    //    Test{ .name = "inline_format", .root = "inline_formatting.zig" },
 };

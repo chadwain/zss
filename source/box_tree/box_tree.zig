@@ -22,8 +22,8 @@ pub const BoxTree = struct {
     preorder_array: []u16,
     inline_size: []LogicalSize,
     block_size: []LogicalSize,
-    //makes the compiler crash :P
-    //display: []Display,
+    display: []Display,
+    //position_inset: []PositionInset,
 };
 
 test "box tree" {
