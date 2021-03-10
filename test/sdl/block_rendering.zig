@@ -7,7 +7,7 @@ const zss = @import("zss");
 const CSSUnit = zss.types.CSSUnit;
 const Offset = zss.types.Offset;
 const CSSRect = zss.types.CSSRect;
-const BlockFormattingContext = zss.BlockFormattingContext;
+const BlockRenderingContext = zss.BlockRenderingContext;
 usingnamespace zss.stacking_context;
 usingnamespace zss.used_properties;
 
@@ -38,7 +38,7 @@ pub const drawRootElementBlock = drawTopElementBlock;
 ///
 /// TODO support table boxes
 pub fn drawTopElementBlock(
-    context: *const BlockFormattingContext,
+    context: *const BlockRenderingContext,
     cumulative_offset: Offset,
     clip_rect: CSSRect,
     renderer: *sdl.SDL_Renderer,
@@ -62,7 +62,7 @@ pub fn drawTopElementBlock(
 ///
 /// TODO support table boxes
 pub fn drawDescendantBlocks(
-    context: *const BlockFormattingContext,
+    context: *const BlockRenderingContext,
     allocator: *Allocator,
     cumulative_offset: Offset,
     initial_clip_rect: CSSRect,

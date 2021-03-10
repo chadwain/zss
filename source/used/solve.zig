@@ -28,7 +28,7 @@ usingnamespace zss.types;
 
 const used = @import("properties.zig");
 const StackingContext = @import("stacking_context.zig").StackingContext;
-const BlockFormattingContext = @import("BlockFormattingContext.zig");
+const BlockRenderingContext = @import("BlockRenderingContext.zig");
 
 const Interval = struct {
     index: u16,
@@ -60,58 +60,66 @@ const InFlowInsets = struct {
 
 const InFlowPositioningData = struct {
     insets: InFlowInsets,
-    box_id: u16,
+    result_id: u16,
 };
 
 const Context = struct {
     const Self = @This();
 
-    stack: ArrayList(Interval),
+    allocator: *Allocator,
+    intervals: ArrayListUnmanaged(Interval),
+    result_ids_and_skip_lengths: ArrayListUnmanaged(IdAndSkipLength),
+    static_containing_block_inline_sizes: ArrayListUnmanaged(CSSUnit),
+    static_containing_block_block_auto_sizes: ArrayListUnmanaged(CSSUnit),
+    static_containing_block_block_size_margins: ArrayListUnmanaged(UsedSizeAndMargins),
+    in_flow_positioning_data: ArrayListUnmanaged(InFlowPositioningData),
+    in_flow_positioning_data_count: ArrayListUnmanaged(u16),
 
-    result_ids_and_skip_lengths: ArrayList(IdAndSkipLength),
-    static_containing_block_inline_sizes: ArrayList(CSSUnit),
-    static_containing_block_block_auto_sizes: ArrayList(CSSUnit),
-    static_containing_block_block_size_margins: ArrayList(UsedSizeAndMargins),
-    in_flow_positioning_data: ArrayList(InFlowPositioningData),
-    in_flow_positioning_data_count: ArrayList(u16),
+    fn init(allocator: *Allocator, initial_containing_block: CSSSize, root_id: u16, root_skip_length: u16) !Self {
+        var intervals = ArrayListUnmanaged(Interval){};
+        try intervals.append(allocator, Interval{
+            .index = undefined,
+            .begin = root_id,
+            .end = root_id + root_skip_length,
+        });
+        errdefer intervals.deinit(allocator);
 
-    fn init(allocator: *Allocator, initial_containing_block: CSSSize) !Self {
-        var stack = ArrayList(Interval).init(allocator);
-        var in_flow_positioning_data = ArrayList(InFlowPositioningData).init(allocator);
+        var in_flow_positioning_data = ArrayListUnmanaged(InFlowPositioningData){};
 
-        var in_flow_positioning_data_count = ArrayList(u16).init(allocator);
-        try in_flow_positioning_data_count.append(0);
-        errdefer in_flow_positioning_data_count.deinit();
+        var in_flow_positioning_data_count = ArrayListUnmanaged(u16){};
+        try in_flow_positioning_data_count.append(allocator, 0);
+        errdefer in_flow_positioning_data_count.deinit(allocator);
 
-        var result_ids_and_skip_lengths = ArrayList(IdAndSkipLength).init(allocator);
-        try result_ids_and_skip_lengths.append(IdAndSkipLength{
+        var result_ids_and_skip_lengths = ArrayListUnmanaged(IdAndSkipLength){};
+        try result_ids_and_skip_lengths.append(allocator, IdAndSkipLength{
             .id = undefined,
             .skip_length = 0,
         });
-        errdefer result_ids_and_skip_lengths.deinit();
+        errdefer result_ids_and_skip_lengths.deinit(allocator);
 
-        var static_containing_block_inline_sizes = ArrayList(CSSUnit).init(allocator);
+        var static_containing_block_inline_sizes = ArrayListUnmanaged(CSSUnit){};
         // TODO using physical property when we should be using a logical one
-        try static_containing_block_inline_sizes.append(initial_containing_block.w);
-        errdefer static_containing_block_inline_sizes.deinit();
+        try static_containing_block_inline_sizes.append(allocator, initial_containing_block.w);
+        errdefer static_containing_block_inline_sizes.deinit(allocator);
 
-        var static_containing_block_block_auto_sizes = ArrayList(CSSUnit).init(allocator);
-        try static_containing_block_block_auto_sizes.append(0);
-        errdefer static_containing_block_block_auto_sizes.deinit();
+        var static_containing_block_block_auto_sizes = ArrayListUnmanaged(CSSUnit){};
+        try static_containing_block_block_auto_sizes.append(allocator, 0);
+        errdefer static_containing_block_block_auto_sizes.deinit(allocator);
 
-        var static_containing_block_block_size_margins = ArrayList(UsedSizeAndMargins).init(allocator);
+        var static_containing_block_block_size_margins = ArrayListUnmanaged(UsedSizeAndMargins){};
         // TODO using physical property when we should be using a logical one
-        try static_containing_block_block_size_margins.append(UsedSizeAndMargins{
+        try static_containing_block_block_size_margins.append(allocator, UsedSizeAndMargins{
             .size = initial_containing_block.h,
-            .min_size = undefined,
-            .max_size = undefined,
-            .margin_start = undefined,
-            .margin_end = undefined,
+            .min_size = initial_containing_block.h,
+            .max_size = initial_containing_block.h,
+            .margin_start = 0,
+            .margin_end = 0,
         });
-        errdefer static_containing_block_block_size_margins.deinit();
+        errdefer static_containing_block_block_size_margins.deinit(allocator);
 
         return Self{
-            .stack = stack,
+            .allocator = allocator,
+            .intervals = intervals,
             .result_ids_and_skip_lengths = result_ids_and_skip_lengths,
             .static_containing_block_inline_sizes = static_containing_block_inline_sizes,
             .static_containing_block_block_auto_sizes = static_containing_block_block_auto_sizes,
@@ -122,13 +130,13 @@ const Context = struct {
     }
 
     fn deinit(self: *Self) void {
-        self.stack.deinit();
-        self.result_ids_and_skip_lengths.deinit();
-        self.static_containing_block_inline_sizes.deinit();
-        self.static_containing_block_block_auto_sizes.deinit();
-        self.static_containing_block_block_size_margins.deinit();
-        self.in_flow_positioning_data.deinit();
-        self.in_flow_positioning_data_count.deinit();
+        self.intervals.deinit(self.allocator);
+        self.result_ids_and_skip_lengths.deinit(self.allocator);
+        self.static_containing_block_inline_sizes.deinit(self.allocator);
+        self.static_containing_block_block_auto_sizes.deinit(self.allocator);
+        self.static_containing_block_block_size_margins.deinit(self.allocator);
+        self.in_flow_positioning_data.deinit(self.allocator);
+        self.in_flow_positioning_data_count.deinit(self.allocator);
     }
 };
 
@@ -164,130 +172,22 @@ const IntermediateResult = struct {
     }
 };
 
-pub fn generateUsedDataFromBoxTree(tree: *const BoxTree, allocator: *Allocator, initial_containing_block: CSSSize, root_id: u16) !BlockFormattingContext {
-    const root_skip_length = tree.preorder_array[root_id];
-
-    var result = IntermediateResult{};
-    errdefer result.deinit(allocator);
-    try result.ensureCapacity(allocator, root_skip_length);
-
-    var context = try Context.init(allocator, initial_containing_block);
+pub fn createContextAndGenerateUsedData(tree: *const BoxTree, allocator: *Allocator, viewport_rect: CSSSize) !BlockRenderingContext {
+    var context = try Context.init(allocator, viewport_rect, 0, tree.preorder_array[0]);
     defer context.deinit();
 
+    var result = try createBlockRenderingContext(tree, &context, allocator);
+    errdefer unreachable;
+
     {
-        switch (tree.display[root_id]) {
-            .inner_outer => {},
-            .none => @panic("TODO display: none on root element"),
-            .initial, .inherit, .unset => unreachable,
-        }
-        const preorder_array_ptr = try result.preorder_array.addOne(allocator);
-        const box_offsets_ptr = try result.box_offsets.addOne(allocator);
-        const borders_ptr = try result.borders.addOne(allocator);
-        const inline_size = getInlineOffsets(tree, &context, root_id, box_offsets_ptr, borders_ptr);
-        const size_margins = getBlockOffsets(tree, &context, root_id, box_offsets_ptr, borders_ptr);
-
-        if (root_skip_length != 1) {
-            try context.stack.append(Interval{ .index = root_id, .begin = root_id + 1, .end = root_id + root_skip_length });
-            try context.static_containing_block_inline_sizes.append(inline_size);
-            // TODO don't add elements to this stack unconditionally
-            try context.static_containing_block_block_auto_sizes.append(0);
-            // TODO don't add elements to this stack unconditionally
-            try context.static_containing_block_block_size_margins.append(size_margins);
-            try context.result_ids_and_skip_lengths.append(IdAndSkipLength{
-                .id = 0,
-                .skip_length = 1,
-            });
-            // TODO don't add elements to this stack unconditionally
-            try context.in_flow_positioning_data_count.append(0);
-        } else {
-            preorder_array_ptr.* = 1;
-            const parent_auto_block_size = &context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 1];
-            _ = blockContainerFinalizeBlockSizes(box_offsets_ptr, size_margins, 0, parent_auto_block_size);
-        }
-    }
-
-    while (context.stack.items.len > 0) {
-        const interval = &context.stack.items[context.stack.items.len - 1];
-        if (interval.begin == interval.end) {
-            const id_skip_length = context.result_ids_and_skip_lengths.items[context.result_ids_and_skip_lengths.items.len - 1];
-            const result_id = id_skip_length.id;
-            const result_skip_length = id_skip_length.skip_length;
-            result.preorder_array.items[result_id] = result_skip_length;
-            context.result_ids_and_skip_lengths.items[context.result_ids_and_skip_lengths.items.len - 2].skip_length += result_skip_length;
-
-            const box_offsets_ptr = &result.box_offsets.items[result_id];
-            const size_margins = context.static_containing_block_block_size_margins.items[context.static_containing_block_block_size_margins.items.len - 1];
-            const auto_block_size = context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 1];
-            const parent_auto_block_size = &context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 2];
-            const used_block_size = blockContainerFinalizeBlockSizes(box_offsets_ptr, size_margins, auto_block_size, parent_auto_block_size);
-
-            {
-                applyInFlowPositioningToChildren(&context, result.box_offsets.items, used_block_size);
-                const count = context.in_flow_positioning_data_count.pop();
-                context.in_flow_positioning_data.shrinkRetainingCapacity(context.in_flow_positioning_data.items.len - count);
-            }
-
-            _ = context.result_ids_and_skip_lengths.pop();
-            _ = context.static_containing_block_inline_sizes.pop();
-            _ = context.static_containing_block_block_auto_sizes.pop();
-            _ = context.static_containing_block_block_size_margins.pop();
-            _ = context.stack.pop();
-            continue;
-        }
-
-        const original_id = interval.begin;
-        const skip_length = tree.preorder_array[original_id];
-        defer interval.begin += skip_length;
-        switch (tree.display[original_id]) {
-            .inner_outer => {},
-            .none => continue,
-            .initial, .inherit, .unset => unreachable,
-        }
-
-        const result_id = try std.math.cast(u16, result.preorder_array.items.len);
-
-        const position_inset = &tree.position_inset[original_id];
-        switch (position_inset.position) {
-            .static => {},
-            .relative => {
-                const insets = resolveRelativePositionInset(&context, position_inset);
-                try context.in_flow_positioning_data.append(InFlowPositioningData{
-                    .insets = insets,
-                    .box_id = result_id,
-                });
-                context.in_flow_positioning_data_count.items[context.in_flow_positioning_data_count.items.len - 1] += 1;
-            },
-            .sticky => @panic("TODO: sticky positioning"),
-            .absolute => @panic("TODO: absolute positioning"),
-            .fixed => @panic("TODO: fixed positioning"),
-            .initial, .inherit, .unset => unreachable,
-        }
-
-        const preorder_array_ptr = try result.preorder_array.addOne(allocator);
-        const box_offsets_ptr = try result.box_offsets.addOne(allocator);
-        const borders_ptr = try result.borders.addOne(allocator);
-        const inline_size = getInlineOffsets(tree, &context, original_id, box_offsets_ptr, borders_ptr);
-        const size_margins = getBlockOffsets(tree, &context, original_id, box_offsets_ptr, borders_ptr);
-
-        if (skip_length != 1) {
-            try context.stack.append(Interval{ .index = original_id, .begin = original_id + 1, .end = original_id + skip_length });
-            try context.static_containing_block_inline_sizes.append(inline_size);
-            // TODO don't add elements to this stack unconditionally
-            try context.static_containing_block_block_auto_sizes.append(0);
-            // TODO don't add elements to this stack unconditionally
-            try context.static_containing_block_block_size_margins.append(size_margins);
-            try context.result_ids_and_skip_lengths.append(IdAndSkipLength{
-                .id = result_id,
-                .skip_length = 1,
-            });
-            // TODO don't add elements to this stack unconditionally
-            try context.in_flow_positioning_data_count.append(0);
-        } else {
-            preorder_array_ptr.* = 1;
-            context.result_ids_and_skip_lengths.items[context.result_ids_and_skip_lengths.items.len - 1].skip_length += 1;
-            const parent_auto_block_size = &context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 1];
-            _ = blockContainerFinalizeBlockSizes(box_offsets_ptr, size_margins, 0, parent_auto_block_size);
-        }
+        var box_offsets = BoxOffsets{
+            .border_top_left = .{ .x = 0, .y = 0 },
+            .border_bottom_right = .{ .x = 0, .y = 0 },
+            .content_top_left = .{ .x = 0, .y = 0 },
+            .content_bottom_right = .{ .x = 0, .y = 0 },
+        };
+        var parent_auto_block_size = @as(CSSUnit, 0);
+        blockContainerFinishProcessing(&context, &result, &box_offsets, &parent_auto_block_size);
     }
 
     result.border_colors.expandToCapacity();
@@ -298,7 +198,7 @@ pub fn generateUsedDataFromBoxTree(tree: *const BoxTree, allocator: *Allocator, 
     std.mem.set(used.BackgroundColor, result.background_color.items, used.BackgroundColor{});
     std.mem.set(used.BackgroundImage, result.background_image.items, used.BackgroundImage{});
     std.mem.set(used.VisualEffect, result.visual_effect.items, used.VisualEffect{});
-    return BlockFormattingContext{
+    return BlockRenderingContext{
         .preorder_array = result.preorder_array.toOwnedSlice(allocator),
         .box_offsets = result.box_offsets.toOwnedSlice(allocator),
         .borders = result.borders.toOwnedSlice(allocator),
@@ -309,14 +209,121 @@ pub fn generateUsedDataFromBoxTree(tree: *const BoxTree, allocator: *Allocator, 
     };
 }
 
-fn blockContainerFinalizeBlockSizes(box_offsets: *BoxOffsets, size_margins: UsedSizeAndMargins, auto_block_size: CSSUnit, parent_auto_block_size: *CSSUnit) CSSUnit {
+fn createBlockRenderingContext(tree: *const BoxTree, context: *Context, allocator: *Allocator) !IntermediateResult {
+    const root_interval = context.intervals.items[context.intervals.items.len - 1];
+    const root_id = root_interval.begin;
+    const root_skip_length = tree.preorder_array[root_id];
+
+    var result = IntermediateResult{};
+    errdefer result.deinit(allocator);
+    try result.ensureCapacity(allocator, root_skip_length);
+
+    try blockLevelElementBeginProcessing(tree, context, &result, root_id, root_skip_length, allocator);
+
+    while (context.intervals.items.len > 1) {
+        const interval = &context.intervals.items[context.intervals.items.len - 1];
+        if (interval.begin == interval.end) {
+            const id_skip_length = context.result_ids_and_skip_lengths.items[context.result_ids_and_skip_lengths.items.len - 1];
+            const result_id = id_skip_length.id;
+            const result_skip_length = id_skip_length.skip_length;
+            result.preorder_array.items[result_id] = result_skip_length;
+            context.result_ids_and_skip_lengths.items[context.result_ids_and_skip_lengths.items.len - 2].skip_length += result_skip_length;
+
+            const box_offsets_ptr = &result.box_offsets.items[result_id];
+            const parent_auto_block_size = &context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 2];
+            blockContainerFinishProcessing(context, &result, box_offsets_ptr, parent_auto_block_size);
+
+            const in_flow_positioning_data_count = context.in_flow_positioning_data_count.pop();
+            context.in_flow_positioning_data.shrinkRetainingCapacity(context.in_flow_positioning_data.items.len - in_flow_positioning_data_count);
+            _ = context.result_ids_and_skip_lengths.pop();
+            _ = context.static_containing_block_inline_sizes.pop();
+            _ = context.static_containing_block_block_auto_sizes.pop();
+            _ = context.static_containing_block_block_size_margins.pop();
+            _ = context.intervals.pop();
+        } else {
+            const original_id = interval.begin;
+            const skip_length = tree.preorder_array[original_id];
+            interval.begin += skip_length;
+
+            try blockLevelElementBeginProcessing(tree, context, &result, original_id, skip_length, allocator);
+        }
+    }
+
+    return result;
+}
+
+fn blockLevelElementBeginProcessing(tree: *const BoxTree, context: *Context, result: *IntermediateResult, original_id: u16, skip_length: u16, allocator: *Allocator) !void {
+    switch (tree.display[original_id]) {
+        .inner_outer => {},
+        .none => return,
+        .initial, .inherit, .unset => unreachable,
+    }
+
+    const result_id = try std.math.cast(u16, result.preorder_array.items.len);
+
+    const position_inset = &tree.position_inset[original_id];
+    switch (position_inset.position) {
+        .static => {},
+        .relative => {
+            const insets = resolveRelativePositionInset(context, position_inset);
+            try context.in_flow_positioning_data.append(context.allocator, InFlowPositioningData{
+                .insets = insets,
+                .result_id = result_id,
+            });
+            context.in_flow_positioning_data_count.items[context.in_flow_positioning_data_count.items.len - 1] += 1;
+        },
+        .sticky => @panic("TODO: sticky positioning"),
+        .absolute => @panic("TODO: absolute positioning"),
+        .fixed => @panic("TODO: fixed positioning"),
+        .initial, .inherit, .unset => unreachable,
+    }
+
+    const preorder_array_ptr = try result.preorder_array.addOne(allocator);
+    const box_offsets_ptr = try result.box_offsets.addOne(allocator);
+    const borders_ptr = try result.borders.addOne(allocator);
+    const inline_size = getInlineOffsets(tree, context, original_id, box_offsets_ptr, borders_ptr);
+    const size_margins = getBlockOffsets(tree, context, original_id, box_offsets_ptr, borders_ptr);
+
+    if (skip_length != 1) {
+        try context.intervals.append(context.allocator, Interval{ .index = original_id, .begin = original_id + 1, .end = original_id + skip_length });
+        try context.static_containing_block_inline_sizes.append(context.allocator, inline_size);
+        // TODO don't add elements to this stack unconditionally
+        try context.static_containing_block_block_auto_sizes.append(context.allocator, 0);
+        // TODO don't add elements to this stack unconditionally
+        try context.static_containing_block_block_size_margins.append(context.allocator, size_margins);
+        try context.result_ids_and_skip_lengths.append(context.allocator, IdAndSkipLength{
+            .id = result_id,
+            .skip_length = 1,
+        });
+        // TODO don't add elements to this stack unconditionally
+        try context.in_flow_positioning_data_count.append(context.allocator, 0);
+    } else {
+        preorder_array_ptr.* = 1;
+        context.result_ids_and_skip_lengths.items[context.result_ids_and_skip_lengths.items.len - 1].skip_length += 1;
+        const parent_auto_block_size = &context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 1];
+        _ = blockContainerFinalizeBlockSizes(box_offsets_ptr, size_margins, 0, parent_auto_block_size);
+    }
+}
+
+fn blockContainerFinishProcessing(context: *Context, result: *IntermediateResult, box_offsets: *BoxOffsets, parent_auto_block_size: *CSSUnit) void {
+    const size_margins = context.static_containing_block_block_size_margins.items[context.static_containing_block_block_size_margins.items.len - 1];
+    const auto_block_size = context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 1];
+    const sizes = blockContainerFinalizeBlockSizes(box_offsets, size_margins, auto_block_size, parent_auto_block_size);
+    applyInFlowPositioningToChildren(context, result.box_offsets.items, sizes.used_block_size);
+}
+
+fn blockContainerFinalizeBlockSizes(box_offsets: *BoxOffsets, size_margins: UsedSizeAndMargins, auto_block_size: CSSUnit, parent_auto_block_size: *CSSUnit) struct {
+    used_block_size: CSSUnit,
+} {
     const used_block_size = std.math.clamp(size_margins.size orelse auto_block_size, size_margins.min_size, size_margins.max_size);
     box_offsets.border_top_left.y = parent_auto_block_size.* + size_margins.margin_start;
     box_offsets.content_top_left.y += box_offsets.border_top_left.y;
     box_offsets.content_bottom_right.y = box_offsets.content_top_left.y + used_block_size;
     box_offsets.border_bottom_right.y += box_offsets.content_bottom_right.y;
     parent_auto_block_size.* = box_offsets.border_bottom_right.y + size_margins.margin_end;
-    return used_block_size;
+    return .{
+        .used_block_size = used_block_size,
+    };
 }
 
 fn applyInFlowPositioningToChildren(context: *const Context, box_offsets: []BoxOffsets, containing_block_block_size: CSSUnit) void {
@@ -333,7 +340,7 @@ fn applyInFlowPositioningToChildren(context: *const Context, box_offsets: []BoxO
                 .percentage => |p| percentage(.{ .percentage = p }, containing_block_block_size),
             },
         };
-        const box_offset = &box_offsets[positioning_data.box_id];
+        const box_offset = &box_offsets[positioning_data.result_id];
         inline for (std.meta.fields(BoxOffsets)) |field| {
             const offset = &@field(box_offset, field.name);
             offset.* = offset.add(positioning_offset);
@@ -663,16 +670,22 @@ test "used data" {
         .{ .inner_outer = .{ .inner = .flow, .outer = .block } },
         .{ .inner_outer = .{ .inner = .flow, .outer = .block } },
     };
-    var result = try generateUsedDataFromBoxTree(
+    var position_inset = [_]computed.PositionInset{
+        .{ .position = .{ .relative = {} }, .inline_start = .{ .px = 100 } },
+        .{},
+        .{},
+        .{},
+    };
+    var result = try createContextAndGenerateUsedData(
         &BoxTree{
             .preorder_array = &preorder_array,
             .inline_size = &inline_size,
             .block_size = &block_size,
             .display = &display,
+            .position_inset = &position_inset,
         },
         al,
         CSSSize{ .w = 400, .h = 400 },
-        0,
     );
     defer result.deinit(al);
 

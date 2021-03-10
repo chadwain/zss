@@ -7,7 +7,6 @@ const zss = @import("zss");
 const CSSUnit = zss.types.CSSUnit;
 const Offset = zss.types.Offset;
 const CSSRect = zss.types.CSSRect;
-const BlockFormattingContext = zss.BlockFormattingContext;
 const OffsetTree = zss.offset_tree.OffsetTree;
 usingnamespace zss.stacking_context;
 usingnamespace zss.used_properties;

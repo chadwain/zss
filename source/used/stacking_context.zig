@@ -17,7 +17,7 @@
 const std = @import("std");
 
 const zss = @import("../../zss.zig");
-const BlockFormattingContext = @import("BlockFormattingContext.zig");
+const BlockRenderingContext = @import("BlockRenderingContext.zig");
 const InlineFormattingContext = @import("InlineFormattingContext.zig");
 
 pub const StackingContext = struct {
@@ -25,7 +25,7 @@ pub const StackingContext = struct {
     offset: zss.types.Offset,
     clip_rect: zss.types.CSSRect,
     inner_context: union(enum) {
-        block: *const BlockFormattingContext,
+        block: *const BlockRenderingContext,
         inl: struct {
             context: *const InlineFormattingContext,
         },

@@ -165,7 +165,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
     try renderStackingContexts(&stacking_context_root, &gpa.allocator, renderer, pixel_format);
 }
 
-fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture) !zss.BlockFormattingContext {
+fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture) !zss.BlockRenderingContext {
     var preorder_array = [_]u16{ 3, 2, 1 };
     var inline_size = [_]zss.properties.LogicalSize{
         .{
@@ -207,7 +207,7 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture
         .position_inset = &position_inset,
     };
 
-    var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect, 0);
+    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
 
     context.background_color[0] = .{ .rgba = 0xff223300 };
     context.background_image[0] = .{
@@ -226,7 +226,7 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture
     return context;
 }
 
-fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
+fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockRenderingContext {
     var preorder_array = [_]u16{ 4, 1, 1, 1 };
     var inline_size = [_]zss.properties.LogicalSize{
         .{
@@ -255,7 +255,7 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
         .{ .inner_outer = .{ .outer = .block, .inner = .flow } },
     };
     var position_inset = [_]zss.properties.PositionInset{
-        .{},
+        .{ .position = .{ .relative = {} }, .inline_start = .{ .px = 150 } },
         .{ .position = .{ .relative = {} }, .block_start = .{ .px = -20 }, .block_end = .{ .px = -2000 }, .inline_end = .{ .px = 10 } },
         .{ .position = .{ .relative = {} }, .block_end = .{ .px = -25 }, .inline_start = .{ .px = 80 } },
         .{ .position = .{ .relative = {} } },
@@ -268,7 +268,7 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
         .position_inset = &position_inset,
     };
 
-    var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect, 0);
+    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
 
     context.background_color[0] = .{ .rgba = 0x306892ff };
     context.background_color[1] = .{ .rgba = 0x505050ff };
@@ -278,7 +278,7 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     return context;
 }
 
-fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_Texture) !zss.BlockFormattingContext {
+fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_Texture) !zss.BlockRenderingContext {
     var preorder_array = [_]u16{ 2, 1 };
     var inline_size = [_]zss.properties.LogicalSize{
         .{
@@ -319,7 +319,7 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_
         .position_inset = &position_inset,
     };
 
-    var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect, 0);
+    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
 
     context.background_color[0] = .{ .rgba = 0x592b1cff };
     context.visual_effect[0] = .{ .overflow = .Hidden };
@@ -331,7 +331,7 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_
     return context;
 }
 
-fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
+fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockRenderingContext {
     var preorder_array = [_]u16{1};
     var inline_size = [_]zss.properties.LogicalSize{
         .{
@@ -359,7 +359,7 @@ fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
         .position_inset = &position_inset,
     };
 
-    var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect, 0);
+    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
 
     context.border_colors[0] = .{ .top_rgba = 0x20f4f4ff, .right_rgba = 0x3faf34ff, .bottom_rgba = 0xa32a7cff, .left_rgba = 0x102458ff };
     context.background_color[0] = .{ .rgba = 0x9104baff };
@@ -367,7 +367,7 @@ fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     return context;
 }
 
-fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockFormattingContext {
+fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockRenderingContext {
     var preorder_array = [_]u16{1};
     var inline_size = [_]zss.properties.LogicalSize{
         .{
@@ -392,7 +392,7 @@ fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
         .position_inset = &position_inset,
     };
 
-    var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect, 0);
+    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
 
     context.background_color[0] = .{ .rgba = 0xb186afff };
     context.border_colors[0] = .{ .top_rgba = 0xdd56faff, .right_rgba = 0x93542cff, .bottom_rgba = 0x2bda86ff, .left_rgba = 0xbca973ff };
