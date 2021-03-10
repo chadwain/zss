@@ -198,11 +198,13 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture
         .{ .inner_outer = .{ .outer = .block, .inner = .flow } },
         .{ .inner_outer = .{ .outer = .block, .inner = .flow } },
     };
+    var position_inset = [_]zss.properties.PositionInset{.{}} ** 3;
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
+        .position_inset = &position_inset,
     };
 
     var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect, 0);
@@ -238,7 +240,7 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     };
     var block_size = [_]zss.properties.LogicalSize{
         .{
-            .size = .{ .px = 100 },
+            //.size = .{ .px = 100 },
             .border_start_width = .{ .px = 5 },
             .border_end_width = .{ .px = 15 },
         },
@@ -249,14 +251,21 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     var display = [_]zss.properties.Display{
         .{ .inner_outer = .{ .outer = .block, .inner = .flow_root } },
         .{ .inner_outer = .{ .outer = .block, .inner = .flow } },
-        .{ .none = {} },
         .{ .inner_outer = .{ .outer = .block, .inner = .flow } },
+        .{ .inner_outer = .{ .outer = .block, .inner = .flow } },
+    };
+    var position_inset = [_]zss.properties.PositionInset{
+        .{},
+        .{ .position = .{ .relative = {} }, .block_start = .{ .px = -20 }, .block_end = .{ .px = -2000 }, .inline_end = .{ .px = 10 } },
+        .{ .position = .{ .relative = {} }, .block_end = .{ .px = -25 }, .inline_start = .{ .px = 80 } },
+        .{ .position = .{ .relative = {} } },
     };
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
+        .position_inset = &position_inset,
     };
 
     var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect, 0);
@@ -301,11 +310,13 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_
         .{ .inner_outer = .{ .outer = .block, .inner = .flow_root } },
         .{ .inner_outer = .{ .outer = .block, .inner = .flow } },
     };
+    var position_inset = [_]zss.properties.PositionInset{.{}} ** 2;
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
+        .position_inset = &position_inset,
     };
 
     var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect, 0);
@@ -339,11 +350,13 @@ fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     var display = [_]zss.properties.Display{
         .{ .inner_outer = .{ .outer = .block, .inner = .flow_root } },
     };
+    var position_inset = [_]zss.properties.PositionInset{.{}} ** 1;
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
+        .position_inset = &position_inset,
     };
 
     var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect, 0);
@@ -370,11 +383,13 @@ fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockFormattingConte
     var display = [_]zss.properties.Display{
         .{ .inner_outer = .{ .outer = .block, .inner = .flow_root } },
     };
+    var position_inset = [_]zss.properties.PositionInset{.{}} ** 1;
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
+        .position_inset = &position_inset,
     };
 
     var context = try zss.solve.generateUsedDataFromBoxTree(&box_tree, allocator, viewport_rect, 0);

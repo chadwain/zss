@@ -23,7 +23,7 @@ pub const BoxTree = struct {
     inline_size: []LogicalSize,
     block_size: []LogicalSize,
     display: []Display,
-    //position_inset: []PositionInset,
+    position_inset: []PositionInset,
 };
 
 test "box tree" {

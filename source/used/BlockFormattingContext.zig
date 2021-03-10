@@ -22,6 +22,9 @@ const BoxOffsets = zss.types.BoxOffsets;
 
 usingnamespace @import("properties.zig");
 
+// TODO add data to keep track of which boxes are positioned boxes.
+// positioned boxes must be rendered after all other boxes
+
 preorder_array: []u16,
 box_offsets: []BoxOffsets,
 borders: []Borders,

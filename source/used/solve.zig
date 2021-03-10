@@ -58,6 +58,11 @@ const InFlowInsets = struct {
     block_axis: BlockInset,
 };
 
+const InFlowPositioningData = struct {
+    insets: InFlowInsets,
+    box_id: u16,
+};
+
 const Context = struct {
     const Self = @This();
 
@@ -67,11 +72,16 @@ const Context = struct {
     static_containing_block_inline_sizes: ArrayList(CSSUnit),
     static_containing_block_block_auto_sizes: ArrayList(CSSUnit),
     static_containing_block_block_size_margins: ArrayList(UsedSizeAndMargins),
-    in_flow_insets: ArrayList(InFlowInsets),
+    in_flow_positioning_data: ArrayList(InFlowPositioningData),
+    in_flow_positioning_data_count: ArrayList(u16),
 
     fn init(allocator: *Allocator, initial_containing_block: CSSSize) !Self {
         var stack = ArrayList(Interval).init(allocator);
-        var in_flow_insets = ArrayList(InFlowInsets).init(allocator);
+        var in_flow_positioning_data = ArrayList(InFlowPositioningData).init(allocator);
+
+        var in_flow_positioning_data_count = ArrayList(u16).init(allocator);
+        try in_flow_positioning_data_count.append(0);
+        errdefer in_flow_positioning_data_count.deinit();
 
         var result_ids_and_skip_lengths = ArrayList(IdAndSkipLength).init(allocator);
         try result_ids_and_skip_lengths.append(IdAndSkipLength{
@@ -106,7 +116,8 @@ const Context = struct {
             .static_containing_block_inline_sizes = static_containing_block_inline_sizes,
             .static_containing_block_block_auto_sizes = static_containing_block_block_auto_sizes,
             .static_containing_block_block_size_margins = static_containing_block_block_size_margins,
-            .in_flow_insets = in_flow_insets,
+            .in_flow_positioning_data = in_flow_positioning_data,
+            .in_flow_positioning_data_count = in_flow_positioning_data_count,
         };
     }
 
@@ -116,7 +127,8 @@ const Context = struct {
         self.static_containing_block_inline_sizes.deinit();
         self.static_containing_block_block_auto_sizes.deinit();
         self.static_containing_block_block_size_margins.deinit();
-        self.in_flow_insets.deinit();
+        self.in_flow_positioning_data.deinit();
+        self.in_flow_positioning_data_count.deinit();
     }
 };
 
@@ -185,10 +197,12 @@ pub fn generateUsedDataFromBoxTree(tree: *const BoxTree, allocator: *Allocator, 
                 .id = 0,
                 .skip_length = 1,
             });
+            // TODO don't add elements to this stack unconditionally
+            try context.in_flow_positioning_data_count.append(0);
         } else {
             preorder_array_ptr.* = 1;
             const parent_auto_block_size = &context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 1];
-            blockContainerFinalizeBlockSizes(box_offsets_ptr, size_margins, 0, parent_auto_block_size);
+            _ = blockContainerFinalizeBlockSizes(box_offsets_ptr, size_margins, 0, parent_auto_block_size);
         }
     }
 
@@ -205,7 +219,13 @@ pub fn generateUsedDataFromBoxTree(tree: *const BoxTree, allocator: *Allocator, 
             const size_margins = context.static_containing_block_block_size_margins.items[context.static_containing_block_block_size_margins.items.len - 1];
             const auto_block_size = context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 1];
             const parent_auto_block_size = &context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 2];
-            blockContainerFinalizeBlockSizes(box_offsets_ptr, size_margins, auto_block_size, parent_auto_block_size);
+            const used_block_size = blockContainerFinalizeBlockSizes(box_offsets_ptr, size_margins, auto_block_size, parent_auto_block_size);
+
+            {
+                applyInFlowPositioningToChildren(&context, result.box_offsets.items, used_block_size);
+                const count = context.in_flow_positioning_data_count.pop();
+                context.in_flow_positioning_data.shrinkRetainingCapacity(context.in_flow_positioning_data.items.len - count);
+            }
 
             _ = context.result_ids_and_skip_lengths.pop();
             _ = context.static_containing_block_inline_sizes.pop();
@@ -224,16 +244,25 @@ pub fn generateUsedDataFromBoxTree(tree: *const BoxTree, allocator: *Allocator, 
             .initial, .inherit, .unset => unreachable,
         }
 
-        //const position_inset = &tree.position_inset[original_id];
-        //const in_flow_insets = switch (position_inset.position) {
-        //    .static => resolveStaticPositionInset(),
-        //    .relative => resolveRelativePositionInset(&context, position_inset),
-        //    .sticky => @panic("TODO: sticky positioning"),
-        //    .absolute => @panic("TODO: absolute positioning"),
-        //    .fixed => @panic("TODO: fixed positioning"),
-        //};
-
         const result_id = try std.math.cast(u16, result.preorder_array.items.len);
+
+        const position_inset = &tree.position_inset[original_id];
+        switch (position_inset.position) {
+            .static => {},
+            .relative => {
+                const insets = resolveRelativePositionInset(&context, position_inset);
+                try context.in_flow_positioning_data.append(InFlowPositioningData{
+                    .insets = insets,
+                    .box_id = result_id,
+                });
+                context.in_flow_positioning_data_count.items[context.in_flow_positioning_data_count.items.len - 1] += 1;
+            },
+            .sticky => @panic("TODO: sticky positioning"),
+            .absolute => @panic("TODO: absolute positioning"),
+            .fixed => @panic("TODO: fixed positioning"),
+            .initial, .inherit, .unset => unreachable,
+        }
+
         const preorder_array_ptr = try result.preorder_array.addOne(allocator);
         const box_offsets_ptr = try result.box_offsets.addOne(allocator);
         const borders_ptr = try result.borders.addOne(allocator);
@@ -251,11 +280,13 @@ pub fn generateUsedDataFromBoxTree(tree: *const BoxTree, allocator: *Allocator, 
                 .id = result_id,
                 .skip_length = 1,
             });
+            // TODO don't add elements to this stack unconditionally
+            try context.in_flow_positioning_data_count.append(0);
         } else {
             preorder_array_ptr.* = 1;
             context.result_ids_and_skip_lengths.items[context.result_ids_and_skip_lengths.items.len - 1].skip_length += 1;
             const parent_auto_block_size = &context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 1];
-            blockContainerFinalizeBlockSizes(box_offsets_ptr, size_margins, 0, parent_auto_block_size);
+            _ = blockContainerFinalizeBlockSizes(box_offsets_ptr, size_margins, 0, parent_auto_block_size);
         }
     }
 
@@ -278,23 +309,39 @@ pub fn generateUsedDataFromBoxTree(tree: *const BoxTree, allocator: *Allocator, 
     };
 }
 
-fn blockContainerFinalizeBlockSizes(box_offsets: *BoxOffsets, size_margins: UsedSizeAndMargins, auto_block_size: CSSUnit, parent_auto_block_size: *CSSUnit) void {
+fn blockContainerFinalizeBlockSizes(box_offsets: *BoxOffsets, size_margins: UsedSizeAndMargins, auto_block_size: CSSUnit, parent_auto_block_size: *CSSUnit) CSSUnit {
     const used_block_size = std.math.clamp(size_margins.size orelse auto_block_size, size_margins.min_size, size_margins.max_size);
     box_offsets.border_top_left.y = parent_auto_block_size.* + size_margins.margin_start;
     box_offsets.content_top_left.y += box_offsets.border_top_left.y;
     box_offsets.content_bottom_right.y = box_offsets.content_top_left.y + used_block_size;
     box_offsets.border_bottom_right.y += box_offsets.content_bottom_right.y;
     parent_auto_block_size.* = box_offsets.border_bottom_right.y + size_margins.margin_end;
+    return used_block_size;
 }
 
-fn resolveStaticPositionInset() InFlowInsets {
-    return InFlowInsets{
-        .inline_axis = 0,
-        .block_axis = .{ .length = 0 },
-    };
+fn applyInFlowPositioningToChildren(context: *const Context, box_offsets: []BoxOffsets, containing_block_block_size: CSSUnit) void {
+    const count = context.in_flow_positioning_data_count.items[context.in_flow_positioning_data_count.items.len - 1];
+    var i: u16 = 0;
+    while (i < count) : (i += 1) {
+        const positioning_data = context.in_flow_positioning_data.items[context.in_flow_positioning_data.items.len - 1 - i];
+        const positioning_offset = zss.types.Offset{
+            // TODO using physical property when we should be using a logical one
+            .x = positioning_data.insets.inline_axis,
+            // TODO using physical property when we should be using a logical one
+            .y = switch (positioning_data.insets.block_axis) {
+                .length => |l| l,
+                .percentage => |p| percentage(.{ .percentage = p }, containing_block_block_size),
+            },
+        };
+        const box_offset = &box_offsets[positioning_data.box_id];
+        inline for (std.meta.fields(BoxOffsets)) |field| {
+            const offset = &@field(box_offset, field.name);
+            offset.* = offset.add(positioning_offset);
+        }
+    }
 }
 
-fn resolveRelativePositionInset(context: *Context, position_inset: *values.PositionInset) InFlowInsets {
+fn resolveRelativePositionInset(context: *Context, position_inset: *computed.PositionInset) InFlowInsets {
     const containing_block_inline_size = context.static_containing_block_inline_sizes.items[context.static_containing_block_inline_sizes.items.len - 1];
     const containing_block_block_size = context.static_containing_block_block_size_margins.items[context.static_containing_block_block_size_margins.items.len - 1].size;
     const inline_start = switch (position_inset.inline_start) {
@@ -310,26 +357,26 @@ fn resolveRelativePositionInset(context: *Context, position_inset: *values.Posit
         .initial, .inherit, .unset => unreachable,
     };
     const block_start: ?InFlowInsets.BlockInset = switch (position_inset.block_start) {
-        .px => |px| .{ .length = length(.{ .px = px }) },
+        .px => |px| InFlowInsets.BlockInset{ .length = length(.{ .px = px }) },
         .percentage => |p| if (containing_block_block_size) |s|
-            .{ .length = percentage(.{ .percentage = p }, s) }
+            InFlowInsets.BlockInset{ .length = percentage(.{ .percentage = p }, s) }
         else
-            .{ .percentage = p },
+            InFlowInsets.BlockInset{ .percentage = p },
         .auto => null,
         .initial, .inherit, .unset => unreachable,
     };
     const block_end: ?InFlowInsets.BlockInset = switch (position_inset.block_end) {
-        .px => |px| .{ .length = -length(.{ .px = px }) },
+        .px => |px| InFlowInsets.BlockInset{ .length = -length(.{ .px = px }) },
         .percentage => |p| if (containing_block_block_size) |s|
-            .{ .length = -percentage(.{ .percentage = p }, s) }
+            InFlowInsets.BlockInset{ .length = -percentage(.{ .percentage = p }, s) }
         else
-            .{ .percentage = -p },
+            InFlowInsets.BlockInset{ .percentage = -p },
         .auto => null,
         .initial, .inherit, .unset => unreachable,
     };
     return InFlowInsets{
         .inline_axis = inline_start orelse inline_end orelse 0,
-        .block_axis = block_start orelse block_end orelse .{ .length = 0 },
+        .block_axis = block_start orelse block_end orelse InFlowInsets.BlockInset{ .length = 0 },
     };
 }
 

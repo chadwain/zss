@@ -64,12 +64,22 @@ pub const Display = withDefaults(withNone(union(enum) {
 }));
 
 pub const PositionInset = struct {
-    pub const PositionValue = withDefaults(values.Position);
+    //pub const PositionValue = withDefaults(values.Position);
+    pub const PositionValue = union(enum) {
+        static,
+        relative,
+        sticky,
+        absolute,
+        fixed,
+        initial,
+        inherit,
+        unset,
+    };
     pub const InsetValue = withDefaults(withAuto(values.LengthPercentage));
 
-    position: PositionValue,
-    block_start: InsetValue,
-    block_end: InsetValue,
-    inline_start: InsetValue,
-    inline_end: InsetValue,
+    position: PositionValue = .{ .static = {} },
+    block_start: InsetValue = .{ .auto = {} },
+    block_end: InsetValue = .{ .auto = {} },
+    inline_start: InsetValue = .{ .auto = {} },
+    inline_end: InsetValue = .{ .auto = {} },
 };
