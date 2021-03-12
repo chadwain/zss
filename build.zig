@@ -26,10 +26,10 @@ const zssPkg = Pkg{
 };
 
 const c_includes = [_][]const u8{
-    "include/SDL/include",
-    "include/SDL_image",
-    "include/freetype/include",
-    "include/harfbuzz/src",
+    "dependencies/SDL/include",
+    "dependencies/SDL_image",
+    "dependencies/freetype/include",
+    "dependencies/harfbuzz/src",
 };
 
 pub fn build(b: *Builder) void {

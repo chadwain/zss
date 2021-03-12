@@ -1,15 +1,15 @@
 [submodule "dependencies/zig-data-structures"]
 	path = dependencies/zig-data-structures
 	url = https://github.com/chwayne/zig-data-structures.git
-[submodule "include/SDL"]
+[submodule "dependencies/SDL"]
 	path = dependencies/SDL
 	url = https://github.com/libsdl-org/SDL
-[submodule "include/freetype"]
+[submodule "dependencies/freetype"]
 	path = dependencies/freetype
 	url = https://gitlab.freedesktop.org/freetype/freetype.git
-[submodule "include/harfbuzz"]
+[submodule "dependencies/harfbuzz"]
 	path = dependencies/harfbuzz
 	url = https://github.com/harfbuzz/harfbuzz
-[submodule "include/SDL_image"]
+[submodule "dependencies/SDL_image"]
 	path = dependencies/SDL_image
 	url = https://github.com/libsdl-org/SDL_image
