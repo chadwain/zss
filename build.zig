@@ -25,13 +25,14 @@ const zssPkg = Pkg{
     .dependencies = &[_]Pkg{ prefixTreePkg, freetypePkg, SDL2Pkg },
 };
 
-pub fn build(b: *Builder) void {
-    const freetype_system_include_dir = b.option(
-        []const u8,
-        "freetype-dir",
-        "the location of the header files for freetype",
-    ) orelse "/usr/include/freetype2/";
+const c_includes = [_][]const u8{
+    "include/SDL/include",
+    "include/SDL_image",
+    "include/freetype/include",
+    "include/harfbuzz/src",
+};
 
+pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
     const lib = b.addStaticLibrary("zss", "zss.zig");
     lib.setBuildMode(mode);
@@ -46,8 +47,11 @@ pub fn build(b: *Builder) void {
     main_tests.addPackage(zssPkg);
     main_tests.linkSystemLibrary("c");
     main_tests.linkSystemLibrary("freetype");
-    main_tests.addIncludeDir(freetype_system_include_dir);
     main_tests.linkSystemLibrary("SDL2");
+    for (c_includes) |include| {
+        main_tests.addIncludeDir(include);
+    }
+    main_tests.addLibPath("lib");
 
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
@@ -66,7 +70,10 @@ pub fn build(b: *Builder) void {
         test_exec.linkSystemLibrary("harfbuzz");
         test_exec.linkSystemLibrary("SDL2");
         test_exec.linkSystemLibrary("SDL2_image");
-        test_exec.addSystemIncludeDir(freetype_system_include_dir);
+        for (c_includes) |include| {
+            test_exec.addIncludeDir(include);
+        }
+        test_exec.addLibPath("lib");
         test_exec.install();
         graphical_test_step.dependOn(&test_exec.step);
     }
