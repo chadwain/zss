@@ -119,6 +119,7 @@ pub fn main() !void {
 fn exampleInlineContext(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFormat, font: *hb.hb_font_t) !void {
     const BoxMeasures = zss.InlineRenderingContext.BoxMeasures;
     const InlineBoxFragment = zss.InlineRenderingContext.InlineBoxFragment;
+    const Heights = zss.InlineRenderingContext.Heights;
     const CSSUnit = zss.types.CSSUnit;
     const BackgroundColor = zss.used_properties.BackgroundColor;
     var measures_top = [_]BoxMeasures{.{}} ** 4 ++ [_]BoxMeasures{.{ .border = 10, .border_color_rgba = 0xff839175 }};
@@ -128,64 +129,77 @@ fn exampleInlineContext(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixel
     var background_color = [_]BackgroundColor{ .{ .rgba = 0xff223300 }, .{ .rgba = 0x00df1213 }, .{ .rgba = 0x5c76d3ff }, .{ .rgba = 0x306892ff }, .{ .rgba = 0xff223300 } };
     var fragments: [5]InlineBoxFragment = undefined;
 
-    fragments[0] = .{ .offset = .{ .x = 0, .y = 0 }, .width = 400, .height = 30, .inline_box_id = 0, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false };
-    fragments[1] = .{ .offset = .{ .x = 400, .y = 0 }, .width = 400, .height = 20, .inline_box_id = 1, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false };
-    fragments[2] = .{ .offset = .{ .x = 200, .y = 30 }, .width = 40, .height = 40, .inline_box_id = 2, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false };
-    fragments[3] = .{ .offset = .{ .x = 240, .y = 30 }, .width = 40, .height = 40, .inline_box_id = 3, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false };
+    fragments[0] = .{ .baseline_pos = .{ .x = 0, .y = 30 }, .width = 400, .inline_box_id = 0, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false, .text = null };
+    fragments[1] = .{ .baseline_pos = .{ .x = 400, .y = 20 }, .width = 400, .inline_box_id = 2, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false, .text = null };
+    fragments[2] = .{ .baseline_pos = .{ .x = 200, .y = 110 }, .width = 40, .inline_box_id = 2, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false, .text = null };
+    fragments[3] = .{ .baseline_pos = .{ .x = 240, .y = 90 }, .width = 40, .inline_box_id = 3, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false, .text = null };
 
-    const bitmap_glyphs = blk: {
-        const string = "abcdefg";
-        const buf = hb.hb_buffer_create() orelse unreachable;
-        defer hb.hb_buffer_destroy(buf);
-        hb.hb_buffer_add_utf8(buf, string, @intCast(c_int, string.len), 0, @intCast(c_int, string.len));
-        hb.hb_buffer_set_direction(buf, hb.hb_direction_t.HB_DIRECTION_LTR);
-        hb.hb_buffer_set_script(buf, hb.hb_script_t.HB_SCRIPT_LATIN);
-        hb.hb_buffer_set_language(buf, hb.hb_language_from_string("en", -1));
-        hb.hb_shape(font, buf, 0, 0);
+    const string = "abcdefg";
+    const buf = hb.hb_buffer_create() orelse unreachable;
+    defer hb.hb_buffer_destroy(buf);
+    hb.hb_buffer_add_utf8(buf, string, @intCast(c_int, string.len), 0, @intCast(c_int, string.len));
+    hb.hb_buffer_set_direction(buf, hb.hb_direction_t.HB_DIRECTION_LTR);
+    hb.hb_buffer_set_script(buf, hb.hb_script_t.HB_SCRIPT_LATIN);
+    hb.hb_buffer_set_language(buf, hb.hb_language_from_string("en", -1));
+    hb.hb_shape(font, buf, 0, 0);
 
-        const face = hb.hb_ft_font_get_face(font) orelse unreachable;
-        var glyphs: [string.len]hb.FT_BitmapGlyph = undefined;
-        const glyph_positions = blk2: {
-            var n: c_uint = 0;
-            const p = hb.hb_buffer_get_glyph_positions(buf, &n);
-            break :blk2 p[0..n];
-        };
-        var cursor = hb.FT_Vector{ .x = 0, .y = 0 };
-        for (string) |c, i| {
-            const glyph = &glyphs[i];
-            assert(hb.FT_Load_Char(face, c, hb.FT_LOAD_DEFAULT | hb.FT_LOAD_NO_HINTING) == hb.FT_Err_Ok);
-            assert(hb.FT_Get_Glyph(face.*.glyph, @ptrCast(*hb.FT_Glyph, glyph)) == hb.FT_Err_Ok);
-            assert(hb.FT_Glyph_To_Bitmap(@ptrCast(*hb.FT_Glyph, glyph), hb.FT_Render_Mode.FT_RENDER_MODE_NORMAL, &cursor, 0) == hb.FT_Err_Ok);
-            cursor.x += glyph_positions[i].x_advance;
-        }
-        break :blk glyphs;
+    const glyph_infos = blk: {
+        var n: c_uint = 0;
+        const p = hb.hb_buffer_get_glyph_infos(buf, &n);
+        break :blk p[0..n];
     };
-    defer {
-        for (bitmap_glyphs) |glyph| {
-            hb.FT_Done_Glyph(@ptrCast(hb.FT_Glyph, glyph));
-        }
-    }
+    const glyph_positions = blk: {
+        var n: c_uint = 0;
+        const p = hb.hb_buffer_get_glyph_positions(buf, &n);
+        break :blk p[0..n];
+    };
 
     const measurements = blk: {
         var asc: c_long = 0;
-        var hgt: c_long = 0;
+        var desc: c_long = 0;
         var bbox: hb.FT_BBox = undefined;
-        for (bitmap_glyphs) |g| {
-            hb.FT_Glyph_Get_CBox(&g.*.root, hb.FT_GLYPH_BBOX_UNSCALED, &bbox);
+        const face = hb.hb_ft_font_get_face(font) orelse unreachable;
+        for (string) |c, i| {
+            var cursor = hb.FT_Vector{ .x = 0, .y = 0 };
+            var glyph: hb.FT_Glyph = undefined;
+            defer hb.FT_Done_Glyph(glyph);
+            assert(hb.FT_Load_Char(face, c, hb.FT_LOAD_DEFAULT | hb.FT_LOAD_NO_HINTING) == hb.FT_Err_Ok);
+            assert(hb.FT_Get_Glyph(face.*.glyph, &glyph) == hb.FT_Err_Ok);
+            assert(hb.FT_Glyph_To_Bitmap(&glyph, hb.FT_Render_Mode.FT_RENDER_MODE_NORMAL, &cursor, 0) == hb.FT_Err_Ok);
+
+            hb.FT_Glyph_Get_CBox(glyph, hb.FT_GLYPH_BBOX_UNSCALED, &bbox);
             asc = std.math.max(asc, bbox.yMax);
-            hgt = std.math.max(hgt, bbox.yMax - bbox.yMin);
+            desc = std.math.min(desc, bbox.yMin);
         }
-        break :blk .{ .ascender = @intCast(i32, @divTrunc(asc, 64)), .height = @intCast(i32, @divTrunc(hgt, 64)) };
+
+        break :blk .{ .ascender = @intCast(i32, @divFloor(asc, 64)), .descender = -@intCast(i32, @divFloor(desc, 64)) };
     };
 
-    fragments[4] = .{ .offset = .{ .x = 0, .y = 100 }, .width = 400, .height = measurements.height, .inline_box_id = 4, .include_top = true, .include_right = false, .include_bottom = true, .include_left = false };
+    fragments[4] = .{
+        .baseline_pos = .{ .x = 0, .y = 100 + measurements.ascender },
+        .width = 400,
+        .inline_box_id = 4,
+        .include_top = true,
+        .include_right = false,
+        .include_bottom = true,
+        .include_left = false,
+        .text = InlineBoxFragment.Text{ .font = font, .infos = glyph_infos, .positions = glyph_positions },
+    };
 
+    var heights = [_]Heights{
+        .{ .above_baseline = 30, .below_baseline = 0 },
+        .{ .above_baseline = 20, .below_baseline = 0 },
+        .{ .above_baseline = 40, .below_baseline = 0 },
+        .{ .above_baseline = 40, .below_baseline = 0 },
+        .{ .above_baseline = measurements.ascender, .below_baseline = 0 },
+    };
     const inl = zss.InlineRenderingContext{
         .fragments = &fragments,
         .measures_top = &measures_top,
         .measures_right = &measures_right,
         .measures_bottom = &measures_bottom,
         .measures_left = &measures_left,
+        .heights = &heights,
         .background_color = &background_color,
     };
 

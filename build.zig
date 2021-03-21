@@ -36,12 +36,12 @@ pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
     const lib = b.addStaticLibrary("zss", "zss.zig");
     lib.setBuildMode(mode);
-    lib.addPackage(zssPkg);
     lib.install();
 
     var main_tests = b.addTest("zss.zig");
     main_tests.setBuildMode(mode);
     main_tests.addPackage(prefixTreePkg);
+    main_tests.addPackage(harfbuzzPkg);
     main_tests.addPackage(freetypePkg);
     main_tests.addPackage(SDL2Pkg);
     main_tests.addPackage(zssPkg);

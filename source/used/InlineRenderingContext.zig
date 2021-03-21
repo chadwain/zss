@@ -20,24 +20,36 @@ const Allocator = std.mem.Allocator;
 const zss = @import("../../zss.zig");
 const CSSUnit = zss.types.CSSUnit;
 const Offset = zss.types.Offset;
-
 usingnamespace @import("properties.zig");
 
+const hb = @import("../../dependencies//harfbuzz.zig");
+
 pub const InlineBoxFragment = struct {
-    offset: Offset,
+    pub const Text = struct {
+        font: *hb.hb_font_t,
+        infos: []const hb.hb_glyph_info_t,
+        positions: []const hb.hb_glyph_position_t,
+    };
+
+    baseline_pos: Offset,
     width: CSSUnit,
-    height: CSSUnit,
     inline_box_id: u16,
     include_top: bool,
     include_right: bool,
     include_bottom: bool,
     include_left: bool,
+    text: ?Text,
 };
 
 pub const BoxMeasures = struct {
     border: CSSUnit = 0,
     padding: CSSUnit = 0,
     border_color_rgba: u32 = 0,
+};
+
+pub const Heights = struct {
+    above_baseline: CSSUnit,
+    below_baseline: CSSUnit,
 };
 
 // TODO add data to keep track of which boxes are positioned boxes.
@@ -51,6 +63,7 @@ measures_top: []BoxMeasures,
 measures_right: []BoxMeasures,
 measures_bottom: []BoxMeasures,
 measures_left: []BoxMeasures,
+heights: []Heights,
 background_color: []BackgroundColor,
 // TODO
 // background_image: []BackgroundImage,
