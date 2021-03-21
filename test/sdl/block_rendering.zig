@@ -1,3 +1,19 @@
+// This file is a part of zss.
+// Copyright (C) 2020-2021 Chadwain Holness
+//
+// This library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this library.  If not, see <https://www.gnu.org/licenses/>.
+
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -22,7 +38,6 @@ const Interval = struct {
 const StackItem = struct {
     interval: Interval,
     cumulative_offset: Offset,
-    visible: bool,
     clip_rect: CSSRect,
 };
 
@@ -93,7 +108,6 @@ pub fn drawDescendantBlocks(
         try stack.append(StackItem{
             .interval = Interval{ .begin = 1, .end = context.preorder_array[0] },
             .cumulative_offset = cumulative_offset.add(box_offsets.content_top_left),
-            .visible = context.visual_effect[0].visibility == .Visible,
             .clip_rect = clip_rect,
         });
         assert(sdl.SDL_RenderSetClipRect(renderer, &render_sdl.cssRectToSdlRect(stack.items[0].clip_rect)) == 0);
@@ -133,7 +147,6 @@ pub fn drawDescendantBlocks(
                 try stack.append(StackItem{
                     .interval = Interval{ .begin = index + 1, .end = index + num_descendants },
                     .cumulative_offset = stack_item.cumulative_offset.add(box_offsets.content_top_left),
-                    .visible = visual_effect.visibility == .Visible,
                     .clip_rect = new_clip_rect,
                 });
                 continue :stackLoop;

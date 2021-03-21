@@ -95,5 +95,7 @@ pub const Position = union(enum) {
     relative,
     absolute,
     sticky,
-    fixed,
+    // NOTE this field has a value because I need this union to have a non-zero size
+    // because of https://github.com/ziglang/zig/issues/8277
+    fixed: u1 = 0,
 };

@@ -229,6 +229,7 @@ pub fn drawBackgroundImage(
                 .h = size.y,
             };
             var intersection = @as(SDL_Rect, undefined);
+            // TODO check this assertion
             assert(SDL_IntersectRect(&painting_area, &image_rect, &intersection) == .SDL_TRUE);
             assert(SDL_RenderCopy(
                 renderer,

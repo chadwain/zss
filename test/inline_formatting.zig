@@ -1,3 +1,19 @@
+// This file is a part of zss.
+// Copyright (C) 2020-2021 Chadwain Holness
+//
+// This library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this library.  If not, see <https://www.gnu.org/licenses/>.
+
 const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
@@ -101,57 +117,21 @@ pub fn main() !void {
 }
 
 fn exampleInlineContext(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFormat, font: *hb.hb_font_t) !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer expect(!gpa.deinit());
+    const BoxMeasures = zss.InlineRenderingContext.BoxMeasures;
+    const InlineBoxFragment = zss.InlineRenderingContext.InlineBoxFragment;
+    const CSSUnit = zss.types.CSSUnit;
+    const BackgroundColor = zss.used_properties.BackgroundColor;
+    var measures_top = [_]BoxMeasures{.{}} ** 4 ++ [_]BoxMeasures{.{ .border = 10, .border_color_rgba = 0xff839175 }};
+    var measures_bottom = [_]BoxMeasures{.{}} ** 4 ++ [_]BoxMeasures{.{ .border = 10, .border_color_rgba = 0xff839175 }};
+    var measures_left = [_]BoxMeasures{.{}} ** 5;
+    var measures_right = [_]BoxMeasures{.{}} ** 5;
+    var background_color = [_]BackgroundColor{ .{ .rgba = 0xff223300 }, .{ .rgba = 0x00df1213 }, .{ .rgba = 0x5c76d3ff }, .{ .rgba = 0x306892ff }, .{ .rgba = 0xff223300 } };
+    var fragments: [5]InlineBoxFragment = undefined;
 
-    var inl_ctx = zss.InlineFormattingContext.init(&gpa.allocator);
-    defer inl_ctx.deinit();
-
-    {
-        try inl_ctx.line_boxes.appendSlice(inl_ctx.allocator, &[_]zss.InlineFormattingContext.LineBox{
-            .{ .y_pos = 0, .baseline = 30 }, // height = 30
-            .{ .y_pos = 30, .baseline = 50 }, // height = 70
-            .{ .y_pos = 100, .baseline = 30 }, // height = doesn't matter
-        });
-    }
-
-    const Part = zss.InlineFormattingContext.IdPart;
-
-    {
-        const key = &[_]Part{0};
-        try inl_ctx.new(key);
-        try inl_ctx.set(key, .dimension, .{ .width = 400, .height = 30 });
-        try inl_ctx.set(key, .background_color, .{ .rgba = 0xff223300 });
-        try inl_ctx.set(key, .position, .{ .line_box_index = 0, .advance = 0, .ascender = 30 });
-        try inl_ctx.set(key, .data, .{ .empty_space = {} });
-    }
-
-    {
-        const key = &[_]Part{1};
-        try inl_ctx.new(key);
-        try inl_ctx.set(key, .dimension, .{ .width = 400, .height = 20 });
-        try inl_ctx.set(key, .background_color, .{ .rgba = 0x00df1213 });
-        try inl_ctx.set(key, .position, .{ .line_box_index = 0, .advance = 400, .ascender = 20 });
-        try inl_ctx.set(key, .data, .{ .empty_space = {} });
-    }
-
-    {
-        const key = &[_]Part{2};
-        try inl_ctx.new(key);
-        try inl_ctx.set(key, .dimension, .{ .width = 40, .height = 40 });
-        try inl_ctx.set(key, .background_color, .{ .rgba = 0x5c76d3ff });
-        try inl_ctx.set(key, .position, .{ .line_box_index = 1, .advance = 200, .ascender = 40 });
-        try inl_ctx.set(key, .data, .{ .empty_space = {} });
-    }
-
-    {
-        const key = &[_]Part{3};
-        try inl_ctx.new(key);
-        try inl_ctx.set(key, .dimension, .{ .width = 40, .height = 40 });
-        try inl_ctx.set(key, .background_color, .{ .rgba = 0x306892ff });
-        try inl_ctx.set(key, .position, .{ .line_box_index = 1, .advance = 240, .ascender = 20 });
-        try inl_ctx.set(key, .data, .{ .empty_space = {} });
-    }
+    fragments[0] = .{ .offset = .{ .x = 0, .y = 0 }, .width = 400, .height = 30, .inline_box_id = 0, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false };
+    fragments[1] = .{ .offset = .{ .x = 400, .y = 0 }, .width = 400, .height = 20, .inline_box_id = 1, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false };
+    fragments[2] = .{ .offset = .{ .x = 200, .y = 30 }, .width = 40, .height = 40, .inline_box_id = 2, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false };
+    fragments[3] = .{ .offset = .{ .x = 240, .y = 30 }, .width = 40, .height = 40, .inline_box_id = 3, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false };
 
     const bitmap_glyphs = blk: {
         const string = "abcdefg";
@@ -164,7 +144,7 @@ fn exampleInlineContext(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixel
         hb.hb_shape(font, buf, 0, 0);
 
         const face = hb.hb_ft_font_get_face(font) orelse unreachable;
-        const glyphs = try gpa.allocator.alloc(hb.FT_BitmapGlyph, string.len);
+        var glyphs: [string.len]hb.FT_BitmapGlyph = undefined;
         const glyph_positions = blk2: {
             var n: c_uint = 0;
             const p = hb.hb_buffer_get_glyph_positions(buf, &n);
@@ -184,7 +164,6 @@ fn exampleInlineContext(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixel
         for (bitmap_glyphs) |glyph| {
             hb.FT_Done_Glyph(@ptrCast(hb.FT_Glyph, glyph));
         }
-        gpa.allocator.free(bitmap_glyphs);
     }
 
     const measurements = blk: {
@@ -198,58 +177,17 @@ fn exampleInlineContext(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixel
         }
         break :blk .{ .ascender = @intCast(i32, @divTrunc(asc, 64)), .height = @intCast(i32, @divTrunc(hgt, 64)) };
     };
-    inl_ctx.line_boxes.items[2].baseline = measurements.ascender;
 
-    {
-        const key = &[_]Part{4};
-        try inl_ctx.new(key);
-        try inl_ctx.set(key, .dimension, .{ .width = 400, .height = measurements.height });
-        try inl_ctx.set(key, .background_color, .{ .rgba = 0xff223300 });
-        try inl_ctx.set(key, .margin_border_padding_top_bottom, .{ .border_top = 10, .border_bottom = 10 });
-        try inl_ctx.set(key, .border_colors, .{ .top_rgba = 0xff839175, .bottom_rgba = 0xff839175 });
-        try inl_ctx.set(key, .position, .{ .line_box_index = 2, .advance = 0, .ascender = measurements.ascender });
-        try inl_ctx.set(key, .data, .{ .text = bitmap_glyphs });
-    }
+    fragments[4] = .{ .offset = .{ .x = 0, .y = 100 }, .width = 400, .height = measurements.height, .inline_box_id = 4, .include_top = true, .include_right = false, .include_bottom = true, .include_left = false };
 
-    var stacking_context_root = zss.stacking_context.StackingContextTree{};
-    defer stacking_context_root.deinitRecursive(&gpa.allocator);
-
-    var blk_ctx = blk: {
-        var preorder_array = [_]u16{1};
-        var inline_size = [_]zss.properties.LogicalSize{.{}};
-        var block_size = [_]zss.properties.LogicalSize{.{}};
-        const box_tree = zss.box_tree.BoxTree{
-            .preorder_array = &preorder_array,
-            .inline_size = &inline_size,
-            .block_size = &block_size,
-        };
-        break :blk try zss.solve.generateUsedDataFromBoxTree(&box_tree, &gpa.allocator, viewport_rect);
+    const inl = zss.InlineRenderingContext{
+        .fragments = &fragments,
+        .measures_top = &measures_top,
+        .measures_right = &measures_right,
+        .measures_bottom = &measures_bottom,
+        .measures_left = &measures_left,
+        .background_color = &background_color,
     };
-    defer blk_ctx.deinit(&gpa.allocator);
 
-    _ = try stacking_context_root.insert(
-        &gpa.allocator,
-        &[_]u16{0},
-        zss.stacking_context.StackingContext{
-            .midpoint = 0,
-            .offset = .{ .x = 0, .y = 0 },
-            .clip_rect = .{ .x = 0, .y = 0, .w = 2000000, .h = 2000000 },
-            .inner_context = .{ .block = &blk_ctx },
-        },
-        undefined,
-    );
-
-    _ = try stacking_context_root.insert(
-        &gpa.allocator,
-        &[_]u16{ 0, 0 },
-        zss.stacking_context.StackingContext{
-            .midpoint = 0,
-            .offset = .{ .x = 0, .y = 0 },
-            .clip_rect = .{ .x = 0, .y = 0, .w = 2000000, .h = 2000000 },
-            .inner_context = .{ .inl = .{ .context = &inl_ctx } },
-        },
-        undefined,
-    );
-
-    try renderStackingContexts(&stacking_context_root, &gpa.allocator, renderer, pixelFormat);
+    @import("./sdl/inline_rendering.zig").drawInlineContext(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat);
 }
