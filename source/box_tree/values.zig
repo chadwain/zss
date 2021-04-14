@@ -80,14 +80,11 @@ pub const LineWidth = mergeUnions(Length, union(enum) {
     thick,
 });
 
-pub const DisplayOuter = union(enum) {
-    block,
-    inl,
-};
-
-pub const DisplayInner = union(enum) {
-    flow,
-    flow_root,
+pub const Display = union(enum) {
+    block_flow,
+    block_flow_root,
+    inline_flow,
+    text,
 };
 
 pub const Position = union(enum) {

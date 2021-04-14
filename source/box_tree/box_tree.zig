@@ -24,6 +24,8 @@ pub const BoxTree = struct {
     block_size: []LogicalSize,
     display: []Display,
     position_inset: []PositionInset,
+    latin1_text: []Latin1Text,
+    font: []Font,
 };
 
 test "box tree" {

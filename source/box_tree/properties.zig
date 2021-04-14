@@ -54,14 +54,7 @@ pub const LogicalSize = struct {
     margin_end: MarginValue = .{ .px = 0 },
 };
 
-pub const Display = withDefaults(withNone(union(enum) {
-    pub const InnerOuter = struct {
-        inner: values.DisplayInner,
-        outer: values.DisplayOuter,
-    };
-
-    inner_outer: InnerOuter,
-}));
+pub const Display = withDefaults(withNone(values.Display));
 
 pub const PositionInset = struct {
     pub const PositionValue = withDefaults(values.Position);
@@ -72,4 +65,13 @@ pub const PositionInset = struct {
     block_end: InsetValue = .{ .auto = {} },
     inline_start: InsetValue = .{ .auto = {} },
     inline_end: InsetValue = .{ .auto = {} },
+};
+
+pub const Latin1Text = struct {
+    text: []const u8,
+};
+
+pub const Font = struct {
+    const hb = @import("harfbuzz");
+    font: ?*hb.hb_font_t,
 };

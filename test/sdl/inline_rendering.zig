@@ -35,6 +35,51 @@ pub fn drawInlineContext(
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
 ) void {
+    const face = hb.hb_ft_font_get_face(context.font);
+
+    // TODO does this rendering order agree with CSS2.2 Appendix E?
+    for (context.line_boxes) |line_box| {
+        var cursor: CSSUnit = 0;
+        var i = line_box.elements[0];
+        while (i < line_box.elements[1]) : (i += 1) {
+            var glyph_index = context.glyph_indeces[i];
+            const position = context.positions[i];
+            defer cursor += position.advance;
+
+            if (glyph_index == InlineRenderingContext.special_index) blk: {
+                i += 1;
+                const special = InlineRenderingContext.decodeSpecial(context.glyph_indeces[i]);
+                switch (special.meaning) {
+                    // TODO not actually drawing the inline boxes
+                    .BoxStart, .BoxEnd => {},
+                    .Literal_FFFF => {
+                        assert(hb.hb_font_get_glyph(context.font, 0xFFFF, 0, &glyph_index) != 0);
+                        break :blk;
+                    },
+                }
+                continue;
+            }
+
+            assert(hb.FT_Load_Glyph(face, glyph_index, hb.FT_LOAD_DEFAULT | hb.FT_LOAD_NO_HINTING) == hb.FT_Err_Ok);
+            assert(hb.FT_Render_Glyph(face.*.glyph, hb.FT_Render_Mode.FT_RENDER_MODE_NORMAL) == 0);
+
+            const bitmap = face.*.glyph.*.bitmap;
+            if (bitmap.width == 0 or bitmap.rows == 0) continue;
+            const final_position = sdl.SDL_Point{
+                .x = render_sdl.cssUnitToSdlPixel(cumulative_offset.x + cursor + position.offset),
+                .y = render_sdl.cssUnitToSdlPixel(cumulative_offset.y + line_box.baseline) - face.*.glyph.*.bitmap_top,
+            };
+            drawGlyph(bitmap, final_position, renderer, pixel_format);
+        }
+    }
+}
+
+pub fn drawInlineContextOld(
+    context: *const InlineRenderingContext,
+    cumulative_offset: Offset,
+    renderer: *sdl.SDL_Renderer,
+    pixel_format: *sdl.SDL_PixelFormat,
+) void {
     for (context.fragments) |fragment| {
         const box_id = fragment.inline_box_id;
 

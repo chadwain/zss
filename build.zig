@@ -22,7 +22,8 @@ const SDL2Pkg = Pkg{
 const zssPkg = Pkg{
     .name = "zss",
     .path = "zss.zig",
-    .dependencies = &[_]Pkg{ prefixTreePkg, freetypePkg, SDL2Pkg },
+    // TODO remove freetype dependency
+    .dependencies = &[_]Pkg{ prefixTreePkg, harfbuzzPkg, SDL2Pkg, freetypePkg },
 };
 
 const c_includes = [_][]const u8{
@@ -46,6 +47,7 @@ pub fn build(b: *Builder) void {
     main_tests.addPackage(SDL2Pkg);
     main_tests.addPackage(zssPkg);
     main_tests.linkSystemLibrary("c");
+    main_tests.linkSystemLibrary("harfbuzz");
     main_tests.linkSystemLibrary("freetype");
     main_tests.linkSystemLibrary("SDL2");
     for (c_includes) |include| {
@@ -61,7 +63,7 @@ pub fn build(b: *Builder) void {
     inline for (all_tests.tests) |t| {
         var test_exec = b.addExecutable(t.name, "test/" ++ t.root);
         test_exec.setBuildMode(mode);
-        test_exec.addPackage(prefixTreePkg);
+        test_exec.addPackage(freetypePkg);
         test_exec.addPackage(harfbuzzPkg);
         test_exec.addPackage(SDL2Pkg);
         test_exec.addPackage(zssPkg);

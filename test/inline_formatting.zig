@@ -89,7 +89,8 @@ pub fn main() !void {
     defer sdl.SDL_DestroyTexture(texture);
     assert(sdl.SDL_SetRenderTarget(renderer, texture) == 0);
 
-    try exampleInlineContext(renderer, texture_pixel_format, hbfont);
+    //try exampleInlineContext(renderer, texture_pixel_format, hbfont);
+    try exampleInlineContext2(renderer, texture_pixel_format, hbfont);
     sdl.SDL_RenderPresent(renderer);
 
     assert(sdl.SDL_SetRenderTarget(renderer, window_texture) == 0);
@@ -202,6 +203,79 @@ fn exampleInlineContext(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixel
         .heights = &heights,
         .background_color = &background_color,
     };
+
+    @import("./sdl/inline_rendering.zig").drawInlineContext(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat);
+}
+
+fn exampleInlineContext2(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFormat, hbfont: *hb.hb_font_t) !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.testing.expect(!gpa.deinit());
+    const al = &gpa.allocator;
+
+    const properties = zss.properties;
+    const len = 4;
+    var preorder_array = [len]u16{ 4, 1, 1, 1 };
+    var inline_size = [len]properties.LogicalSize{
+        .{},
+        .{ .border_start_width = .{ .px = 10 }, .border_end_width = .{ .px = 40 } },
+        .{},
+        .{ .border_start_width = .{ .px = 30 }, .border_end_width = .{ .px = 40 } },
+    };
+    var block_size = [_]properties.LogicalSize{.{}} ** len;
+    var display = [len]properties.Display{ .{ .block_flow_root = {} }, .{ .inline_flow = {} }, .{ .text = {} }, .{ .inline_flow = {} } };
+    var position_inset = [_]properties.PositionInset{.{}} ** len;
+    var latin1_text = [_]properties.Latin1Text{.{ .text = "" }} ** len;
+    latin1_text[2].text = "hello world.";
+    var font = [_]properties.Font{ .{ .font = hbfont }, .{ .font = null }, .{ .font = null }, .{ .font = null } };
+    var inl = try zss.solve.generateUsedDataInline(
+        &zss.box_tree.BoxTree{
+            .preorder_array = &preorder_array,
+            .inline_size = &inline_size,
+            .block_size = &block_size,
+            .display = &display,
+            .position_inset = &position_inset,
+            .latin1_text = &latin1_text,
+            .font = &font,
+        },
+        al,
+        zss.types.CSSSize{ .w = 500, .h = 400 },
+    );
+    defer inl.deinit(al);
+
+    inl.measures_left[1].border_color_rgba = 0xff0000ff;
+    inl.measures_right[1].border_color_rgba = 0x4713c7ff;
+    inl.measures_right[2].border_color_rgba = 0x791bda9f;
+
+    {
+        const p = std.debug.print;
+        p("\n", .{});
+        p("glyphs\n", .{});
+        var i: usize = 0;
+        while (i < inl.glyph_indeces.len) : (i += 1) {
+            const gi = inl.glyph_indeces[i];
+            if (gi == zss.InlineRenderingContext.special_index) {
+                i += 1;
+                p("{}\n", .{zss.InlineRenderingContext.decodeSpecial(inl.glyph_indeces[i])});
+            } else {
+                p("{x}\n", .{gi});
+            }
+        }
+        p("\n", .{});
+        p("positions\n", .{});
+        i = 0;
+        while (i < inl.positions.len) : (i += 1) {
+            const pos = inl.positions[i];
+            p("{}\n", .{pos});
+            if (inl.glyph_indeces[i] == zss.InlineRenderingContext.special_index) {
+                i += 1;
+            }
+        }
+        p("\n", .{});
+        p("line boxes\n", .{});
+        for (inl.line_boxes) |l| {
+            p("{}\n", .{l});
+        }
+    }
 
     @import("./sdl/inline_rendering.zig").drawInlineContext(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat);
 }

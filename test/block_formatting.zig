@@ -182,8 +182,9 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
 }
 
 fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture) !zss.BlockRenderingContext {
-    var preorder_array = [_]u16{ 3, 2, 1 };
-    var inline_size = [_]zss.properties.LogicalSize{
+    const len = 3;
+    var preorder_array = [len]u16{ 3, 2, 1 };
+    var inline_size = [len]zss.properties.LogicalSize{
         .{
             .size = .{ .px = 700 },
             .padding_start = .{ .px = 100 },
@@ -196,7 +197,7 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture
             .size = .{ .px = 40 },
         },
     };
-    var block_size = [_]zss.properties.LogicalSize{
+    var block_size = [len]zss.properties.LogicalSize{
         .{
             .size = .{ .px = 550 },
             .padding_start = .{ .px = 50 },
@@ -209,18 +210,22 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture
             .size = .{ .px = 40 },
         },
     };
-    var display = [_]zss.properties.Display{
-        .{ .inner_outer = .{ .outer = .block, .inner = .flow_root } },
-        .{ .inner_outer = .{ .outer = .block, .inner = .flow } },
-        .{ .inner_outer = .{ .outer = .block, .inner = .flow } },
+    var display = [len]zss.properties.Display{
+        .{ .block_flow_root = {} },
+        .{ .block_flow = {} },
+        .{ .block_flow = {} },
     };
-    var position_inset = [_]zss.properties.PositionInset{.{}} ** 3;
+    var position_inset = [_]zss.properties.PositionInset{.{}} ** len;
+    var latin1_text = [_]zss.properties.Latin1Text{.{ .text = "" }} ** len;
+    var font = [_]zss.properties.Font{.{ .font = null }} ** len;
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
         .position_inset = &position_inset,
+        .latin1_text = &latin1_text,
+        .font = &font,
     };
 
     var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
@@ -243,8 +248,9 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture
 }
 
 fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockRenderingContext {
-    var preorder_array = [_]u16{ 4, 1, 1, 1 };
-    var inline_size = [_]zss.properties.LogicalSize{
+    const len = 4;
+    var preorder_array = [len]u16{ 4, 1, 1, 1 };
+    var inline_size = [len]zss.properties.LogicalSize{
         .{
             .size = .{ .px = 100 },
             .border_start_width = .{ .px = 20 },
@@ -254,7 +260,7 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockRenderingContex
         .{ .size = .{ .px = 100 } },
         .{ .size = .{ .px = 150 } },
     };
-    var block_size = [_]zss.properties.LogicalSize{
+    var block_size = [len]zss.properties.LogicalSize{
         .{
             //.size = .{ .px = 100 },
             .border_start_width = .{ .px = 5 },
@@ -264,24 +270,28 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockRenderingContex
         .{ .size = .{ .px = 50 } },
         .{ .size = .{ .px = 50 } },
     };
-    var display = [_]zss.properties.Display{
-        .{ .inner_outer = .{ .outer = .block, .inner = .flow_root } },
-        .{ .inner_outer = .{ .outer = .block, .inner = .flow } },
-        .{ .inner_outer = .{ .outer = .block, .inner = .flow } },
-        .{ .inner_outer = .{ .outer = .block, .inner = .flow } },
+    var display = [len]zss.properties.Display{
+        .{ .block_flow_root = {} },
+        .{ .block_flow = {} },
+        .{ .block_flow = {} },
+        .{ .block_flow = {} },
     };
-    var position_inset = [_]zss.properties.PositionInset{
+    var position_inset = [len]zss.properties.PositionInset{
         .{ .position = .{ .relative = {} }, .inline_start = .{ .px = 150 } },
         .{ .position = .{ .relative = {} }, .block_start = .{ .px = -20 }, .block_end = .{ .px = -2000 }, .inline_end = .{ .px = 10 } },
         .{ .position = .{ .relative = {} }, .block_end = .{ .px = -25 }, .inline_start = .{ .px = 80 } },
         .{ .position = .{ .relative = {} } },
     };
+    var latin1_text = [_]zss.properties.Latin1Text{.{ .text = "" }} ** len;
+    var font = [_]zss.properties.Font{.{ .font = null }} ** len;
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
         .position_inset = &position_inset,
+        .latin1_text = &latin1_text,
+        .font = &font,
     };
 
     var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
@@ -295,8 +305,9 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockRenderingContex
 }
 
 fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_Texture) !zss.BlockRenderingContext {
-    var preorder_array = [_]u16{ 2, 1 };
-    var inline_size = [_]zss.properties.LogicalSize{
+    const len = 2;
+    var preorder_array = [len]u16{ 2, 1 };
+    var inline_size = [len]zss.properties.LogicalSize{
         .{
             .size = .{ .px = 300 },
             .border_start_width = .{ .px = 10 },
@@ -309,7 +320,7 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_
             .margin_start = .{ .px = -25 },
         },
     };
-    var block_size = [_]zss.properties.LogicalSize{
+    var block_size = [len]zss.properties.LogicalSize{
         .{
             .size = .{ .px = 150 },
             .border_start_width = .{ .px = 10 },
@@ -322,17 +333,21 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_
             .margin_start = .{ .px = -30 },
         },
     };
-    var display = [_]zss.properties.Display{
-        .{ .inner_outer = .{ .outer = .block, .inner = .flow_root } },
-        .{ .inner_outer = .{ .outer = .block, .inner = .flow } },
+    var display = [len]zss.properties.Display{
+        .{ .block_flow_root = {} },
+        .{ .block_flow = {} },
     };
-    var position_inset = [_]zss.properties.PositionInset{.{}} ** 2;
+    var position_inset = [_]zss.properties.PositionInset{.{}} ** len;
+    var latin1_text = [_]zss.properties.Latin1Text{.{ .text = "" }} ** len;
+    var font = [_]zss.properties.Font{.{ .font = null }} ** len;
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
         .position_inset = &position_inset,
+        .latin1_text = &latin1_text,
+        .font = &font,
     };
 
     var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
@@ -348,31 +363,36 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_
 }
 
 fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockRenderingContext {
-    var preorder_array = [_]u16{1};
-    var inline_size = [_]zss.properties.LogicalSize{
+    const len = 1;
+    var preorder_array = [len]u16{1};
+    var inline_size = [len]zss.properties.LogicalSize{
         .{
             .size = .{ .px = 150 },
             .border_start_width = .{ .px = 30 },
             .border_end_width = .{ .px = 30 },
         },
     };
-    var block_size = [_]zss.properties.LogicalSize{
+    var block_size = [len]zss.properties.LogicalSize{
         .{
             .size = .{ .px = 100 },
             .border_start_width = .{ .px = 30 },
             .border_end_width = .{ .px = 30 },
         },
     };
-    var display = [_]zss.properties.Display{
-        .{ .inner_outer = .{ .outer = .block, .inner = .flow_root } },
+    var display = [len]zss.properties.Display{
+        .{ .block_flow_root = {} },
     };
-    var position_inset = [_]zss.properties.PositionInset{.{}} ** 1;
+    var position_inset = [_]zss.properties.PositionInset{.{}} ** len;
+    var latin1_text = [_]zss.properties.Latin1Text{.{ .text = "" }} ** len;
+    var font = [_]zss.properties.Font{.{ .font = null }} ** len;
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
         .position_inset = &position_inset,
+        .latin1_text = &latin1_text,
+        .font = &font,
     };
 
     var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
@@ -384,28 +404,33 @@ fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockRenderingContex
 }
 
 fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockRenderingContext {
-    var preorder_array = [_]u16{1};
-    var inline_size = [_]zss.properties.LogicalSize{
+    const len = 1;
+    var preorder_array = [len]u16{1};
+    var inline_size = [len]zss.properties.LogicalSize{
         .{
             .size = .{ .px = 75 },
         },
     };
-    var block_size = [_]zss.properties.LogicalSize{
+    var block_size = [len]zss.properties.LogicalSize{
         .{
             .size = .{ .px = 200 },
             .min_size = .{ .px = 300 },
         },
     };
-    var display = [_]zss.properties.Display{
-        .{ .inner_outer = .{ .outer = .block, .inner = .flow_root } },
+    var display = [len]zss.properties.Display{
+        .{ .block_flow_root = {} },
     };
-    var position_inset = [_]zss.properties.PositionInset{.{}} ** 1;
+    var position_inset = [_]zss.properties.PositionInset{.{}} ** len;
+    var latin1_text = [_]zss.properties.Latin1Text{.{ .text = "" }} ** len;
+    var font = [_]zss.properties.Font{.{ .font = null }} ** len;
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
         .position_inset = &position_inset,
+        .latin1_text = &latin1_text,
+        .font = &font,
     };
 
     var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
