@@ -212,7 +212,7 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture
         .font = &font,
     };
 
-    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
+    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, 0, allocator, viewport_rect);
 
     context.background_color[0] = .{ .rgba = 0xff223300 };
     context.background_image[0] = .{
@@ -278,7 +278,7 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockRenderingContex
         .font = &font,
     };
 
-    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
+    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, 0, allocator, viewport_rect);
 
     context.background_color[0] = .{ .rgba = 0x306892ff };
     context.background_color[1] = .{ .rgba = 0x505050ff };
@@ -334,7 +334,7 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_
         .font = &font,
     };
 
-    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
+    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, 0, allocator, viewport_rect);
 
     context.background_color[0] = .{ .rgba = 0x592b1cff };
     context.visual_effect[0] = .{ .overflow = .Hidden };
@@ -379,7 +379,7 @@ fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockRenderingContex
         .font = &font,
     };
 
-    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
+    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, 0, allocator, viewport_rect);
 
     context.border_colors[0] = .{ .top_rgba = 0x20f4f4ff, .right_rgba = 0x3faf34ff, .bottom_rgba = 0xa32a7cff, .left_rgba = 0x102458ff };
     context.background_color[0] = .{ .rgba = 0x9104baff };
@@ -417,7 +417,7 @@ fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockRenderingContex
         .font = &font,
     };
 
-    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, allocator, viewport_rect);
+    var context = try zss.solve.createContextAndGenerateUsedData(&box_tree, 0, allocator, viewport_rect);
 
     context.background_color[0] = .{ .rgba = 0xb186afff };
     context.border_colors[0] = .{ .top_rgba = 0xdd56faff, .right_rgba = 0x93542cff, .bottom_rgba = 0x2bda86ff, .left_rgba = 0xbca973ff };

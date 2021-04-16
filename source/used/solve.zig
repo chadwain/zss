@@ -10,7 +10,6 @@ const BoxTree = zss.box_tree.BoxTree;
 usingnamespace zss.types;
 
 const used = @import("properties.zig");
-const StackingContext = @import("stacking_context.zig").StackingContext;
 const BlockRenderingContext = @import("BlockRenderingContext.zig");
 const InlineRenderingContext = @import("InlineRenderingContext.zig");
 
@@ -56,6 +55,21 @@ const AnonymousBoxInfo = struct {
 
     index_of_interval: usize,
     reason: Reason,
+};
+
+const StackingContextTree = struct {
+    const Entry = struct {
+        subtree_size: u16,
+        z_index: i16,
+    };
+
+    const Data = union(enum) {
+        block: *BlockRenderingContext,
+        inl: *InlineRenderingContext,
+    };
+
+    preorder_array: []Entry,
+    data: []Data,
 };
 
 const Context = struct {
@@ -176,8 +190,8 @@ const IntermediateBlockContext = struct {
     }
 };
 
-pub fn createContextAndGenerateUsedData(tree: *const BoxTree, allocator: *Allocator, viewport_rect: CSSSize) !BlockRenderingContext {
-    var context = try Context.init(allocator, viewport_rect, 0, tree.preorder_array[0]);
+pub fn createContextAndGenerateUsedData(tree: *const BoxTree, box_id: u16, allocator: *Allocator, viewport_rect: CSSSize) !BlockRenderingContext {
+    var context = try Context.init(allocator, viewport_rect, box_id, tree.preorder_array[box_id]);
     defer context.deinit();
 
     var result = try createBlockRenderingContext(tree, &context, allocator);
@@ -218,11 +232,11 @@ fn createBlockRenderingContext(tree: *const BoxTree, context: *Context, allocato
     const root_id = root_interval.begin;
     const root_skip_length = tree.preorder_array[root_id];
 
-    var result = IntermediateBlockContext{};
-    errdefer result.deinit(allocator);
-    try result.ensureCapacity(allocator, root_skip_length);
+    var data = IntermediateBlockContext{};
+    errdefer data.deinit(allocator);
+    try data.ensureCapacity(allocator, root_skip_length);
 
-    try blockLevelElementBeginProcessing(tree, context, &result, root_id, root_skip_length, allocator);
+    try blockLevelElementBeginProcessing(tree, context, &data, root_id, root_skip_length, allocator);
 
     while (context.intervals.items.len > 1) {
         const interval = &context.intervals.items[context.intervals.items.len - 1];
@@ -230,12 +244,12 @@ fn createBlockRenderingContext(tree: *const BoxTree, context: *Context, allocato
             const id_skip_length = context.result_ids_and_skip_lengths.items[context.result_ids_and_skip_lengths.items.len - 1];
             const result_id = id_skip_length.id;
             const result_skip_length = id_skip_length.skip_length;
-            result.preorder_array.items[result_id] = result_skip_length;
+            data.preorder_array.items[result_id] = result_skip_length;
             context.result_ids_and_skip_lengths.items[context.result_ids_and_skip_lengths.items.len - 2].skip_length += result_skip_length;
 
-            const box_offsets_ptr = &result.box_offsets.items[result_id];
+            const box_offsets_ptr = &data.box_offsets.items[result_id];
             const parent_auto_block_size = &context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 2];
-            blockContainerFinishProcessing(context, &result, box_offsets_ptr, parent_auto_block_size);
+            blockContainerFinishProcessing(context, &data, box_offsets_ptr, parent_auto_block_size);
 
             const in_flow_positioning_data_count = context.in_flow_positioning_data_count.pop();
             context.in_flow_positioning_data.shrinkRetainingCapacity(context.in_flow_positioning_data.items.len - in_flow_positioning_data_count);
@@ -249,14 +263,14 @@ fn createBlockRenderingContext(tree: *const BoxTree, context: *Context, allocato
             const skip_length = tree.preorder_array[original_id];
             interval.begin += skip_length;
 
-            try blockLevelElementBeginProcessing(tree, context, &result, original_id, skip_length, allocator);
+            try blockLevelElementBeginProcessing(tree, context, &data, original_id, skip_length, allocator);
         }
     }
 
-    return result;
+    return data;
 }
 
-fn blockLevelElementBeginProcessing(tree: *const BoxTree, context: *Context, result: *IntermediateBlockContext, original_id: u16, skip_length: u16, allocator: *Allocator) !void {
+fn blockLevelElementBeginProcessing(tree: *const BoxTree, context: *Context, data: *IntermediateBlockContext, original_id: u16, skip_length: u16, allocator: *Allocator) !void {
     switch (tree.display[original_id]) {
         .block_flow_root, .block_flow => {},
         .inline_flow => @panic("TODO inline elements"),
@@ -265,7 +279,7 @@ fn blockLevelElementBeginProcessing(tree: *const BoxTree, context: *Context, res
         .initial, .inherit, .unset => unreachable,
     }
 
-    const result_id = try std.math.cast(u16, result.preorder_array.items.len);
+    const result_id = try std.math.cast(u16, data.preorder_array.items.len);
 
     const position_inset = &tree.position_inset[original_id];
     switch (position_inset.position) {
@@ -284,9 +298,9 @@ fn blockLevelElementBeginProcessing(tree: *const BoxTree, context: *Context, res
         .initial, .inherit, .unset => unreachable,
     }
 
-    const preorder_array_ptr = try result.preorder_array.addOne(allocator);
-    const box_offsets_ptr = try result.box_offsets.addOne(allocator);
-    const borders_ptr = try result.borders.addOne(allocator);
+    const preorder_array_ptr = try data.preorder_array.addOne(allocator);
+    const box_offsets_ptr = try data.box_offsets.addOne(allocator);
+    const borders_ptr = try data.borders.addOne(allocator);
     const inline_size = getInlineOffsets(tree, context, original_id, box_offsets_ptr, borders_ptr);
     const size_margins = getBlockOffsets(tree, context, original_id, box_offsets_ptr, borders_ptr);
 
@@ -311,11 +325,11 @@ fn blockLevelElementBeginProcessing(tree: *const BoxTree, context: *Context, res
     }
 }
 
-fn blockContainerFinishProcessing(context: *Context, result: *IntermediateBlockContext, box_offsets: *BoxOffsets, parent_auto_block_size: *CSSUnit) void {
+fn blockContainerFinishProcessing(context: *Context, data: *IntermediateBlockContext, box_offsets: *BoxOffsets, parent_auto_block_size: *CSSUnit) void {
     const size_margins = context.static_containing_block_block_size_margins.items[context.static_containing_block_block_size_margins.items.len - 1];
     const auto_block_size = context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 1];
     const sizes = blockContainerFinalizeBlockSizes(box_offsets, size_margins, auto_block_size, parent_auto_block_size);
-    applyInFlowPositioningToChildren(context, result.box_offsets.items, sizes.used_block_size);
+    applyInFlowPositioningToChildren(context, data.box_offsets.items, sizes.used_block_size);
 }
 
 fn blockContainerFinalizeBlockSizes(box_offsets: *BoxOffsets, size_margins: UsedSizeAndMargins, auto_block_size: CSSUnit, parent_auto_block_size: *CSSUnit) struct {
@@ -473,7 +487,7 @@ fn solveInlineSizes(
         .initial, .inherit, .unset => unreachable,
     };
 
-    var autos: u3 = 0;
+    var auto_bitfield: u3 = 0;
     const size_bit = 4;
     const margin_start_bit = 2;
     const margin_end_bit = 1;
@@ -482,7 +496,7 @@ fn solveInlineSizes(
         .px => |px| length(.{ .px = px }),
         .percentage => |p| percentage(.{ .percentage = p }, containing_block_size),
         .auto => blk: {
-            autos |= size_bit;
+            auto_bitfield |= size_bit;
             break :blk 0;
         },
         .initial, .inherit, .unset => unreachable,
@@ -491,7 +505,7 @@ fn solveInlineSizes(
         .px => |px| length(.{ .px = px }),
         .percentage => |p| percentage(.{ .percentage = p }, containing_block_size),
         .auto => blk: {
-            autos |= margin_start_bit;
+            auto_bitfield |= margin_start_bit;
             break :blk 0;
         },
         .initial, .inherit, .unset => unreachable,
@@ -500,19 +514,19 @@ fn solveInlineSizes(
         .px => |px| length(.{ .px = px }),
         .percentage => |p| percentage(.{ .percentage = p }, containing_block_size),
         .auto => blk: {
-            autos |= margin_end_bit;
+            auto_bitfield |= margin_end_bit;
             break :blk 0;
         },
         .initial, .inherit, .unset => unreachable,
     };
 
-    if (autos == 0) {
+    if (auto_bitfield == 0) {
         // TODO(§10.3.3): which margin gets set is affected by the 'direction' property
         size = std.math.clamp(size, min_size, max_size);
         margin_end = cm_space - size - margin_start;
-    } else if (autos & size_bit == 0) {
-        const start = autos & margin_start_bit;
-        const end = autos & margin_end_bit;
+    } else if (auto_bitfield & size_bit == 0) {
+        const start = auto_bitfield & margin_start_bit;
+        const end = auto_bitfield & margin_end_bit;
         const shr_amount = @boolToInt(start | end == margin_start_bit | margin_end_bit);
         size = std.math.clamp(size, min_size, max_size);
         const leftover_margin = std.math.max(0, cm_space - (size + margin_start + margin_end));
@@ -685,7 +699,7 @@ test "used data" {
     };
     var latin1_text = [_]computed.Latin1Text{.{ .text = "" }} ** len;
     var font = [_]computed.Font{.{ .font = null }} ** len;
-    var result = try createContextAndGenerateUsedData(
+    var data = try createContextAndGenerateUsedData(
         &BoxTree{
             .preorder_array = &preorder_array,
             .inline_size = &inline_size,
@@ -695,12 +709,13 @@ test "used data" {
             .latin1_text = &latin1_text,
             .font = &font,
         },
+        0,
         al,
         CSSSize{ .w = 400, .h = 400 },
     );
-    defer result.deinit(al);
+    defer data.deinit(al);
 
-    for (result.box_offsets) |box_offset| {
+    for (data.box_offsets) |box_offset| {
         std.debug.print("{}\n", .{box_offset});
     }
 }
@@ -734,93 +749,116 @@ const IntermediateInlineContext = struct {
         self.background_color.deinit(allocator);
         self.margins.deinit(allocator);
     }
+
+    fn toNormalData(self: *Self, allocator: *Allocator) InlineRenderingContext {
+        self.margins.deinit(allocator);
+        return InlineRenderingContext{
+            .line_boxes = self.line_boxes.toOwnedSlice(allocator),
+            .glyph_indeces = self.glyph_indeces.toOwnedSlice(allocator),
+            .positions = self.positions.toOwnedSlice(allocator),
+            .font = self.font,
+            .measures_top = self.measures_top.toOwnedSlice(allocator),
+            .measures_right = self.measures_right.toOwnedSlice(allocator),
+            .measures_bottom = self.measures_bottom.toOwnedSlice(allocator),
+            .measures_left = self.measures_left.toOwnedSlice(allocator),
+            .heights = self.heights.toOwnedSlice(allocator),
+            .background_color = self.background_color.toOwnedSlice(allocator),
+        };
+    }
 };
 
-pub fn generateUsedDataInline(tree: *const BoxTree, allocator: *Allocator, viewport_rect: CSSSize) !InlineRenderingContext {
-    var context = try Context.init(allocator, viewport_rect, 0, tree.preorder_array[0]);
-    defer context.deinit();
+pub const InlineContext = struct {
+    box_tree: *const BoxTree,
+    intervals: ArrayListUnmanaged(Interval),
+    used_ids: ArrayListUnmanaged(u16),
+    allocator: *Allocator,
+    block_container_interval: Interval,
+    containing_block_inline_size: CSSUnit,
 
-    // interval for the root block
-    try context.intervals.append(context.allocator, Interval{ .index = 0, .begin = 1, .end = tree.preorder_array[0] });
+    const Self = @This();
 
-    var result = try createInlineRenderingContext(tree, &context, allocator);
-    errdefer result.deinit(allocator);
-    result.margins.deinit(allocator);
+    pub fn init(box_tree: *const BoxTree, allocator: *Allocator, block_container_interval: Interval, containing_block_inline_size: CSSUnit) Self {
+        return Self{
+            .box_tree = box_tree,
+            .intervals = .{},
+            .used_ids = .{},
+            .allocator = allocator,
+            .block_container_interval = block_container_interval,
+            .containing_block_inline_size = containing_block_inline_size,
+        };
+    }
 
-    const num_inline_boxes = result.measures_left.items.len;
-    try result.heights.resize(allocator, num_inline_boxes);
-    try result.background_color.resize(allocator, num_inline_boxes);
-    std.mem.set(InlineRenderingContext.Heights, result.heights.items, InlineRenderingContext.Heights{ .above_baseline = 0, .below_baseline = 0 });
-    std.mem.set(used.BackgroundColor, result.background_color.items, used.BackgroundColor{});
-    return InlineRenderingContext{
-        .line_boxes = result.line_boxes.toOwnedSlice(allocator),
-        .glyph_indeces = result.glyph_indeces.toOwnedSlice(allocator),
-        .positions = result.positions.toOwnedSlice(allocator),
-        .font = result.font,
-        .measures_top = result.measures_top.toOwnedSlice(allocator),
-        .measures_right = result.measures_right.toOwnedSlice(allocator),
-        .measures_bottom = result.measures_bottom.toOwnedSlice(allocator),
-        .measures_left = result.measures_left.toOwnedSlice(allocator),
-        .heights = result.heights.toOwnedSlice(allocator),
-        .background_color = result.background_color.toOwnedSlice(allocator),
-    };
-}
+    pub fn deinit(self: *Self) void {
+        self.intervals.deinit(self.allocator);
+        self.used_ids.deinit(self.allocator);
+    }
+};
 
-fn createInlineRenderingContext(tree: *const BoxTree, context: *Context, allocator: *Allocator) !IntermediateInlineContext {
-    var result = IntermediateInlineContext{};
-    errdefer result.deinit(allocator);
+pub fn createInlineUsedData(context: *InlineContext, allocator: *Allocator) !InlineRenderingContext {
+    var data = IntermediateInlineContext{};
+    errdefer data.deinit(allocator);
 
-    const initial_interval_len = context.intervals.items.len;
-    const root_interval = context.intervals.items[initial_interval_len - 1];
-    const containing_block_inline_size = context.static_containing_block_inline_sizes.items[context.static_containing_block_inline_sizes.items.len - 1];
+    // TODO delete this font stuff
+    const font = context.box_tree.font[context.block_container_interval.index];
+    data.font = font.font.?;
 
-    const root_result_id = try addRootInlineBox(&result, allocator);
-    try addBoxStart(&result, allocator, root_result_id);
-    try context.intervals.append(context.allocator, root_interval);
-    try context.inline_result_ids.append(allocator, root_result_id);
+    const root_interval = context.block_container_interval;
+    const root_used_id = try addRootInlineBox(&data, allocator);
+    try addBoxStart(&data, allocator, root_used_id);
 
-    const font = tree.font[root_interval.index];
-    result.font = font.font.?;
+    if (root_interval.begin != root_interval.end) {
+        try context.intervals.append(context.allocator, context.block_container_interval);
+        try context.used_ids.append(context.allocator, root_used_id);
+    } else {
+        try addBoxEnd(&data, allocator, root_used_id);
+    }
 
-    while (context.intervals.items.len > initial_interval_len) {
+    while (context.intervals.items.len > 0) {
         const interval = &context.intervals.items[context.intervals.items.len - 1];
         if (interval.begin == interval.end) {
-            const result_id = context.inline_result_ids.items[context.inline_result_ids.items.len - 1];
-            try addBoxEnd(&result, allocator, result_id);
+            const used_id = context.used_ids.items[context.used_ids.items.len - 1];
+            try addBoxEnd(&data, allocator, used_id);
 
             _ = context.intervals.pop();
-            _ = context.inline_result_ids.pop();
+            _ = context.used_ids.pop();
         } else {
             const original_id = interval.begin;
-            const skip_length = tree.preorder_array[original_id];
+            const skip_length = context.box_tree.preorder_array[original_id];
             interval.begin += skip_length;
 
-            switch (tree.display[original_id]) {
+            switch (context.box_tree.display[original_id]) {
                 .inline_flow => {
-                    const result_id = try addInlineElementData(tree, &result, allocator, original_id, containing_block_inline_size);
-                    try addBoxStart(&result, allocator, result_id);
+                    const used_id = try addInlineElementData(context.box_tree, &data, allocator, original_id, context.containing_block_inline_size);
+                    try addBoxStart(&data, allocator, used_id);
 
                     if (skip_length != 1) {
                         try context.intervals.append(context.allocator, Interval{ .index = original_id, .begin = original_id + 1, .end = original_id + skip_length });
-                        try context.inline_result_ids.append(context.allocator, result_id);
+                        try context.used_ids.append(context.allocator, used_id);
                     } else {
-                        try addBoxEnd(&result, allocator, result_id);
+                        try addBoxEnd(&data, allocator, used_id);
                     }
                 },
-                .text => try addText(&result, allocator, tree.latin1_text[original_id], font),
-                .block_flow, .block_flow_root => @panic("unhandled switch case"),
+                .text => try addText(&data, allocator, context.box_tree.latin1_text[original_id], font),
+                .block_flow, .block_flow_root => {
+                    // Immediately finish off this group of inline elements.
+                    var i: usize = context.used_ids.items.len;
+                    while (i > 0) : (i -= 1) {
+                        try addBoxEnd(&data, allocator, context.used_ids.items[i - 1]);
+                    }
+                    break;
+                },
                 .none => continue,
                 .initial, .inherit, .unset => unreachable,
             }
         }
     }
 
-    try splitIntoLineBoxes(&result, allocator, result.font, containing_block_inline_size);
+    try splitIntoLineBoxes(&data, allocator, data.font, context.containing_block_inline_size);
 
-    return result;
+    return data.toNormalData(allocator);
 }
 
-fn addText(result: *IntermediateInlineContext, allocator: *Allocator, latin1_text: computed.Latin1Text, font: computed.Font) Allocator.Error!void {
+fn addText(data: *IntermediateInlineContext, allocator: *Allocator, latin1_text: computed.Latin1Text, font: computed.Font) Allocator.Error!void {
     const buffer = hb.hb_buffer_create() orelse unreachable;
     defer hb.hb_buffer_destroy(buffer);
     if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
@@ -845,40 +883,40 @@ fn addText(result: *IntermediateInlineContext, allocator: *Allocator, latin1_tex
     assert(glyph_infos.len == glyph_positions.len);
     var extents: hb.hb_glyph_extents_t = undefined;
 
-    const old_len = result.glyph_indeces.items.len;
+    const old_len = data.glyph_indeces.items.len;
     // Allocate twice as much so that special indeces always have space
-    try result.glyph_indeces.ensureCapacity(allocator, old_len + 2 * glyph_infos.len);
-    try result.positions.ensureCapacity(allocator, old_len + 2 * glyph_infos.len);
+    try data.glyph_indeces.ensureCapacity(allocator, old_len + 2 * glyph_infos.len);
+    try data.positions.ensureCapacity(allocator, old_len + 2 * glyph_infos.len);
     for (glyph_infos) |info, i| {
         const pos = glyph_positions[i];
         const extents_result = hb.hb_font_get_glyph_extents(font.font.?, info.codepoint, &extents);
         const width = if (extents_result != 0) extents.width else 0;
-        result.glyph_indeces.appendAssumeCapacity(info.codepoint);
-        result.positions.appendAssumeCapacity(InlineRenderingContext.Position{ .offset = @divFloor(pos.x_offset, 64), .advance = @divFloor(pos.x_advance, 64), .width = @divFloor(width, 64) });
+        data.glyph_indeces.appendAssumeCapacity(info.codepoint);
+        data.positions.appendAssumeCapacity(InlineRenderingContext.Position{ .offset = @divFloor(pos.x_offset, 64), .advance = @divFloor(pos.x_advance, 64), .width = @divFloor(width, 64) });
         if (info.codepoint == InlineRenderingContext.special_index) {
-            result.glyph_indeces.appendAssumeCapacity(InlineRenderingContext.encodeSpecial(.Literal_FFFF, undefined));
-            result.positions.appendAssumeCapacity(undefined);
+            data.glyph_indeces.appendAssumeCapacity(InlineRenderingContext.encodeSpecial(.Literal_FFFF, undefined));
+            data.positions.appendAssumeCapacity(undefined);
         }
     }
 }
 
-fn addBoxStart(result: *IntermediateInlineContext, allocator: *Allocator, result_id: u16) !void {
-    const left = result.measures_left.items[result_id];
-    const margin = result.margins.items[result_id].left;
+fn addBoxStart(data: *IntermediateInlineContext, allocator: *Allocator, result_id: u16) !void {
+    const left = data.measures_left.items[result_id];
+    const margin = data.margins.items[result_id].left;
     const width = left.border + left.padding + margin;
-    try result.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingContext.special_index, InlineRenderingContext.encodeSpecial(.BoxStart, result_id) });
-    try result.positions.appendSlice(allocator, &[2]InlineRenderingContext.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
+    try data.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingContext.special_index, InlineRenderingContext.encodeSpecial(.BoxStart, result_id) });
+    try data.positions.appendSlice(allocator, &[2]InlineRenderingContext.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
 }
 
-fn addBoxEnd(result: *IntermediateInlineContext, allocator: *Allocator, result_id: u16) !void {
-    const right = result.measures_right.items[result_id];
-    const margin = result.margins.items[result_id].right;
+fn addBoxEnd(data: *IntermediateInlineContext, allocator: *Allocator, result_id: u16) !void {
+    const right = data.measures_right.items[result_id];
+    const margin = data.margins.items[result_id].right;
     const width = right.border + right.padding + margin;
-    try result.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingContext.special_index, InlineRenderingContext.encodeSpecial(.BoxEnd, result_id) });
-    try result.positions.appendSlice(allocator, &[2]InlineRenderingContext.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
+    try data.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingContext.special_index, InlineRenderingContext.encodeSpecial(.BoxEnd, result_id) });
+    try data.positions.appendSlice(allocator, &[2]InlineRenderingContext.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
 }
 
-fn splitIntoLineBoxes(result: *IntermediateInlineContext, allocator: *Allocator, font: *hb.hb_font_t, containing_block_inline_size: CSSUnit) !void {
+fn splitIntoLineBoxes(data: *IntermediateInlineContext, allocator: *Allocator, font: *hb.hb_font_t, containing_block_inline_size: CSSUnit) !void {
     var font_extents: hb.hb_font_extents_t = undefined;
     // TODO assuming ltr direction
     assert(hb.hb_font_get_h_extents(font, &font_extents) != 0);
@@ -887,12 +925,12 @@ fn splitIntoLineBoxes(result: *IntermediateInlineContext, allocator: *Allocator,
     var cursor: CSSUnit = 0;
     var line_box = InlineRenderingContext.LineBox{ .baseline = @divFloor(font_extents.ascender, 64), .elements = [2]usize{ 0, 0 } };
     var i: usize = 0;
-    while (i < result.glyph_indeces.items.len) : (i += 1) {
-        const gi = result.glyph_indeces.items[i];
-        const pos = result.positions.items[i];
+    while (i < data.glyph_indeces.items.len) : (i += 1) {
+        const gi = data.glyph_indeces.items[i];
+        const pos = data.positions.items[i];
 
         if (pos.width > 0 and cursor + pos.offset + pos.width > containing_block_inline_size and line_box.elements[1] - line_box.elements[0] > 0) {
-            try result.line_boxes.append(allocator, line_box);
+            try data.line_boxes.append(allocator, line_box);
             cursor = 0;
             line_box = .{ .baseline = line_box.baseline + line_spacing, .elements = [2]usize{ line_box.elements[1], line_box.elements[1] } };
         }
@@ -906,20 +944,26 @@ fn splitIntoLineBoxes(result: *IntermediateInlineContext, allocator: *Allocator,
         }
     }
 
-    try result.line_boxes.append(allocator, line_box);
+    try data.line_boxes.append(allocator, line_box);
 }
 
-fn addRootInlineBox(result: *IntermediateInlineContext, allocator: *Allocator) !u16 {
-    try result.measures_top.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
-    try result.measures_right.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
-    try result.measures_bottom.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
-    try result.measures_left.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
-    try result.margins.append(allocator, .{ .left = 0, .right = 0 });
+fn addRootInlineBox(data: *IntermediateInlineContext, allocator: *Allocator) !u16 {
+    var font_extents: hb.hb_font_extents_t = undefined;
+    // TODO assuming ltr direction
+    assert(hb.hb_font_get_h_extents(data.font, &font_extents) != 0);
+
+    try data.measures_top.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
+    try data.measures_right.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
+    try data.measures_bottom.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
+    try data.measures_left.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
+    try data.margins.append(allocator, .{ .left = 0, .right = 0 });
+    try data.heights.append(allocator, undefined);
+    try data.background_color.append(allocator, undefined);
     return 0;
 }
 
-fn addInlineElementData(tree: *const BoxTree, result: *IntermediateInlineContext, allocator: *Allocator, original_id: u16, containing_block_inline_size: CSSUnit) !u16 {
-    const inline_sizes = tree.inline_size[original_id];
+fn addInlineElementData(box_tree: *const BoxTree, data: *IntermediateInlineContext, allocator: *Allocator, original_id: u16, containing_block_inline_size: CSSUnit) !u16 {
+    const inline_sizes = box_tree.inline_size[original_id];
 
     const margin_inline_start = switch (inline_sizes.margin_start) {
         .px => |px| length(.{ .px = px }),
@@ -946,7 +990,7 @@ fn addInlineElementData(tree: *const BoxTree, result: *IntermediateInlineContext
         .initial, .inherit, .unset => unreachable,
     };
 
-    const block_sizes = tree.block_size[original_id];
+    const block_sizes = box_tree.block_size[original_id];
 
     //const margin_block_start = switch (block_sizes.margin_start) {
     //.px => |px| length(.{ .px = px }),
@@ -974,12 +1018,14 @@ fn addInlineElementData(tree: *const BoxTree, result: *IntermediateInlineContext
     };
 
     // TODO using physical property when we should be using a logical one
-    try result.measures_left.append(allocator, .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = undefined });
-    try result.measures_right.append(allocator, .{ .border = border_inline_end, .padding = padding_inline_end, .border_color_rgba = undefined });
-    try result.measures_top.append(allocator, .{ .border = border_block_start, .padding = padding_block_start, .border_color_rgba = undefined });
-    try result.measures_bottom.append(allocator, .{ .border = border_block_end, .padding = padding_block_end, .border_color_rgba = undefined });
-    try result.margins.append(allocator, .{ .left = margin_inline_start, .right = margin_inline_end });
-    return @intCast(u16, result.measures_left.items.len - 1);
+    try data.measures_left.append(allocator, .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = undefined });
+    try data.measures_right.append(allocator, .{ .border = border_inline_end, .padding = padding_inline_end, .border_color_rgba = undefined });
+    try data.measures_top.append(allocator, .{ .border = border_block_start, .padding = padding_block_start, .border_color_rgba = undefined });
+    try data.measures_bottom.append(allocator, .{ .border = border_block_end, .padding = padding_block_end, .border_color_rgba = undefined });
+    try data.margins.append(allocator, .{ .left = margin_inline_start, .right = margin_inline_end });
+    try data.heights.append(allocator, undefined);
+    try data.background_color.append(allocator, undefined);
+    return @intCast(u16, data.measures_left.items.len - 1);
 }
 
 test "inline used data" {
@@ -1000,16 +1046,17 @@ test "inline used data" {
     if (hb_font == hb.hb_font_get_empty()) return error.HarfBuzzError;
     hb.hb_font_set_scale(hb_font, 40 * 64, 40 * 64);
 
-    const len = 4;
-    var preorder_array = [len]u16{ 4, 1, 1, 1 };
+    const len = 5;
+    var preorder_array = [len]u16{ 5, 1, 1, 1, 1 };
     var inline_size = [len]computed.LogicalSize{
         .{},
         .{ .border_start_width = .{ .px = 10 }, .border_end_width = .{ .px = 40 } },
         .{},
         .{ .border_start_width = .{ .px = 30 }, .border_end_width = .{ .px = 40 } },
+        .{},
     };
     var block_size = [_]computed.LogicalSize{.{}} ** len;
-    var display = [len]computed.Display{ .{ .block_flow_root = {} }, .{ .inline_flow = {} }, .{ .text = {} }, .{ .inline_flow = {} } };
+    var display = [len]computed.Display{ .{ .block_flow_root = {} }, .{ .inline_flow = {} }, .{ .text = {} }, .{ .inline_flow = {} }, .{ .block_flow = {} } };
     var position_inset = [_]computed.PositionInset{.{}} ** len;
     var latin1_text = [_]computed.Latin1Text{.{ .text = "" }} ** len;
     latin1_text[2] = .{ .text = "hello world" };
@@ -1024,37 +1071,35 @@ test "inline used data" {
         .latin1_text = &latin1_text,
         .font = &font,
     };
-    const viewport_rect = CSSSize{ .w = 50, .h = 400 };
+    //const viewport_rect = CSSSize{ .w = 50, .h = 400 };
 
-    var result = try generateUsedDataInline(
-        &tree,
-        al,
-        viewport_rect,
-    );
-    defer result.deinit(al);
+    var context = InlineContext.init(&tree, al, Interval{ .index = 0, .begin = 1, .end = preorder_array[0] }, 50);
+    defer context.deinit();
+    var data = try createInlineUsedData(&context, al);
+    defer data.deinit(al);
 
     {
         const p = std.debug.print;
         p("\n", .{});
         p("glyphs\n", .{});
         var i: usize = 0;
-        while (i < result.glyph_indeces.len) : (i += 1) {
-            const gi = result.glyph_indeces[i];
+        while (i < data.glyph_indeces.len) : (i += 1) {
+            const gi = data.glyph_indeces[i];
             if (gi == InlineRenderingContext.special_index) {
                 i += 1;
-                p("{}\n", .{InlineRenderingContext.decodeSpecial(result.glyph_indeces[i])});
+                p("{}\n", .{InlineRenderingContext.decodeSpecial(data.glyph_indeces[i])});
             } else {
                 p("{x}\n", .{gi});
             }
         }
         p("\n", .{});
         p("positions\n", .{});
-        for (result.positions) |pos| {
+        for (data.positions) |pos| {
             p("{}\n", .{pos});
         }
         p("\n", .{});
         p("line boxes\n", .{});
-        for (result.line_boxes) |l| {
+        for (data.line_boxes) |l| {
             p("{}\n", .{l});
         }
     }

@@ -211,7 +211,7 @@ fn exampleInlineContext2(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixe
     var latin1_text = [_]properties.Latin1Text{.{ .text = "" }} ** len;
     latin1_text[2].text = "hello world.";
     var font = [_]properties.Font{ .{ .font = hbfont }, .{ .font = null }, .{ .font = null }, .{ .font = null } };
-    var inl = try zss.solve.generateUsedDataInline(
+    var context = zss.solve.InlineContext.init(
         &zss.box_tree.BoxTree{
             .preorder_array = &preorder_array,
             .inline_size = &inline_size,
@@ -222,8 +222,11 @@ fn exampleInlineContext2(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixe
             .font = &font,
         },
         al,
-        zss.types.CSSSize{ .w = 500, .h = 400 },
+        .{ .index = 0, .begin = 1, .end = preorder_array[0] },
+        500,
     );
+    defer context.deinit();
+    var inl = try zss.solve.createInlineUsedData(&context, al);
     defer inl.deinit(al);
 
     inl.measures_left[1].border_color_rgba = 0xff0000ff;
