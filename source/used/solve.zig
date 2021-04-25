@@ -16,17 +16,16 @@ const InlineRenderingContext = @import("InlineRenderingContext.zig");
 const hb = @import("harfbuzz");
 
 const Interval = struct {
-    index: u16,
     begin: u16,
     end: u16,
 };
 
-const IdAndSkipLength = struct {
-    id: u16,
-    skip_length: u16,
+const UsedIdAndSubtreeSize = struct {
+    used_id: u16,
+    used_subtree_size: u16,
 };
 
-const UsedSizeAndMargins = struct {
+const UsedBlockSizes = struct {
     size: ?CSSUnit,
     min_size: CSSUnit,
     max_size: CSSUnit,
@@ -36,7 +35,9 @@ const UsedSizeAndMargins = struct {
 
 const InFlowInsets = struct {
     const BlockInset = union(enum) {
+        /// A used length value.
         length: CSSUnit,
+        /// A computed percentage value.
         percentage: f32,
     };
     inline_axis: CSSUnit,
@@ -45,7 +46,7 @@ const InFlowInsets = struct {
 
 const InFlowPositioningData = struct {
     insets: InFlowInsets,
-    result_id: u16,
+    used_id: u16,
 };
 
 const StackingContextTree = struct {
@@ -54,13 +55,8 @@ const StackingContextTree = struct {
         z_index: i16,
     };
 
-    const Data = union(enum) {
-        block: *BlockRenderingContext,
-        inl: *InlineRenderingContext,
-    };
-
     preorder_array: []Entry,
-    data: []Data,
+    data: []*BlockRenderingContext,
 };
 
 pub const BlockContext = struct {
@@ -70,10 +66,10 @@ pub const BlockContext = struct {
     root_id: u16,
     allocator: *Allocator,
     intervals: ArrayListUnmanaged(Interval),
-    result_ids_and_skip_lengths: ArrayListUnmanaged(IdAndSkipLength),
-    static_containing_block_inline_sizes: ArrayListUnmanaged(CSSUnit),
-    static_containing_block_block_auto_sizes: ArrayListUnmanaged(CSSUnit),
-    static_containing_block_block_size_margins: ArrayListUnmanaged(UsedSizeAndMargins),
+    used_id_and_subtree_size: ArrayListUnmanaged(UsedIdAndSubtreeSize),
+    static_containing_block_used_inline_size: ArrayListUnmanaged(CSSUnit),
+    static_containing_block_auto_block_size: ArrayListUnmanaged(CSSUnit),
+    static_containing_block_used_block_sizes: ArrayListUnmanaged(UsedBlockSizes),
     in_flow_positioning_data: ArrayListUnmanaged(InFlowPositioningData),
     in_flow_positioning_data_count: ArrayListUnmanaged(u16),
 
@@ -82,26 +78,26 @@ pub const BlockContext = struct {
         errdefer in_flow_positioning_data_count.deinit(allocator);
         try in_flow_positioning_data_count.append(allocator, 0);
 
-        var result_ids_and_skip_lengths = ArrayListUnmanaged(IdAndSkipLength){};
-        errdefer result_ids_and_skip_lengths.deinit(allocator);
-        try result_ids_and_skip_lengths.append(allocator, IdAndSkipLength{
-            .id = undefined,
-            .skip_length = 1,
+        var used_id_and_subtree_size = ArrayListUnmanaged(UsedIdAndSubtreeSize){};
+        errdefer used_id_and_subtree_size.deinit(allocator);
+        try used_id_and_subtree_size.append(allocator, UsedIdAndSubtreeSize{
+            .used_id = undefined,
+            .used_subtree_size = 1,
         });
 
-        var static_containing_block_inline_sizes = ArrayListUnmanaged(CSSUnit){};
-        errdefer static_containing_block_inline_sizes.deinit(allocator);
+        var static_containing_block_used_inline_size = ArrayListUnmanaged(CSSUnit){};
+        errdefer static_containing_block_used_inline_size.deinit(allocator);
         // TODO using physical property when we should be using a logical one
-        try static_containing_block_inline_sizes.append(allocator, containing_block_inline_size);
+        try static_containing_block_used_inline_size.append(allocator, containing_block_inline_size);
 
-        var static_containing_block_block_auto_sizes = ArrayListUnmanaged(CSSUnit){};
-        errdefer static_containing_block_block_auto_sizes.deinit(allocator);
-        try static_containing_block_block_auto_sizes.append(allocator, 0);
+        var static_containing_block_auto_block_size = ArrayListUnmanaged(CSSUnit){};
+        errdefer static_containing_block_auto_block_size.deinit(allocator);
+        try static_containing_block_auto_block_size.append(allocator, 0);
 
-        var static_containing_block_block_size_margins = ArrayListUnmanaged(UsedSizeAndMargins){};
-        errdefer static_containing_block_block_size_margins.deinit(allocator);
+        var static_containing_block_used_block_sizes = ArrayListUnmanaged(UsedBlockSizes){};
+        errdefer static_containing_block_used_block_sizes.deinit(allocator);
         // TODO using physical property when we should be using a logical one
-        try static_containing_block_block_size_margins.append(allocator, UsedSizeAndMargins{
+        try static_containing_block_used_block_sizes.append(allocator, UsedBlockSizes{
             .size = containing_block_block_size,
             .min_size = 0,
             .max_size = 0,
@@ -114,10 +110,10 @@ pub const BlockContext = struct {
             .root_id = root_id,
             .allocator = allocator,
             .intervals = .{},
-            .result_ids_and_skip_lengths = result_ids_and_skip_lengths,
-            .static_containing_block_inline_sizes = static_containing_block_inline_sizes,
-            .static_containing_block_block_auto_sizes = static_containing_block_block_auto_sizes,
-            .static_containing_block_block_size_margins = static_containing_block_block_size_margins,
+            .used_id_and_subtree_size = used_id_and_subtree_size,
+            .static_containing_block_used_inline_size = static_containing_block_used_inline_size,
+            .static_containing_block_auto_block_size = static_containing_block_auto_block_size,
+            .static_containing_block_used_block_sizes = static_containing_block_used_block_sizes,
             .in_flow_positioning_data = .{},
             .in_flow_positioning_data_count = in_flow_positioning_data_count,
         };
@@ -125,10 +121,10 @@ pub const BlockContext = struct {
 
     pub fn deinit(self: *Self) void {
         self.intervals.deinit(self.allocator);
-        self.result_ids_and_skip_lengths.deinit(self.allocator);
-        self.static_containing_block_inline_sizes.deinit(self.allocator);
-        self.static_containing_block_block_auto_sizes.deinit(self.allocator);
-        self.static_containing_block_block_size_margins.deinit(self.allocator);
+        self.used_id_and_subtree_size.deinit(self.allocator);
+        self.static_containing_block_used_inline_size.deinit(self.allocator);
+        self.static_containing_block_auto_block_size.deinit(self.allocator);
+        self.static_containing_block_used_block_sizes.deinit(self.allocator);
         self.in_flow_positioning_data.deinit(self.allocator);
         self.in_flow_positioning_data_count.deinit(self.allocator);
     }
@@ -144,6 +140,7 @@ const IntermediateBlockUsedData = struct {
     background_color: ArrayListUnmanaged(used.BackgroundColor) = .{},
     background_image: ArrayListUnmanaged(used.BackgroundImage) = .{},
     visual_effect: ArrayListUnmanaged(used.VisualEffect) = .{},
+    inline_data: ArrayListUnmanaged(BlockRenderingContext.InlineData) = .{},
 
     fn deinit(self: *Self, allocator: *Allocator) void {
         self.preorder_array.deinit(allocator);
@@ -153,6 +150,11 @@ const IntermediateBlockUsedData = struct {
         self.background_color.deinit(allocator);
         self.background_image.deinit(allocator);
         self.visual_effect.deinit(allocator);
+        for (self.inline_data.items) |*inl| {
+            inl.data.deinit(allocator);
+            allocator.destroy(inl.data);
+        }
+        self.inline_data.deinit(allocator);
     }
 
     fn ensureCapacity(self: *Self, allocator: *Allocator, capacity: usize) !void {
@@ -163,6 +165,7 @@ const IntermediateBlockUsedData = struct {
         try self.background_color.ensureCapacity(allocator, capacity);
         try self.background_image.ensureCapacity(allocator, capacity);
         try self.visual_effect.ensureCapacity(allocator, capacity);
+        try self.inline_data.ensureCapacity(allocator, capacity);
     }
 
     fn toNormalData(self: *Self, allocator: *Allocator) BlockRenderingContext {
@@ -174,6 +177,7 @@ const IntermediateBlockUsedData = struct {
             .background_color = self.background_color.toOwnedSlice(allocator),
             .background_image = self.background_image.toOwnedSlice(allocator),
             .visual_effect = self.visual_effect.toOwnedSlice(allocator),
+            .inline_data = self.inline_data.toOwnedSlice(allocator),
         };
     }
 };
@@ -186,34 +190,31 @@ pub fn createBlockUsedData(context: *BlockContext, allocator: *Allocator) !Block
     errdefer data.deinit(allocator);
     try data.ensureCapacity(allocator, root_subtree_size);
 
-    try blockLevelElementBeginProcessing(context, &data, allocator, root_id, root_subtree_size);
+    var root_interval = Interval{ .begin = root_id, .end = root_subtree_size };
+    try blockLevelElementSwitch(context, &data, allocator, &root_interval);
 
     while (context.intervals.items.len > 0) {
         const interval = &context.intervals.items[context.intervals.items.len - 1];
         if (interval.begin == interval.end) {
-            const id_skip_length = context.result_ids_and_skip_lengths.items[context.result_ids_and_skip_lengths.items.len - 1];
-            const result_id = id_skip_length.id;
-            const result_skip_length = id_skip_length.skip_length;
-            data.preorder_array.items[result_id] = result_skip_length;
-            context.result_ids_and_skip_lengths.items[context.result_ids_and_skip_lengths.items.len - 2].skip_length += result_skip_length;
+            const id_subtree_size = context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1];
+            const used_id = id_subtree_size.used_id;
+            const used_subtree_size = id_subtree_size.used_subtree_size;
+            data.preorder_array.items[used_id] = used_subtree_size;
+            context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 2].used_subtree_size += used_subtree_size;
 
-            const box_offsets_ptr = &data.box_offsets.items[result_id];
-            const parent_auto_block_size = &context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 2];
+            const box_offsets_ptr = &data.box_offsets.items[used_id];
+            const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 2];
             blockContainerFinishProcessing(context, &data, box_offsets_ptr, parent_auto_block_size);
 
             _ = context.intervals.pop();
-            _ = context.result_ids_and_skip_lengths.pop();
-            _ = context.static_containing_block_inline_sizes.pop();
-            _ = context.static_containing_block_block_auto_sizes.pop();
-            _ = context.static_containing_block_block_size_margins.pop();
+            _ = context.used_id_and_subtree_size.pop();
+            _ = context.static_containing_block_used_inline_size.pop();
+            _ = context.static_containing_block_auto_block_size.pop();
+            _ = context.static_containing_block_used_block_sizes.pop();
             const in_flow_positioning_data_count = context.in_flow_positioning_data_count.pop();
             context.in_flow_positioning_data.shrinkRetainingCapacity(context.in_flow_positioning_data.items.len - in_flow_positioning_data_count);
         } else {
-            const original_id = interval.begin;
-            const skip_length = context.box_tree.preorder_array[original_id];
-            interval.begin += skip_length;
-
-            try blockLevelElementBeginProcessing(context, &data, allocator, original_id, skip_length);
+            try blockLevelElementSwitch(context, &data, allocator, interval);
         }
     }
 
@@ -231,16 +232,58 @@ pub fn createBlockUsedData(context: *BlockContext, allocator: *Allocator) !Block
     return data.toNormalData(allocator);
 }
 
-fn blockLevelElementBeginProcessing(context: *BlockContext, data: *IntermediateBlockUsedData, allocator: *Allocator, original_id: u16, skip_length: u16) !void {
-    switch (context.box_tree.display[original_id]) {
-        .block_flow_root, .block_flow => {},
-        .inline_flow => @panic("TODO inline elements"),
-        .text => @panic("TODO unhandled switch case"),
+fn blockLevelElementSwitch(context: *BlockContext, data: *IntermediateBlockUsedData, allocator: *Allocator, interval: *Interval) !void {
+    switch (context.box_tree.display[interval.begin]) {
+        .block_flow_root, .block_flow => return blockLevelElementBeginProcessing(context, data, allocator, interval),
+        .inline_flow, .text => {
+            const used_id = try std.math.cast(u16, data.preorder_array.items.len);
+
+            var inline_context = InlineContext.init(
+                context.box_tree,
+                allocator,
+                interval.*,
+                context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1],
+            );
+            defer inline_context.deinit();
+            const inline_data_ptr = try data.inline_data.addOne(allocator);
+            inline_data_ptr.* = .{
+                .used_id = used_id,
+                .data = try allocator.create(InlineRenderingContext),
+            };
+            inline_data_ptr.data.* = try createInlineUsedData(&inline_context, allocator);
+
+            if (inline_context.next_box_id != interval.begin + context.box_tree.preorder_array[interval.begin]) {
+                @panic("TODO inline-level elements must be the last children of a block box");
+            }
+            interval.begin = inline_context.next_box_id;
+
+            context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1].used_subtree_size += 1;
+            const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
+            try data.preorder_array.append(allocator, 1);
+            try data.box_offsets.append(allocator, .{
+                .border_top_left = .{ .x = 0, .y = parent_auto_block_size.* },
+                .border_bottom_right = .{ .x = 0, .y = parent_auto_block_size.* },
+                .content_top_left = .{ .x = 0, .y = parent_auto_block_size.* },
+                .content_bottom_right = .{ .x = 0, .y = parent_auto_block_size.* },
+            });
+            try data.borders.append(allocator, .{});
+            try data.border_colors.append(allocator, .{});
+            try data.background_color.append(allocator, .{});
+            try data.background_image.append(allocator, .{});
+            try data.visual_effect.append(allocator, .{});
+            parent_auto_block_size.* += inline_context.total_block_size;
+        },
         .none => return,
         .initial, .inherit, .unset => unreachable,
     }
+}
 
-    const result_id = try std.math.cast(u16, data.preorder_array.items.len);
+fn blockLevelElementBeginProcessing(context: *BlockContext, data: *IntermediateBlockUsedData, allocator: *Allocator, interval: *Interval) !void {
+    const original_id = interval.begin;
+    const subtree_size = context.box_tree.preorder_array[original_id];
+    interval.begin += subtree_size;
+
+    const used_id = try std.math.cast(u16, data.preorder_array.items.len);
 
     const position_inset = &context.box_tree.position_inset[original_id];
     switch (position_inset.position) {
@@ -249,7 +292,7 @@ fn blockLevelElementBeginProcessing(context: *BlockContext, data: *IntermediateB
             const insets = resolveRelativePositionInset(context, position_inset);
             try context.in_flow_positioning_data.append(context.allocator, InFlowPositioningData{
                 .insets = insets,
-                .result_id = result_id,
+                .used_id = used_id,
             });
             context.in_flow_positioning_data_count.items[context.in_flow_positioning_data_count.items.len - 1] += 1;
         },
@@ -271,37 +314,38 @@ fn blockLevelElementBeginProcessing(context: *BlockContext, data: *IntermediateB
     try data.background_image.append(allocator, .{});
     try data.visual_effect.append(allocator, .{});
 
-    if (skip_length != 1) {
-        try context.intervals.append(context.allocator, Interval{ .index = original_id, .begin = original_id + 1, .end = original_id + skip_length });
-        try context.static_containing_block_inline_sizes.append(context.allocator, inline_size);
+    if (subtree_size != 1) {
+        try context.intervals.append(context.allocator, Interval{ .begin = original_id + 1, .end = original_id + subtree_size });
+        try context.static_containing_block_used_inline_size.append(context.allocator, inline_size);
         // TODO don't add elements to this stack unconditionally
-        try context.static_containing_block_block_auto_sizes.append(context.allocator, 0);
+        try context.static_containing_block_auto_block_size.append(context.allocator, 0);
         // TODO don't add elements to this stack unconditionally
-        try context.static_containing_block_block_size_margins.append(context.allocator, size_margins);
-        try context.result_ids_and_skip_lengths.append(context.allocator, IdAndSkipLength{
-            .id = result_id,
-            .skip_length = 1,
+        try context.static_containing_block_used_block_sizes.append(context.allocator, size_margins);
+        try context.used_id_and_subtree_size.append(context.allocator, UsedIdAndSubtreeSize{
+            .used_id = used_id,
+            .used_subtree_size = 1,
         });
         // TODO don't add elements to this stack unconditionally
         try context.in_flow_positioning_data_count.append(context.allocator, 0);
     } else {
         preorder_array_ptr.* = 1;
-        context.result_ids_and_skip_lengths.items[context.result_ids_and_skip_lengths.items.len - 1].skip_length += 1;
-        const parent_auto_block_size = &context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 1];
+        context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1].used_subtree_size += 1;
+        const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
         _ = blockContainerFinalizeBlockSizes(box_offsets_ptr, size_margins, 0, parent_auto_block_size);
     }
 }
 
 fn blockContainerFinishProcessing(context: *BlockContext, data: *IntermediateBlockUsedData, box_offsets: *BoxOffsets, parent_auto_block_size: *CSSUnit) void {
-    const size_margins = context.static_containing_block_block_size_margins.items[context.static_containing_block_block_size_margins.items.len - 1];
-    const auto_block_size = context.static_containing_block_block_auto_sizes.items[context.static_containing_block_block_auto_sizes.items.len - 1];
+    const size_margins = context.static_containing_block_used_block_sizes.items[context.static_containing_block_used_block_sizes.items.len - 1];
+    const auto_block_size = context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
     const sizes = blockContainerFinalizeBlockSizes(box_offsets, size_margins, auto_block_size, parent_auto_block_size);
     applyInFlowPositioningToChildren(context, data.box_offsets.items, sizes.used_block_size);
 }
 
-fn blockContainerFinalizeBlockSizes(box_offsets: *BoxOffsets, size_margins: UsedSizeAndMargins, auto_block_size: CSSUnit, parent_auto_block_size: *CSSUnit) struct {
+fn blockContainerFinalizeBlockSizes(box_offsets: *BoxOffsets, size_margins: UsedBlockSizes, auto_block_size: CSSUnit, parent_auto_block_size: *CSSUnit) struct {
     used_block_size: CSSUnit,
 } {
+    // TODO UB if min_size > max_size
     const used_block_size = std.math.clamp(size_margins.size orelse auto_block_size, size_margins.min_size, size_margins.max_size);
     box_offsets.border_top_left.y = parent_auto_block_size.* + size_margins.margin_start;
     box_offsets.content_top_left.y += box_offsets.border_top_left.y;
@@ -324,10 +368,10 @@ fn applyInFlowPositioningToChildren(context: *const BlockContext, box_offsets: [
             // TODO using physical property when we should be using a logical one
             .y = switch (positioning_data.insets.block_axis) {
                 .length => |l| l,
-                .percentage => |p| percentage(.{ .percentage = p }, containing_block_block_size),
+                .percentage => |value| percentage(value, containing_block_block_size),
             },
         };
-        const box_offset = &box_offsets[positioning_data.result_id];
+        const box_offset = &box_offsets[positioning_data.used_id];
         inline for (std.meta.fields(BoxOffsets)) |field| {
             const offset = &@field(box_offset, field.name);
             offset.* = offset.add(positioning_offset);
@@ -336,35 +380,35 @@ fn applyInFlowPositioningToChildren(context: *const BlockContext, box_offsets: [
 }
 
 fn resolveRelativePositionInset(context: *BlockContext, position_inset: *computed.PositionInset) InFlowInsets {
-    const containing_block_inline_size = context.static_containing_block_inline_sizes.items[context.static_containing_block_inline_sizes.items.len - 1];
-    const containing_block_block_size = context.static_containing_block_block_size_margins.items[context.static_containing_block_block_size_margins.items.len - 1].size;
+    const containing_block_inline_size = context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1];
+    const containing_block_block_size = context.static_containing_block_used_block_sizes.items[context.static_containing_block_used_block_sizes.items.len - 1].size;
     const inline_start = switch (position_inset.inline_start) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_inline_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .auto => null,
         .initial, .inherit, .unset => unreachable,
     };
     const inline_end = switch (position_inset.inline_end) {
-        .px => |px| -length(.{ .px = px }),
-        .percentage => |p| -percentage(.{ .percentage = p }, containing_block_inline_size),
+        .px => |value| -length(.px, value),
+        .percentage => |value| -percentage(value, containing_block_inline_size),
         .auto => null,
         .initial, .inherit, .unset => unreachable,
     };
     const block_start: ?InFlowInsets.BlockInset = switch (position_inset.block_start) {
-        .px => |px| InFlowInsets.BlockInset{ .length = length(.{ .px = px }) },
-        .percentage => |p| if (containing_block_block_size) |s|
-            InFlowInsets.BlockInset{ .length = percentage(.{ .percentage = p }, s) }
+        .px => |value| InFlowInsets.BlockInset{ .length = length(.px, value) },
+        .percentage => |value| if (containing_block_block_size) |s|
+            InFlowInsets.BlockInset{ .length = percentage(value, s) }
         else
-            InFlowInsets.BlockInset{ .percentage = p },
+            InFlowInsets.BlockInset{ .percentage = value },
         .auto => null,
         .initial, .inherit, .unset => unreachable,
     };
     const block_end: ?InFlowInsets.BlockInset = switch (position_inset.block_end) {
-        .px => |px| InFlowInsets.BlockInset{ .length = -length(.{ .px = px }) },
-        .percentage => |p| if (containing_block_block_size) |s|
-            InFlowInsets.BlockInset{ .length = -percentage(.{ .percentage = p }, s) }
+        .px => |value| InFlowInsets.BlockInset{ .length = -length(.px, value) },
+        .percentage => |value| if (containing_block_block_size) |s|
+            InFlowInsets.BlockInset{ .length = -percentage(value, s) }
         else
-            InFlowInsets.BlockInset{ .percentage = -p },
+            InFlowInsets.BlockInset{ .percentage = -value },
         .auto => null,
         .initial, .inherit, .unset => unreachable,
     };
@@ -374,21 +418,21 @@ fn resolveRelativePositionInset(context: *BlockContext, position_inset: *compute
     };
 }
 
-fn length(val: values.Length) CSSUnit {
-    return switch (val) {
-        .px => |px| @floatToInt(CSSUnit, @round(px)),
+const LengthUnit = enum { px };
+
+fn length(comptime unit: LengthUnit, value: f32) CSSUnit {
+    return switch (unit) {
+        .px => @floatToInt(CSSUnit, @round(value)),
     };
 }
 
-fn percentage(val: values.Percentage, unit: CSSUnit) CSSUnit {
-    return switch (val) {
-        .percentage => |p| @floatToInt(CSSUnit, @round(@intToFloat(f32, unit) * p)),
-    };
+fn percentage(value: f32, unit: CSSUnit) CSSUnit {
+    return @floatToInt(CSSUnit, @round(@intToFloat(f32, unit) * value));
 }
 
 fn lineWidth(val: computed.LogicalSize.BorderValue) CSSUnit {
     return switch (val) {
-        .px => |px| length(.{ .px = px }),
+        .px => |value| length(.px, value),
         .thin => 1,
         .medium => 3,
         .thick => 5,
@@ -399,7 +443,7 @@ fn lineWidth(val: computed.LogicalSize.BorderValue) CSSUnit {
 fn getInlineOffsets(context: *const BlockContext, id: u16, box_offsets: *BoxOffsets, borders: *used.Borders) CSSUnit {
     const solved = solveInlineSizes(
         &context.box_tree.inline_size[id],
-        context.static_containing_block_inline_sizes.items[context.static_containing_block_inline_sizes.items.len - 1],
+        context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1],
     );
 
     // TODO using physical property when we should be using a logical one
@@ -418,7 +462,7 @@ fn getInlineOffsets(context: *const BlockContext, id: u16, box_offsets: *BoxOffs
 /// This implements CSS2§10.3.3
 fn solveInlineSizes(
     sizes: *const computed.LogicalSize,
-    containing_block_size: CSSUnit,
+    containing_block_inline_size: CSSUnit,
 ) struct {
     size: CSSUnit,
     border_start: CSSUnit,
@@ -428,28 +472,30 @@ fn solveInlineSizes(
     margin_start: CSSUnit,
     margin_end: CSSUnit,
 } {
+    // TODO border widths must always be positive
     const border_start = lineWidth(sizes.border_start_width);
     const border_end = lineWidth(sizes.border_end_width);
     const padding_start = switch (sizes.padding_start) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .initial, .inherit, .unset => unreachable,
     };
     const padding_end = switch (sizes.padding_end) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .initial, .inherit, .unset => unreachable,
     };
-    const cm_space = containing_block_size - (border_start + border_end + padding_start + padding_end);
+    const cm_space = containing_block_inline_size - (border_start + border_end + padding_start + padding_end);
 
+    // TODO UB if min_size > max_size
     const min_size = switch (sizes.min_size) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, std.math.max(0, containing_block_size)),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, std.math.max(0, containing_block_inline_size)),
         .initial, .inherit, .unset => unreachable,
     };
     const max_size = switch (sizes.max_size) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, std.math.max(0, containing_block_size)),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, std.math.max(0, containing_block_inline_size)),
         .none => std.math.maxInt(CSSUnit),
         .initial, .inherit, .unset => unreachable,
     };
@@ -460,8 +506,8 @@ fn solveInlineSizes(
     const margin_end_bit = 1;
 
     var size = switch (sizes.size) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .auto => blk: {
             auto_bitfield |= size_bit;
             break :blk 0;
@@ -469,8 +515,8 @@ fn solveInlineSizes(
         .initial, .inherit, .unset => unreachable,
     };
     var margin_start = switch (sizes.margin_start) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .auto => blk: {
             auto_bitfield |= margin_start_bit;
             break :blk 0;
@@ -478,8 +524,8 @@ fn solveInlineSizes(
         .initial, .inherit, .unset => unreachable,
     };
     var margin_end = switch (sizes.margin_end) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .auto => blk: {
             auto_bitfield |= margin_end_bit;
             break :blk 0;
@@ -515,11 +561,11 @@ fn solveInlineSizes(
     };
 }
 
-fn getBlockOffsets(context: *const BlockContext, id: u16, box_offsets: *BoxOffsets, borders: *used.Borders) UsedSizeAndMargins {
+fn getBlockOffsets(context: *const BlockContext, id: u16, box_offsets: *BoxOffsets, borders: *used.Borders) UsedBlockSizes {
     const solved = solveBlockSizes(
         &context.box_tree.block_size[id],
-        context.static_containing_block_inline_sizes.items[context.static_containing_block_inline_sizes.items.len - 1],
-        context.static_containing_block_block_size_margins.items[context.static_containing_block_block_size_margins.items.len - 1].size,
+        context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1],
+        context.static_containing_block_used_block_sizes.items[context.static_containing_block_used_block_sizes.items.len - 1].size,
     );
 
     // TODO using physical property when we should be using a logical one
@@ -531,7 +577,7 @@ fn getBlockOffsets(context: *const BlockContext, id: u16, box_offsets: *BoxOffse
     borders.bottom = solved.border_end;
 
     // TODO using physical property when we should be using a logical one
-    return UsedSizeAndMargins{
+    return UsedBlockSizes{
         .size = solved.size,
         .min_size = solved.min_size,
         .max_size = solved.max_size,
@@ -557,51 +603,53 @@ fn solveBlockSizes(
     margin_end: CSSUnit,
 } {
     var size = switch (sizes.size) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| if (containing_block_block_size) |s|
-            percentage(.{ .percentage = p }, s)
+        .px => |value| length(.px, value),
+        .percentage => |value| if (containing_block_block_size) |s|
+            percentage(value, s)
         else
             null,
         .auto => null,
         .initial, .inherit, .unset => unreachable,
     };
+    // TODO border widths must always be positive
     const border_start = lineWidth(sizes.border_start_width);
     const border_end = lineWidth(sizes.border_end_width);
     const padding_start = switch (sizes.padding_start) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_inline_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .initial, .inherit, .unset => unreachable,
     };
     const padding_end = switch (sizes.padding_end) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_inline_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .initial, .inherit, .unset => unreachable,
     };
     const margin_start = switch (sizes.margin_start) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_inline_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .auto => 0,
         .initial, .inherit, .unset => unreachable,
     };
     const margin_end = switch (sizes.margin_end) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_inline_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .auto => 0,
         .initial, .inherit, .unset => unreachable,
     };
 
+    // TODO UB if min_size > max_size
     const min_size = switch (sizes.min_size) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| if (containing_block_block_size) |s|
-            percentage(.{ .percentage = p }, s)
+        .px => |value| length(.px, value),
+        .percentage => |value| if (containing_block_block_size) |s|
+            percentage(value, s)
         else
             0,
         .initial, .inherit, .unset => unreachable,
     };
     const max_size = switch (sizes.max_size) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| if (containing_block_block_size) |s|
-            percentage(.{ .percentage = p }, s)
+        .px => |value| length(.px, value),
+        .percentage => |value| if (containing_block_block_size) |s|
+            percentage(value, s)
         else
             std.math.maxInt(CSSUnit),
         .none => std.math.maxInt(CSSUnit),
@@ -665,7 +713,7 @@ test "used data" {
         .{},
     };
     var latin1_text = [_]computed.Latin1Text{.{ .text = "" }} ** len;
-    var font = [_]computed.Font{.{ .font = null }} ** len;
+    var font = computed.Font{ .font = null };
     var context = try BlockContext.init(
         &BoxTree{
             .preorder_array = &preorder_array,
@@ -674,7 +722,7 @@ test "used data" {
             .display = &display,
             .position_inset = &position_inset,
             .latin1_text = &latin1_text,
-            .font = &font,
+            .font = font,
         },
         al,
         0,
@@ -761,6 +809,9 @@ pub const InlineContext = struct {
     block_container_interval: Interval,
     containing_block_inline_size: CSSUnit,
 
+    total_block_size: CSSUnit = undefined,
+    next_box_id: u16 = undefined,
+
     const Self = @This();
 
     pub fn init(box_tree: *const BoxTree, allocator: *Allocator, block_container_interval: Interval, containing_block_inline_size: CSSUnit) Self {
@@ -788,7 +839,7 @@ pub fn createInlineUsedData(context: *InlineContext, allocator: *Allocator) !Inl
     try data.ensureCapacity(allocator, root_interval.end - root_interval.begin + 1);
 
     // TODO delete this font stuff
-    const font = context.box_tree.font[root_interval.index];
+    const font = context.box_tree.font;
     data.font = font.font.?;
 
     const root_used_id = try addRootInlineBox(&data, allocator);
@@ -806,21 +857,24 @@ pub fn createInlineUsedData(context: *InlineContext, allocator: *Allocator) !Inl
         if (interval.begin == interval.end) {
             const used_id = context.used_ids.items[context.used_ids.items.len - 1];
             try addBoxEnd(&data, allocator, used_id);
+            if (context.intervals.items.len == 1) {
+                context.next_box_id = interval.end;
+            }
 
             _ = context.intervals.pop();
             _ = context.used_ids.pop();
         } else {
             const original_id = interval.begin;
-            const skip_length = context.box_tree.preorder_array[original_id];
-            interval.begin += skip_length;
+            const subtree_size = context.box_tree.preorder_array[original_id];
+            interval.begin += subtree_size;
 
             switch (context.box_tree.display[original_id]) {
                 .inline_flow => {
                     const used_id = try addInlineElementData(context.box_tree, &data, allocator, original_id, context.containing_block_inline_size);
                     try addBoxStart(&data, allocator, used_id);
 
-                    if (skip_length != 1) {
-                        try context.intervals.append(context.allocator, Interval{ .index = original_id, .begin = original_id + 1, .end = original_id + skip_length });
+                    if (subtree_size != 1) {
+                        try context.intervals.append(context.allocator, Interval{ .begin = original_id + 1, .end = original_id + subtree_size });
                         try context.used_ids.append(context.allocator, used_id);
                     } else {
                         try addBoxEnd(&data, allocator, used_id);
@@ -833,6 +887,7 @@ pub fn createInlineUsedData(context: *InlineContext, allocator: *Allocator) !Inl
                     while (i > 0) : (i -= 1) {
                         try addBoxEnd(&data, allocator, context.used_ids.items[i - 1]);
                     }
+                    context.next_box_id = original_id;
                     break;
                 },
                 .none => continue,
@@ -841,7 +896,7 @@ pub fn createInlineUsedData(context: *InlineContext, allocator: *Allocator) !Inl
         }
     }
 
-    try splitIntoLineBoxes(&data, allocator, data.font, context.containing_block_inline_size);
+    context.total_block_size = try splitIntoLineBoxes(&data, allocator, data.font, context.containing_block_inline_size);
 
     return data.toNormalData(allocator);
 }
@@ -904,7 +959,7 @@ fn addBoxEnd(data: *IntermediateInlineUsedData, allocator: *Allocator, result_id
     try data.positions.appendSlice(allocator, &[2]InlineRenderingContext.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
 }
 
-fn splitIntoLineBoxes(data: *IntermediateInlineUsedData, allocator: *Allocator, font: *hb.hb_font_t, containing_block_inline_size: CSSUnit) !void {
+fn splitIntoLineBoxes(data: *IntermediateInlineUsedData, allocator: *Allocator, font: *hb.hb_font_t, containing_block_inline_size: CSSUnit) !CSSUnit {
     var font_extents: hb.hb_font_extents_t = undefined;
     // TODO assuming ltr direction
     assert(hb.hb_font_get_h_extents(font, &font_extents) != 0);
@@ -933,13 +988,10 @@ fn splitIntoLineBoxes(data: *IntermediateInlineUsedData, allocator: *Allocator, 
     }
 
     try data.line_boxes.append(allocator, line_box);
+    return line_box.baseline - @divFloor(font_extents.descender, 64);
 }
 
 fn addRootInlineBox(data: *IntermediateInlineUsedData, allocator: *Allocator) !u16 {
-    var font_extents: hb.hb_font_extents_t = undefined;
-    // TODO assuming ltr direction
-    assert(hb.hb_font_get_h_extents(data.font, &font_extents) != 0);
-
     try data.measures_top.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
     try data.measures_right.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
     try data.measures_bottom.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
@@ -954,27 +1006,27 @@ fn addInlineElementData(box_tree: *const BoxTree, data: *IntermediateInlineUsedD
     const inline_sizes = box_tree.inline_size[original_id];
 
     const margin_inline_start = switch (inline_sizes.margin_start) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_inline_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .auto => 0,
         .initial, .inherit, .unset => unreachable,
     };
     const border_inline_start = lineWidth(inline_sizes.border_start_width);
     const padding_inline_start = switch (inline_sizes.padding_start) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_inline_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .initial, .inherit, .unset => unreachable,
     };
     const margin_inline_end = switch (inline_sizes.margin_end) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_inline_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .auto => 0,
         .initial, .inherit, .unset => unreachable,
     };
     const border_inline_end = lineWidth(inline_sizes.border_end_width);
     const padding_inline_end = switch (inline_sizes.padding_end) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_inline_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .initial, .inherit, .unset => unreachable,
     };
 
@@ -982,14 +1034,14 @@ fn addInlineElementData(box_tree: *const BoxTree, data: *IntermediateInlineUsedD
 
     const border_block_start = lineWidth(block_sizes.border_start_width);
     const padding_block_start = switch (block_sizes.padding_start) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_inline_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .initial, .inherit, .unset => unreachable,
     };
     const border_block_end = lineWidth(block_sizes.border_end_width);
     const padding_block_end = switch (block_sizes.padding_end) {
-        .px => |px| length(.{ .px = px }),
-        .percentage => |p| percentage(.{ .percentage = p }, containing_block_inline_size),
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
         .initial, .inherit, .unset => unreachable,
     };
 
@@ -1036,8 +1088,7 @@ test "inline used data" {
     var position_inset = [_]computed.PositionInset{.{}} ** len;
     var latin1_text = [_]computed.Latin1Text{.{ .text = "" }} ** len;
     latin1_text[2] = .{ .text = "hello world" };
-    var font = [_]computed.Font{.{ .font = null }} ** len;
-    font[0].font = hb_font;
+    var font = computed.Font{ .font = hb_font };
     const tree = BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
@@ -1045,11 +1096,11 @@ test "inline used data" {
         .display = &display,
         .position_inset = &position_inset,
         .latin1_text = &latin1_text,
-        .font = &font,
+        .font = font,
     };
     //const viewport_rect = CSSSize{ .w = 50, .h = 400 };
 
-    var context = InlineContext.init(&tree, al, Interval{ .index = 0, .begin = 1, .end = preorder_array[0] }, 50);
+    var context = InlineContext.init(&tree, al, Interval{ .begin = 1, .end = preorder_array[0] }, 50);
     defer context.deinit();
     var data = try createInlineUsedData(&context, al);
     defer data.deinit(al);

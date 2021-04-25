@@ -9,7 +9,7 @@ pub const BoxTree = struct {
     display: []Display,
     position_inset: []PositionInset,
     latin1_text: []Latin1Text,
-    font: []Font,
+    font: Font,
 };
 
 test "box tree" {

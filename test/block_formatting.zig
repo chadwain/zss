@@ -5,6 +5,7 @@ const expect = std.testing.expect;
 const zss = @import("zss");
 
 const sdl = @import("SDL2");
+const hb = @import("harfbuzz");
 usingnamespace @import("sdl/render_sdl.zig");
 
 const viewport_rect = zss.types.CSSSize{ .w = 800, .h = 600 };
@@ -81,10 +82,35 @@ pub fn main() !void {
 }
 
 fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, zig_png: *sdl.SDL_Texture, sunglasses_jpg: *sdl.SDL_Texture) !void {
+    const dpi = blk: {
+        var horizontal: f32 = 0;
+        var vertical: f32 = 0;
+        if (sdl.SDL_GetDisplayDPI(0, null, &horizontal, &vertical) != 0) {
+            horizontal = 96;
+            vertical = 96;
+        }
+        break :blk .{ .horizontal = @floatToInt(hb.FT_UInt, horizontal), .vertical = @floatToInt(hb.FT_UInt, vertical) };
+    };
+
+    var library: hb.FT_Library = undefined;
+    assert(hb.FT_Init_FreeType(&library) == hb.FT_Err_Ok);
+    defer assert(hb.FT_Done_FreeType(library) == hb.FT_Err_Ok);
+
+    var face: hb.FT_Face = undefined;
+    assert(hb.FT_New_Face(library, "test/fonts/NotoSans-Regular.ttf", 0, &face) == hb.FT_Err_Ok);
+    defer assert(hb.FT_Done_Face(face) == hb.FT_Err_Ok);
+
+    const heightPt = 20;
+    assert(hb.FT_Set_Char_Size(face, 0, heightPt * 64, dpi.horizontal, dpi.vertical) == hb.FT_Err_Ok);
+
+    const hbfont = hb.hb_ft_font_create_referenced(face) orelse unreachable;
+    defer hb.hb_font_destroy(hbfont);
+    hb.hb_ft_font_set_funcs(hbfont);
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer expect(!gpa.deinit());
 
-    var ctx1 = try exampleBlockContext1(&gpa.allocator, zig_png);
+    var ctx1 = try exampleBlockContext1(&gpa.allocator, zig_png, hbfont);
     defer ctx1.deinit(&gpa.allocator);
 
     var ctx2 = try exampleBlockContext2(&gpa.allocator);
@@ -93,7 +119,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
     var ctx3 = try exampleBlockContext3(&gpa.allocator, sunglasses_jpg);
     defer ctx3.deinit(&gpa.allocator);
 
-    var ctx4 = try exampleBlockContext4(&gpa.allocator);
+    var ctx4 = try exampleBlockContext4(&gpa.allocator, hbfont);
     defer ctx4.deinit(&gpa.allocator);
 
     var ctx5 = try exampleBlockContext5(&gpa.allocator);
@@ -165,9 +191,9 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
     try renderStackingContexts(&stacking_context_root, &gpa.allocator, renderer, pixel_format);
 }
 
-fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture) !zss.BlockRenderingContext {
-    const len = 3;
-    var preorder_array = [len]u16{ 3, 2, 1 };
+fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hbfont: *hb.hb_font_t) !zss.BlockRenderingContext {
+    const len = 4;
+    var preorder_array = [len]u16{ 4, 2, 1, 1 };
     var inline_size = [len]zss.properties.LogicalSize{
         .{
             .size = .{ .px = 700 },
@@ -175,11 +201,12 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture
         },
         .{
             .size = .{ .px = 100 },
-            .margin_start = .{ .px = 250 },
+            .margin_start = .{ .px = 30 },
         },
         .{
             .size = .{ .px = 40 },
         },
+        .{},
     };
     var block_size = [len]zss.properties.LogicalSize{
         .{
@@ -193,15 +220,18 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture
         .{
             .size = .{ .px = 40 },
         },
+        .{},
     };
     var display = [len]zss.properties.Display{
         .{ .block_flow_root = {} },
         .{ .block_flow = {} },
         .{ .block_flow = {} },
+        .{ .text = {} },
     };
     var position_inset = [_]zss.properties.PositionInset{.{}} ** len;
     var latin1_text = [_]zss.properties.Latin1Text{.{ .text = "" }} ** len;
-    var font = [_]zss.properties.Font{.{ .font = null }} ** len;
+    latin1_text[3] = .{ .text = "formatted text wow" };
+    var font = zss.properties.Font{ .font = hbfont };
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
@@ -209,7 +239,7 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture
         .display = &display,
         .position_inset = &position_inset,
         .latin1_text = &latin1_text,
-        .font = &font,
+        .font = font,
     };
 
     var context = try zss.solve.BlockContext.init(&box_tree, allocator, 0, viewport_rect.w, viewport_rect.h);
@@ -225,7 +255,7 @@ fn exampleBlockContext1(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture
     };
 
     data.background_color[1] = .{ .rgba = 0x00df1213 };
-    data.visual_effect[1] = .{ .visibility = .Hidden };
+    //data.visual_effect[1] = .{ .visibility = .Hidden };
 
     data.background_color[2] = .{ .rgba = 0x5c76d3ff };
     data.visual_effect[2] = .{ .visibility = .Hidden };
@@ -269,7 +299,7 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockRenderingContex
         .{ .position = .{ .relative = {} } },
     };
     var latin1_text = [_]zss.properties.Latin1Text{.{ .text = "" }} ** len;
-    var font = [_]zss.properties.Font{.{ .font = null }} ** len;
+    var font = zss.properties.Font{ .font = null };
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
@@ -277,7 +307,7 @@ fn exampleBlockContext2(allocator: *std.mem.Allocator) !zss.BlockRenderingContex
         .display = &display,
         .position_inset = &position_inset,
         .latin1_text = &latin1_text,
-        .font = &font,
+        .font = font,
     };
 
     var context = try zss.solve.BlockContext.init(&box_tree, allocator, 0, viewport_rect.w, viewport_rect.h);
@@ -327,7 +357,7 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_
     };
     var position_inset = [_]zss.properties.PositionInset{.{}} ** len;
     var latin1_text = [_]zss.properties.Latin1Text{.{ .text = "" }} ** len;
-    var font = [_]zss.properties.Font{.{ .font = null }} ** len;
+    var font = zss.properties.Font{ .font = null };
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
@@ -335,7 +365,7 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_
         .display = &display,
         .position_inset = &position_inset,
         .latin1_text = &latin1_text,
-        .font = &font,
+        .font = font,
     };
 
     var context = try zss.solve.BlockContext.init(&box_tree, allocator, 0, viewport_rect.w, viewport_rect.h);
@@ -352,29 +382,36 @@ fn exampleBlockContext3(allocator: *std.mem.Allocator, sunglasses_jpg: *sdl.SDL_
     return data;
 }
 
-fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockRenderingContext {
-    const len = 1;
-    var preorder_array = [len]u16{1};
+fn exampleBlockContext4(allocator: *std.mem.Allocator, hbfont: *hb.hb_font_t) !zss.BlockRenderingContext {
+    const len = 3;
+    var preorder_array = [len]u16{ 3, 1, 1 };
     var inline_size = [len]zss.properties.LogicalSize{
         .{
             .size = .{ .px = 150 },
             .border_start_width = .{ .px = 30 },
             .border_end_width = .{ .px = 30 },
         },
+        .{ .size = .{ .px = 50 } },
+        .{},
     };
     var block_size = [len]zss.properties.LogicalSize{
         .{
-            .size = .{ .px = 100 },
+            //.size = .{ .px = 100 },
             .border_start_width = .{ .px = 30 },
             .border_end_width = .{ .px = 30 },
         },
+        .{ .size = .{ .px = 50 } },
+        .{},
     };
     var display = [len]zss.properties.Display{
         .{ .block_flow_root = {} },
+        .{ .block_flow = {} },
+        .{ .text = {} },
     };
     var position_inset = [_]zss.properties.PositionInset{.{}} ** len;
     var latin1_text = [_]zss.properties.Latin1Text{.{ .text = "" }} ** len;
-    var font = [_]zss.properties.Font{.{ .font = null }} ** len;
+    latin1_text[2] = .{ .text = "hello world?" };
+    var font = zss.properties.Font{ .font = hbfont };
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
@@ -382,7 +419,7 @@ fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockRenderingContex
         .display = &display,
         .position_inset = &position_inset,
         .latin1_text = &latin1_text,
-        .font = &font,
+        .font = font,
     };
 
     var context = try zss.solve.BlockContext.init(&box_tree, allocator, 0, viewport_rect.w, viewport_rect.h);
@@ -391,6 +428,9 @@ fn exampleBlockContext4(allocator: *std.mem.Allocator) !zss.BlockRenderingContex
 
     data.border_colors[0] = .{ .top_rgba = 0x20f4f4ff, .right_rgba = 0x3faf34ff, .bottom_rgba = 0xa32a7cff, .left_rgba = 0x102458ff };
     data.background_color[0] = .{ .rgba = 0x9104baff };
+    data.background_color[1] = .{ .rgba = 0x48d707ff };
+
+    data.inline_data[0].data.dump();
 
     return data;
 }
@@ -414,7 +454,7 @@ fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockRenderingContex
     };
     var position_inset = [_]zss.properties.PositionInset{.{}} ** len;
     var latin1_text = [_]zss.properties.Latin1Text{.{ .text = "" }} ** len;
-    var font = [_]zss.properties.Font{.{ .font = null }} ** len;
+    var font = zss.properties.Font{ .font = null };
     const box_tree = zss.box_tree.BoxTree{
         .preorder_array = &preorder_array,
         .inline_size = &inline_size,
@@ -422,7 +462,7 @@ fn exampleBlockContext5(allocator: *std.mem.Allocator) !zss.BlockRenderingContex
         .display = &display,
         .position_inset = &position_inset,
         .latin1_text = &latin1_text,
-        .font = &font,
+        .font = font,
     };
 
     var context = try zss.solve.BlockContext.init(&box_tree, allocator, 0, viewport_rect.w, viewport_rect.h);

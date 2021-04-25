@@ -210,7 +210,7 @@ fn exampleInlineContext2(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixe
     var position_inset = [_]properties.PositionInset{.{}} ** len;
     var latin1_text = [_]properties.Latin1Text{.{ .text = "" }} ** len;
     latin1_text[2].text = "hello world.";
-    var font = [_]properties.Font{ .{ .font = hbfont }, .{ .font = null }, .{ .font = null }, .{ .font = null } };
+    var font = properties.Font{ .font = hbfont };
     var context = zss.solve.InlineContext.init(
         &zss.box_tree.BoxTree{
             .preorder_array = &preorder_array,
@@ -219,10 +219,10 @@ fn exampleInlineContext2(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixe
             .display = &display,
             .position_inset = &position_inset,
             .latin1_text = &latin1_text,
-            .font = &font,
+            .font = font,
         },
         al,
-        .{ .index = 0, .begin = 1, .end = preorder_array[0] },
+        .{ .begin = 1, .end = preorder_array[0] },
         500,
     );
     defer context.deinit();
@@ -233,36 +233,7 @@ fn exampleInlineContext2(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixe
     inl.measures_right[1].border_color_rgba = 0x4713c7ff;
     inl.measures_right[2].border_color_rgba = 0x791bda9f;
 
-    {
-        const p = std.debug.print;
-        p("\n", .{});
-        p("glyphs\n", .{});
-        var i: usize = 0;
-        while (i < inl.glyph_indeces.len) : (i += 1) {
-            const gi = inl.glyph_indeces[i];
-            if (gi == zss.InlineRenderingContext.special_index) {
-                i += 1;
-                p("{}\n", .{zss.InlineRenderingContext.decodeSpecial(inl.glyph_indeces[i])});
-            } else {
-                p("{x}\n", .{gi});
-            }
-        }
-        p("\n", .{});
-        p("positions\n", .{});
-        i = 0;
-        while (i < inl.positions.len) : (i += 1) {
-            const pos = inl.positions[i];
-            p("{}\n", .{pos});
-            if (inl.glyph_indeces[i] == zss.InlineRenderingContext.special_index) {
-                i += 1;
-            }
-        }
-        p("\n", .{});
-        p("line boxes\n", .{});
-        for (inl.line_boxes) |l| {
-            p("{}\n", .{l});
-        }
-    }
+    inl.dump();
 
     @import("./sdl/inline_rendering.zig").drawInlineContext(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat);
 }

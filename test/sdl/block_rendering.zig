@@ -84,7 +84,7 @@ pub fn drawDescendantBlocks(
                     .h = (box_offsets.border_bottom_right.y - borders.bottom) - (box_offsets.border_top_left.y + borders.top),
                 };
 
-                // NOTE if there is no intersection here, then
+                // TODO if there is no intersection here, then
                 // child elements don't need to be rendered
                 break :blk initial_clip_rect.intersect(padding_rect);
             },
@@ -122,7 +122,7 @@ pub fn drawDescendantBlocks(
                 const new_clip_rect = switch (visual_effect.overflow) {
                     .Visible => stack_item.clip_rect,
                     .Hidden =>
-                    // NOTE if there is no intersection here, then
+                    // TODO if there is no intersection here, then
                     // child elements don't need to be rendered
                     stack_item.clip_rect.intersect(boxes.padding),
                 };

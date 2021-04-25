@@ -43,6 +43,7 @@ pub fn decodeSpecial(glyph_index: hb.hb_codepoint_t) Special {
 }
 
 pub const Position = struct {
+    // NOTE It seems that offset is 0 almost all the time, maybe no need to record it.
     offset: CSSUnit,
     advance: CSSUnit,
     width: CSSUnit,
@@ -54,7 +55,7 @@ pub const Position = struct {
 glyph_indeces: []hb.hb_codepoint_t,
 positions: []Position,
 line_boxes: []LineBox,
-// TODO one global font for the entire context. should be removed at a later date.
+// TODO one global font for the entire context. should be removed at some point.
 font: *hb.hb_font_t,
 
 // per inline element
@@ -77,4 +78,35 @@ pub fn deinit(self: *@This(), allocator: *Allocator) void {
     allocator.free(self.measures_left);
     allocator.free(self.heights);
     allocator.free(self.background_color);
+}
+
+pub fn dump(self: *const @This()) void {
+    const p = std.debug.print;
+    p("\n", .{});
+    p("glyphs\n", .{});
+    var i: usize = 0;
+    while (i < self.glyph_indeces.len) : (i += 1) {
+        const gi = self.glyph_indeces[i];
+        if (gi == special_index) {
+            i += 1;
+            p("{}\n", .{decodeSpecial(self.glyph_indeces[i])});
+        } else {
+            p("{x}\n", .{gi});
+        }
+    }
+    p("\n", .{});
+    p("positions\n", .{});
+    i = 0;
+    while (i < self.positions.len) : (i += 1) {
+        const pos = self.positions[i];
+        p("{}\n", .{pos});
+        if (self.glyph_indeces[i] == special_index) {
+            i += 1;
+        }
+    }
+    p("\n", .{});
+    p("line boxes\n", .{});
+    for (self.line_boxes) |l| {
+        p("{}\n", .{l});
+    }
 }

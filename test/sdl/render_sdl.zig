@@ -109,7 +109,18 @@ fn renderStackingContext(
     pixel_format: *SDL_PixelFormat,
 ) !void {
     switch (context.inner_context) {
-        .block => |b| try drawDescendantBlocks(b, allocator, context.offset, viewport.intersect(context.clip_rect), renderer, pixel_format),
+        .block => |b| {
+            try drawDescendantBlocks(b, allocator, context.offset, viewport.intersect(context.clip_rect), renderer, pixel_format);
+
+            for (b.inline_data) |inline_data| {
+                var offset = context.offset;
+                var it = zss.util.PreorderArrayIterator.init(b.preorder_array, inline_data.used_id);
+                while (it.next()) |used_id| {
+                    offset = offset.add(b.box_offsets[used_id].content_top_left);
+                }
+                drawInlineContext(inline_data.data, offset, renderer, pixel_format);
+            }
+        },
         //.inl => |i| try drawInlineContext(i.context, allocator, context.offset, renderer, pixel_format),
         .inl => unreachable,
     }

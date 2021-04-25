@@ -33,3 +33,28 @@ pub fn getThreeBoxes(offset: Offset, box_offsets: BoxOffsets, borders: used.Bord
 pub fn divCeil(comptime T: type, a: T, b: T) T {
     return @divFloor(a, b) + @boolToInt(@mod(a, b) != 0);
 }
+
+pub const PreorderArrayIterator = struct {
+    items: []const u16,
+    current: u16,
+    index: u16,
+
+    const Self = @This();
+
+    pub fn init(items: []const u16, index: u16) Self {
+        return Self{
+            .items = items,
+            .current = 0,
+            .index = index,
+        };
+    }
+
+    pub fn next(self: *Self) ?u16 {
+        if (self.index < self.current) return null;
+        while (self.index >= self.current + self.items[self.current]) {
+            self.current += self.items[self.current];
+        }
+        defer self.current += 1;
+        return self.current;
+    }
+};
