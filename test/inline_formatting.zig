@@ -4,7 +4,6 @@ const expect = std.testing.expect;
 
 const zss = @import("zss");
 
-usingnamespace @import("sdl/render_sdl.zig");
 const sdl = @import("SDL2");
 const hb = @import("harfbuzz");
 

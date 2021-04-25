@@ -125,29 +125,3 @@ fn renderStackingContext(
         .inl => unreachable,
     }
 }
-
-pub fn cssUnitToSdlPixel(css: CSSUnit) i32 {
-    return css;
-}
-
-pub fn cssRectToSdlRect(css: CSSRect) SDL_Rect {
-    return SDL_Rect{
-        .x = cssUnitToSdlPixel(css.x),
-        .y = cssUnitToSdlPixel(css.y),
-        .w = cssUnitToSdlPixel(css.w),
-        .h = cssUnitToSdlPixel(css.h),
-    };
-}
-
-pub fn sdlRectToCssRect(rect: SDL_Rect) CSSRect {
-    return CSSRect{
-        .x = rect.x,
-        .y = rect.y,
-        .w = rect.w,
-        .h = rect.h,
-    };
-}
-
-pub fn textureAsBackgroundImage(texture: *SDL_Texture) BackgroundImage.Data {
-    return @ptrCast(BackgroundImage.Data, texture);
-}

@@ -49,16 +49,6 @@ const InFlowPositioningData = struct {
     used_id: u16,
 };
 
-const StackingContextTree = struct {
-    const Entry = struct {
-        subtree_size: u16,
-        z_index: i16,
-    };
-
-    preorder_array: []Entry,
-    data: []*BlockRenderingContext,
-};
-
 pub const BlockContext = struct {
     const Self = @This();
 

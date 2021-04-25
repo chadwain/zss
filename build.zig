@@ -2,10 +2,6 @@ const std = @import("std");
 const Builder = std.build.Builder;
 const Pkg = std.build.Pkg;
 
-const prefixTreePkg = Pkg{
-    .name = "prefix-tree-map",
-    .path = "dependencies/zig-data-structures/source/prefix_tree_map.zig",
-};
 const harfbuzzPkg = Pkg{
     .name = "harfbuzz",
     .path = "dependencies/harfbuzz.zig",
@@ -23,7 +19,7 @@ const zssPkg = Pkg{
     .name = "zss",
     .path = "zss.zig",
     // TODO remove freetype dependency
-    .dependencies = &[_]Pkg{ prefixTreePkg, harfbuzzPkg, SDL2Pkg, freetypePkg },
+    .dependencies = &[_]Pkg{ harfbuzzPkg, SDL2Pkg, freetypePkg },
 };
 
 const c_includes = [_][]const u8{
@@ -41,7 +37,6 @@ pub fn build(b: *Builder) void {
 
     var main_tests = b.addTest("zss.zig");
     main_tests.setBuildMode(mode);
-    main_tests.addPackage(prefixTreePkg);
     main_tests.addPackage(harfbuzzPkg);
     main_tests.addPackage(freetypePkg);
     main_tests.addPackage(SDL2Pkg);
