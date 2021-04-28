@@ -3,7 +3,7 @@ const std = @import("std");
 usingnamespace @import("properties.zig");
 
 pub const BoxTree = struct {
-    preorder_array: []u16,
+    pdfs_flat_tree: []u16,
     inline_size: []LogicalSize,
     block_size: []LogicalSize,
     display: []Display,

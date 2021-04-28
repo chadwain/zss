@@ -1,8 +1,8 @@
 const zss = @import("../zss.zig");
 usingnamespace zss.types;
-const used = zss.used_properties;
+const used_values = zss.used_values;
 
-pub fn getThreeBoxes(offset: Offset, box_offsets: BoxOffsets, borders: used.Borders) ThreeBoxes {
+pub fn getThreeBoxes(offset: Offset, box_offsets: BoxOffsets, borders: used_values.Borders) ThreeBoxes {
     const border_x = offset.x + box_offsets.border_top_left.x;
     const border_y = offset.y + box_offsets.border_top_left.y;
     const border_w = box_offsets.border_bottom_right.x - box_offsets.border_top_left.x;
@@ -34,7 +34,7 @@ pub fn divCeil(comptime T: type, a: T, b: T) T {
     return @divFloor(a, b) + @boolToInt(@mod(a, b) != 0);
 }
 
-pub const PreorderArrayIterator = struct {
+pub const PdfsFlatTreeIterator = struct {
     items: []const u16,
     current: u16,
     index: u16,

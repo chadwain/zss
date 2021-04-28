@@ -9,9 +9,9 @@ const values = zss.values;
 const BoxTree = zss.box_tree.BoxTree;
 usingnamespace zss.types;
 
-const used = @import("properties.zig");
-const BlockRenderingContext = @import("BlockRenderingContext.zig");
-const InlineRenderingContext = @import("InlineRenderingContext.zig");
+const used_values = @import("./used_values.zig");
+const BlockRenderingData = used_values.BlockRenderingData;
+const InlineRenderingData = used_values.InlineRenderingData;
 
 const hb = @import("harfbuzz");
 
@@ -49,7 +49,7 @@ const InFlowPositioningData = struct {
     used_id: u16,
 };
 
-pub const BlockContext = struct {
+pub const BlockLayoutContext = struct {
     const Self = @This();
 
     box_tree: *const BoxTree,
@@ -123,17 +123,17 @@ pub const BlockContext = struct {
 const IntermediateBlockUsedData = struct {
     const Self = @This();
 
-    preorder_array: ArrayListUnmanaged(u16) = .{},
+    pdfs_flat_tree: ArrayListUnmanaged(u16) = .{},
     box_offsets: ArrayListUnmanaged(BoxOffsets) = .{},
-    borders: ArrayListUnmanaged(used.Borders) = .{},
-    border_colors: ArrayListUnmanaged(used.BorderColor) = .{},
-    background_color: ArrayListUnmanaged(used.BackgroundColor) = .{},
-    background_image: ArrayListUnmanaged(used.BackgroundImage) = .{},
-    visual_effect: ArrayListUnmanaged(used.VisualEffect) = .{},
-    inline_data: ArrayListUnmanaged(BlockRenderingContext.InlineData) = .{},
+    borders: ArrayListUnmanaged(used_values.Borders) = .{},
+    border_colors: ArrayListUnmanaged(used_values.BorderColor) = .{},
+    background_color: ArrayListUnmanaged(used_values.BackgroundColor) = .{},
+    background_image: ArrayListUnmanaged(used_values.BackgroundImage) = .{},
+    visual_effect: ArrayListUnmanaged(used_values.VisualEffect) = .{},
+    inline_data: ArrayListUnmanaged(BlockRenderingData.InlineData) = .{},
 
     fn deinit(self: *Self, allocator: *Allocator) void {
-        self.preorder_array.deinit(allocator);
+        self.pdfs_flat_tree.deinit(allocator);
         self.box_offsets.deinit(allocator);
         self.borders.deinit(allocator);
         self.border_colors.deinit(allocator);
@@ -148,7 +148,7 @@ const IntermediateBlockUsedData = struct {
     }
 
     fn ensureCapacity(self: *Self, allocator: *Allocator, capacity: usize) !void {
-        try self.preorder_array.ensureCapacity(allocator, capacity);
+        try self.pdfs_flat_tree.ensureCapacity(allocator, capacity);
         try self.box_offsets.ensureCapacity(allocator, capacity);
         try self.borders.ensureCapacity(allocator, capacity);
         try self.border_colors.ensureCapacity(allocator, capacity);
@@ -158,9 +158,9 @@ const IntermediateBlockUsedData = struct {
         try self.inline_data.ensureCapacity(allocator, capacity);
     }
 
-    fn toNormalData(self: *Self, allocator: *Allocator) BlockRenderingContext {
-        return BlockRenderingContext{
-            .preorder_array = self.preorder_array.toOwnedSlice(allocator),
+    fn toNormalData(self: *Self, allocator: *Allocator) BlockRenderingData {
+        return BlockRenderingData{
+            .pdfs_flat_tree = self.pdfs_flat_tree.toOwnedSlice(allocator),
             .box_offsets = self.box_offsets.toOwnedSlice(allocator),
             .borders = self.borders.toOwnedSlice(allocator),
             .border_colors = self.border_colors.toOwnedSlice(allocator),
@@ -172,9 +172,9 @@ const IntermediateBlockUsedData = struct {
     }
 };
 
-pub fn createBlockUsedData(context: *BlockContext, allocator: *Allocator) !BlockRenderingContext {
+pub fn createBlockUsedData(context: *BlockLayoutContext, allocator: *Allocator) !BlockRenderingData {
     const root_id = context.root_id;
-    const root_subtree_size = context.box_tree.preorder_array[root_id];
+    const root_subtree_size = context.box_tree.pdfs_flat_tree[root_id];
 
     var data = IntermediateBlockUsedData{};
     errdefer data.deinit(allocator);
@@ -189,7 +189,7 @@ pub fn createBlockUsedData(context: *BlockContext, allocator: *Allocator) !Block
             const id_subtree_size = context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1];
             const used_id = id_subtree_size.used_id;
             const used_subtree_size = id_subtree_size.used_subtree_size;
-            data.preorder_array.items[used_id] = used_subtree_size;
+            data.pdfs_flat_tree.items[used_id] = used_subtree_size;
             context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 2].used_subtree_size += used_subtree_size;
 
             const box_offsets_ptr = &data.box_offsets.items[used_id];
@@ -222,13 +222,13 @@ pub fn createBlockUsedData(context: *BlockContext, allocator: *Allocator) !Block
     return data.toNormalData(allocator);
 }
 
-fn blockLevelElementSwitch(context: *BlockContext, data: *IntermediateBlockUsedData, allocator: *Allocator, interval: *Interval) !void {
+fn blockLevelElementSwitch(context: *BlockLayoutContext, data: *IntermediateBlockUsedData, allocator: *Allocator, interval: *Interval) !void {
     switch (context.box_tree.display[interval.begin]) {
         .block_flow_root, .block_flow => return blockLevelElementBeginProcessing(context, data, allocator, interval),
         .inline_flow, .text => {
-            const used_id = try std.math.cast(u16, data.preorder_array.items.len);
+            const used_id = try std.math.cast(u16, data.pdfs_flat_tree.items.len);
 
-            var inline_context = InlineContext.init(
+            var inline_context = InlineLayoutContext.init(
                 context.box_tree,
                 allocator,
                 interval.*,
@@ -237,19 +237,19 @@ fn blockLevelElementSwitch(context: *BlockContext, data: *IntermediateBlockUsedD
             defer inline_context.deinit();
             const inline_data_ptr = try data.inline_data.addOne(allocator);
             inline_data_ptr.* = .{
-                .used_id = used_id,
-                .data = try allocator.create(InlineRenderingContext),
+                .id_of_containing_block = used_id,
+                .data = try allocator.create(InlineRenderingData),
             };
             inline_data_ptr.data.* = try createInlineUsedData(&inline_context, allocator);
 
-            if (inline_context.next_box_id != interval.begin + context.box_tree.preorder_array[interval.begin]) {
+            if (inline_context.next_box_id != interval.begin + context.box_tree.pdfs_flat_tree[interval.begin]) {
                 @panic("TODO inline-level elements must be the last children of a block box");
             }
             interval.begin = inline_context.next_box_id;
 
             context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1].used_subtree_size += 1;
             const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
-            try data.preorder_array.append(allocator, 1);
+            try data.pdfs_flat_tree.append(allocator, 1);
             try data.box_offsets.append(allocator, .{
                 .border_top_left = .{ .x = 0, .y = parent_auto_block_size.* },
                 .border_bottom_right = .{ .x = 0, .y = parent_auto_block_size.* },
@@ -268,12 +268,12 @@ fn blockLevelElementSwitch(context: *BlockContext, data: *IntermediateBlockUsedD
     }
 }
 
-fn blockLevelElementBeginProcessing(context: *BlockContext, data: *IntermediateBlockUsedData, allocator: *Allocator, interval: *Interval) !void {
+fn blockLevelElementBeginProcessing(context: *BlockLayoutContext, data: *IntermediateBlockUsedData, allocator: *Allocator, interval: *Interval) !void {
     const original_id = interval.begin;
-    const subtree_size = context.box_tree.preorder_array[original_id];
+    const subtree_size = context.box_tree.pdfs_flat_tree[original_id];
     interval.begin += subtree_size;
 
-    const used_id = try std.math.cast(u16, data.preorder_array.items.len);
+    const used_id = try std.math.cast(u16, data.pdfs_flat_tree.items.len);
 
     const position_inset = &context.box_tree.position_inset[original_id];
     switch (position_inset.position) {
@@ -292,7 +292,7 @@ fn blockLevelElementBeginProcessing(context: *BlockContext, data: *IntermediateB
         .initial, .inherit, .unset => unreachable,
     }
 
-    const preorder_array_ptr = try data.preorder_array.addOne(allocator);
+    const pdfs_flat_tree_ptr = try data.pdfs_flat_tree.addOne(allocator);
     const box_offsets_ptr = try data.box_offsets.addOne(allocator);
     const borders_ptr = try data.borders.addOne(allocator);
     const inline_size = getInlineOffsets(context, original_id, box_offsets_ptr, borders_ptr);
@@ -318,14 +318,14 @@ fn blockLevelElementBeginProcessing(context: *BlockContext, data: *IntermediateB
         // TODO don't add elements to this stack unconditionally
         try context.in_flow_positioning_data_count.append(context.allocator, 0);
     } else {
-        preorder_array_ptr.* = 1;
+        pdfs_flat_tree_ptr.* = 1;
         context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1].used_subtree_size += 1;
         const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
         _ = blockContainerFinalizeBlockSizes(box_offsets_ptr, size_margins, 0, parent_auto_block_size);
     }
 }
 
-fn blockContainerFinishProcessing(context: *BlockContext, data: *IntermediateBlockUsedData, box_offsets: *BoxOffsets, parent_auto_block_size: *CSSUnit) void {
+fn blockContainerFinishProcessing(context: *BlockLayoutContext, data: *IntermediateBlockUsedData, box_offsets: *BoxOffsets, parent_auto_block_size: *CSSUnit) void {
     const size_margins = context.static_containing_block_used_block_sizes.items[context.static_containing_block_used_block_sizes.items.len - 1];
     const auto_block_size = context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
     const sizes = blockContainerFinalizeBlockSizes(box_offsets, size_margins, auto_block_size, parent_auto_block_size);
@@ -347,7 +347,7 @@ fn blockContainerFinalizeBlockSizes(box_offsets: *BoxOffsets, size_margins: Used
     };
 }
 
-fn applyInFlowPositioningToChildren(context: *const BlockContext, box_offsets: []BoxOffsets, containing_block_block_size: CSSUnit) void {
+fn applyInFlowPositioningToChildren(context: *const BlockLayoutContext, box_offsets: []BoxOffsets, containing_block_block_size: CSSUnit) void {
     const count = context.in_flow_positioning_data_count.items[context.in_flow_positioning_data_count.items.len - 1];
     var i: u16 = 0;
     while (i < count) : (i += 1) {
@@ -369,7 +369,7 @@ fn applyInFlowPositioningToChildren(context: *const BlockContext, box_offsets: [
     }
 }
 
-fn resolveRelativePositionInset(context: *BlockContext, position_inset: *computed.PositionInset) InFlowInsets {
+fn resolveRelativePositionInset(context: *BlockLayoutContext, position_inset: *computed.PositionInset) InFlowInsets {
     const containing_block_inline_size = context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1];
     const containing_block_block_size = context.static_containing_block_used_block_sizes.items[context.static_containing_block_used_block_sizes.items.len - 1].size;
     const inline_start = switch (position_inset.inline_start) {
@@ -430,7 +430,7 @@ fn lineWidth(val: computed.LogicalSize.BorderValue) CSSUnit {
     };
 }
 
-fn getInlineOffsets(context: *const BlockContext, id: u16, box_offsets: *BoxOffsets, borders: *used.Borders) CSSUnit {
+fn getInlineOffsets(context: *const BlockLayoutContext, id: u16, box_offsets: *BoxOffsets, borders: *used_values.Borders) CSSUnit {
     const solved = solveInlineSizes(
         &context.box_tree.inline_size[id],
         context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1],
@@ -551,7 +551,7 @@ fn solveInlineSizes(
     };
 }
 
-fn getBlockOffsets(context: *const BlockContext, id: u16, box_offsets: *BoxOffsets, borders: *used.Borders) UsedBlockSizes {
+fn getBlockOffsets(context: *const BlockLayoutContext, id: u16, box_offsets: *BoxOffsets, borders: *used_values.Borders) UsedBlockSizes {
     const solved = solveBlockSizes(
         &context.box_tree.block_size[id],
         context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1],
@@ -665,7 +665,7 @@ test "used data" {
     const al = &gpa.allocator;
 
     const len = 4;
-    var preorder_array = [len]u16{ 4, 2, 1, 1 };
+    var pdfs_flat_tree = [len]u16{ 4, 2, 1, 1 };
     const inline_size_1 = computed.LogicalSize{
         .size = .{ .percentage = 0.7 },
         .margin_start = .{ .px = 20 },
@@ -704,9 +704,9 @@ test "used data" {
     };
     var latin1_text = [_]computed.Latin1Text{.{ .text = "" }} ** len;
     var font = computed.Font{ .font = null };
-    var context = try BlockContext.init(
+    var context = try BlockLayoutContext.init(
         &BoxTree{
-            .preorder_array = &preorder_array,
+            .pdfs_flat_tree = &pdfs_flat_tree,
             .inline_size = &inline_size,
             .block_size = &block_size,
             .display = &display,
@@ -734,19 +734,19 @@ test "used data" {
 const IntermediateInlineUsedData = struct {
     const Self = @This();
 
-    line_boxes: ArrayListUnmanaged(InlineRenderingContext.LineBox) = .{},
+    line_boxes: ArrayListUnmanaged(InlineRenderingData.LineBox) = .{},
     glyph_indeces: ArrayListUnmanaged(hb.hb_codepoint_t) = .{},
-    positions: ArrayListUnmanaged(InlineRenderingContext.Position) = .{},
+    positions: ArrayListUnmanaged(InlineRenderingData.Position) = .{},
     font: *hb.hb_font_t = undefined,
 
-    measures_top: ArrayListUnmanaged(InlineRenderingContext.BoxMeasures) = .{},
-    measures_right: ArrayListUnmanaged(InlineRenderingContext.BoxMeasures) = .{},
-    measures_bottom: ArrayListUnmanaged(InlineRenderingContext.BoxMeasures) = .{},
-    measures_left: ArrayListUnmanaged(InlineRenderingContext.BoxMeasures) = .{},
-    heights: ArrayListUnmanaged(InlineRenderingContext.Heights) = .{},
-    background_color: ArrayListUnmanaged(used.BackgroundColor) = .{},
+    measures_top: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
+    measures_right: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
+    measures_bottom: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
+    measures_left: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
+    heights: ArrayListUnmanaged(InlineRenderingData.Heights) = .{},
+    background_color: ArrayListUnmanaged(used_values.BackgroundColor) = .{},
 
-    margins: ArrayListUnmanaged(used.MarginLeftRight) = .{},
+    margins: ArrayListUnmanaged(used_values.MarginLeftRight) = .{},
 
     fn deinit(self: *Self, allocator: *Allocator) void {
         self.line_boxes.deinit(allocator);
@@ -774,9 +774,9 @@ const IntermediateInlineUsedData = struct {
         try self.margins.ensureCapacity(allocator, count);
     }
 
-    fn toNormalData(self: *Self, allocator: *Allocator) InlineRenderingContext {
+    fn toNormalData(self: *Self, allocator: *Allocator) InlineRenderingData {
         self.margins.deinit(allocator);
-        return InlineRenderingContext{
+        return InlineRenderingData{
             .line_boxes = self.line_boxes.toOwnedSlice(allocator),
             .glyph_indeces = self.glyph_indeces.toOwnedSlice(allocator),
             .positions = self.positions.toOwnedSlice(allocator),
@@ -791,7 +791,7 @@ const IntermediateInlineUsedData = struct {
     }
 };
 
-pub const InlineContext = struct {
+pub const InlineLayoutContext = struct {
     box_tree: *const BoxTree,
     intervals: ArrayListUnmanaged(Interval),
     used_ids: ArrayListUnmanaged(u16),
@@ -821,7 +821,7 @@ pub const InlineContext = struct {
     }
 };
 
-pub fn createInlineUsedData(context: *InlineContext, allocator: *Allocator) !InlineRenderingContext {
+pub fn createInlineUsedData(context: *InlineLayoutContext, allocator: *Allocator) !InlineRenderingData {
     const root_interval = context.block_container_interval;
 
     var data = IntermediateInlineUsedData{};
@@ -855,7 +855,7 @@ pub fn createInlineUsedData(context: *InlineContext, allocator: *Allocator) !Inl
             _ = context.used_ids.pop();
         } else {
             const original_id = interval.begin;
-            const subtree_size = context.box_tree.preorder_array[original_id];
+            const subtree_size = context.box_tree.pdfs_flat_tree[original_id];
             interval.begin += subtree_size;
 
             switch (context.box_tree.display[original_id]) {
@@ -925,9 +925,9 @@ fn addText(data: *IntermediateInlineUsedData, allocator: *Allocator, latin1_text
         const extents_result = hb.hb_font_get_glyph_extents(font.font.?, info.codepoint, &extents);
         const width = if (extents_result != 0) extents.width else 0;
         data.glyph_indeces.appendAssumeCapacity(info.codepoint);
-        data.positions.appendAssumeCapacity(InlineRenderingContext.Position{ .offset = @divFloor(pos.x_offset, 64), .advance = @divFloor(pos.x_advance, 64), .width = @divFloor(width, 64) });
-        if (info.codepoint == InlineRenderingContext.special_index) {
-            data.glyph_indeces.appendAssumeCapacity(InlineRenderingContext.encodeSpecial(.Literal_FFFF, undefined));
+        data.positions.appendAssumeCapacity(InlineRenderingData.Position{ .offset = @divFloor(pos.x_offset, 64), .advance = @divFloor(pos.x_advance, 64), .width = @divFloor(width, 64) });
+        if (info.codepoint == InlineRenderingData.special_index) {
+            data.glyph_indeces.appendAssumeCapacity(InlineRenderingData.encodeSpecial(.Literal_FFFF, undefined));
             data.positions.appendAssumeCapacity(undefined);
         }
     }
@@ -937,16 +937,16 @@ fn addBoxStart(data: *IntermediateInlineUsedData, allocator: *Allocator, result_
     const left = data.measures_left.items[result_id];
     const margin = data.margins.items[result_id].left;
     const width = left.border + left.padding + margin;
-    try data.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingContext.special_index, InlineRenderingContext.encodeSpecial(.BoxStart, result_id) });
-    try data.positions.appendSlice(allocator, &[2]InlineRenderingContext.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
+    try data.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingData.special_index, InlineRenderingData.encodeSpecial(.BoxStart, result_id) });
+    try data.positions.appendSlice(allocator, &[2]InlineRenderingData.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
 }
 
 fn addBoxEnd(data: *IntermediateInlineUsedData, allocator: *Allocator, result_id: u16) !void {
     const right = data.measures_right.items[result_id];
     const margin = data.margins.items[result_id].right;
     const width = right.border + right.padding + margin;
-    try data.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingContext.special_index, InlineRenderingContext.encodeSpecial(.BoxEnd, result_id) });
-    try data.positions.appendSlice(allocator, &[2]InlineRenderingContext.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
+    try data.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingData.special_index, InlineRenderingData.encodeSpecial(.BoxEnd, result_id) });
+    try data.positions.appendSlice(allocator, &[2]InlineRenderingData.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
 }
 
 fn splitIntoLineBoxes(data: *IntermediateInlineUsedData, allocator: *Allocator, font: *hb.hb_font_t, containing_block_inline_size: CSSUnit) !CSSUnit {
@@ -956,7 +956,7 @@ fn splitIntoLineBoxes(data: *IntermediateInlineUsedData, allocator: *Allocator, 
     const line_spacing = @divFloor(font_extents.ascender - font_extents.descender + font_extents.line_gap, 64);
 
     var cursor: CSSUnit = 0;
-    var line_box = InlineRenderingContext.LineBox{ .baseline = @divFloor(font_extents.ascender, 64), .elements = [2]usize{ 0, 0 } };
+    var line_box = InlineRenderingData.LineBox{ .baseline = @divFloor(font_extents.ascender, 64), .elements = [2]usize{ 0, 0 } };
     var i: usize = 0;
     while (i < data.glyph_indeces.items.len) : (i += 1) {
         const gi = data.glyph_indeces.items[i];
@@ -971,7 +971,7 @@ fn splitIntoLineBoxes(data: *IntermediateInlineUsedData, allocator: *Allocator, 
         cursor += pos.advance;
         line_box.elements[1] += 1;
 
-        if (gi == InlineRenderingContext.special_index) {
+        if (gi == InlineRenderingData.special_index) {
             i += 1;
             line_box.elements[1] += 1;
         }
@@ -1065,7 +1065,7 @@ test "inline used data" {
     hb.hb_font_set_scale(hb_font, 40 * 64, 40 * 64);
 
     const len = 5;
-    var preorder_array = [len]u16{ 5, 1, 1, 1, 1 };
+    var pdfs_flat_tree = [len]u16{ 5, 1, 1, 1, 1 };
     var inline_size = [len]computed.LogicalSize{
         .{},
         .{ .border_start_width = .{ .px = 10 }, .border_end_width = .{ .px = 40 } },
@@ -1080,7 +1080,7 @@ test "inline used data" {
     latin1_text[2] = .{ .text = "hello world" };
     var font = computed.Font{ .font = hb_font };
     const tree = BoxTree{
-        .preorder_array = &preorder_array,
+        .pdfs_flat_tree = &pdfs_flat_tree,
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
@@ -1090,7 +1090,7 @@ test "inline used data" {
     };
     //const viewport_rect = CSSSize{ .w = 50, .h = 400 };
 
-    var context = InlineContext.init(&tree, al, Interval{ .begin = 1, .end = preorder_array[0] }, 50);
+    var context = InlineLayoutContext.init(&tree, al, Interval{ .begin = 1, .end = pdfs_flat_tree[0] }, 50);
     defer context.deinit();
     var data = try createInlineUsedData(&context, al);
     defer data.deinit(al);
@@ -1102,9 +1102,9 @@ test "inline used data" {
         var i: usize = 0;
         while (i < data.glyph_indeces.len) : (i += 1) {
             const gi = data.glyph_indeces[i];
-            if (gi == InlineRenderingContext.special_index) {
+            if (gi == InlineRenderingData.special_index) {
                 i += 1;
-                p("{}\n", .{InlineRenderingContext.decodeSpecial(data.glyph_indeces[i])});
+                p("{}\n", .{InlineRenderingData.decodeSpecial(data.glyph_indeces[i])});
             } else {
                 p("{x}\n", .{gi});
             }

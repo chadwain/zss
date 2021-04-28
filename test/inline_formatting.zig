@@ -72,8 +72,7 @@ pub fn main() !void {
     defer sdl.SDL_DestroyTexture(texture);
     assert(sdl.SDL_SetRenderTarget(renderer, texture) == 0);
 
-    //try exampleInlineContext(renderer, texture_pixel_format, hbfont);
-    try exampleInlineContext2(renderer, texture_pixel_format, hbfont);
+    try exampleInlineData(renderer, texture_pixel_format, hbfont);
     sdl.SDL_RenderPresent(renderer);
 
     assert(sdl.SDL_SetRenderTarget(renderer, window_texture) == 0);
@@ -100,104 +99,14 @@ pub fn main() !void {
     }
 }
 
-fn exampleInlineContext(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFormat, font: *hb.hb_font_t) !void {
-    const BoxMeasures = zss.InlineRenderingContext.BoxMeasures;
-    const InlineBoxFragment = zss.InlineRenderingContext.InlineBoxFragment;
-    const Heights = zss.InlineRenderingContext.Heights;
-    const CSSUnit = zss.types.CSSUnit;
-    const BackgroundColor = zss.used_properties.BackgroundColor;
-    var measures_top = [_]BoxMeasures{.{}} ** 4 ++ [_]BoxMeasures{.{ .border = 10, .border_color_rgba = 0xff839175 }};
-    var measures_bottom = [_]BoxMeasures{.{}} ** 4 ++ [_]BoxMeasures{.{ .border = 10, .border_color_rgba = 0xff839175 }};
-    var measures_left = [_]BoxMeasures{.{}} ** 5;
-    var measures_right = [_]BoxMeasures{.{}} ** 5;
-    var background_color = [_]BackgroundColor{ .{ .rgba = 0xff223300 }, .{ .rgba = 0x00df1213 }, .{ .rgba = 0x5c76d3ff }, .{ .rgba = 0x306892ff }, .{ .rgba = 0xff223300 } };
-    var fragments: [5]InlineBoxFragment = undefined;
-
-    fragments[0] = .{ .baseline_pos = .{ .x = 0, .y = 30 }, .width = 400, .inline_box_id = 0, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false, .text = null };
-    fragments[1] = .{ .baseline_pos = .{ .x = 400, .y = 20 }, .width = 400, .inline_box_id = 2, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false, .text = null };
-    fragments[2] = .{ .baseline_pos = .{ .x = 200, .y = 110 }, .width = 40, .inline_box_id = 2, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false, .text = null };
-    fragments[3] = .{ .baseline_pos = .{ .x = 240, .y = 90 }, .width = 40, .inline_box_id = 3, .include_top = false, .include_right = false, .include_bottom = false, .include_left = false, .text = null };
-
-    const string = "abcdefg";
-    const buf = hb.hb_buffer_create() orelse unreachable;
-    defer hb.hb_buffer_destroy(buf);
-    hb.hb_buffer_add_utf8(buf, string, @intCast(c_int, string.len), 0, @intCast(c_int, string.len));
-    hb.hb_buffer_set_direction(buf, hb.hb_direction_t.HB_DIRECTION_LTR);
-    hb.hb_buffer_set_script(buf, hb.hb_script_t.HB_SCRIPT_LATIN);
-    hb.hb_buffer_set_language(buf, hb.hb_language_from_string("en", -1));
-    hb.hb_shape(font, buf, 0, 0);
-
-    const glyph_infos = blk: {
-        var n: c_uint = 0;
-        const p = hb.hb_buffer_get_glyph_infos(buf, &n);
-        break :blk p[0..n];
-    };
-    const glyph_positions = blk: {
-        var n: c_uint = 0;
-        const p = hb.hb_buffer_get_glyph_positions(buf, &n);
-        break :blk p[0..n];
-    };
-
-    const measurements = blk: {
-        var asc: c_long = 0;
-        var desc: c_long = 0;
-        var bbox: hb.FT_BBox = undefined;
-        const face = hb.hb_ft_font_get_face(font) orelse unreachable;
-        for (string) |c, i| {
-            var cursor = hb.FT_Vector{ .x = 0, .y = 0 };
-            var glyph: hb.FT_Glyph = undefined;
-            defer hb.FT_Done_Glyph(glyph);
-            assert(hb.FT_Load_Char(face, c, hb.FT_LOAD_DEFAULT | hb.FT_LOAD_NO_HINTING) == hb.FT_Err_Ok);
-            assert(hb.FT_Get_Glyph(face.*.glyph, &glyph) == hb.FT_Err_Ok);
-            assert(hb.FT_Glyph_To_Bitmap(&glyph, hb.FT_Render_Mode.FT_RENDER_MODE_NORMAL, &cursor, 0) == hb.FT_Err_Ok);
-
-            hb.FT_Glyph_Get_CBox(glyph, hb.FT_GLYPH_BBOX_UNSCALED, &bbox);
-            asc = std.math.max(asc, bbox.yMax);
-            desc = std.math.min(desc, bbox.yMin);
-        }
-
-        break :blk .{ .ascender = @intCast(i32, @divFloor(asc, 64)), .descender = -@intCast(i32, @divFloor(desc, 64)) };
-    };
-
-    fragments[4] = .{
-        .baseline_pos = .{ .x = 0, .y = 100 + measurements.ascender },
-        .width = 400,
-        .inline_box_id = 4,
-        .include_top = true,
-        .include_right = false,
-        .include_bottom = true,
-        .include_left = false,
-        .text = InlineBoxFragment.Text{ .font = font, .infos = glyph_infos, .positions = glyph_positions },
-    };
-
-    var heights = [_]Heights{
-        .{ .above_baseline = 30, .below_baseline = 0 },
-        .{ .above_baseline = 20, .below_baseline = 0 },
-        .{ .above_baseline = 40, .below_baseline = 0 },
-        .{ .above_baseline = 40, .below_baseline = 0 },
-        .{ .above_baseline = measurements.ascender, .below_baseline = 0 },
-    };
-    const inl = zss.InlineRenderingContext{
-        .fragments = &fragments,
-        .measures_top = &measures_top,
-        .measures_right = &measures_right,
-        .measures_bottom = &measures_bottom,
-        .measures_left = &measures_left,
-        .heights = &heights,
-        .background_color = &background_color,
-    };
-
-    @import("./sdl/inline_rendering.zig").drawInlineContext(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat);
-}
-
-fn exampleInlineContext2(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFormat, hbfont: *hb.hb_font_t) !void {
+fn exampleInlineData(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFormat, hbfont: *hb.hb_font_t) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer std.testing.expect(!gpa.deinit());
     const al = &gpa.allocator;
 
     const properties = zss.properties;
     const len = 4;
-    var preorder_array = [len]u16{ 4, 1, 1, 1 };
+    var pdfs_flat_tree = [len]u16{ 4, 1, 1, 1 };
     var inline_size = [len]properties.LogicalSize{
         .{},
         .{ .border_start_width = .{ .px = 10 }, .border_end_width = .{ .px = 40 } },
@@ -210,9 +119,9 @@ fn exampleInlineContext2(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixe
     var latin1_text = [_]properties.Latin1Text{.{ .text = "" }} ** len;
     latin1_text[2].text = "hello world.";
     var font = properties.Font{ .font = hbfont };
-    var context = zss.solve.InlineContext.init(
+    var context = zss.layout.InlineLayoutContext.init(
         &zss.box_tree.BoxTree{
-            .preorder_array = &preorder_array,
+            .pdfs_flat_tree = &pdfs_flat_tree,
             .inline_size = &inline_size,
             .block_size = &block_size,
             .display = &display,
@@ -221,11 +130,11 @@ fn exampleInlineContext2(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixe
             .font = font,
         },
         al,
-        .{ .begin = 1, .end = preorder_array[0] },
+        .{ .begin = 1, .end = pdfs_flat_tree[0] },
         500,
     );
     defer context.deinit();
-    var inl = try zss.solve.createInlineUsedData(&context, al);
+    var inl = try zss.layout.createInlineUsedData(&context, al);
     defer inl.deinit(al);
 
     inl.measures_left[1].border_color_rgba = 0xff0000ff;
@@ -234,5 +143,5 @@ fn exampleInlineContext2(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_Pixe
 
     inl.dump();
 
-    @import("./sdl/inline_rendering.zig").drawInlineContext(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat);
+    zss.sdl_freetype.drawInlineData(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat);
 }
