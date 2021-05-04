@@ -37,7 +37,7 @@ pub const Inherit = union(enum) {
 };
 
 pub const Unset = union(enum) {
-    unset,
+    unset: u1 = 0,
 };
 
 pub const None = union(enum) {
@@ -74,9 +74,52 @@ pub const Display = union(enum) {
 pub const Position = union(enum) {
     static,
     relative,
-    absolute,
-    sticky,
-    // NOTE this field has a value because I need this union to have a non-zero size
-    // because of https://github.com/ziglang/zig/issues/8277
-    fixed: u1 = 0,
+};
+
+pub const Color = union(enum) {
+    rgba: u32,
+};
+
+pub const Box = union(enum) {
+    border_box,
+    padding_box,
+    content_box,
+};
+
+pub const BackgroundImage = union(enum) {
+    pub const Data = opaque {};
+    data: *Data,
+};
+
+pub const BackgroundSize = union(enum) {
+    pub const SizeType = mergeUnions(Auto, LengthPercentage);
+
+    size: struct {
+        width: SizeType,
+        height: SizeType,
+    },
+    contain,
+    cover,
+};
+
+pub const BackgroundPosition = union(enum) {
+    position: struct {
+        horizontal: struct {
+            side: enum { left, right },
+            offset: LengthPercentage,
+        },
+        vertical: struct {
+            side: enum { top, bottom },
+            offset: LengthPercentage,
+        },
+    },
+};
+
+pub const RepeatStyle = union(enum) {
+    pub const RepeatStyleEnum = enum { repeat, space, round, no_repeat };
+
+    repeat: struct {
+        horizontal: RepeatStyleEnum,
+        vertical: RepeatStyleEnum,
+    },
 };

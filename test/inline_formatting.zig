@@ -115,31 +115,31 @@ fn exampleInlineData(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFor
     };
     var block_size = [_]properties.LogicalSize{.{}} ** len;
     var display = [len]properties.Display{ .{ .block_flow_root = {} }, .{ .inline_flow = {} }, .{ .text = {} }, .{ .inline_flow = {} } };
-    var position_inset = [_]properties.PositionInset{.{}} ** len;
+    //var position_inset = [_]properties.PositionInset{.{}} ** len;
     var latin1_text = [_]properties.Latin1Text{.{ .text = "" }} ** len;
     latin1_text[2].text = "hello world.";
     var font = properties.Font{ .font = hbfont };
+    var border = [_]properties.Border{.{}} ** len;
+    var background = [_]properties.Background{.{}} ** len;
     var context = zss.layout.InlineLayoutContext.init(
         &zss.box_tree.BoxTree{
             .pdfs_flat_tree = &pdfs_flat_tree,
             .inline_size = &inline_size,
             .block_size = &block_size,
             .display = &display,
-            .position_inset = &position_inset,
+            //.position_inset = &position_inset,
             .latin1_text = &latin1_text,
             .font = font,
+            .border = &border,
+            .background = &background,
         },
         al,
         .{ .begin = 1, .end = pdfs_flat_tree[0] },
         500,
     );
     defer context.deinit();
-    var inl = try zss.layout.createInlineUsedData(&context, al);
+    var inl = try zss.layout.createInlineRenderingData(&context, al);
     defer inl.deinit(al);
-
-    inl.measures_left[1].border_color_rgba = 0xff0000ff;
-    inl.measures_right[1].border_color_rgba = 0x4713c7ff;
-    inl.measures_right[2].border_color_rgba = 0x791bda9f;
 
     inl.dump();
 

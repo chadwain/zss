@@ -45,8 +45,8 @@ pub fn rgbaMap(pixel_format: *sdl.SDL_PixelFormat, color: u32) [4]u8 {
     return rgba;
 }
 
-pub fn textureAsBackgroundImage(texture: *sdl.SDL_Texture) zss.used_values.BackgroundImage.Data {
-    return @ptrCast(zss.used_values.BackgroundImage.Data, texture);
+pub fn textureAsBackgroundImage(texture: *sdl.SDL_Texture) *zss.values.BackgroundImage.Data {
+    return @ptrCast(*zss.values.BackgroundImage.Data, texture);
 }
 
 /// Draws the background color, background image, and borders of a
@@ -63,13 +63,13 @@ pub fn drawBlockDataRoot(
     const visual_effect = context.visual_effect[0];
     if (visual_effect.visibility == .Hidden) return;
     const borders = context.borders[0];
-    const background_color = context.background_color[0];
-    const background_image = context.background_image[0];
+    const background1 = context.background1[0];
+    const background2 = context.background2[0];
     const border_colors = context.border_colors[0];
     const box_offsets = context.box_offsets[0];
 
     const boxes = zss.util.getThreeBoxes(cumulative_offset, box_offsets, borders);
-    drawBackgroundAndBorders(&boxes, borders, background_color, background_image, border_colors, clip_rect, renderer, pixel_format);
+    drawBackgroundAndBorders(&boxes, borders, background1, background2, border_colors, clip_rect, renderer, pixel_format);
 }
 
 /// Draws the background color, background image, and borders of all of the
@@ -136,13 +136,13 @@ pub fn drawBlockDataChildren(
             const box_offsets = context.box_offsets[index];
             const borders = context.borders[index];
             const border_colors = context.border_colors[index];
-            const background_color = context.background_color[index];
-            const background_image = context.background_image[index];
+            const background1 = context.background1[index];
+            const background2 = context.background2[index];
             const visual_effect = context.visual_effect[index];
             const boxes = zss.util.getThreeBoxes(stack_item.cumulative_offset, box_offsets, borders);
 
             if (visual_effect.visibility == .Visible) {
-                drawBackgroundAndBorders(&boxes, borders, background_color, background_image, border_colors, stack_item.clip_rect, renderer, pixel_format);
+                drawBackgroundAndBorders(&boxes, borders, background1, background2, border_colors, stack_item.clip_rect, renderer, pixel_format);
             }
 
             if (num_descendants != 1) {
@@ -185,36 +185,36 @@ pub const BorderColor = struct {
 pub fn drawBackgroundAndBorders(
     boxes: *const zss.types.ThreeBoxes,
     borders: zss.used_values.Borders,
-    background_color: zss.used_values.BackgroundColor,
-    background_image: zss.used_values.BackgroundImage,
+    background1: zss.used_values.Background1,
+    background2: zss.used_values.Background2,
     border_colors: zss.used_values.BorderColor,
     clip_rect: CSSRect,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
 ) void {
-    const bg_clip_rect = cssRectToSdlRect(switch (background_image.clip) {
+    const bg_clip_rect = cssRectToSdlRect(switch (background1.clip) {
         .Border => boxes.border,
         .Padding => boxes.padding,
         .Content => boxes.content,
     });
 
     // draw background color
-    drawBackgroundColor(renderer, pixel_format, bg_clip_rect, background_color.rgba);
+    drawBackgroundColor(renderer, pixel_format, bg_clip_rect, background1.color_rgba);
 
     // draw background image
-    if (background_image.image) |texture_ptr| {
+    if (background2.image) |texture_ptr| {
         const texture = @ptrCast(*sdl.SDL_Texture, texture_ptr);
         var tw: c_int = undefined;
         var th: c_int = undefined;
         assert(sdl.SDL_QueryTexture(texture, null, null, &tw, &th) == 0);
-        const origin_rect = cssRectToSdlRect(switch (background_image.origin) {
+        const origin_rect = cssRectToSdlRect(switch (background2.origin) {
             .Border => boxes.border,
             .Padding => boxes.padding,
             .Content => boxes.content,
         });
         const size = sdl.SDL_Point{
-            .x = @floatToInt(c_int, background_image.size.width * @intToFloat(f32, tw)),
-            .y = @floatToInt(c_int, background_image.size.height * @intToFloat(f32, th)),
+            .x = @floatToInt(c_int, background2.size.width * @intToFloat(f32, tw)),
+            .y = @floatToInt(c_int, background2.size.height * @intToFloat(f32, th)),
         };
         drawBackgroundImage(
             renderer,
@@ -222,17 +222,17 @@ pub fn drawBackgroundAndBorders(
             origin_rect,
             bg_clip_rect,
             sdl.SDL_Point{
-                .x = origin_rect.x + @floatToInt(c_int, @intToFloat(f32, origin_rect.w - size.x) * background_image.position.horizontal),
-                .y = origin_rect.y + @floatToInt(c_int, @intToFloat(f32, origin_rect.h - size.y) * background_image.position.vertical),
+                .x = origin_rect.x + @floatToInt(c_int, @intToFloat(f32, origin_rect.w - size.x) * background2.position.horizontal),
+                .y = origin_rect.y + @floatToInt(c_int, @intToFloat(f32, origin_rect.h - size.y) * background2.position.vertical),
             },
             size,
             .{
-                .x = switch (background_image.repeat.x) {
+                .x = switch (background2.repeat.x) {
                     .None => .NoRepeat,
                     .Repeat => .Repeat,
                     .Space => .Space,
                 },
-                .y = switch (background_image.repeat.y) {
+                .y = switch (background2.repeat.y) {
                     .None => .NoRepeat,
                     .Repeat => .Repeat,
                     .Space => .Space,
@@ -456,6 +456,13 @@ pub fn drawBackgroundImage(
     }
 }
 
+const GetBackgroundImageRepeatInfoType = struct {
+    count: c_uint,
+    space: zss.types.Ratio(c_uint),
+    offset: c_int,
+    start_index: c_int,
+};
+
 fn getBackgroundImageRepeatInfo(
     repeat: Repeat,
     painting_area_size: c_uint,
@@ -463,12 +470,7 @@ fn getBackgroundImageRepeatInfo(
     positioning_area_size: c_uint,
     image_offset: c_int,
     image_size: c_uint,
-) struct {
-    count: c_uint,
-    space: zss.types.Ratio(c_uint),
-    offset: c_int,
-    start_index: c_int,
-} {
+) GetBackgroundImageRepeatInfoType {
     return switch (repeat) {
         .NoRepeat => .{
             .count = 1,
@@ -488,16 +490,27 @@ fn getBackgroundImageRepeatInfo(
         },
         .Space => blk: {
             const positioning_area_count = positioning_area_size / image_size;
-            const space = positioning_area_size % image_size;
-            const before = zss.util.divCeil(c_int, @intCast(c_int, positioning_area_count) * positioning_area_offset, @intCast(c_int, positioning_area_size));
-            const after = zss.util.divCeil(c_int, @intCast(c_int, positioning_area_size) * (@intCast(c_int, painting_area_size) - @intCast(c_int, positioning_area_size) - positioning_area_offset), @intCast(c_int, positioning_area_size));
-            const count = @intCast(c_uint, before + after + @intCast(c_int, std.math.max(1, positioning_area_count)));
-            break :blk .{
-                .count = count,
-                .space = zss.types.Ratio(c_uint){ .num = space, .den = std.math.max(2, positioning_area_count) - 1 },
-                .offset = image_offset * @boolToInt(count == 1),
-                .start_index = -before,
-            };
+            if (positioning_area_count <= 1) {
+                break :blk GetBackgroundImageRepeatInfoType{
+                    .count = 1,
+                    .space = zss.types.Ratio(c_uint){ .num = 0, .den = 1 },
+                    .offset = image_offset,
+                    .start_index = 0,
+                };
+            } else {
+                const space = positioning_area_size % image_size;
+                //const before = zss.util.divCeil(c_int, @intCast(c_int, positioning_area_count) * positioning_area_offset, @intCast(c_int, positioning_area_size));
+                //const after = zss.util.divCeil(c_int, @intCast(c_int, positioning_area_size) * (@intCast(c_int, painting_area_size) - @intCast(c_int, positioning_area_size) - positioning_area_offset), @intCast(c_int, positioning_area_size));
+                const before = zss.util.divCeil(c_int, @intCast(c_int, positioning_area_count - 1) * positioning_area_offset - @intCast(c_int, space), @intCast(c_int, positioning_area_size - image_size));
+                const after = zss.util.divCeil(c_int, @intCast(c_int, positioning_area_count - 1) * (@intCast(c_int, painting_area_size) - @intCast(c_int, positioning_area_size) - positioning_area_offset) - @intCast(c_int, space), @intCast(c_int, positioning_area_size - image_size));
+                const count = @intCast(c_uint, before + after + @intCast(c_int, positioning_area_count));
+                break :blk GetBackgroundImageRepeatInfoType{
+                    .count = count,
+                    .space = zss.types.Ratio(c_uint){ .num = space, .den = positioning_area_count - 1 },
+                    .offset = 0,
+                    .start_index = -before,
+                };
+            }
         },
     };
 }

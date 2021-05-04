@@ -75,18 +75,21 @@ pub const BorderColor = struct {
     left_rgba: u32 = 0,
 };
 
-/// Contains the used value of the 'background-color' property.
-pub const BackgroundColor = struct {
-    rgba: u32 = 0,
+/// Contains the used values of the properties
+/// 'background-color' and 'background-clip'.
+pub const Background1 = struct {
+    color_rgba: u32 = 0,
+    clip: enum { Border, Padding, Content } = .Border,
 };
 
-pub const BackgroundImage = struct {
-    pub const Data = *opaque {};
+/// Contains the used values of the properties 'background-image',
+/// 'background-origin', 'background-position', 'background-size',
+/// and 'background-repeat'.
+pub const Background2 = struct {
     pub const Repeat = enum { None, Repeat, Space };
 
-    image: ?Data = null,
+    image: ?*zss.values.BackgroundImage.Data = null,
     origin: enum { Padding, Border, Content } = .Padding,
-    clip: enum { Padding, Border, Content } = .Border,
     position: struct { horizontal: Percentage = 0, vertical: Percentage = 0 } = .{},
     size: struct { width: Percentage = 1.0, height: Percentage = 1.0 } = .{},
     repeat: struct { x: Repeat = .None, y: Repeat = .None } = .{},
@@ -111,8 +114,8 @@ pub const BlockRenderingData = struct {
     box_offsets: []BoxOffsets,
     borders: []Borders,
     border_colors: []BorderColor,
-    background_color: []BackgroundColor,
-    background_image: []BackgroundImage,
+    background1: []Background1,
+    background2: []Background2,
     visual_effect: []VisualEffect,
     inline_data: []InlineData,
 
@@ -121,8 +124,8 @@ pub const BlockRenderingData = struct {
         allocator.free(self.box_offsets);
         allocator.free(self.borders);
         allocator.free(self.border_colors);
-        allocator.free(self.background_color);
-        allocator.free(self.background_image);
+        allocator.free(self.background1);
+        allocator.free(self.background2);
         allocator.free(self.visual_effect);
         for (self.inline_data) |*inl| {
             inl.data.deinit(allocator);
@@ -176,35 +179,16 @@ pub const InlineRenderingData = struct {
         width: CSSUnit,
     };
 
-    // TODO add data to keep track of which boxes are positioned boxes.
-    // positioned boxes must be rendered after all other boxes
-
     glyph_indeces: []hb.hb_codepoint_t,
     positions: []Position,
     line_boxes: []LineBox,
     // TODO one global font for the entire context. should be removed at some point.
     font: *hb.hb_font_t,
 
-    // per inline element
-    measures_top: []BoxMeasures,
-    measures_right: []BoxMeasures,
-    measures_bottom: []BoxMeasures,
-    measures_left: []BoxMeasures,
-    heights: []Heights,
-    background_color: []BackgroundColor,
-    // TODO
-    // background_image: []BackgroundImage,
-
     pub fn deinit(self: *@This(), allocator: *Allocator) void {
         allocator.free(self.glyph_indeces);
         allocator.free(self.positions);
         allocator.free(self.line_boxes);
-        allocator.free(self.measures_top);
-        allocator.free(self.measures_right);
-        allocator.free(self.measures_bottom);
-        allocator.free(self.measures_left);
-        allocator.free(self.heights);
-        allocator.free(self.background_color);
     }
 
     pub fn dump(self: *const @This()) void {

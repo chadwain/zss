@@ -59,3 +59,42 @@ pub const Font = struct {
     const hb = @import("harfbuzz");
     font: ?*hb.hb_font_t,
 };
+
+pub const Background = struct {
+    pub const ImageValue = withDefaults(withNone(values.BackgroundImage));
+    pub const ColorValue = withDefaults(values.Color);
+    pub const ClipValue = withDefaults(values.Box);
+    pub const OriginValue = withDefaults(values.Box);
+    pub const SizeValue = withDefaults(values.BackgroundSize);
+    pub const PositionValue = withDefaults(values.BackgroundPosition);
+    pub const RepeatValue = withDefaults(values.RepeatStyle);
+
+    image: ImageValue = .{ .none = {} },
+    // TODO wrong default here
+    color: ColorValue = .{ .rgba = 0 },
+    clip: ClipValue = .{ .border_box = {} },
+    origin: OriginValue = .{ .padding_box = {} },
+    // TODO wrong defaults here
+    size: SizeValue = .{ .size = .{
+        .width = .{ .percentage = 1 },
+        .height = .{ .percentage = 1 },
+    } },
+    position: PositionValue = .{ .position = .{
+        .horizontal = .{ .side = .left, .offset = .{ .percentage = 0 } },
+        .vertical = .{ .side = .top, .offset = .{ .percentage = 0 } },
+    } },
+    repeat: RepeatValue = .{ .repeat = .{
+        .horizontal = .repeat,
+        .vertical = .repeat,
+    } },
+};
+
+pub const Border = struct {
+    pub const BorderColor = withDefaults(values.Color);
+
+    // TODO wrong defaults
+    block_start_color: BorderColor = .{ .rgba = 0 },
+    block_end_color: BorderColor = .{ .rgba = 0 },
+    inline_start_color: BorderColor = .{ .rgba = 0 },
+    inline_end_color: BorderColor = .{ .rgba = 0 },
+};

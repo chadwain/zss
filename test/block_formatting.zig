@@ -45,6 +45,7 @@ pub fn main() !void {
     ) orelse unreachable;
     defer sdl.SDL_DestroyTexture(texture);
     assert(sdl.SDL_SetRenderTarget(renderer, texture) == 0);
+    assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BlendMode.SDL_BLENDMODE_BLEND) == 0);
 
     _ = sdl.IMG_Init(sdl.IMG_INIT_PNG | sdl.IMG_INIT_JPG);
     defer sdl.IMG_Quit();
@@ -138,8 +139,10 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
     var pdfs_flat_tree = [len]u16{ 3, 2, 1 };
     var inline_size = [len]zss.properties.LogicalSize{
         .{
-            .size = .{ .px = 700 },
+            .size = .{ .px = 500 },
             .padding_start = .{ .px = 100 },
+            .padding_end = .{ .px = 100 },
+            .border_end_width = .{ .px = 100 },
         },
         .{
             .size = .{ .px = 200 },
@@ -159,8 +162,32 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
         .{ .block_flow = {} },
         .{ .text = {} },
     };
-    var position_inset = [_]zss.properties.PositionInset{.{}} ** len;
+    //var position_inset = [_]zss.properties.PositionInset{.{}} ** len;
     var latin1_text = [_]zss.properties.Latin1Text{.{ .text = "" }} ** len;
+    var border = [len]zss.properties.Border{
+        .{ .inline_end_color = .{ .rgba = 0xffffff40 } },
+        .{},
+        .{},
+    };
+    var background = [len]zss.properties.Background{
+        .{
+            .color = .{ .rgba = 0xff2233ff },
+            .image = .{ .data = zss.sdl_freetype.textureAsBackgroundImage(zig_png) },
+            .position = .{ .position = .{
+                .horizontal = .{ .side = .right, .offset = .{ .percentage = 0 } },
+                .vertical = .{ .side = .top, .offset = .{ .percentage = 0.5 } },
+            } },
+            .repeat = .{ .repeat = .{ .horizontal = .space, .vertical = .repeat } },
+            .origin = .{ .padding_box = {} },
+            .clip = .{ .padding_box = {} },
+            .size = .{ .size = .{
+                .width = .{ .percentage = 0.3 },
+                .height = .{ .percentage = 1 },
+            } },
+        },
+        .{ .color = .{ .rgba = 0x5c76d3ff } },
+        .{},
+    };
     latin1_text[2] = .{ .text = "wow! look at this cool document I made using zss!" };
     var font = zss.properties.Font{ .font = hbfont };
     const box_tree = zss.box_tree.BoxTree{
@@ -168,24 +195,16 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
-        .position_inset = &position_inset,
+        //.position_inset = &position_inset,
         .latin1_text = &latin1_text,
         .font = font,
+        .border = &border,
+        .background = &background,
     };
 
     var context = try zss.layout.BlockLayoutContext.init(&box_tree, allocator, 0, viewport_rect.w, viewport_rect.h);
     defer context.deinit();
-    var data = try zss.layout.createBlockUsedData(&context, allocator);
-
-    data.background_color[0] = .{ .rgba = 0xff223300 };
-    data.background_image[0] = .{
-        .image = zss.sdl_freetype.textureAsBackgroundImage(zig_png),
-        .position = .{ .vertical = 0.5, .horizontal = 0.5 },
-        .size = .{ .width = 0.75, .height = 0.5 },
-        .repeat = .{ .x = .Space, .y = .Repeat },
-    };
-
-    data.background_color[1] = .{ .rgba = 0x5c76d3ff };
+    var data = try zss.layout.createBlockRenderingData(&context, allocator);
 
     return data;
 }
