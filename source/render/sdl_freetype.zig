@@ -25,10 +25,9 @@ pub fn drawInlineData(
     cumulative_offset: Offset,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
-) void {
+) !void {
     const face = hb.hb_ft_font_get_face(context.font);
 
-    // TODO does this rendering order agree with CSS2.2 Appendix E?
     for (context.line_boxes) |line_box| {
         var cursor: CSSUnit = 0;
         var i = line_box.elements[0];
@@ -60,7 +59,7 @@ pub fn drawInlineData(
                 .x = util.cssUnitToSdlPixel(cumulative_offset.x + cursor + position.offset),
                 .y = util.cssUnitToSdlPixel(cumulative_offset.y + line_box.baseline) - face.*.glyph.*.bitmap_top,
             };
-            util.drawGlyph(bitmap, final_position, renderer, pixel_format);
+            try util.drawGlyph(bitmap, final_position, renderer, pixel_format);
         }
     }
 }

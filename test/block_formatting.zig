@@ -130,7 +130,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
         while (it.next()) |id| {
             o = o.add(ctx.box_offsets[id].content_top_left);
         }
-        zss.sdl_freetype.drawInlineData(inline_data.data, o, renderer, pixel_format);
+        try zss.sdl_freetype.drawInlineData(inline_data.data, o, renderer, pixel_format);
     }
 }
 

@@ -4,8 +4,6 @@ const min = std.math.min;
 const max = std.math.max;
 
 const zss = @import("../zss.zig");
-const Borders = zss.properties.Borders;
-const OffsetInfo = zss.offset_tree.OffsetInfo;
 
 /// An integral, indivisible unit of space which is the basis for all CSS layout
 /// computations.

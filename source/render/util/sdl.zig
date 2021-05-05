@@ -51,8 +51,6 @@ pub fn textureAsBackgroundImage(texture: *sdl.SDL_Texture) *zss.values.Backgroun
 
 /// Draws the background color, background image, and borders of a
 /// block box. This implements §Appendix E.2 Step 2.
-///
-/// TODO support table boxes
 pub fn drawBlockDataRoot(
     context: *const BlockRenderingData,
     cumulative_offset: Offset,
@@ -75,8 +73,6 @@ pub fn drawBlockDataRoot(
 /// Draws the background color, background image, and borders of all of the
 /// descendant boxes in a block context (i.e. excluding the top element).
 /// This implements §Appendix E.2 Step 4.
-///
-/// TODO support table boxes
 pub fn drawBlockDataChildren(
     context: *const BlockRenderingData,
     allocator: *std.mem.Allocator,
@@ -111,17 +107,19 @@ pub fn drawBlockDataChildren(
                     .h = (box_offsets.border_bottom_right.y - borders.bottom) - (box_offsets.border_top_left.y + borders.top),
                 };
 
-                // TODO if there is no intersection here, then
-                // child elements don't need to be rendered
                 break :blk initial_clip_rect.intersect(padding_rect);
             },
         };
-        try stack.append(StackItem{
-            .interval = Interval{ .begin = 1, .end = context.pdfs_flat_tree[0] },
-            .cumulative_offset = cumulative_offset.add(box_offsets.content_top_left),
-            .clip_rect = clip_rect,
-        });
-        assert(sdl.SDL_RenderSetClipRect(renderer, &cssRectToSdlRect(stack.items[0].clip_rect)) == 0);
+
+        // No need to draw children is the clip rect is empty.
+        if (!clip_rect.isEmpty()) {
+            try stack.append(StackItem{
+                .interval = Interval{ .begin = 1, .end = context.pdfs_flat_tree[0] },
+                .cumulative_offset = cumulative_offset.add(box_offsets.content_top_left),
+                .clip_rect = clip_rect,
+            });
+            assert(sdl.SDL_RenderSetClipRect(renderer, &cssRectToSdlRect(stack.items[0].clip_rect)) == 0);
+        }
     }
 
     stackLoop: while (stack.items.len > 0) {
@@ -129,38 +127,38 @@ pub fn drawBlockDataChildren(
         const interval = &stack_item.interval;
 
         while (interval.begin != interval.end) {
-            const index = interval.begin;
-            const num_descendants = context.pdfs_flat_tree[index];
-            defer interval.begin += num_descendants;
+            const used_id = interval.begin;
+            const subtree_size = context.pdfs_flat_tree[used_id];
+            defer interval.begin += subtree_size;
 
-            const box_offsets = context.box_offsets[index];
-            const borders = context.borders[index];
-            const border_colors = context.border_colors[index];
-            const background1 = context.background1[index];
-            const background2 = context.background2[index];
-            const visual_effect = context.visual_effect[index];
+            const box_offsets = context.box_offsets[used_id];
+            const borders = context.borders[used_id];
+            const border_colors = context.border_colors[used_id];
+            const background1 = context.background1[used_id];
+            const background2 = context.background2[used_id];
+            const visual_effect = context.visual_effect[used_id];
             const boxes = zss.util.getThreeBoxes(stack_item.cumulative_offset, box_offsets, borders);
 
             if (visual_effect.visibility == .Visible) {
                 drawBackgroundAndBorders(&boxes, borders, background1, background2, border_colors, stack_item.clip_rect, renderer, pixel_format);
             }
 
-            if (num_descendants != 1) {
+            if (subtree_size != 1) {
                 const new_clip_rect = switch (visual_effect.overflow) {
                     .Visible => stack_item.clip_rect,
-                    .Hidden =>
-                    // TODO if there is no intersection here, then
-                    // child elements don't need to be rendered
-                    stack_item.clip_rect.intersect(boxes.padding),
+                    .Hidden => stack_item.clip_rect.intersect(boxes.padding),
                 };
-                assert(sdl.SDL_RenderSetClipRect(renderer, &cssRectToSdlRect(new_clip_rect)) == 0);
 
-                try stack.append(StackItem{
-                    .interval = Interval{ .begin = index + 1, .end = index + num_descendants },
-                    .cumulative_offset = stack_item.cumulative_offset.add(box_offsets.content_top_left),
-                    .clip_rect = new_clip_rect,
-                });
-                continue :stackLoop;
+                // No need to draw children is the clip rect is empty.
+                if (!new_clip_rect.isEmpty()) {
+                    assert(sdl.SDL_RenderSetClipRect(renderer, &cssRectToSdlRect(new_clip_rect)) == 0);
+                    try stack.append(StackItem{
+                        .interval = Interval{ .begin = used_id + 1, .end = used_id + subtree_size },
+                        .cumulative_offset = stack_item.cumulative_offset.add(box_offsets.content_top_left),
+                        .clip_rect = new_clip_rect,
+                    });
+                    continue :stackLoop;
+                }
             }
         }
 
@@ -439,7 +437,8 @@ pub fn drawBackgroundImage(
                 .h = size.y,
             };
             var intersection = @as(sdl.SDL_Rect, undefined);
-            // TODO check this assertion
+            // getBackgroundImageRepeatInfo should never return info that would make us draw
+            // an image that is completely outside of the background painting area.
             assert(sdl.SDL_IntersectRect(&painting_area, &image_rect, &intersection) == .SDL_TRUE);
             assert(sdl.SDL_RenderCopy(
                 renderer,
@@ -499,10 +498,16 @@ fn getBackgroundImageRepeatInfo(
                 };
             } else {
                 const space = positioning_area_size % image_size;
-                //const before = zss.util.divCeil(c_int, @intCast(c_int, positioning_area_count) * positioning_area_offset, @intCast(c_int, positioning_area_size));
-                //const after = zss.util.divCeil(c_int, @intCast(c_int, positioning_area_size) * (@intCast(c_int, painting_area_size) - @intCast(c_int, positioning_area_size) - positioning_area_offset), @intCast(c_int, positioning_area_size));
-                const before = zss.util.divCeil(c_int, @intCast(c_int, positioning_area_count - 1) * positioning_area_offset - @intCast(c_int, space), @intCast(c_int, positioning_area_size - image_size));
-                const after = zss.util.divCeil(c_int, @intCast(c_int, positioning_area_count - 1) * (@intCast(c_int, painting_area_size) - @intCast(c_int, positioning_area_size) - positioning_area_offset) - @intCast(c_int, space), @intCast(c_int, positioning_area_size - image_size));
+                const before = zss.util.divCeil(
+                    c_int,
+                    @intCast(c_int, positioning_area_count - 1) * positioning_area_offset - @intCast(c_int, space),
+                    @intCast(c_int, positioning_area_size - image_size),
+                );
+                const after = zss.util.divCeil(
+                    c_int,
+                    @intCast(c_int, positioning_area_count - 1) * (@intCast(c_int, painting_area_size) - @intCast(c_int, positioning_area_size) - positioning_area_offset) - @intCast(c_int, space),
+                    @intCast(c_int, positioning_area_size - image_size),
+                );
                 const count = @intCast(c_uint, before + after + @intCast(c_int, positioning_area_count));
                 break :blk GetBackgroundImageRepeatInfoType{
                     .count = count,

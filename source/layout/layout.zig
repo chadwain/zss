@@ -227,7 +227,6 @@ fn blockLevelElementSwitch(context: *BlockLayoutContext, data: *IntermediateBloc
         .block_flow_root, .block_flow => return blockLevelElementBeginProcessing(context, data, allocator, interval),
         .inline_flow, .text => return blockLevelNewInlineData(context, data, allocator, interval),
         .none => return,
-        .initial, .inherit, .unset => unreachable,
     }
 }
 
@@ -252,10 +251,6 @@ fn blockLevelElementBeginProcessing(context: *BlockLayoutContext, data: *Interme
                 });
                 context.in_flow_positioning_data_count.items[context.in_flow_positioning_data_count.items.len - 1] += 1;
             },
-            .sticky => @panic("TODO: sticky positioning"),
-            .absolute => @panic("TODO: absolute positioning"),
-            .fixed => @panic("TODO: fixed positioning"),
-            .initial, .inherit, .unset => unreachable,
         }
     }
 
@@ -308,8 +303,7 @@ fn blockContainerFinishProcessing(context: *BlockLayoutContext, data: *Intermedi
 fn blockContainerFinalizeBlockSizes(box_offsets: *BoxOffsets, used_block_sizes: UsedBlockSizes, auto_block_size: CSSUnit, parent_auto_block_size: *CSSUnit) struct {
     used_block_size: CSSUnit,
 } {
-    // TODO UB if min_size > max_size
-    const used_block_size = std.math.clamp(used_block_sizes.size orelse auto_block_size, used_block_sizes.min_size, used_block_sizes.max_size);
+    const used_block_size = std.math.max(std.math.min(used_block_sizes.size orelse auto_block_size, used_block_sizes.max_size), used_block_sizes.min_size);
     box_offsets.border_top_left.y = parent_auto_block_size.* + used_block_sizes.margin_start;
     box_offsets.content_top_left.y += box_offsets.border_top_left.y;
     box_offsets.content_bottom_right.y = box_offsets.content_top_left.y + used_block_size;
@@ -349,13 +343,11 @@ fn resolveRelativePositionInset(context: *BlockLayoutContext, position_inset: *c
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
         .auto => null,
-        .initial, .inherit, .unset => unreachable,
     };
     const inline_end = switch (position_inset.inline_end) {
         .px => |value| -length(.px, value),
         .percentage => |value| -percentage(value, containing_block_inline_size),
         .auto => null,
-        .initial, .inherit, .unset => unreachable,
     };
     const block_start: ?InFlowInsets.BlockInset = switch (position_inset.block_start) {
         .px => |value| InFlowInsets.BlockInset{ .length = length(.px, value) },
@@ -364,7 +356,6 @@ fn resolveRelativePositionInset(context: *BlockLayoutContext, position_inset: *c
         else
             InFlowInsets.BlockInset{ .percentage = value },
         .auto => null,
-        .initial, .inherit, .unset => unreachable,
     };
     const block_end: ?InFlowInsets.BlockInset = switch (position_inset.block_end) {
         .px => |value| InFlowInsets.BlockInset{ .length = -length(.px, value) },
@@ -373,7 +364,6 @@ fn resolveRelativePositionInset(context: *BlockLayoutContext, position_inset: *c
         else
             InFlowInsets.BlockInset{ .percentage = -value },
         .auto => null,
-        .initial, .inherit, .unset => unreachable,
     };
     return InFlowInsets{
         .inline_axis = inline_start orelse inline_end orelse 0,
@@ -393,46 +383,44 @@ fn percentage(value: f32, unit: CSSUnit) CSSUnit {
     return @floatToInt(CSSUnit, @round(@intToFloat(f32, unit) * value));
 }
 
-fn lineWidth(val: computed.LogicalSize.BorderValue) CSSUnit {
-    return switch (val) {
+fn borderWidth(val: computed.LogicalSize.BorderValue) CSSUnit {
+    const result = switch (val) {
         .px => |value| length(.px, value),
         .thin => 1,
-        .medium => 3,
-        .thick => 5,
-        .initial, .inherit, .unset => unreachable,
+        .medium => 5,
+        .thick => 10,
     };
+    // Illegal CSS: border widths must be positive
+    assert(result >= 0);
+    return result;
 }
 
 fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, original_id: u16, box_offsets: *BoxOffsets, borders: *used_values.Borders) CSSUnit {
+    const min = std.math.min;
+    const max = std.math.max;
     const inline_size = context.box_tree.inline_size[original_id];
     const containing_block_inline_size = context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1];
 
-    // TODO border widths must always be positive
-    const border_start = lineWidth(inline_size.border_start_width);
-    const border_end = lineWidth(inline_size.border_end_width);
+    const border_start = borderWidth(inline_size.border_start_width);
+    const border_end = borderWidth(inline_size.border_end_width);
     const padding_start = switch (inline_size.padding_start) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
-        .initial, .inherit, .unset => unreachable,
     };
     const padding_end = switch (inline_size.padding_end) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
-        .initial, .inherit, .unset => unreachable,
     };
     const cm_space = containing_block_inline_size - (border_start + border_end + padding_start + padding_end);
 
-    // TODO UB if min_size > max_size
     const min_size = switch (inline_size.min_size) {
         .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, std.math.max(0, containing_block_inline_size)),
-        .initial, .inherit, .unset => unreachable,
+        .percentage => |value| percentage(value, max(0, containing_block_inline_size)),
     };
     const max_size = switch (inline_size.max_size) {
         .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, std.math.max(0, containing_block_inline_size)),
+        .percentage => |value| percentage(value, max(0, containing_block_inline_size)),
         .none => std.math.maxInt(CSSUnit),
-        .initial, .inherit, .unset => unreachable,
     };
 
     var auto_bitfield: u3 = 0;
@@ -447,7 +435,6 @@ fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, o
             auto_bitfield |= size_bit;
             break :blk 0;
         },
-        .initial, .inherit, .unset => unreachable,
     };
     var margin_start = switch (inline_size.margin_start) {
         .px => |value| length(.px, value),
@@ -456,7 +443,6 @@ fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, o
             auto_bitfield |= margin_start_bit;
             break :blk 0;
         },
-        .initial, .inherit, .unset => unreachable,
     };
     var margin_end = switch (inline_size.margin_end) {
         .px => |value| length(.px, value),
@@ -465,24 +451,23 @@ fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, o
             auto_bitfield |= margin_end_bit;
             break :blk 0;
         },
-        .initial, .inherit, .unset => unreachable,
     };
 
     if (auto_bitfield == 0) {
         // TODO(§10.3.3): which margin gets set is affected by the 'direction' property
-        size = std.math.clamp(size, min_size, max_size);
+        size = max(min(size, max_size), min_size);
         margin_end = cm_space - size - margin_start;
     } else if (auto_bitfield & size_bit == 0) {
         const start = auto_bitfield & margin_start_bit;
         const end = auto_bitfield & margin_end_bit;
         const shr_amount = @boolToInt(start | end == margin_start_bit | margin_end_bit);
-        size = std.math.clamp(size, min_size, max_size);
-        const leftover_margin = std.math.max(0, cm_space - (size + margin_start + margin_end));
+        size = max(min(size, max_size), min_size);
+        const leftover_margin = max(0, cm_space - (size + margin_start + margin_end));
         // NOTE: which margin gets the extra 1 unit shall be affected by the 'direction' property
         if (start == 0) margin_start = leftover_margin >> shr_amount;
         if (end == 0) margin_end = (leftover_margin >> shr_amount) + @mod(leftover_margin, 2);
     } else {
-        size = std.math.clamp(cm_space - margin_start - margin_end, min_size, max_size);
+        size = max(min(cm_space - margin_start - margin_end, max_size), min_size);
     }
 
     // TODO using physical property when we should be using a logical one
@@ -511,42 +496,34 @@ fn blockLevelBoxSolveBlockSizesAndOffsets(context: *const BlockLayoutContext, or
         else
             null,
         .auto => null,
-        .initial, .inherit, .unset => unreachable,
     };
-    // TODO border widths must always be positive
-    const border_start = lineWidth(block_size.border_start_width);
-    const border_end = lineWidth(block_size.border_end_width);
+    const border_start = borderWidth(block_size.border_start_width);
+    const border_end = borderWidth(block_size.border_end_width);
     const padding_start = switch (block_size.padding_start) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
-        .initial, .inherit, .unset => unreachable,
     };
     const padding_end = switch (block_size.padding_end) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
-        .initial, .inherit, .unset => unreachable,
     };
     const margin_start = switch (block_size.margin_start) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
         .auto => 0,
-        .initial, .inherit, .unset => unreachable,
     };
     const margin_end = switch (block_size.margin_end) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
         .auto => 0,
-        .initial, .inherit, .unset => unreachable,
     };
 
-    // TODO UB if min_size > max_size
     const min_size = switch (block_size.min_size) {
         .px => |value| length(.px, value),
         .percentage => |value| if (containing_block_block_size) |s|
             percentage(value, s)
         else
             0,
-        .initial, .inherit, .unset => unreachable,
     };
     const max_size = switch (block_size.max_size) {
         .px => |value| length(.px, value),
@@ -555,7 +532,6 @@ fn blockLevelBoxSolveBlockSizesAndOffsets(context: *const BlockLayoutContext, or
         else
             std.math.maxInt(CSSUnit),
         .none => std.math.maxInt(CSSUnit),
-        .initial, .inherit, .unset => unreachable,
     };
 
     // TODO using physical property when we should be using a logical one
@@ -788,7 +764,6 @@ pub fn createInlineRenderingData(context: *InlineLayoutContext, allocator: *Allo
     errdefer data.deinit(allocator);
     try data.ensureCapacity(allocator, root_interval.end - root_interval.begin + 1);
 
-    // TODO delete this font stuff
     const font = context.box_tree.font;
     data.font = font.font.?;
 
@@ -841,7 +816,6 @@ pub fn createInlineRenderingData(context: *InlineLayoutContext, allocator: *Allo
                     break;
                 },
                 .none => continue,
-                .initial, .inherit, .unset => unreachable,
             }
         }
     }
@@ -962,40 +936,34 @@ fn addInlineElementData(box_tree: *const BoxTree, data: *IntermediateInlineRende
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
         .auto => 0,
-        .initial, .inherit, .unset => unreachable,
     };
-    const border_inline_start = lineWidth(inline_sizes.border_start_width);
+    const border_inline_start = borderWidth(inline_sizes.border_start_width);
     const padding_inline_start = switch (inline_sizes.padding_start) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
-        .initial, .inherit, .unset => unreachable,
     };
     const margin_inline_end = switch (inline_sizes.margin_end) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
         .auto => 0,
-        .initial, .inherit, .unset => unreachable,
     };
-    const border_inline_end = lineWidth(inline_sizes.border_end_width);
+    const border_inline_end = borderWidth(inline_sizes.border_end_width);
     const padding_inline_end = switch (inline_sizes.padding_end) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
-        .initial, .inherit, .unset => unreachable,
     };
 
     const block_sizes = box_tree.block_size[original_id];
 
-    const border_block_start = lineWidth(block_sizes.border_start_width);
+    const border_block_start = borderWidth(block_sizes.border_start_width);
     const padding_block_start = switch (block_sizes.padding_start) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
-        .initial, .inherit, .unset => unreachable,
     };
-    const border_block_end = lineWidth(block_sizes.border_end_width);
+    const border_block_end = borderWidth(block_sizes.border_end_width);
     const padding_block_end = switch (block_sizes.padding_end) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
-        .initial, .inherit, .unset => unreachable,
     };
 
     // TODO using physical property when we should be using a logical one
@@ -1071,7 +1039,6 @@ fn solveBorderColors(border: computed.Border) used_values.BorderColor {
         fn f(color: computed.Border.BorderColor) u32 {
             return switch (color) {
                 .rgba => |rgba| rgba,
-                .initial, .inherit, .unset => unreachable,
             };
         }
     }.f;
@@ -1088,13 +1055,11 @@ fn solveBackground1(bg: computed.Background) used_values.Background1 {
     return used_values.Background1{
         .color_rgba = switch (bg.color) {
             .rgba => |rgba| rgba,
-            .initial, .inherit, .unset => unreachable,
         },
         .clip = switch (bg.clip) {
             .border_box => .Border,
             .padding_box => .Padding,
             .content_box => .Content,
-            .initial, .inherit, .unset => unreachable,
         },
     };
 }
@@ -1104,13 +1069,11 @@ fn solveBackground2(bg: computed.Background) used_values.Background2 {
         .image = switch (bg.image) {
             .data => |ptr| ptr,
             .none => null,
-            .initial, .inherit, .unset => unreachable,
         },
         .origin = switch (bg.origin) {
             .border_box => .Border,
             .padding_box => .Padding,
             .content_box => .Content,
-            .initial, .inherit, .unset => unreachable,
         },
         .position = switch (bg.position) {
             .position => |position| .{
@@ -1129,7 +1092,6 @@ fn solveBackground2(bg: computed.Background) used_values.Background2 {
                     },
                 },
             },
-            .initial, .inherit, .unset => unreachable,
         },
         .size = switch (bg.size) {
             .size => |size| .{
@@ -1146,7 +1108,6 @@ fn solveBackground2(bg: computed.Background) used_values.Background2 {
             },
             .cover => @panic("TODO background-size: cover"),
             .contain => @panic("TODO background-size: contain"),
-            .initial, .inherit, .unset => unreachable,
         },
         .repeat = switch (bg.repeat) {
             .repeat => |repeat| .{
@@ -1163,7 +1124,6 @@ fn solveBackground2(bg: computed.Background) used_values.Background2 {
                     .no_repeat => .None,
                 },
             },
-            .initial, .inherit, .unset => unreachable,
         },
     };
 }

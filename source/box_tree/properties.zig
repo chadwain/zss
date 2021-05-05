@@ -1,4 +1,4 @@
-const values = @import("values.zig");
+const values = @import("./values.zig");
 
 fn withDefaults(comptime T: type) type {
     const Defaults = values.mergeUnions(values.Initial, values.mergeUnions(values.Inherit, values.Unset));
@@ -18,12 +18,12 @@ fn withPercentage(comptime T: type) type {
 }
 
 pub const LogicalSize = struct {
-    pub const Size = withDefaults(withAuto(values.LengthPercentage));
-    pub const MinValue = withDefaults(values.LengthPercentage);
-    pub const MaxValue = withDefaults(withNone(values.LengthPercentage));
-    pub const BorderValue = withDefaults(values.LineWidth);
-    pub const PaddingValue = withDefaults(values.LengthPercentage);
-    pub const MarginValue = withDefaults(withAuto(values.LengthPercentage));
+    pub const Size = withAuto(values.LengthPercentage);
+    pub const MinValue = values.LengthPercentage;
+    pub const MaxValue = withNone(values.LengthPercentage);
+    pub const BorderValue = values.LineWidth;
+    pub const PaddingValue = values.LengthPercentage;
+    pub const MarginValue = withAuto(values.LengthPercentage);
 
     size: Size = .{ .auto = {} },
     min_size: MinValue = .{ .px = 0 },
@@ -38,11 +38,11 @@ pub const LogicalSize = struct {
     margin_end: MarginValue = .{ .px = 0 },
 };
 
-pub const Display = withDefaults(withNone(values.Display));
+pub const Display = withNone(values.Display);
 
 pub const PositionInset = struct {
-    pub const PositionValue = withDefaults(values.Position);
-    pub const InsetValue = withDefaults(withAuto(values.LengthPercentage));
+    pub const PositionValue = values.Position;
+    pub const InsetValue = withAuto(values.LengthPercentage);
 
     position: PositionValue = .{ .static = {} },
     block_start: InsetValue = .{ .auto = {} },
@@ -61,13 +61,13 @@ pub const Font = struct {
 };
 
 pub const Background = struct {
-    pub const ImageValue = withDefaults(withNone(values.BackgroundImage));
-    pub const ColorValue = withDefaults(values.Color);
-    pub const ClipValue = withDefaults(values.Box);
-    pub const OriginValue = withDefaults(values.Box);
-    pub const SizeValue = withDefaults(values.BackgroundSize);
-    pub const PositionValue = withDefaults(values.BackgroundPosition);
-    pub const RepeatValue = withDefaults(values.RepeatStyle);
+    pub const ImageValue = withNone(values.BackgroundImage);
+    pub const ColorValue = values.Color;
+    pub const ClipValue = values.Box;
+    pub const OriginValue = values.Box;
+    pub const SizeValue = values.BackgroundSize;
+    pub const PositionValue = values.BackgroundPosition;
+    pub const RepeatValue = values.RepeatStyle;
 
     image: ImageValue = .{ .none = {} },
     // TODO wrong default here
@@ -90,7 +90,7 @@ pub const Background = struct {
 };
 
 pub const Border = struct {
-    pub const BorderColor = withDefaults(values.Color);
+    pub const BorderColor = values.Color;
 
     // TODO wrong defaults
     block_start_color: BorderColor = .{ .rgba = 0 },

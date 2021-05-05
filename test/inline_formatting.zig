@@ -143,5 +143,5 @@ fn exampleInlineData(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFor
 
     inl.dump();
 
-    zss.sdl_freetype.drawInlineData(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat);
+    try zss.sdl_freetype.drawInlineData(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat);
 }

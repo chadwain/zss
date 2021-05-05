@@ -13,7 +13,3 @@ pub const BoxTree = struct {
     background: []Background,
     //position_inset: []PositionInset,
 };
-
-test "box tree" {
-    var tree = @as(BoxTree, undefined);
-}
