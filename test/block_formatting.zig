@@ -124,13 +124,16 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
 
     zss.sdl_freetype.drawBlockDataRoot(&ctx, offset, clip_rect, renderer, pixel_format);
     try zss.sdl_freetype.drawBlockDataChildren(&ctx, &gpa.allocator, offset, clip_rect, renderer, pixel_format);
+
+    var atlas = try zss.sdl_freetype.makeGlyphAtlas(face, renderer, pixel_format, &gpa.allocator);
+    defer atlas.deinit(&gpa.allocator);
     for (ctx.inline_data) |inline_data| {
         var o = offset;
         var it = zss.util.PdfsFlatTreeIterator.init(ctx.pdfs_flat_tree, inline_data.id_of_containing_block);
         while (it.next()) |id| {
             o = o.add(ctx.box_offsets[id].content_top_left);
         }
-        try zss.sdl_freetype.drawInlineData(inline_data.data, o, renderer, pixel_format);
+        try zss.sdl_freetype.drawInlineData(inline_data.data, o, renderer, pixel_format, &atlas);
     }
 }
 

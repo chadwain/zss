@@ -1,7 +1,5 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 
 const zss = @import("../../zss.zig");
 const CSSUnit = zss.types.CSSUnit;
@@ -19,12 +17,15 @@ const util = struct {
 pub const drawBlockDataRoot = util.drawBlockDataRoot;
 pub const drawBlockDataChildren = util.drawBlockDataChildren;
 pub const textureAsBackgroundImage = util.textureAsBackgroundImage;
+pub const GlyphAtlas = util.GlyphAtlas;
+pub const makeGlyphAtlas = util.makeGlyphAtlas;
 
 pub fn drawInlineData(
     context: *const InlineRenderingData,
     cumulative_offset: Offset,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
+    atlas: *const GlyphAtlas,
 ) !void {
     const face = hb.hb_ft_font_get_face(context.font);
 
@@ -50,16 +51,23 @@ pub fn drawInlineData(
                 continue;
             }
 
-            assert(hb.FT_Load_Glyph(face, glyph_index, hb.FT_LOAD_DEFAULT | hb.FT_LOAD_NO_HINTING) == hb.FT_Err_Ok);
-            assert(hb.FT_Render_Glyph(face.*.glyph, hb.FT_Render_Mode.FT_RENDER_MODE_NORMAL) == 0);
-
-            const bitmap = face.*.glyph.*.bitmap;
-            if (bitmap.width == 0 or bitmap.rows == 0) continue;
-            const final_position = sdl.SDL_Point{
-                .x = util.cssUnitToSdlPixel(cumulative_offset.x + cursor + position.offset),
-                .y = util.cssUnitToSdlPixel(cumulative_offset.y + line_box.baseline) - face.*.glyph.*.bitmap_top,
-            };
-            try util.drawGlyph(bitmap, final_position, renderer, pixel_format);
+            const glyph_info = atlas.map.get(glyph_index) orelse unreachable;
+            assert(sdl.SDL_RenderCopy(
+                renderer,
+                atlas.texture,
+                &sdl.SDL_Rect{
+                    .x = (glyph_info.slot % 16) * atlas.glyph_width,
+                    .y = (glyph_info.slot / 16) * atlas.glyph_height,
+                    .w = glyph_info.width,
+                    .h = glyph_info.height,
+                },
+                &sdl.SDL_Rect{
+                    .x = util.cssUnitToSdlPixel(cumulative_offset.x + cursor + position.offset),
+                    .y = util.cssUnitToSdlPixel(cumulative_offset.y + line_box.baseline) - glyph_info.ascender_px,
+                    .w = glyph_info.width,
+                    .h = glyph_info.height,
+                },
+            ) == 0);
         }
     }
 }

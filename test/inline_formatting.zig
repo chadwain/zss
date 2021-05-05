@@ -141,7 +141,8 @@ fn exampleInlineData(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFor
     var inl = try zss.layout.createInlineRenderingData(&context, al);
     defer inl.deinit(al);
 
-    inl.dump();
+    var atlas = try zss.sdl_freetype.makeGlyphAtlas(hb.hb_ft_font_get_face(hbfont), renderer, pixelFormat, al);
+    defer atlas.deinit(al);
 
-    try zss.sdl_freetype.drawInlineData(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat);
+    try zss.sdl_freetype.drawInlineData(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat, &atlas);
 }

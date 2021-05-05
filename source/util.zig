@@ -34,6 +34,19 @@ pub fn divCeil(comptime T: type, a: T, b: T) T {
     return @divFloor(a, b) + @boolToInt(@mod(a, b) != 0);
 }
 
+pub fn roundUp(comptime T: type, a: T, comptime multiple: comptime_int) T {
+    const mod = @mod(a, multiple);
+    return a + (multiple - mod) * @boolToInt(mod != 0);
+}
+
+test "roundUp" {
+    const expect = @import("std").testing.expect;
+    expect(roundUp(usize, 0, 4) == 0);
+    expect(roundUp(usize, 1, 4) == 4);
+    expect(roundUp(usize, 3, 4) == 4);
+    expect(roundUp(usize, 62, 7) == 63);
+}
+
 pub const PdfsFlatTreeIterator = struct {
     items: []const u16,
     current: u16,
