@@ -2,8 +2,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const zss = @import("../../zss.zig");
-const CSSUnit = zss.types.CSSUnit;
-const Offset = zss.types.Offset;
+const CSSUnit = zss.used_values.CSSUnit;
+const Offset = zss.used_values.Offset;
 const InlineRenderingData = zss.used_values.InlineRenderingData;
 
 const hb = @import("harfbuzz");

@@ -111,7 +111,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
     var ctx = try exampleBlockData(&gpa.allocator, zig_png, hbfont);
     defer ctx.deinit(&gpa.allocator);
 
-    const offset = zss.types.Offset{
+    const offset = zss.used_values.Offset{
         .x = 0,
         .y = 0,
     };
@@ -140,7 +140,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
 fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hbfont: *hb.hb_font_t) !zss.used_values.BlockRenderingData {
     const len = 3;
     var pdfs_flat_tree = [len]u16{ 3, 2, 1 };
-    var inline_size = [len]zss.properties.LogicalSize{
+    var inline_size = [len]zss.box_tree.LogicalSize{
         .{
             .size = .{ .px = 500 },
             .padding_start = .{ .px = 100 },
@@ -152,7 +152,7 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
         },
         .{},
     };
-    var block_size = [len]zss.properties.LogicalSize{
+    var block_size = [len]zss.box_tree.LogicalSize{
         .{
             .size = .{ .px = 550 },
             .padding_start = .{ .px = 50 },
@@ -160,19 +160,19 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
         .{},
         .{},
     };
-    var display = [len]zss.properties.Display{
+    var display = [len]zss.box_tree.Display{
         .{ .block_flow_root = {} },
         .{ .block_flow = {} },
         .{ .text = {} },
     };
-    //var position_inset = [_]zss.properties.PositionInset{.{}} ** len;
-    var latin1_text = [_]zss.properties.Latin1Text{.{ .text = "" }} ** len;
-    var border = [len]zss.properties.Border{
+    //var position_inset = [_]zss.box_tree.PositionInset{.{}} ** len;
+    var latin1_text = [_]zss.box_tree.Latin1Text{.{ .text = "" }} ** len;
+    var border = [len]zss.box_tree.Border{
         .{ .inline_end_color = .{ .rgba = 0xffffff40 } },
         .{},
         .{},
     };
-    var background = [len]zss.properties.Background{
+    var background = [len]zss.box_tree.Background{
         .{
             .color = .{ .rgba = 0xff2233ff },
             .image = .{ .data = zss.sdl_freetype.textureAsBackgroundImage(zig_png) },
@@ -192,7 +192,7 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
         .{},
     };
     latin1_text[2] = .{ .text = "wow! look at this cool document I made using zss!" };
-    var font = zss.properties.Font{ .font = hbfont };
+    var font = zss.box_tree.Font{ .font = hbfont };
     const box_tree = zss.box_tree.BoxTree{
         .pdfs_flat_tree = &pdfs_flat_tree,
         .inline_size = &inline_size,

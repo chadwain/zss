@@ -2,9 +2,9 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const zss = @import("../../../zss.zig");
-const CSSUnit = zss.types.CSSUnit;
+const CSSUnit = zss.used_values.CSSUnit;
 const CSSRect = zss.types.CSSRect;
-const Offset = zss.types.Offset;
+const Offset = zss.used_values.Offset;
 const BlockRenderingData = zss.used_values.BlockRenderingData;
 
 const sdl = @import("SDL2");

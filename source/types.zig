@@ -4,33 +4,11 @@ const min = std.math.min;
 const max = std.math.max;
 
 const zss = @import("../zss.zig");
-
-/// An integral, indivisible unit of space which is the basis for all CSS layout
-/// computations.
-pub const CSSUnit = i32;
-
-pub const Percentage = f32;
+const CSSUnit = zss.used_values.CSSUnit;
 
 pub fn Ratio(comptime T: type) type {
     return struct { num: T, den: T };
 }
-
-pub const Offset = struct {
-    x: CSSUnit,
-    y: CSSUnit,
-
-    const Self = @This();
-    pub fn add(lhs: Self, rhs: Self) Self {
-        return Self{ .x = lhs.x + rhs.x, .y = lhs.y + rhs.y };
-    }
-};
-
-pub const BoxOffsets = struct {
-    border_top_left: Offset,
-    border_bottom_right: Offset,
-    content_top_left: Offset,
-    content_bottom_right: Offset,
-};
 
 pub const CSSSize = struct {
     w: CSSUnit,

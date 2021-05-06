@@ -28,18 +28,6 @@ pub fn mergeUnions(comptime A: type, comptime B: type) type {
     });
 }
 
-pub const Initial = union(enum) {
-    initial,
-};
-
-pub const Inherit = union(enum) {
-    inherit,
-};
-
-pub const Unset = union(enum) {
-    unset: u1 = 0,
-};
-
 pub const None = union(enum) {
     none,
 };

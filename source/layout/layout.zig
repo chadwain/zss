@@ -4,12 +4,12 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const assert = std.debug.assert;
 
 const zss = @import("../../zss.zig");
-const computed = zss.properties;
 const values = zss.values;
-const BoxTree = zss.box_tree.BoxTree;
-usingnamespace zss.types;
+const computed = zss.box_tree;
+const BoxTree = computed.BoxTree;
 
 const used_values = @import("./used_values.zig");
+const CSSUnit = used_values.CSSUnit;
 const BlockRenderingData = used_values.BlockRenderingData;
 const InlineRenderingData = used_values.InlineRenderingData;
 
@@ -124,7 +124,7 @@ const IntermediateBlockRenderingData = struct {
     const Self = @This();
 
     pdfs_flat_tree: ArrayListUnmanaged(u16) = .{},
-    box_offsets: ArrayListUnmanaged(BoxOffsets) = .{},
+    box_offsets: ArrayListUnmanaged(used_values.BoxOffsets) = .{},
     borders: ArrayListUnmanaged(used_values.Borders) = .{},
     border_colors: ArrayListUnmanaged(used_values.BorderColor) = .{},
     background1: ArrayListUnmanaged(used_values.Background1) = .{},
@@ -209,7 +209,7 @@ pub fn createBlockRenderingData(context: *BlockLayoutContext, allocator: *Alloca
     }
 
     { // Finish processing the root element.
-        var box_offsets = BoxOffsets{
+        var box_offsets = used_values.BoxOffsets{
             .border_top_left = .{ .x = 0, .y = 0 },
             .border_bottom_right = .{ .x = 0, .y = 0 },
             .content_top_left = .{ .x = 0, .y = 0 },
@@ -293,14 +293,14 @@ fn blockLevelElementBeginProcessing(context: *BlockLayoutContext, data: *Interme
     }
 }
 
-fn blockContainerFinishProcessing(context: *BlockLayoutContext, data: *IntermediateBlockRenderingData, box_offsets: *BoxOffsets, parent_auto_block_size: *CSSUnit) void {
+fn blockContainerFinishProcessing(context: *BlockLayoutContext, data: *IntermediateBlockRenderingData, box_offsets: *used_values.BoxOffsets, parent_auto_block_size: *CSSUnit) void {
     const used_block_sizes = context.static_containing_block_used_block_sizes.items[context.static_containing_block_used_block_sizes.items.len - 1];
     const auto_block_size = context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
     const sizes = blockContainerFinalizeBlockSizes(box_offsets, used_block_sizes, auto_block_size, parent_auto_block_size);
     //applyInFlowPositioningToChildren(context, data.box_offsets.items, sizes.used_block_size);
 }
 
-fn blockContainerFinalizeBlockSizes(box_offsets: *BoxOffsets, used_block_sizes: UsedBlockSizes, auto_block_size: CSSUnit, parent_auto_block_size: *CSSUnit) struct {
+fn blockContainerFinalizeBlockSizes(box_offsets: *used_values.BoxOffsets, used_block_sizes: UsedBlockSizes, auto_block_size: CSSUnit, parent_auto_block_size: *CSSUnit) struct {
     used_block_size: CSSUnit,
 } {
     const used_block_size = std.math.max(std.math.min(used_block_sizes.size orelse auto_block_size, used_block_sizes.max_size), used_block_sizes.min_size);
@@ -314,7 +314,7 @@ fn blockContainerFinalizeBlockSizes(box_offsets: *BoxOffsets, used_block_sizes: 
     };
 }
 
-fn applyInFlowPositioningToChildren(context: *const BlockLayoutContext, box_offsets: []BoxOffsets, containing_block_block_size: CSSUnit) void {
+fn applyInFlowPositioningToChildren(context: *const BlockLayoutContext, box_offsets: []used_values.BoxOffsets, containing_block_block_size: CSSUnit) void {
     const count = context.in_flow_positioning_data_count.items[context.in_flow_positioning_data_count.items.len - 1];
     var i: u16 = 0;
     while (i < count) : (i += 1) {
@@ -329,7 +329,7 @@ fn applyInFlowPositioningToChildren(context: *const BlockLayoutContext, box_offs
             },
         };
         const box_offset = &box_offsets[positioning_data.used_id];
-        inline for (std.meta.fields(BoxOffsets)) |field| {
+        inline for (std.meta.fields(used_values.BoxOffsets)) |field| {
             const offset = &@field(box_offset, field.name);
             offset.* = offset.add(positioning_offset);
         }
@@ -395,7 +395,7 @@ fn borderWidth(val: computed.LogicalSize.BorderValue) CSSUnit {
     return result;
 }
 
-fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, original_id: u16, box_offsets: *BoxOffsets, borders: *used_values.Borders) CSSUnit {
+fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, original_id: u16, box_offsets: *used_values.BoxOffsets, borders: *used_values.Borders) CSSUnit {
     const min = std.math.min;
     const max = std.math.max;
     const inline_size = context.box_tree.inline_size[original_id];
@@ -483,7 +483,7 @@ fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, o
     return size;
 }
 
-fn blockLevelBoxSolveBlockSizesAndOffsets(context: *const BlockLayoutContext, original_id: u16, box_offsets: *BoxOffsets, borders: *used_values.Borders) UsedBlockSizes {
+fn blockLevelBoxSolveBlockSizesAndOffsets(context: *const BlockLayoutContext, original_id: u16, box_offsets: *used_values.BoxOffsets, borders: *used_values.Borders) UsedBlockSizes {
     const block_size = context.box_tree.block_size[original_id];
     const containing_block_inline_size = context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1];
     const containing_block_block_size = context.static_containing_block_used_block_sizes.items[context.static_containing_block_used_block_sizes.items.len - 1].size;
@@ -669,6 +669,10 @@ test "used data" {
 
 const IntermediateInlineRenderingData = struct {
     const Self = @This();
+    pub const MarginLeftRight = struct {
+        left: CSSUnit = 0,
+        right: CSSUnit = 0,
+    };
 
     line_boxes: ArrayListUnmanaged(InlineRenderingData.LineBox) = .{},
     glyph_indeces: ArrayListUnmanaged(hb.hb_codepoint_t) = .{},
@@ -682,7 +686,7 @@ const IntermediateInlineRenderingData = struct {
     heights: ArrayListUnmanaged(InlineRenderingData.Heights) = .{},
     background1: ArrayListUnmanaged(used_values.Background1) = .{},
 
-    margins: ArrayListUnmanaged(used_values.MarginLeftRight) = .{},
+    margins: ArrayListUnmanaged(MarginLeftRight) = .{},
 
     fn deinit(self: *Self, allocator: *Allocator) void {
         self.line_boxes.deinit(allocator);

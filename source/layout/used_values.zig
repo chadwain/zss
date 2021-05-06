@@ -1,13 +1,29 @@
 const zss = @import("../../zss.zig");
-const types = zss.types;
-const CSSUnit = types.CSSUnit;
-const BoxOffsets = types.BoxOffsets;
-const Percentage = types.Percentage;
 
-/// Contains the used value of the 'width' and 'height' properties.
-pub const Dimension = struct {
-    width: CSSUnit = 0,
-    height: CSSUnit = 0,
+/// The fundamental unit of space used for all CSS layout computations in zss.
+pub const CSSUnit = i32;
+
+/// A floating point number usually between 0 and 1, but it can
+/// exceed these values.
+pub const Percentage = f32;
+
+pub const Offset = struct {
+    x: CSSUnit,
+    y: CSSUnit,
+
+    const Self = @This();
+    pub fn add(lhs: Self, rhs: Self) Self {
+        return Self{ .x = lhs.x + rhs.x, .y = lhs.y + rhs.y };
+    }
+};
+
+/// The offsets of various points of a block box, taken from the top-left
+/// corner of the content box of its parent.
+pub const BoxOffsets = struct {
+    border_top_left: Offset,
+    border_bottom_right: Offset,
+    content_top_left: Offset,
+    content_bottom_right: Offset,
 };
 
 /// Contains the used values of the properties 'border-top-width',
@@ -17,53 +33,6 @@ pub const Borders = struct {
     right: CSSUnit = 0,
     bottom: CSSUnit = 0,
     left: CSSUnit = 0,
-};
-
-/// Contains the used values of the properties 'padding-top',
-/// 'padding-right', 'padding-bottom', and 'padding-left'.
-pub const Padding = struct {
-    top: CSSUnit = 0,
-    right: CSSUnit = 0,
-    bottom: CSSUnit = 0,
-    left: CSSUnit = 0,
-};
-
-/// Contains the used values of the properties 'margin-left', and
-/// 'margin-right'.
-pub const MarginLeftRight = struct {
-    left: CSSUnit = 0,
-    right: CSSUnit = 0,
-};
-
-/// Contains the used values of the properties 'margin-top', and
-/// 'margin-bottom'.
-pub const MarginTopBottom = struct {
-    top: CSSUnit = 0,
-    bottom: CSSUnit = 0,
-};
-
-/// Contains the used values of the properties 'margin-left',
-/// 'margin-right', 'border-left-width', 'border-right-width',
-/// 'padding-left', and 'padding-right'.
-pub const MarginBorderPaddingLeftRight = struct {
-    margin_left: CSSUnit = 0,
-    margin_right: CSSUnit = 0,
-    border_left: CSSUnit = 0,
-    border_right: CSSUnit = 0,
-    padding_left: CSSUnit = 0,
-    padding_right: CSSUnit = 0,
-};
-
-/// Contains the used values of the properties 'margin-top',
-/// 'margin-bottom', 'border-top-width', 'border-bottom-width',
-/// 'padding-top', and 'padding-bottom'.
-pub const MarginBorderPaddingTopBottom = struct {
-    margin_top: CSSUnit = 0,
-    margin_bottom: CSSUnit = 0,
-    border_top: CSSUnit = 0,
-    border_bottom: CSSUnit = 0,
-    padding_top: CSSUnit = 0,
-    padding_bottom: CSSUnit = 0,
 };
 
 /// Contains the used values of the properties 'border-top-color',
@@ -182,7 +151,6 @@ pub const InlineRenderingData = struct {
     glyph_indeces: []hb.hb_codepoint_t,
     positions: []Position,
     line_boxes: []LineBox,
-    // TODO one global font for the entire context. should be removed at some point.
     font: *hb.hb_font_t,
 
     pub fn deinit(self: *@This(), allocator: *Allocator) void {

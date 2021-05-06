@@ -2,7 +2,7 @@ const zss = @import("../zss.zig");
 usingnamespace zss.types;
 const used_values = zss.used_values;
 
-pub fn getThreeBoxes(offset: Offset, box_offsets: BoxOffsets, borders: used_values.Borders) ThreeBoxes {
+pub fn getThreeBoxes(offset: used_values.Offset, box_offsets: used_values.BoxOffsets, borders: used_values.Borders) ThreeBoxes {
     const border_x = offset.x + box_offsets.border_top_left.x;
     const border_y = offset.y + box_offsets.border_top_left.y;
     const border_w = box_offsets.border_bottom_right.x - box_offsets.border_top_left.x;
