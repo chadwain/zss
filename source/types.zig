@@ -49,12 +49,12 @@ test "CSSRect" {
     const r4 = CSSRect{ .x = 20, .y = 1, .w = 10, .h = 0 };
 
     const intersect = CSSRect.intersect;
-    expect(std.meta.eql(intersect(r1, r2), CSSRect{ .x = 3, .y = 5, .w = 7, .h = 4 }));
-    expect(intersect(r1, r3).isEmpty());
-    expect(intersect(r1, r4).isEmpty());
-    expect(std.meta.eql(intersect(r2, r3), CSSRect{ .x = 15, .y = 5, .w = 5, .h = 4 }));
-    expect(intersect(r2, r4).isEmpty());
-    expect(intersect(r3, r4).isEmpty());
+    try expect(std.meta.eql(intersect(r1, r2), CSSRect{ .x = 3, .y = 5, .w = 7, .h = 4 }));
+    try expect(intersect(r1, r3).isEmpty());
+    try expect(intersect(r1, r4).isEmpty());
+    try expect(std.meta.eql(intersect(r2, r3), CSSRect{ .x = 15, .y = 5, .w = 5, .h = 4 }));
+    try expect(intersect(r2, r4).isEmpty());
+    try expect(intersect(r3, r4).isEmpty());
 }
 
 pub const ThreeBoxes = struct {

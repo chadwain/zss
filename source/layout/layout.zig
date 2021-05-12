@@ -593,7 +593,7 @@ fn blockLevelNewInlineData(context: *BlockLayoutContext, data: *IntermediateBloc
 
 test "used data" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.testing.expect(!gpa.deinit());
+    defer assert(!gpa.deinit());
     const al = &gpa.allocator;
 
     const len = 4;
@@ -983,7 +983,7 @@ fn addInlineElementData(box_tree: *const BoxTree, data: *IntermediateInlineRende
 
 test "inline used data" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.testing.expect(!gpa.deinit());
+    defer assert(!gpa.deinit());
     const al = &gpa.allocator;
 
     const blob = hb.hb_blob_create_from_file("test/fonts/NotoSans-Regular.ttf");
@@ -1034,7 +1034,7 @@ test "inline used data" {
     var data = try createInlineRenderingData(&context, al);
     defer data.deinit(al);
 
-    std.testing.expect(context.next_box_id == 4);
+    try std.testing.expect(context.next_box_id == 4);
     data.dump();
 }
 

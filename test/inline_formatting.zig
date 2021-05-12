@@ -16,7 +16,7 @@ pub fn main() !void {
     const width = viewport_rect.w;
     const height = viewport_rect.h;
     const window = sdl.SDL_CreateWindow(
-        "An sdl.SDL Window.",
+        "An SDL Window.",
         sdl.SDL_WINDOWPOS_CENTERED_MASK,
         sdl.SDL_WINDOWPOS_CENTERED_MASK,
         width,
@@ -101,7 +101,7 @@ pub fn main() !void {
 
 fn exampleInlineData(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFormat, hbfont: *hb.hb_font_t) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.testing.expect(!gpa.deinit());
+    defer assert(!gpa.deinit());
     const al = &gpa.allocator;
 
     const box_tree = zss.box_tree;

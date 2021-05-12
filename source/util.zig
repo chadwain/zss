@@ -41,10 +41,10 @@ pub fn roundUp(comptime T: type, a: T, comptime multiple: comptime_int) T {
 
 test "roundUp" {
     const expect = @import("std").testing.expect;
-    expect(roundUp(usize, 0, 4) == 0);
-    expect(roundUp(usize, 1, 4) == 4);
-    expect(roundUp(usize, 3, 4) == 4);
-    expect(roundUp(usize, 62, 7) == 63);
+    try expect(roundUp(usize, 0, 4) == 0);
+    try expect(roundUp(usize, 1, 4) == 4);
+    try expect(roundUp(usize, 3, 4) == 4);
+    try expect(roundUp(usize, 62, 7) == 63);
 }
 
 pub const PdfsFlatTreeIterator = struct {

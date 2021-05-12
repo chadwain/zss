@@ -106,7 +106,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
     hb.hb_ft_font_set_funcs(hbfont);
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer expect(!gpa.deinit());
+    defer assert(!gpa.deinit());
 
     var ctx = try exampleBlockData(&gpa.allocator, zig_png, hbfont);
     defer ctx.deinit(&gpa.allocator);
