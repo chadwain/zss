@@ -1,6 +1,19 @@
+const std = @import("std");
+const expect = std.testing.expect;
+
 const zss = @import("../zss.zig");
-usingnamespace zss.types;
 const used_values = zss.used_values;
+const CSSRect = used_values.CSSRect;
+
+pub fn Ratio(comptime T: type) type {
+    return struct { num: T, den: T };
+}
+
+pub const ThreeBoxes = struct {
+    border: CSSRect,
+    padding: CSSRect,
+    content: CSSRect,
+};
 
 pub fn getThreeBoxes(offset: used_values.Offset, box_offsets: used_values.BoxOffsets, borders: used_values.Borders) ThreeBoxes {
     const border_x = offset.x + box_offsets.border_top_left.x;
@@ -40,7 +53,6 @@ pub fn roundUp(comptime T: type, a: T, comptime multiple: comptime_int) T {
 }
 
 test "roundUp" {
-    const expect = @import("std").testing.expect;
     try expect(roundUp(usize, 0, 4) == 0);
     try expect(roundUp(usize, 1, 4) == 4);
     try expect(roundUp(usize, 3, 4) == 4);

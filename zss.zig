@@ -1,4 +1,3 @@
-pub const types = @import("source/types.zig");
 pub const util = @import("source/util.zig");
 
 pub const values = @import("source/box_tree/values.zig");

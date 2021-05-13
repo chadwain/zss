@@ -1,3 +1,7 @@
+const std = @import("std");
+const expect = std.testing.expect;
+const Allocator = std.mem.Allocator;
+
 const zss = @import("../../zss.zig");
 
 /// The fundamental unit of space used for all CSS layout computations in zss.
@@ -14,6 +18,38 @@ pub const Offset = struct {
     const Self = @This();
     pub fn add(lhs: Self, rhs: Self) Self {
         return Self{ .x = lhs.x + rhs.x, .y = lhs.y + rhs.y };
+    }
+};
+
+pub const CSSSize = struct {
+    w: CSSUnit,
+    h: CSSUnit,
+};
+
+pub const CSSRect = struct {
+    x: CSSUnit,
+    y: CSSUnit,
+    w: CSSUnit,
+    h: CSSUnit,
+
+    const Self = @This();
+
+    pub fn isEmpty(self: Self) bool {
+        return self.w <= 0 or self.h <= 0;
+    }
+
+    pub fn intersect(a: Self, b: Self) Self {
+        const left = std.math.max(a.x, b.x);
+        const right = std.math.min(a.x + a.w, b.x + b.w);
+        const top = std.math.max(a.y, b.y);
+        const bottom = std.math.min(a.y + a.h, b.y + b.h);
+
+        return Self{
+            .x = left,
+            .y = top,
+            .w = right - left,
+            .h = bottom - top,
+        };
     }
 };
 
@@ -69,9 +105,6 @@ pub const VisualEffect = struct {
     overflow: enum { Visible, Hidden } = .Visible,
     visibility: enum { Visible, Hidden } = .Visible,
 };
-
-const std = @import("std");
-const Allocator = std.mem.Allocator;
 
 pub const BlockRenderingData = struct {
     pub const InlineData = struct {
@@ -190,3 +223,18 @@ pub const InlineRenderingData = struct {
         }
     }
 };
+
+test "CSSRect" {
+    const r1 = CSSRect{ .x = 0, .y = 0, .w = 10, .h = 10 };
+    const r2 = CSSRect{ .x = 3, .y = 5, .w = 17, .h = 4 };
+    const r3 = CSSRect{ .x = 15, .y = 0, .w = 20, .h = 9 };
+    const r4 = CSSRect{ .x = 20, .y = 1, .w = 10, .h = 0 };
+
+    const intersect = CSSRect.intersect;
+    try expect(std.meta.eql(intersect(r1, r2), CSSRect{ .x = 3, .y = 5, .w = 7, .h = 4 }));
+    try expect(intersect(r1, r3).isEmpty());
+    try expect(intersect(r1, r4).isEmpty());
+    try expect(std.meta.eql(intersect(r2, r3), CSSRect{ .x = 15, .y = 5, .w = 5, .h = 4 }));
+    try expect(intersect(r2, r4).isEmpty());
+    try expect(intersect(r3, r4).isEmpty());
+}

@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 
 const zss = @import("../../../zss.zig");
 const CSSUnit = zss.used_values.CSSUnit;
-const CSSRect = zss.types.CSSRect;
+const CSSRect = zss.used_values.CSSRect;
 const Offset = zss.used_values.Offset;
 const BlockRenderingData = zss.used_values.BlockRenderingData;
 
@@ -181,7 +181,7 @@ pub const BorderColor = struct {
 };
 
 pub fn drawBackgroundAndBorders(
-    boxes: *const zss.types.ThreeBoxes,
+    boxes: *const zss.util.ThreeBoxes,
     borders: zss.used_values.Borders,
     background1: zss.used_values.Background1,
     background2: zss.used_values.Background2,
@@ -457,7 +457,7 @@ pub fn drawBackgroundImage(
 
 const GetBackgroundImageRepeatInfoType = struct {
     count: c_uint,
-    space: zss.types.Ratio(c_uint),
+    space: zss.util.Ratio(c_uint),
     offset: c_int,
     start_index: c_int,
 };
@@ -473,7 +473,7 @@ fn getBackgroundImageRepeatInfo(
     return switch (repeat) {
         .NoRepeat => .{
             .count = 1,
-            .space = zss.types.Ratio(c_uint){ .num = 0, .den = 1 },
+            .space = zss.util.Ratio(c_uint){ .num = 0, .den = 1 },
             .offset = image_offset,
             .start_index = 0,
         },
@@ -482,7 +482,7 @@ fn getBackgroundImageRepeatInfo(
             const after = zss.util.divCeil(c_int, @intCast(c_int, painting_area_size) - positioning_area_offset - image_offset - @intCast(c_int, image_size), @intCast(c_int, image_size));
             break :blk .{
                 .count = @intCast(c_uint, before + after + 1),
-                .space = zss.types.Ratio(c_uint){ .num = 0, .den = 1 },
+                .space = zss.util.Ratio(c_uint){ .num = 0, .den = 1 },
                 .offset = image_offset,
                 .start_index = -before,
             };
@@ -492,7 +492,7 @@ fn getBackgroundImageRepeatInfo(
             if (positioning_area_count <= 1) {
                 break :blk GetBackgroundImageRepeatInfoType{
                     .count = 1,
-                    .space = zss.types.Ratio(c_uint){ .num = 0, .den = 1 },
+                    .space = zss.util.Ratio(c_uint){ .num = 0, .den = 1 },
                     .offset = image_offset,
                     .start_index = 0,
                 };
@@ -511,7 +511,7 @@ fn getBackgroundImageRepeatInfo(
                 const count = @intCast(c_uint, before + after + @intCast(c_int, positioning_area_count));
                 break :blk GetBackgroundImageRepeatInfoType{
                     .count = count,
-                    .space = zss.types.Ratio(c_uint){ .num = space, .den = positioning_area_count - 1 },
+                    .space = zss.util.Ratio(c_uint){ .num = space, .den = positioning_area_count - 1 },
                     .offset = 0,
                     .start_index = -before,
                 };

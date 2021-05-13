@@ -7,7 +7,7 @@ const zss = @import("zss");
 const sdl = @import("SDL2");
 const hb = @import("harfbuzz");
 
-const viewport_rect = zss.types.CSSSize{ .w = 800, .h = 600 };
+const viewport_rect = zss.used_values.CSSSize{ .w = 800, .h = 600 };
 
 pub fn main() !void {
     assert(sdl.SDL_Init(sdl.SDL_INIT_VIDEO) == 0);
