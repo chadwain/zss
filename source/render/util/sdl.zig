@@ -13,6 +13,10 @@ pub fn cssUnitToSdlPixel(css: CSSUnit) i32 {
     return css;
 }
 
+pub fn pixelToCSSUnit(pixels: c_int) CSSUnit {
+    return pixels;
+}
+
 pub fn cssRectToSdlRect(css: CSSRect) sdl.SDL_Rect {
     return sdl.SDL_Rect{
         .x = cssUnitToSdlPixel(css.x),
@@ -111,7 +115,7 @@ pub fn drawBlockDataChildren(
             },
         };
 
-        // No need to draw children is the clip rect is empty.
+        // No need to draw children if the clip rect is empty.
         if (!clip_rect.isEmpty()) {
             try stack.append(StackItem{
                 .interval = Interval{ .begin = 1, .end = context.pdfs_flat_tree[0] },
@@ -149,8 +153,9 @@ pub fn drawBlockDataChildren(
                     .Hidden => stack_item.clip_rect.intersect(boxes.padding),
                 };
 
-                // No need to draw children is the clip rect is empty.
+                // No need to draw children if the clip rect is empty.
                 if (!new_clip_rect.isEmpty()) {
+                    // TODO maybe the wrong place to call SDL_RenderSetClipRect
                     assert(sdl.SDL_RenderSetClipRect(renderer, &cssRectToSdlRect(new_clip_rect)) == 0);
                     try stack.append(StackItem{
                         .interval = Interval{ .begin = used_id + 1, .end = used_id + subtree_size },
@@ -186,6 +191,7 @@ pub fn drawBackgroundAndBorders(
     background1: zss.used_values.Background1,
     background2: zss.used_values.Background2,
     border_colors: zss.used_values.BorderColor,
+    // TODO clip_rect is unused
     clip_rect: CSSRect,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
@@ -389,7 +395,7 @@ pub fn drawBackgroundColor(
 /// Represents one of the ways in which background images can be repeated.
 /// Note that "background-repeat: round" is not explicitly supported, but can
 /// be achieved by first resizing the image and using '.Repeat'.
-pub const Repeat = enum { NoRepeat, Repeat, Space };
+pub const RepeatStyle = enum { NoRepeat, Repeat, Space };
 
 pub fn drawBackgroundImage(
     renderer: *sdl.SDL_Renderer,
@@ -398,7 +404,7 @@ pub fn drawBackgroundImage(
     painting_area: sdl.SDL_Rect,
     position: sdl.SDL_Point,
     size: sdl.SDL_Point,
-    repeat: struct { x: Repeat, y: Repeat },
+    repeat: struct { x: RepeatStyle, y: RepeatStyle },
 ) void {
     if (size.x == 0 or size.y == 0) return;
     const dimensions = blk: {
@@ -455,7 +461,7 @@ pub fn drawBackgroundImage(
     }
 }
 
-const GetBackgroundImageRepeatInfoType = struct {
+const GetBackgroundImageRepeatInfoReturnType = struct {
     count: c_uint,
     space: zss.util.Ratio(c_uint),
     offset: c_int,
@@ -463,13 +469,13 @@ const GetBackgroundImageRepeatInfoType = struct {
 };
 
 fn getBackgroundImageRepeatInfo(
-    repeat: Repeat,
+    repeat: RepeatStyle,
     painting_area_size: c_uint,
     positioning_area_offset: c_int,
     positioning_area_size: c_uint,
     image_offset: c_int,
     image_size: c_uint,
-) GetBackgroundImageRepeatInfoType {
+) GetBackgroundImageRepeatInfoReturnType {
     return switch (repeat) {
         .NoRepeat => .{
             .count = 1,
@@ -490,7 +496,7 @@ fn getBackgroundImageRepeatInfo(
         .Space => blk: {
             const positioning_area_count = positioning_area_size / image_size;
             if (positioning_area_count <= 1) {
-                break :blk GetBackgroundImageRepeatInfoType{
+                break :blk GetBackgroundImageRepeatInfoReturnType{
                     .count = 1,
                     .space = zss.util.Ratio(c_uint){ .num = 0, .den = 1 },
                     .offset = image_offset,
@@ -509,7 +515,7 @@ fn getBackgroundImageRepeatInfo(
                     @intCast(c_int, positioning_area_size - image_size),
                 );
                 const count = @intCast(c_uint, before + after + @intCast(c_int, positioning_area_count));
-                break :blk GetBackgroundImageRepeatInfoType{
+                break :blk GetBackgroundImageRepeatInfoReturnType{
                     .count = count,
                     .space = zss.util.Ratio(c_uint){ .num = space, .den = positioning_area_count - 1 },
                     .offset = 0,

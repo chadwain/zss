@@ -14,6 +14,8 @@ const util = struct {
     usingnamespace @import("util/sdl_freetype.zig");
 };
 
+pub const pixelToCSSUnit = util.pixelToCSSUnit;
+
 pub const drawBlockDataRoot = util.drawBlockDataRoot;
 pub const drawBlockDataChildren = util.drawBlockDataChildren;
 pub const textureAsBackgroundImage = util.textureAsBackgroundImage;
@@ -25,7 +27,7 @@ pub fn drawInlineData(
     cumulative_offset: Offset,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
-    atlas: *const GlyphAtlas,
+    atlas: *GlyphAtlas,
 ) !void {
     const face = hb.hb_ft_font_get_face(context.font);
 
@@ -51,13 +53,18 @@ pub fn drawInlineData(
                 continue;
             }
 
-            const glyph_info = atlas.map.get(glyph_index) orelse unreachable;
+            const glyph_info = atlas.getOrLoadGlyph(glyph_index) catch |err| switch (err) {
+                error.OutOfGlyphSlots => {
+                    std.log.err("Could not load glyph with index {}: {s}\n", .{ glyph_index, @errorName(err) });
+                    continue;
+                },
+            };
             assert(sdl.SDL_RenderCopy(
                 renderer,
                 atlas.texture,
                 &sdl.SDL_Rect{
-                    .x = (glyph_info.slot % 16) * atlas.glyph_width,
-                    .y = (glyph_info.slot / 16) * atlas.glyph_height,
+                    .x = (glyph_info.slot % 16) * atlas.max_glyph_width,
+                    .y = (glyph_info.slot / 16) * atlas.max_glyph_height,
                     .w = glyph_info.width,
                     .h = glyph_info.height,
                 },

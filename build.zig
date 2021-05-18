@@ -54,7 +54,7 @@ pub fn build(b: *Builder) void {
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
 
-    const graphical_test_step = b.step("graphical-test", "Run graphical tests");
+    const graphical_test_step = b.step("graphical-test", "Build graphical tests");
     inline for (graphical_tests) |t| {
         var test_exec = b.addExecutable(t.name, t.root);
         test_exec.setBuildMode(mode);
@@ -72,4 +72,20 @@ pub fn build(b: *Builder) void {
 
         graphical_test_step.dependOn(&test_exec.step);
     }
+
+    const demo_step = b.step("demo", "Build the demo");
+    var demo_exec = b.addExecutable("demo", "demo/demo1.zig");
+    demo_exec.setBuildMode(mode);
+    demo_exec.setTarget(target);
+    demo_exec.addPackage(pkgs.harfbuzz);
+    demo_exec.addPackage(pkgs.freetype);
+    demo_exec.addPackage(pkgs.SDL2);
+    demo_exec.addPackage(pkgs.zss);
+    demo_exec.linkLibC();
+    demo_exec.linkSystemLibrary("harfbuzz");
+    demo_exec.linkSystemLibrary("freetype");
+    demo_exec.linkSystemLibrary("SDL2");
+    demo_exec.linkSystemLibrary("SDL2_image");
+    demo_exec.install();
+    demo_step.dependOn(&demo_exec.step);
 }

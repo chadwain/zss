@@ -125,7 +125,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
     zss.sdl_freetype.drawBlockDataRoot(&ctx, offset, clip_rect, renderer, pixel_format);
     try zss.sdl_freetype.drawBlockDataChildren(&ctx, &gpa.allocator, offset, clip_rect, renderer, pixel_format);
 
-    var atlas = try zss.sdl_freetype.makeGlyphAtlas(face, renderer, pixel_format, &gpa.allocator);
+    var atlas = try zss.sdl_freetype.GlyphAtlas.init(face, renderer, pixel_format, &gpa.allocator);
     defer atlas.deinit(&gpa.allocator);
     for (ctx.inline_data) |inline_data| {
         var o = offset;
