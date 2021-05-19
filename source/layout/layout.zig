@@ -390,8 +390,6 @@ fn borderWidth(val: computed.LogicalSize.BorderValue) CSSUnit {
         .medium => 5,
         .thick => 10,
     };
-    // Illegal CSS: border widths must be positive
-    assert(result >= 0);
     return result;
 }
 
@@ -411,7 +409,6 @@ fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, o
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
     };
-    const cm_space = containing_block_inline_size - (border_start + border_end + padding_start + padding_end);
 
     const min_size = switch (inline_size.min_size) {
         .px => |value| length(.px, value),
@@ -453,6 +450,17 @@ fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, o
         },
     };
 
+    // All of these must be positive.
+    // TODO return an error instead
+    assert(border_start >= 0);
+    assert(border_end >= 0);
+    assert(padding_start >= 0);
+    assert(padding_end >= 0);
+    assert(size >= 0);
+    assert(min_size >= 0);
+    assert(max_size >= 0);
+
+    const cm_space = containing_block_inline_size - (border_start + border_end + padding_start + padding_end);
     if (auto_bitfield == 0) {
         // TODO(§10.3.3): which margin gets set is affected by the 'direction' property
         size = max(min(size, max_size), min_size);
@@ -533,6 +541,16 @@ fn blockLevelBoxSolveBlockSizesAndOffsets(context: *const BlockLayoutContext, or
             std.math.maxInt(CSSUnit),
         .none => std.math.maxInt(CSSUnit),
     };
+
+    // All of these must be positive.
+    // TODO return an error instead
+    assert(border_start >= 0);
+    assert(border_end >= 0);
+    assert(padding_start >= 0);
+    assert(padding_end >= 0);
+    if (size) |s| assert(s >= 0);
+    assert(min_size >= 0);
+    assert(max_size >= 0);
 
     // TODO using physical property when we should be using a logical one
     box_offsets.content_top_left.y = border_start + padding_start;
@@ -969,6 +987,17 @@ fn addInlineElementData(box_tree: *const BoxTree, data: *IntermediateInlineRende
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
     };
+
+    // All of these must be positive.
+    // TODO return an error instead
+    assert(border_inline_start >= 0);
+    assert(border_inline_end >= 0);
+    assert(border_block_start >= 0);
+    assert(border_block_end >= 0);
+    assert(padding_inline_start >= 0);
+    assert(padding_inline_end >= 0);
+    assert(padding_block_start >= 0);
+    assert(padding_block_end >= 0);
 
     // TODO using physical property when we should be using a logical one
     try data.measures_left.append(allocator, .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = undefined });

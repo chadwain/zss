@@ -36,7 +36,7 @@ pub fn main() !u8 {
     const width = 800;
     const height = 600;
     const window = sdl.SDL_CreateWindow(
-        "An SDL Window.",
+        "zss Demo.",
         sdl.SDL_WINDOWPOS_CENTERED_MASK,
         sdl.SDL_WINDOWPOS_CENTERED_MASK,
         width,
@@ -81,11 +81,31 @@ fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocato
 
     const len = 5;
     var pdfs_flat_tree = [len]u16{ 5, 2, 1, 2, 1 };
-    var inline_size = [1]box_tree.LogicalSize{.{}} ** len;
-    var block_size = [len]box_tree.LogicalSize{ .{}, .{ .margin_end = .{ .px = 20 } }, .{}, .{}, .{} };
+    const root_border_width = zss.box_tree.LogicalSize.BorderValue{ .px = 10 };
+    var inline_size = [len]box_tree.LogicalSize{
+        .{ .border_start_width = root_border_width, .border_end_width = root_border_width },
+        .{},
+        .{},
+        .{},
+        .{},
+    };
+    var block_size = [len]box_tree.LogicalSize{
+        .{ .border_start_width = root_border_width, .border_end_width = root_border_width, .margin_start = .{ .px = 50 } },
+        .{ .margin_end = .{ .px = 20 } },
+        .{},
+        .{},
+        .{},
+    };
     var display = [len]box_tree.Display{ .{ .block_flow_root = {} }, .{ .block_flow = {} }, .{ .text = {} }, .{ .block_flow = {} }, .{ .text = {} } };
     var latin1_text = [len]box_tree.Latin1Text{ .{ .text = "" }, .{ .text = "" }, .{ .text = filename }, .{ .text = "" }, .{ .text = bytes } };
-    var border = [1]box_tree.Border{.{}} ** len;
+    const root_border_color = zss.box_tree.Border.BorderColor{ .rgba = 0xaf2233ff };
+    var border = [len]box_tree.Border{
+        .{ .inline_start_color = root_border_color, .inline_end_color = root_border_color, .block_start_color = root_border_color, .block_end_color = root_border_color },
+        .{},
+        .{},
+        .{},
+        .{},
+    };
     var background = [1]box_tree.Background{.{}} ** len;
     var tree = box_tree.BoxTree{
         .pdfs_flat_tree = &pdfs_flat_tree,
@@ -127,6 +147,16 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
     defer atlas.deinit(allocator);
     var needs_relayout = false;
 
+    var max_scroll_y = std.math.min(0, -data.box_offsets[0].border_top_left.y);
+    var min_scroll_y = max_scroll_y - std.math.max(0, data.box_offsets[0].border_bottom_right.y - data.box_offsets[0].border_top_left.y - height);
+    var scroll_y = max_scroll_y;
+    const scroll_speed = 15;
+
+    var frame_times = [1]u64{0} ** 64;
+    var frame_time_index: usize = 0;
+    var sum_of_frame_times: u64 = 0;
+    var timer = try std.time.Timer.start();
+
     var event: sdl.SDL_Event = undefined;
     mainLoop: while (true) {
         while (sdl.SDL_PollEvent(&event) != 0) {
@@ -136,12 +166,26 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
                         .SDL_WINDOWEVENT_SIZE_CHANGED => {
                             width = event.window.data1;
                             height = event.window.data2;
-                            tree.inline_size[0].size = .{ .px = @intToFloat(f32, width) };
-                            tree.block_size[0].size = .{ .px = @intToFloat(f32, height) };
                             needs_relayout = true;
                         },
-                        .SDL_WINDOWEVENT_CLOSE => {
-                            break :mainLoop;
+                        else => {},
+                    }
+                },
+                .SDL_KEYDOWN => {
+                    switch (event.key.keysym.sym) {
+                        sdl.SDLK_UP => {
+                            scroll_y += scroll_speed;
+                            if (scroll_y > max_scroll_y) scroll_y = max_scroll_y;
+                        },
+                        sdl.SDLK_DOWN => {
+                            scroll_y -= scroll_speed;
+                            if (scroll_y < min_scroll_y) scroll_y = min_scroll_y;
+                        },
+                        sdl.SDLK_HOME => {
+                            scroll_y = max_scroll_y;
+                        },
+                        sdl.SDLK_END => {
+                            scroll_y = min_scroll_y;
                         },
                         else => {},
                     }
@@ -161,6 +205,10 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
             var new_data = try zss.layout.createBlockRenderingData(&context, allocator);
             data.deinit(allocator);
             data = new_data;
+
+            max_scroll_y = std.math.min(0, -data.box_offsets[0].border_top_left.y);
+            min_scroll_y = max_scroll_y - std.math.max(0, data.box_offsets[0].border_bottom_right.y - data.box_offsets[0].border_top_left.y - height);
+            scroll_y = std.math.clamp(scroll_y, min_scroll_y, max_scroll_y);
         }
 
         {
@@ -174,7 +222,7 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
             };
             const offset = zss.used_values.Offset{
                 .x = 0,
-                .y = 0,
+                .y = scroll_y,
             };
             zss.sdl_freetype.drawBlockDataRoot(&data, offset, css_viewport_rect, renderer, pixel_format);
             try zss.sdl_freetype.drawBlockDataChildren(&data, allocator, offset, css_viewport_rect, renderer, pixel_format);
@@ -190,5 +238,13 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
         }
 
         sdl.SDL_RenderPresent(renderer);
+
+        const frame_time = timer.lap();
+        const frame_time_slot = &frame_times[frame_time_index % frame_times.len];
+        sum_of_frame_times -= frame_time_slot.*;
+        frame_time_slot.* = frame_time;
+        sum_of_frame_times += frame_time;
+        frame_time_index +%= 1;
+        std.debug.print("\rAverage frame time: {}us", .{sum_of_frame_times / (frame_times.len * 1000)});
     }
 }
