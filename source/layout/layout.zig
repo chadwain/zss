@@ -696,6 +696,7 @@ const IntermediateInlineRenderingData = struct {
     glyph_indeces: ArrayListUnmanaged(hb.hb_codepoint_t) = .{},
     positions: ArrayListUnmanaged(InlineRenderingData.Position) = .{},
     font: *hb.hb_font_t = undefined,
+    font_color_rgba: u32 = undefined,
 
     measures_top: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
     measures_right: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
@@ -745,6 +746,7 @@ const IntermediateInlineRenderingData = struct {
             .glyph_indeces = self.glyph_indeces.toOwnedSlice(allocator),
             .positions = self.positions.toOwnedSlice(allocator),
             .font = self.font,
+            .font_color_rgba = self.font_color_rgba,
         };
     }
 };
@@ -788,6 +790,9 @@ pub fn createInlineRenderingData(context: *InlineLayoutContext, allocator: *Allo
 
     const font = context.box_tree.font;
     data.font = font.font.?;
+    data.font_color_rgba = switch (context.box_tree.font.color) {
+        .rgba => |rgba| rgba,
+    };
 
     const root_used_id = try addRootInlineBoxData(&data, allocator);
     try addBoxStart(&data, allocator, root_used_id);
@@ -921,7 +926,7 @@ fn splitIntoLineBoxes(data: *IntermediateInlineRenderingData, allocator: *Alloca
         const gi = data.glyph_indeces.items[i];
         const pos = data.positions.items[i];
 
-        if (pos.width > 0 and cursor + pos.offset + pos.width > containing_block_inline_size and line_box.elements[1] - line_box.elements[0] > 0) {
+        if (cursor > 0 and pos.width > 0 and cursor + pos.offset + pos.width > containing_block_inline_size and line_box.elements[1] - line_box.elements[0] > 0) {
             try data.line_boxes.append(allocator, line_box);
             cursor = 0;
             line_box = .{ .baseline = line_box.baseline + line_spacing, .elements = [2]usize{ line_box.elements[1], line_box.elements[1] } };

@@ -63,6 +63,7 @@ pub const Latin1Text = struct {
 pub const Font = struct {
     const hb = @import("harfbuzz");
     font: ?*hb.hb_font_t,
+    color: values.Color = .{ .rgba = 0xffffffff },
 };
 
 pub const Background = struct {

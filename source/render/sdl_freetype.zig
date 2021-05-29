@@ -18,6 +18,7 @@ pub const pixelToCSSUnit = util.pixelToCSSUnit;
 
 pub const drawBlockDataRoot = util.drawBlockDataRoot;
 pub const drawBlockDataChildren = util.drawBlockDataChildren;
+pub const drawBackgroundColor = util.drawBackgroundColor;
 pub const textureAsBackgroundImage = util.textureAsBackgroundImage;
 pub const GlyphAtlas = util.GlyphAtlas;
 pub const makeGlyphAtlas = util.makeGlyphAtlas;
@@ -30,6 +31,9 @@ pub fn drawInlineData(
     atlas: *GlyphAtlas,
 ) !void {
     const face = hb.hb_ft_font_get_face(context.font);
+    const color = util.rgbaMap(pixel_format, context.font_color_rgba);
+    assert(sdl.SDL_SetTextureColorMod(atlas.texture, color[0], color[1], color[2]) == 0);
+    assert(sdl.SDL_SetTextureAlphaMod(atlas.texture, color[3]) == 0);
 
     for (context.line_boxes) |line_box| {
         var cursor: CSSUnit = 0;

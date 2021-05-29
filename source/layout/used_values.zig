@@ -185,6 +185,7 @@ pub const InlineRenderingData = struct {
     positions: []Position,
     line_boxes: []LineBox,
     font: *hb.hb_font_t,
+    font_color_rgba: u32,
 
     pub fn deinit(self: *@This(), allocator: *Allocator) void {
         allocator.free(self.glyph_indeces);

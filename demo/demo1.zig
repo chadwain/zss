@@ -11,6 +11,8 @@ const sdl = @import("SDL2");
 const ft = @import("freetype");
 const hb = @import("harfbuzz");
 
+const page_background_color = 0xeeeeeeff;
+
 pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(!gpa.deinit());
@@ -71,10 +73,6 @@ pub fn main() !u8 {
 }
 
 fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator, filename: []const u8, bytes: []const u8) !void {
-    var width: c_int = undefined;
-    var height: c_int = undefined;
-    sdl.SDL_GetWindowSize(window, &width, &height);
-
     const font = hb.hb_ft_font_create_referenced(face) orelse unreachable;
     defer hb.hb_font_destroy(font);
     hb.hb_ft_font_set_funcs(font);
@@ -82,15 +80,16 @@ fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocato
     const len = 5;
     var pdfs_flat_tree = [len]u16{ 5, 2, 1, 2, 1 };
     const root_border_width = zss.box_tree.LogicalSize.BorderValue{ .px = 10 };
+    const root_padding = zss.box_tree.LogicalSize.PaddingValue{ .px = 30 };
     var inline_size = [len]box_tree.LogicalSize{
-        .{ .border_start_width = root_border_width, .border_end_width = root_border_width },
+        .{ .min_size = .{ .px = 200 }, .padding_start = root_padding, .padding_end = root_padding, .border_start_width = root_border_width, .border_end_width = root_border_width },
         .{},
         .{},
         .{},
         .{},
     };
     var block_size = [len]box_tree.LogicalSize{
-        .{ .border_start_width = root_border_width, .border_end_width = root_border_width, .margin_start = .{ .px = 50 } },
+        .{ .padding_start = root_padding, .padding_end = root_padding, .border_start_width = root_border_width, .border_end_width = root_border_width },
         .{ .margin_end = .{ .px = 20 } },
         .{},
         .{},
@@ -106,7 +105,7 @@ fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocato
         .{},
         .{},
     };
-    var background = [1]box_tree.Background{.{}} ** len;
+    var background = [len]box_tree.Background{ .{ .color = .{ .rgba = page_background_color } }, .{}, .{}, .{}, .{} };
     var tree = box_tree.BoxTree{
         .pdfs_flat_tree = &pdfs_flat_tree,
         .inline_size = &inline_size,
@@ -115,7 +114,7 @@ fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocato
         .latin1_text = &latin1_text,
         .border = &border,
         .background = &background,
-        .font = .{ .font = font },
+        .font = .{ .font = font, .color = .{ .rgba = 0x101010ff } },
     };
 
     try sdlMainLoop(window, face, allocator, &tree);
@@ -212,7 +211,7 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
         }
 
         {
-            assert(sdl.SDL_RenderClear(renderer) == 0);
+            zss.sdl_freetype.drawBackgroundColor(renderer, pixel_format, sdl.SDL_Rect{ .x = 0, .y = 0, .w = width, .h = height }, page_background_color);
 
             const css_viewport_rect = zss.used_values.CSSRect{
                 .x = 0,
