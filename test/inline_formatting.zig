@@ -105,19 +105,12 @@ fn exampleInlineData(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFor
     const al = &gpa.allocator;
 
     const box_tree = zss.box_tree;
-    const len = 4;
-    var pdfs_flat_tree = [len]u16{ 4, 1, 1, 1 };
-    var inline_size = [len]box_tree.LogicalSize{
-        .{},
-        .{ .border_start_width = .{ .px = 10 }, .border_end_width = .{ .px = 40 } },
-        .{},
-        .{ .border_start_width = .{ .px = 30 }, .border_end_width = .{ .px = 40 } },
-    };
+    const len = 2;
+    var pdfs_flat_tree = [len]u16{ 2, 1 };
+    var inline_size = [_]box_tree.LogicalSize{.{}} ** len;
     var block_size = [_]box_tree.LogicalSize{.{}} ** len;
-    var display = [len]box_tree.Display{ .{ .block_flow_root = {} }, .{ .inline_flow = {} }, .{ .text = {} }, .{ .inline_flow = {} } };
-    //var position_inset = [_]box_tree.PositionInset{.{}} ** len;
-    var latin1_text = [_]box_tree.Latin1Text{.{ .text = "" }} ** len;
-    latin1_text[2].text = "hello world.";
+    var display = [len]box_tree.Display{ .{ .block_flow_root = {} }, .{ .text = {} } };
+    var latin1_text = [len]box_tree.Latin1Text{ .{}, .{ .text = "hello world." } };
     var font = box_tree.Font{ .font = hbfont };
     var border = [_]box_tree.Border{.{}} ** len;
     var background = [_]box_tree.Background{.{}} ** len;
@@ -127,7 +120,6 @@ fn exampleInlineData(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFor
             .inline_size = &inline_size,
             .block_size = &block_size,
             .display = &display,
-            //.position_inset = &position_inset,
             .latin1_text = &latin1_text,
             .font = font,
             .border = &border,

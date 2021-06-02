@@ -90,17 +90,17 @@ fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocato
     };
     var block_size = [len]box_tree.LogicalSize{
         .{ .padding_start = root_padding, .padding_end = root_padding, .border_start_width = root_border_width, .border_end_width = root_border_width },
-        .{ .margin_end = .{ .px = 20 } },
+        .{ .border_end_width = .{ .px = 2 }, .margin_end = .{ .px = 24 } },
         .{},
         .{},
         .{},
     };
     var display = [len]box_tree.Display{ .{ .block_flow_root = {} }, .{ .block_flow = {} }, .{ .text = {} }, .{ .block_flow = {} }, .{ .text = {} } };
-    var latin1_text = [len]box_tree.Latin1Text{ .{ .text = "" }, .{ .text = "" }, .{ .text = filename }, .{ .text = "" }, .{ .text = bytes } };
+    var latin1_text = [len]box_tree.Latin1Text{ .{}, .{}, .{ .text = filename }, .{}, .{ .text = bytes } };
     const root_border_color = zss.box_tree.Border.BorderColor{ .rgba = 0xaf2233ff };
     var border = [len]box_tree.Border{
         .{ .inline_start_color = root_border_color, .inline_end_color = root_border_color, .block_start_color = root_border_color, .block_end_color = root_border_color },
-        .{},
+        .{ .block_end_color = .{ .rgba = 0x202020ff } },
         .{},
         .{},
         .{},

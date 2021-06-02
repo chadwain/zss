@@ -43,13 +43,13 @@ pub fn drawInlineData(
             const position = context.positions[i];
             defer cursor += position.advance;
 
-            if (glyph_index == InlineRenderingData.special_index) blk: {
+            if (glyph_index == InlineRenderingData.Special.glyph_index) blk: {
                 i += 1;
-                const special = InlineRenderingData.decodeSpecial(context.glyph_indeces[i]);
+                const special = InlineRenderingData.Special.decode(context.glyph_indeces[i]);
                 switch (special.meaning) {
                     // TODO not actually drawing the inline boxes
                     .BoxStart, .BoxEnd => {},
-                    .Literal_FFFF => {
+                    .LiteralFFFF => {
                         assert(hb.hb_font_get_glyph(context.font, 0xFFFF, 0, &glyph_index) != 0);
                         break :blk;
                     },

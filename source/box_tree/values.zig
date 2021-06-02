@@ -55,7 +55,7 @@ pub const LineWidth = mergeUnions(Length, union(enum) {
 pub const Display = union(enum) {
     block_flow,
     block_flow_root,
-    inline_flow,
+    //inline_flow,
     text,
 };
 

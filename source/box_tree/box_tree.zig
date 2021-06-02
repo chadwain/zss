@@ -57,7 +57,8 @@ pub const PositionInset = struct {
 };
 
 pub const Latin1Text = struct {
-    text: []const u8,
+    // TODO should this be nullable?
+    text: []const u8 = "",
 };
 
 pub const Font = struct {

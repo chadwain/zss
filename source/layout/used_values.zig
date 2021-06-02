@@ -156,29 +156,35 @@ pub const InlineRenderingData = struct {
         elements: [2]usize,
     };
 
-    pub const special_index = 0xFFFF;
-    pub const SpecialMeaning = extern enum(c_short) { BoxStart, BoxEnd, Literal_FFFF, LineBreak };
-
     // NOTE may need to make sure this is never a valid glyph index when bitcasted
     // NOTE Not making this an extern struct keeps crashing compiler
     pub const Special = extern struct {
+        pub const glyph_index = 0xFFFF;
+        pub const Meaning = extern enum(u16) { BoxStart, BoxEnd, LiteralFFFF, LineBreak };
+
+        meaning: Meaning,
         id: u16,
-        meaning: SpecialMeaning,
+
+        pub fn decode(encoded_glyph_index: hb.hb_codepoint_t) Special {
+            return @bitCast(Special, encoded_glyph_index);
+        }
+
+        pub fn encodeBoxStart(id: u16) hb.hb_codepoint_t {
+            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .BoxStart, .id = id });
+        }
+
+        pub fn encodeBoxEnd(id: u16) hb.hb_codepoint_t {
+            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .BoxEnd, .id = id });
+        }
+
+        pub fn encodeLiteralFFFF() hb.hb_codepoint_t {
+            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .LiteralFFFF, .id = undefined });
+        }
+
+        pub fn encodeLineBreak() hb.hb_codepoint_t {
+            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .LineBreak, .id = undefined });
+        }
     };
-
-    pub fn encodeSpecial(comptime meaning: SpecialMeaning, id: u16) hb.hb_codepoint_t {
-        const result = Special{ .meaning = meaning, .id = id };
-        return @bitCast(hb.hb_codepoint_t, result);
-    }
-
-    pub fn encodeLineBreak() hb.hb_codepoint_t {
-        const result = Special{ .meaning = .LineBreak, .id = undefined };
-        return @bitCast(hb.hb_codepoint_t, result);
-    }
-
-    pub fn decodeSpecial(glyph_index: hb.hb_codepoint_t) Special {
-        return @bitCast(Special, glyph_index);
-    }
 
     pub const Position = struct {
         // NOTE It seems that offset is 0 almost all the time, maybe no need to record it.

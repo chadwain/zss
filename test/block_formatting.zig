@@ -165,8 +165,7 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
         .{ .block_flow = {} },
         .{ .text = {} },
     };
-    //var position_inset = [_]zss.box_tree.PositionInset{.{}} ** len;
-    var latin1_text = [_]zss.box_tree.Latin1Text{.{ .text = "" }} ** len;
+    var latin1_text = [_]zss.box_tree.Latin1Text{.{}} ** len;
     var border = [len]zss.box_tree.Border{
         .{ .inline_end_color = .{ .rgba = 0xffffff40 } },
         .{},
@@ -198,7 +197,6 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
-        //.position_inset = &position_inset,
         .latin1_text = &latin1_text,
         .font = font,
         .border = &border,
