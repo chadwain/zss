@@ -53,6 +53,7 @@ pub fn drawInlineData(
                         assert(hb.hb_font_get_glyph(context.font, 0xFFFF, 0, &glyph_index) != 0);
                         break :blk;
                     },
+                    .LineBreak => unreachable,
                 }
                 continue;
             }

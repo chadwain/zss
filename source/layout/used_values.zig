@@ -157,16 +157,22 @@ pub const InlineRenderingData = struct {
     };
 
     pub const special_index = 0xFFFF;
-    pub const SpecialMeaning = enum { BoxStart, BoxEnd, Literal_FFFF };
+    pub const SpecialMeaning = extern enum(c_short) { BoxStart, BoxEnd, Literal_FFFF, LineBreak };
 
     // NOTE may need to make sure this is never a valid glyph index when bitcasted
-    pub const Special = struct {
-        meaning: SpecialMeaning,
+    // NOTE Not making this an extern struct keeps crashing compiler
+    pub const Special = extern struct {
         id: u16,
+        meaning: SpecialMeaning,
     };
 
     pub fn encodeSpecial(comptime meaning: SpecialMeaning, id: u16) hb.hb_codepoint_t {
         const result = Special{ .meaning = meaning, .id = id };
+        return @bitCast(hb.hb_codepoint_t, result);
+    }
+
+    pub fn encodeLineBreak() hb.hb_codepoint_t {
+        const result = Special{ .meaning = .LineBreak, .id = undefined };
         return @bitCast(hb.hb_codepoint_t, result);
     }
 

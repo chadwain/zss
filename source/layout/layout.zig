@@ -853,11 +853,37 @@ pub fn createInlineRenderingData(context: *InlineLayoutContext, allocator: *Allo
 }
 
 fn addText(data: *IntermediateInlineRenderingData, allocator: *Allocator, latin1_text: computed.Latin1Text, font: computed.Font) Allocator.Error!void {
+    var line_start_index: usize = 0;
+    while (line_start_index < latin1_text.text.len) {
+        var line_end_index: usize = line_start_index;
+        defer line_start_index = line_end_index;
+        const line = loop: while (line_end_index < latin1_text.text.len) {
+            switch (latin1_text.text[line_end_index]) {
+                '\n' => {
+                    defer line_end_index += 1;
+                    break :loop latin1_text.text[line_start_index..line_end_index];
+                },
+                '\r' => {
+                    const advance: usize = if (line_end_index + 1 < latin1_text.text.len and latin1_text.text[line_end_index + 1] == '\n') 2 else 1;
+                    defer line_end_index += advance;
+                    break :loop latin1_text.text[line_start_index..line_end_index];
+                },
+                else => line_end_index += 1,
+            }
+        } else latin1_text.text[line_start_index..];
+        const is_last_line = line_end_index == latin1_text.text.len;
+
+        if (line.len > 0) try addLine(data, allocator, line, font);
+        if (!is_last_line) try addLineBreak(data, allocator);
+    }
+}
+
+fn addLine(data: *IntermediateInlineRenderingData, allocator: *Allocator, line: []const u8, font: computed.Font) !void {
     const buffer = hb.hb_buffer_create() orelse unreachable;
     defer hb.hb_buffer_destroy(buffer);
     if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
 
-    hb.hb_buffer_add_utf8(buffer, latin1_text.text.ptr, @intCast(c_int, latin1_text.text.len), 0, @intCast(c_int, latin1_text.text.len));
+    hb.hb_buffer_add_utf8(buffer, line.ptr, @intCast(c_int, line.len), 0, @intCast(c_int, line.len));
     // TODO assuming ltr direction
     hb.hb_buffer_set_direction(buffer, hb.hb_direction_t.HB_DIRECTION_LTR);
     hb.hb_buffer_set_script(buffer, hb.hb_script_t.HB_SCRIPT_LATIN);
@@ -894,19 +920,24 @@ fn addText(data: *IntermediateInlineRenderingData, allocator: *Allocator, latin1
     }
 }
 
-fn addBoxStart(data: *IntermediateInlineRenderingData, allocator: *Allocator, result_id: u16) !void {
-    const left = data.measures_left.items[result_id];
-    const margin = data.margins.items[result_id].left;
+fn addLineBreak(data: *IntermediateInlineRenderingData, allocator: *Allocator) !void {
+    try data.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingData.special_index, InlineRenderingData.encodeLineBreak() });
+    try data.positions.appendSlice(allocator, &[2]InlineRenderingData.Position{ .{ .offset = 0, .advance = 0, .width = 0 }, undefined });
+}
+
+fn addBoxStart(data: *IntermediateInlineRenderingData, allocator: *Allocator, used_id: u16) !void {
+    const left = data.measures_left.items[used_id];
+    const margin = data.margins.items[used_id].left;
     const width = left.border + left.padding + margin;
-    try data.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingData.special_index, InlineRenderingData.encodeSpecial(.BoxStart, result_id) });
+    try data.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingData.special_index, InlineRenderingData.encodeSpecial(.BoxStart, used_id) });
     try data.positions.appendSlice(allocator, &[2]InlineRenderingData.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
 }
 
-fn addBoxEnd(data: *IntermediateInlineRenderingData, allocator: *Allocator, result_id: u16) !void {
-    const right = data.measures_right.items[result_id];
-    const margin = data.margins.items[result_id].right;
+fn addBoxEnd(data: *IntermediateInlineRenderingData, allocator: *Allocator, used_id: u16) !void {
+    const right = data.measures_right.items[used_id];
+    const margin = data.margins.items[used_id].right;
     const width = right.border + right.padding + margin;
-    try data.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingData.special_index, InlineRenderingData.encodeSpecial(.BoxEnd, result_id) });
+    try data.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingData.special_index, InlineRenderingData.encodeSpecial(.BoxEnd, used_id) });
     try data.positions.appendSlice(allocator, &[2]InlineRenderingData.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
 }
 
@@ -933,11 +964,20 @@ fn splitIntoLineBoxes(data: *IntermediateInlineRenderingData, allocator: *Alloca
         }
 
         cursor += pos.advance;
-        line_box.elements[1] += 1;
 
-        if (gi == InlineRenderingData.special_index) {
-            i += 1;
-            line_box.elements[1] += 1;
+        switch (gi) {
+            InlineRenderingData.special_index => {
+                i += 1;
+                switch (InlineRenderingData.decodeSpecial(data.glyph_indeces.items[i]).meaning) {
+                    .LineBreak => {
+                        try data.line_boxes.append(allocator, line_box);
+                        cursor = 0;
+                        line_box = .{ .baseline = line_box.baseline + line_spacing, .elements = [2]usize{ line_box.elements[1] + 2, line_box.elements[1] + 2 } };
+                    },
+                    else => line_box.elements[1] += 2,
+                }
+            },
+            else => line_box.elements[1] += 1,
         }
     }
 
