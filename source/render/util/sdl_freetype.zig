@@ -72,7 +72,7 @@ pub const GlyphAtlas = struct {
 
     pub fn getOrLoadGlyph(self: *Self, glyph_index: c_uint) !Entry {
         if (self.map.getEntry(glyph_index)) |entry| {
-            return entry.value;
+            return entry.value_ptr.*;
         } else {
             if (self.next_slot >= 256) return error.OutOfGlyphSlots;
 
