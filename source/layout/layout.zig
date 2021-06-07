@@ -82,7 +82,6 @@ pub const BlockLayoutContext = struct {
 
         var static_containing_block_used_inline_size = ArrayListUnmanaged(CSSUnit){};
         errdefer static_containing_block_used_inline_size.deinit(allocator);
-        // TODO using physical property when we should be using a logical one
         try static_containing_block_used_inline_size.append(allocator, containing_block_inline_size);
 
         var static_containing_block_auto_block_size = ArrayListUnmanaged(CSSUnit){};
@@ -91,7 +90,6 @@ pub const BlockLayoutContext = struct {
 
         var static_containing_block_used_block_sizes = ArrayListUnmanaged(UsedBlockSizes){};
         errdefer static_containing_block_used_block_sizes.deinit(allocator);
-        // TODO using physical property when we should be using a logical one
         try static_containing_block_used_block_sizes.append(allocator, UsedBlockSizes{
             .size = containing_block_block_size,
             .min_size = 0,
@@ -326,9 +324,9 @@ fn applyInFlowPositioningToChildren(context: *const BlockLayoutContext, box_offs
     while (i < count) : (i += 1) {
         const positioning_data = context.in_flow_positioning_data.items[context.in_flow_positioning_data.items.len - 1 - i];
         const positioning_offset = zss.types.Offset{
-            // TODO using physical property when we should be using a logical one
+            // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
             .x = positioning_data.insets.inline_axis,
-            // TODO using physical property when we should be using a logical one
+            // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
             .y = switch (positioning_data.insets.block_axis) {
                 .length => |l| l,
                 .percentage => |value| percentage(value, containing_block_block_size),
@@ -484,13 +482,13 @@ fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, o
         size = max(min(cm_space - margin_start - margin_end, max_size), min_size);
     }
 
-    // TODO using physical property when we should be using a logical one
+    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
     box_offsets.border_top_left.x = margin_start;
     box_offsets.content_top_left.x = box_offsets.border_top_left.x + border_start + padding_start;
     box_offsets.content_bottom_right.x = box_offsets.content_top_left.x + size;
     box_offsets.border_bottom_right.x = box_offsets.content_bottom_right.x + padding_end + border_end;
 
-    // TODO using physical property when we should be using a logical one
+    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
     borders.left = border_start;
     borders.right = border_end;
 
@@ -558,15 +556,14 @@ fn blockLevelBoxSolveBlockSizesAndOffsets(context: *const BlockLayoutContext, or
     assert(min_size >= 0);
     assert(max_size >= 0);
 
-    // TODO using physical property when we should be using a logical one
+    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
     box_offsets.content_top_left.y = border_start + padding_start;
     box_offsets.border_bottom_right.y = padding_end + border_end;
 
-    // TODO using physical property when we should be using a logical one
+    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
     borders.top = border_start;
     borders.bottom = border_end;
 
-    // TODO using physical property when we should be using a logical one
     return UsedBlockSizes{
         .size = size,
         .min_size = min_size,
@@ -594,13 +591,15 @@ fn blockLevelNewInlineData(context: *BlockLayoutContext, data: *IntermediateBloc
     inline_data_ptr.data.* = try createInlineRenderingData(&inline_context, allocator);
 
     if (inline_context.next_box_id != interval.begin + context.box_tree.pdfs_flat_tree[interval.begin]) {
-        @panic("TODO inline-level elements must be the last children of a block box");
+        @panic("TODO A group of inline-level elements cannot be interrupted by a block-level element");
     }
     interval.begin = inline_context.next_box_id;
 
     context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1].used_subtree_size += 1;
     const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
+    // TODO Do I even need to add all of this data?
     try data.pdfs_flat_tree.append(allocator, 1);
+    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
     try data.box_offsets.append(allocator, .{
         .border_top_left = .{ .x = 0, .y = parent_auto_block_size.* },
         .border_bottom_right = .{ .x = 0, .y = parent_auto_block_size.* },
@@ -810,14 +809,13 @@ pub fn createInlineRenderingData(context: *InlineLayoutContext, allocator: *Allo
         try addBoxEnd(&data, allocator, root_used_id);
     }
 
+    var next_box_id: ?u16 = null;
+
     while (context.intervals.items.len > 0) {
         const interval = &context.intervals.items[context.intervals.items.len - 1];
         if (interval.begin == interval.end) {
             const used_id = context.used_ids.items[context.used_ids.items.len - 1];
             try addBoxEnd(&data, allocator, used_id);
-            if (context.intervals.items.len == 1) {
-                context.next_box_id = interval.end;
-            }
 
             _ = context.intervals.pop();
             _ = context.used_ids.pop();
@@ -845,7 +843,7 @@ pub fn createInlineRenderingData(context: *InlineLayoutContext, allocator: *Allo
                     while (i > 0) : (i -= 1) {
                         try addBoxEnd(&data, allocator, context.used_ids.items[i - 1]);
                     }
-                    context.next_box_id = original_id;
+                    next_box_id = original_id;
                     break;
                 },
                 .none => continue,
@@ -854,6 +852,7 @@ pub fn createInlineRenderingData(context: *InlineLayoutContext, allocator: *Allo
     }
 
     context.total_block_size = try splitIntoLineBoxes(&data, allocator, data.font, context.containing_block_inline_size);
+    context.next_box_id = next_box_id orelse root_interval.end;
 
     return data.toNormalData(allocator);
 }
@@ -862,7 +861,7 @@ fn addText(data: *IntermediateInlineRenderingData, allocator: *Allocator, latin1
     const buffer = hb.hb_buffer_create() orelse unreachable;
     defer hb.hb_buffer_destroy(buffer);
     _ = hb.hb_buffer_pre_allocate(buffer, @intCast(c_uint, latin1_text.text.len));
-    // TODO assuming ltr direction
+    // TODO direction, script, and language must be determined by examining the text itself
     hb.hb_buffer_set_direction(buffer, hb.hb_direction_t.HB_DIRECTION_LTR);
     hb.hb_buffer_set_script(buffer, hb.hb_script_t.HB_SCRIPT_LATIN);
     hb.hb_buffer_set_language(buffer, hb.hb_language_from_string("en", -1));
@@ -915,9 +914,10 @@ fn addLine(data: *IntermediateInlineRenderingData, allocator: *Allocator, buffer
     var extents: hb.hb_glyph_extents_t = undefined;
 
     const old_len = data.glyph_indeces.items.len;
-    // Allocate twice as much so that special indeces always have space
+    // Allocate twice as much so that special glyph indeces always have space
     try data.glyph_indeces.ensureCapacity(allocator, old_len + 2 * glyph_infos.len);
     try data.positions.ensureCapacity(allocator, old_len + 2 * glyph_infos.len);
+
     for (glyph_infos) |info, i| {
         const pos = glyph_positions[i];
         const extents_result = hb.hb_font_get_glyph_extents(font.font.?, info.codepoint, &extents);
@@ -951,50 +951,6 @@ fn addBoxEnd(data: *IntermediateInlineRenderingData, allocator: *Allocator, used
     const width = right.border + right.padding + margin;
     try data.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineRenderingData.Special.glyph_index, InlineRenderingData.Special.encodeBoxEnd(used_id) });
     try data.positions.appendSlice(allocator, &[2]InlineRenderingData.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
-}
-
-fn splitIntoLineBoxes(data: *IntermediateInlineRenderingData, allocator: *Allocator, font: *hb.hb_font_t, containing_block_inline_size: CSSUnit) !CSSUnit {
-    var font_extents: hb.hb_font_extents_t = undefined;
-    // TODO assuming ltr direction
-    assert(hb.hb_font_get_h_extents(font, &font_extents) != 0);
-    const ascender = @divFloor(font_extents.ascender, 64);
-    const descender = @divFloor(font_extents.descender, 64);
-    const line_gap = @divFloor(font_extents.line_gap, 64);
-    const line_spacing = ascender - descender + line_gap;
-
-    var cursor: CSSUnit = 0;
-    var line_box = InlineRenderingData.LineBox{ .baseline = ascender, .elements = [2]usize{ 0, 0 } };
-    var i: usize = 0;
-    while (i < data.glyph_indeces.items.len) : (i += 1) {
-        const gi = data.glyph_indeces.items[i];
-        const pos = data.positions.items[i];
-
-        if (cursor > 0 and pos.width > 0 and cursor + pos.offset + pos.width > containing_block_inline_size and line_box.elements[1] - line_box.elements[0] > 0) {
-            try data.line_boxes.append(allocator, line_box);
-            cursor = 0;
-            line_box = .{ .baseline = line_box.baseline + line_spacing, .elements = [2]usize{ line_box.elements[1], line_box.elements[1] } };
-        }
-
-        cursor += pos.advance;
-
-        switch (gi) {
-            InlineRenderingData.Special.glyph_index => {
-                i += 1;
-                switch (InlineRenderingData.Special.decode(data.glyph_indeces.items[i]).meaning) {
-                    .LineBreak => {
-                        try data.line_boxes.append(allocator, line_box);
-                        cursor = 0;
-                        line_box = .{ .baseline = line_box.baseline + line_spacing, .elements = [2]usize{ line_box.elements[1] + 2, line_box.elements[1] + 2 } };
-                    },
-                    else => line_box.elements[1] += 2,
-                }
-            },
-            else => line_box.elements[1] += 1,
-        }
-    }
-
-    try data.line_boxes.append(allocator, line_box);
-    return line_box.baseline - descender;
 }
 
 fn addRootInlineBoxData(data: *IntermediateInlineRenderingData, allocator: *Allocator) !u16 {
@@ -1056,15 +1012,62 @@ fn addInlineElementData(box_tree: *const BoxTree, data: *IntermediateInlineRende
     assert(padding_block_start >= 0);
     assert(padding_block_end >= 0);
 
-    // TODO using physical property when we should be using a logical one
-    try data.measures_left.append(allocator, .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = undefined });
-    try data.measures_right.append(allocator, .{ .border = border_inline_end, .padding = padding_inline_end, .border_color_rgba = undefined });
-    try data.measures_top.append(allocator, .{ .border = border_block_start, .padding = padding_block_start, .border_color_rgba = undefined });
-    try data.measures_bottom.append(allocator, .{ .border = border_block_end, .padding = padding_block_end, .border_color_rgba = undefined });
+    const border_colors = solveBorderColors(box_tree.border[original_id]);
+
+    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
+    try data.measures_left.append(allocator, .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = border_colors.left_rgba });
+    try data.measures_right.append(allocator, .{ .border = border_inline_end, .padding = padding_inline_end, .border_color_rgba = border_colors.right_rgba });
+    try data.measures_top.append(allocator, .{ .border = border_block_start, .padding = padding_block_start, .border_color_rgba = border_colors.top_rgba });
+    try data.measures_bottom.append(allocator, .{ .border = border_block_end, .padding = padding_block_end, .border_color_rgba = border_colors.bottom_rgba });
     try data.margins.append(allocator, .{ .left = margin_inline_start, .right = margin_inline_end });
     try data.heights.append(allocator, undefined);
     try data.background1.append(allocator, solveBackground1(box_tree.background[original_id]));
     return std.math.cast(u16, data.measures_left.items.len - 1);
+}
+
+fn splitIntoLineBoxes(data: *IntermediateInlineRenderingData, allocator: *Allocator, font: *hb.hb_font_t, containing_block_inline_size: CSSUnit) !CSSUnit {
+    var font_extents: hb.hb_font_extents_t = undefined;
+    // TODO assuming ltr direction
+    assert(hb.hb_font_get_h_extents(font, &font_extents) != 0);
+    const ascender = @divFloor(font_extents.ascender, 64);
+    const descender = @divFloor(font_extents.descender, 64);
+    const line_gap = @divFloor(font_extents.line_gap, 64);
+    const line_spacing = ascender - descender + line_gap;
+
+    var cursor: CSSUnit = 0;
+    var line_box = InlineRenderingData.LineBox{ .baseline = ascender, .elements = [2]usize{ 0, 0 } };
+
+    var i: usize = 0;
+    while (i < data.glyph_indeces.items.len) : (i += 1) {
+        const gi = data.glyph_indeces.items[i];
+        const pos = data.positions.items[i];
+
+        if (cursor > 0 and pos.width > 0 and cursor + pos.offset + pos.width > containing_block_inline_size and line_box.elements[1] - line_box.elements[0] > 0) {
+            try data.line_boxes.append(allocator, line_box);
+            cursor = 0;
+            line_box = .{ .baseline = line_box.baseline + line_spacing, .elements = [2]usize{ line_box.elements[1], line_box.elements[1] } };
+        }
+
+        cursor += pos.advance;
+
+        switch (gi) {
+            InlineRenderingData.Special.glyph_index => {
+                i += 1;
+                switch (InlineRenderingData.Special.decode(data.glyph_indeces.items[i]).meaning) {
+                    .LineBreak => {
+                        try data.line_boxes.append(allocator, line_box);
+                        cursor = 0;
+                        line_box = .{ .baseline = line_box.baseline + line_spacing, .elements = [2]usize{ line_box.elements[1] + 2, line_box.elements[1] + 2 } };
+                    },
+                    else => line_box.elements[1] += 2,
+                }
+            },
+            else => line_box.elements[1] += 1,
+        }
+    }
+
+    try data.line_boxes.append(allocator, line_box);
+    return line_box.baseline - descender;
 }
 
 test "inline used data" {
