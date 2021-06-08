@@ -23,6 +23,7 @@ pub const Error = error{
 };
 
 const Interval = struct {
+    initial: BoxId,
     begin: BoxId,
     end: BoxId,
 };
@@ -180,7 +181,7 @@ const IntermediateBlockRenderingData = struct {
 pub fn createBlockRenderingData(context: *BlockLayoutContext, allocator: *Allocator) Error!BlockRenderingData {
     const root_box_id = context.root_box_id;
     const root_subtree_size = context.box_tree.pdfs_flat_tree[root_box_id];
-    var root_interval = Interval{ .begin = root_box_id, .end = root_box_id + root_subtree_size };
+    var root_interval = Interval{ .initial = root_box_id, .begin = root_box_id, .end = root_box_id + root_subtree_size };
 
     var data = IntermediateBlockRenderingData{};
     errdefer data.deinit(allocator);
@@ -200,6 +201,7 @@ pub fn createBlockRenderingData(context: *BlockLayoutContext, allocator: *Alloca
             const box_offsets_ptr = &data.box_offsets.items[used_id];
             const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 2];
             blockContainerFinishProcessing(context, &data, box_offsets_ptr, parent_auto_block_size);
+            blockContainerSolveOtherProperties(context, &data, interval.initial, used_id);
 
             _ = context.intervals.pop();
             _ = context.used_id_and_subtree_size.pop();
@@ -266,20 +268,13 @@ fn blockLevelElementBeginProcessing(context: *BlockLayoutContext, data: *Interme
     const inline_size = blockLevelBoxSolveInlineSizesAndOffsets(context, box_id, box_offsets_ptr, borders_ptr);
     const used_block_sizes = blockLevelBoxSolveBlockSizesAndOffsets(context, box_id, box_offsets_ptr, borders_ptr);
 
-    const border_colors_ptr = try data.border_colors.addOne(allocator);
-    border_colors_ptr.* = solveBorderColors(context.box_tree.border[box_id]);
-
-    const background1_ptr = try data.background1.addOne(allocator);
-    const background2_ptr = try data.background2.addOne(allocator);
-    const background = context.box_tree.background[box_id];
-    background1_ptr.* = solveBackground1(background);
-    background2_ptr.* = solveBackground2(background);
-
-    // TODO fill in all this data
-    try data.visual_effect.append(allocator, .{});
+    _ = try data.border_colors.addOne(allocator);
+    _ = try data.background1.addOne(allocator);
+    _ = try data.background2.addOne(allocator);
+    _ = try data.visual_effect.addOne(allocator);
 
     if (subtree_size != 1) {
-        try context.intervals.append(context.allocator, Interval{ .begin = box_id + 1, .end = box_id + subtree_size });
+        try context.intervals.append(context.allocator, Interval{ .initial = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
         try context.static_containing_block_used_inline_size.append(context.allocator, inline_size);
         // TODO don't add elements to this stack unconditionally
         try context.static_containing_block_auto_block_size.append(context.allocator, 0);
@@ -296,6 +291,7 @@ fn blockLevelElementBeginProcessing(context: *BlockLayoutContext, data: *Interme
         context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1].used_subtree_size += 1;
         const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
         _ = blockContainerFinalizeBlockSizes(box_offsets_ptr, used_block_sizes, 0, parent_auto_block_size);
+        blockContainerSolveOtherProperties(context, data, box_id, used_id);
     }
 }
 
@@ -318,6 +314,21 @@ fn blockContainerFinalizeBlockSizes(box_offsets: *used_values.BoxOffsets, used_b
     return .{
         .used_block_size = used_block_size,
     };
+}
+
+fn blockContainerSolveOtherProperties(context: *BlockLayoutContext, data: *IntermediateBlockRenderingData, box_id: BoxId, used_id: UsedId) void {
+    const border_colors_ptr = &data.border_colors.items[used_id];
+    border_colors_ptr.* = solveBorderColors(context.box_tree.border[box_id]);
+
+    const background1_ptr = &data.background1.items[used_id];
+    const background2_ptr = &data.background2.items[used_id];
+    const background = context.box_tree.background[box_id];
+    background1_ptr.* = solveBackground1(background);
+    background2_ptr.* = solveBackground2(background);
+
+    const visual_effect_ptr = &data.visual_effect.items[used_id];
+    // TODO fill in all this data
+    visual_effect_ptr.* = .{};
 }
 
 fn applyInFlowPositioningToChildren(context: *const BlockLayoutContext, box_offsets: []used_values.BoxOffsets, containing_block_block_size: CSSUnit) void {
