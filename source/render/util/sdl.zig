@@ -217,8 +217,8 @@ pub fn drawBackgroundAndBorders(
             .Content => boxes.content,
         });
         const size = sdl.SDL_Point{
-            .x = @floatToInt(c_int, background2.size.width * @intToFloat(f32, tw)),
-            .y = @floatToInt(c_int, background2.size.height * @intToFloat(f32, th)),
+            .x = cssUnitToSdlPixel(background2.size.width),
+            .y = cssUnitToSdlPixel(background2.size.height),
         };
         drawBackgroundImage(
             renderer,
@@ -226,8 +226,8 @@ pub fn drawBackgroundAndBorders(
             origin_rect,
             bg_clip_rect,
             sdl.SDL_Point{
-                .x = origin_rect.x + @floatToInt(c_int, @intToFloat(f32, origin_rect.w - size.x) * background2.position.horizontal),
-                .y = origin_rect.y + @floatToInt(c_int, @intToFloat(f32, origin_rect.h - size.y) * background2.position.vertical),
+                .x = origin_rect.x + cssUnitToSdlPixel(background2.position.horizontal),
+                .y = origin_rect.y + cssUnitToSdlPixel(background2.position.vertical),
             },
             size,
             .{

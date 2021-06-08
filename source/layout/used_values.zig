@@ -91,13 +91,16 @@ pub const Background1 = struct {
 /// 'background-origin', 'background-position', 'background-size',
 /// and 'background-repeat'.
 pub const Background2 = struct {
+    pub const Origin = enum { Padding, Border, Content };
+    pub const Position = struct { horizontal: CSSUnit = 0, vertical: CSSUnit = 0 };
+    pub const Size = struct { width: CSSUnit = 0, height: CSSUnit = 0 };
     pub const Repeat = enum { None, Repeat, Space };
 
     image: ?*zss.values.BackgroundImage.Data = null,
-    origin: enum { Padding, Border, Content } = .Padding,
-    position: struct { horizontal: Percentage = 0, vertical: Percentage = 0 } = .{},
-    size: struct { width: Percentage = 1.0, height: Percentage = 1.0 } = .{},
+    position: Position = .{},
+    size: Size = .{},
     repeat: struct { x: Repeat = .None, y: Repeat = .None } = .{},
+    origin: Origin = .Padding,
 };
 
 /// Contains the used value of the properties 'overflow' and 'visibility'.

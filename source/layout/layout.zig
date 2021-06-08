@@ -317,6 +317,9 @@ fn blockContainerFinalizeBlockSizes(box_offsets: *used_values.BoxOffsets, used_b
 }
 
 fn blockContainerSolveOtherProperties(context: *BlockLayoutContext, data: *IntermediateBlockRenderingData, box_id: BoxId, used_id: UsedId) void {
+    const box_offsets_ptr = &data.box_offsets.items[used_id];
+    const borders_ptr = &data.borders.items[used_id];
+
     const border_colors_ptr = &data.border_colors.items[used_id];
     border_colors_ptr.* = solveBorderColors(context.box_tree.border[box_id]);
 
@@ -324,7 +327,7 @@ fn blockContainerSolveOtherProperties(context: *BlockLayoutContext, data: *Inter
     const background2_ptr = &data.background2.items[used_id];
     const background = context.box_tree.background[box_id];
     background1_ptr.* = solveBackground1(background);
-    background2_ptr.* = solveBackground2(background);
+    background2_ptr.* = solveBackground2(background, box_offsets_ptr, borders_ptr);
 
     const visual_effect_ptr = &data.visual_effect.items[used_id];
     // TODO fill in all this data
@@ -1169,51 +1172,82 @@ fn solveBackground1(bg: computed.Background) used_values.Background1 {
     };
 }
 
-fn solveBackground2(bg: computed.Background) used_values.Background2 {
+fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.BoxOffsets, borders: *const used_values.Borders) used_values.Background2 {
+    const border_width = box_offsets.border_bottom_right.x - box_offsets.border_top_left.x;
+    const border_height = box_offsets.border_bottom_right.y - box_offsets.border_top_left.y;
+    const padding_width = border_width - borders.left - borders.right;
+    const padding_height = border_height - borders.top - borders.bottom;
+    const content_width = box_offsets.content_bottom_right.x - box_offsets.content_top_left.x;
+    const content_height = box_offsets.content_bottom_right.y - box_offsets.content_top_left.y;
+    const positioning_area: struct { origin: used_values.Background2.Origin, width: CSSUnit, height: CSSUnit } = switch (bg.origin) {
+        .border_box => .{ .origin = .Border, .width = border_width, .height = border_height },
+        .padding_box => .{ .origin = .Padding, .width = padding_width, .height = padding_height },
+        .content_box => .{ .origin = .Content, .width = content_width, .height = content_height },
+    };
+    const size: used_values.Background2.Size = switch (bg.size) {
+        .size => |size| .{
+            .width = switch (size.width) {
+                .px => |val| blk: {
+                    // Value must be positive
+                    assert(val >= 0);
+                    break :blk length(.px, val);
+                },
+                .percentage => |p| blk: {
+                    // Percentage must be positive
+                    assert(p >= 0);
+                    break :blk percentage(p, positioning_area.width);
+                },
+                .auto => @panic("TODO background-size: auto"),
+            },
+            .height = switch (size.height) {
+                .px => |val| blk: {
+                    // Value must be positive
+                    assert(val >= 0);
+                    break :blk length(.px, val);
+                },
+                .percentage => |p| blk: {
+                    // Percentage must be positive
+                    assert(p >= 0);
+                    break :blk percentage(p, positioning_area.height);
+                },
+                .auto => @panic("TODO background-size: auto"),
+            },
+        },
+        .cover => @panic("TODO background-size: cover"),
+        .contain => @panic("TODO background-size: contain"),
+    };
+
     return used_values.Background2{
         .image = switch (bg.image) {
             .data => |ptr| ptr,
             .none => null,
         },
-        .origin = switch (bg.origin) {
-            .border_box => .Border,
-            .padding_box => .Padding,
-            .content_box => .Content,
-        },
+        .origin = positioning_area.origin,
         .position = switch (bg.position) {
             .position => |position| .{
                 .horizontal = switch (position.horizontal.offset) {
-                    .px => @panic("TODO background-position: <length>"),
-                    .percentage => |p| switch (position.horizontal.side) {
-                        .left => p,
-                        .right => 1 - p,
-                    },
+                    .px => |val| length(.px, val),
+                    .percentage => |p| percentage(
+                        switch (position.horizontal.side) {
+                            .left => p,
+                            .right => 1 - p,
+                        },
+                        positioning_area.width - size.width,
+                    ),
                 },
                 .vertical = switch (position.vertical.offset) {
-                    .px => @panic("TODO background-position: <length>"),
-                    .percentage => |p| switch (position.vertical.side) {
-                        .top => p,
-                        .bottom => 1 - p,
-                    },
+                    .px => |val| length(.px, val),
+                    .percentage => |p| percentage(
+                        switch (position.vertical.side) {
+                            .top => p,
+                            .bottom => 1 - p,
+                        },
+                        positioning_area.height - size.height,
+                    ),
                 },
             },
         },
-        .size = switch (bg.size) {
-            .size => |size| .{
-                .width = switch (size.width) {
-                    .px => @panic("TODO background-size: <length>"),
-                    .percentage => |p| p,
-                    .auto => @panic("TODO background-size: auto"),
-                },
-                .height = switch (size.height) {
-                    .px => @panic("TODO background-size: <length>"),
-                    .percentage => |p| p,
-                    .auto => @panic("TODO background-size: auto"),
-                },
-            },
-            .cover => @panic("TODO background-size: cover"),
-            .contain => @panic("TODO background-size: contain"),
-        },
+        .size = size,
         .repeat = switch (bg.repeat) {
             .repeat => |repeat| .{
                 .x = switch (repeat.horizontal) {
