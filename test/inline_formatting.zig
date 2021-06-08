@@ -106,7 +106,7 @@ fn exampleInlineData(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFor
 
     const box_tree = zss.box_tree;
     const len = 2;
-    var pdfs_flat_tree = [len]u16{ 2, 1 };
+    var pdfs_flat_tree = [len]box_tree.BoxId{ 2, 1 };
     var inline_size = [_]box_tree.LogicalSize{.{}} ** len;
     var block_size = [_]box_tree.LogicalSize{.{}} ** len;
     var display = [len]box_tree.Display{ .{ .block_flow_root = {} }, .{ .text = {} } };

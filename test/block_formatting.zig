@@ -139,7 +139,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
 
 fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hbfont: *hb.hb_font_t) !zss.used_values.BlockRenderingData {
     const len = 3;
-    var pdfs_flat_tree = [len]u16{ 3, 2, 1 };
+    var pdfs_flat_tree = [len]zss.box_tree.BoxId{ 3, 2, 1 };
     var inline_size = [len]zss.box_tree.LogicalSize{
         .{
             .size = .{ .px = 500 },

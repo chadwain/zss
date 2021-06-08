@@ -59,6 +59,11 @@ test "roundUp" {
     try expect(roundUp(usize, 62, 7) == 63);
 }
 
+/// The same as std.math.clamp, but without the assertion.
+pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
+    return std.math.max(lower, std.math.min(val, upper));
+}
+
 pub const PdfsFlatTreeIterator = struct {
     items: []const u16,
     current: u16,

@@ -1,9 +1,11 @@
 const values = @import("./values.zig");
 
+pub const BoxId = u16;
+
 /// Defines the structure of the document, and also contains the
 /// computed values of every property for each box in the document.
 pub const BoxTree = struct {
-    pdfs_flat_tree: []u16,
+    pdfs_flat_tree: []BoxId,
     display: []Display,
     inline_size: []LogicalSize,
     block_size: []LogicalSize,

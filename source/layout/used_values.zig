@@ -106,13 +106,15 @@ pub const VisualEffect = struct {
     visibility: enum { Visible, Hidden } = .Visible,
 };
 
+pub const UsedId = u16;
+
 pub const BlockRenderingData = struct {
     pub const InlineData = struct {
         data: *InlineRenderingData,
-        id_of_containing_block: u16,
+        id_of_containing_block: UsedId,
     };
 
-    pdfs_flat_tree: []u16,
+    pdfs_flat_tree: []UsedId,
     box_offsets: []BoxOffsets,
     borders: []Borders,
     border_colors: []BorderColor,
@@ -163,26 +165,26 @@ pub const InlineRenderingData = struct {
         pub const Meaning = extern enum(u16) { BoxStart, BoxEnd, LiteralFFFF, LineBreak };
 
         meaning: Meaning,
-        id: u16,
+        data: u16,
 
         pub fn decode(encoded_glyph_index: hb.hb_codepoint_t) Special {
             return @bitCast(Special, encoded_glyph_index);
         }
 
-        pub fn encodeBoxStart(id: u16) hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .BoxStart, .id = id });
+        pub fn encodeBoxStart(used_id: UsedId) hb.hb_codepoint_t {
+            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .BoxStart, .data = used_id });
         }
 
-        pub fn encodeBoxEnd(id: u16) hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .BoxEnd, .id = id });
+        pub fn encodeBoxEnd(used_id: UsedId) hb.hb_codepoint_t {
+            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .BoxEnd, .data = used_id });
         }
 
         pub fn encodeLiteralFFFF() hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .LiteralFFFF, .id = undefined });
+            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .LiteralFFFF, .data = undefined });
         }
 
         pub fn encodeLineBreak() hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .LineBreak, .id = undefined });
+            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .LineBreak, .data = undefined });
         }
     };
 

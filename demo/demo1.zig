@@ -78,7 +78,7 @@ fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocato
     hb.hb_ft_font_set_funcs(font);
 
     const len = 5;
-    var pdfs_flat_tree = [len]u16{ 5, 2, 1, 2, 1 };
+    var pdfs_flat_tree = [len]zss.box_tree.BoxId{ 5, 2, 1, 2, 1 };
     const root_border_width = zss.box_tree.LogicalSize.BorderValue{ .px = 10 };
     const root_padding = zss.box_tree.LogicalSize.PaddingValue{ .px = 30 };
     var inline_size = [len]box_tree.LogicalSize{
