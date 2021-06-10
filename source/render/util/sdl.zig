@@ -49,8 +49,21 @@ pub fn rgbaMap(pixel_format: *sdl.SDL_PixelFormat, color: u32) [4]u8 {
     return rgba;
 }
 
-pub fn textureAsBackgroundImage(texture: *sdl.SDL_Texture) *zss.values.BackgroundImage.Data {
-    return @ptrCast(*zss.values.BackgroundImage.Data, texture);
+const bg_image_fns = struct {
+    fn getNaturalSize(data: *zss.values.BackgroundImage.Data) zss.values.Dimensions {
+        const texture = @ptrCast(*sdl.SDL_Texture, data);
+        var width: c_int = undefined;
+        var height: c_int = undefined;
+        assert(sdl.SDL_QueryTexture(texture, null, null, &width, &height) == 0);
+        return zss.values.Dimensions{ .width = @intToFloat(f32, width), .height = @intToFloat(f32, height) };
+    }
+};
+
+pub fn textureAsBackgroundImage(texture: *sdl.SDL_Texture) zss.values.BackgroundImage.Image {
+    return zss.values.BackgroundImage.Image{
+        .data = @ptrCast(*zss.values.BackgroundImage.Data, texture),
+        .getNaturalSizeFn = bg_image_fns.getNaturalSize,
+    };
 }
 
 /// Draws the background color, background image, and borders of a
@@ -230,18 +243,7 @@ pub fn drawBackgroundAndBorders(
                 .y = origin_rect.y + cssUnitToSdlPixel(background2.position.vertical),
             },
             size,
-            .{
-                .x = switch (background2.repeat.x) {
-                    .None => .NoRepeat,
-                    .Repeat => .Repeat,
-                    .Space => .Space,
-                },
-                .y = switch (background2.repeat.y) {
-                    .None => .NoRepeat,
-                    .Repeat => .Repeat,
-                    .Space => .Space,
-                },
-            },
+            background2.repeat,
         );
     }
 
@@ -392,11 +394,6 @@ pub fn drawBackgroundColor(
     assert(sdl.SDL_RenderFillRect(renderer, &painting_area) == 0);
 }
 
-/// Represents one of the ways in which background images can be repeated.
-/// Note that "background-repeat: round" is not explicitly supported, but can
-/// be achieved by first resizing the image and using '.Repeat'.
-pub const RepeatStyle = enum { NoRepeat, Repeat, Space };
-
 pub fn drawBackgroundImage(
     renderer: *sdl.SDL_Renderer,
     texture: *sdl.SDL_Texture,
@@ -404,7 +401,7 @@ pub fn drawBackgroundImage(
     painting_area: sdl.SDL_Rect,
     position: sdl.SDL_Point,
     size: sdl.SDL_Point,
-    repeat: struct { x: RepeatStyle, y: RepeatStyle },
+    repeat: zss.used_values.Background2.Repeat,
 ) void {
     if (size.x == 0 or size.y == 0) return;
     const dimensions = blk: {
@@ -469,7 +466,7 @@ const GetBackgroundImageRepeatInfoReturnType = struct {
 };
 
 fn getBackgroundImageRepeatInfo(
-    repeat: RepeatStyle,
+    repeat: zss.used_values.Background2.Repeat.Style,
     painting_area_size: c_uint,
     positioning_area_offset: c_int,
     positioning_area_size: c_uint,
@@ -477,7 +474,7 @@ fn getBackgroundImageRepeatInfo(
     image_size: c_uint,
 ) GetBackgroundImageRepeatInfoReturnType {
     return switch (repeat) {
-        .NoRepeat => .{
+        .None => .{
             .count = 1,
             .space = zss.util.Ratio(c_uint){ .num = 0, .den = 1 },
             .offset = image_offset,
@@ -523,5 +520,6 @@ fn getBackgroundImageRepeatInfo(
                 };
             }
         },
+        .Round => @panic("TODO SDL: Background image round repeat style"),
     };
 }

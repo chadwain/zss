@@ -94,12 +94,16 @@ pub const Background2 = struct {
     pub const Origin = enum { Padding, Border, Content };
     pub const Position = struct { horizontal: CSSUnit = 0, vertical: CSSUnit = 0 };
     pub const Size = struct { width: CSSUnit = 0, height: CSSUnit = 0 };
-    pub const Repeat = enum { None, Repeat, Space };
+    pub const Repeat = struct {
+        pub const Style = enum { None, Repeat, Space, Round };
+        x: Style = .None,
+        y: Style = .None,
+    };
 
     image: ?*zss.values.BackgroundImage.Data = null,
     position: Position = .{},
     size: Size = .{},
-    repeat: struct { x: Repeat = .None, y: Repeat = .None } = .{},
+    repeat: Repeat = .{},
     origin: Origin = .Padding,
 };
 

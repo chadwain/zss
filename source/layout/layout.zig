@@ -1173,6 +1173,11 @@ fn solveBackground1(bg: computed.Background) used_values.Background1 {
 }
 
 fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.BoxOffsets, borders: *const used_values.Borders) used_values.Background2 {
+    var image = switch (bg.image) {
+        .image => |image| image,
+        .none => return .{},
+    };
+
     const border_width = box_offsets.border_bottom_right.x - box_offsets.border_top_left.x;
     const border_height = box_offsets.border_bottom_right.y - box_offsets.border_top_left.y;
     const padding_width = border_width - borders.left - borders.right;
@@ -1184,7 +1189,10 @@ fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.Box
         .padding_box => .{ .origin = .Padding, .width = padding_width, .height = padding_height },
         .content_box => .{ .origin = .Content, .width = content_width, .height = content_height },
     };
-    const size: used_values.Background2.Size = switch (bg.size) {
+
+    var width_was_auto = false;
+    var height_was_auto = false;
+    var size: used_values.Background2.Size = switch (bg.size) {
         .size => |size| .{
             .width = switch (size.width) {
                 .px => |val| blk: {
@@ -1197,7 +1205,10 @@ fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.Box
                     assert(p >= 0);
                     break :blk percentage(p, positioning_area.width);
                 },
-                .auto => @panic("TODO background-size: auto"),
+                .auto => blk: {
+                    width_was_auto = true;
+                    break :blk undefined;
+                },
             },
             .height = switch (size.height) {
                 .px => |val| blk: {
@@ -1210,59 +1221,94 @@ fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.Box
                     assert(p >= 0);
                     break :blk percentage(p, positioning_area.height);
                 },
-                .auto => @panic("TODO background-size: auto"),
+                .auto => blk: {
+                    height_was_auto = true;
+                    break :blk undefined;
+                },
             },
         },
         .cover => @panic("TODO background-size: cover"),
         .contain => @panic("TODO background-size: contain"),
     };
 
+    const repeat: used_values.Background2.Repeat = switch (bg.repeat) {
+        .repeat => |repeat| .{
+            .x = switch (repeat.horizontal) {
+                .no_repeat => .None,
+                .repeat => .Repeat,
+                .space => .Space,
+                .round => .Round,
+            },
+            .y = switch (repeat.vertical) {
+                .no_repeat => .None,
+                .repeat => .Repeat,
+                .space => .Space,
+                .round => .Round,
+            },
+        },
+    };
+
+    if (width_was_auto or height_was_auto or repeat.x == .Round or repeat.y == .Round) {
+        const divRound = zss.util.divRound;
+        const natural = blk: {
+            const n = image.getNaturalSize();
+            assert(n.width >= 0);
+            assert(n.height >= 0);
+            break :blk .{ .width = length(.px, n.width), .height = length(.px, n.height) };
+        };
+        const has_natural_aspect_ratio = natural.width != 0 and natural.height != 0;
+
+        if (width_was_auto and height_was_auto) {
+            size.width = natural.width;
+            size.height = natural.height;
+        } else if (width_was_auto) {
+            size.width = if (has_natural_aspect_ratio) divRound(size.height * natural.width, natural.height) else positioning_area.width;
+        } else if (height_was_auto) {
+            size.height = if (has_natural_aspect_ratio) divRound(size.width * natural.height, natural.width) else positioning_area.height;
+        }
+
+        if (repeat.x == .Round and repeat.y == .Round) {
+            size.width = @divFloor(positioning_area.width, std.math.max(1, divRound(positioning_area.width, size.width)));
+            size.height = @divFloor(positioning_area.height, std.math.max(1, divRound(positioning_area.height, size.height)));
+        } else if (repeat.x == .Round) {
+            if (size.width > 0) size.width = @divFloor(positioning_area.width, std.math.max(1, divRound(positioning_area.width, size.width)));
+            if (height_was_auto and has_natural_aspect_ratio) size.height = @divFloor(size.width * natural.height, natural.width);
+        } else if (repeat.y == .Round) {
+            if (size.height > 0) size.height = @divFloor(positioning_area.height, std.math.max(1, divRound(positioning_area.height, size.height)));
+            if (width_was_auto and has_natural_aspect_ratio) size.width = @divFloor(size.height * natural.width, natural.height);
+        }
+    }
+
+    const position: used_values.Background2.Position = switch (bg.position) {
+        .position => |position| .{
+            .horizontal = switch (position.horizontal.offset) {
+                .px => |val| length(.px, val),
+                .percentage => |p| percentage(
+                    switch (position.horizontal.side) {
+                        .left => p,
+                        .right => 1 - p,
+                    },
+                    positioning_area.width - size.width,
+                ),
+            },
+            .vertical = switch (position.vertical.offset) {
+                .px => |val| length(.px, val),
+                .percentage => |p| percentage(
+                    switch (position.vertical.side) {
+                        .top => p,
+                        .bottom => 1 - p,
+                    },
+                    positioning_area.height - size.height,
+                ),
+            },
+        },
+    };
+
     return used_values.Background2{
-        .image = switch (bg.image) {
-            .data => |ptr| ptr,
-            .none => null,
-        },
+        .image = image.data,
         .origin = positioning_area.origin,
-        .position = switch (bg.position) {
-            .position => |position| .{
-                .horizontal = switch (position.horizontal.offset) {
-                    .px => |val| length(.px, val),
-                    .percentage => |p| percentage(
-                        switch (position.horizontal.side) {
-                            .left => p,
-                            .right => 1 - p,
-                        },
-                        positioning_area.width - size.width,
-                    ),
-                },
-                .vertical = switch (position.vertical.offset) {
-                    .px => |val| length(.px, val),
-                    .percentage => |p| percentage(
-                        switch (position.vertical.side) {
-                            .top => p,
-                            .bottom => 1 - p,
-                        },
-                        positioning_area.height - size.height,
-                    ),
-                },
-            },
-        },
+        .position = position,
         .size = size,
-        .repeat = switch (bg.repeat) {
-            .repeat => |repeat| .{
-                .x = switch (repeat.horizontal) {
-                    .repeat => .Repeat,
-                    .space => .Space,
-                    .round => @panic("TODO background-repeat: round"),
-                    .no_repeat => .None,
-                },
-                .y = switch (repeat.vertical) {
-                    .repeat => .Repeat,
-                    .space => .Space,
-                    .round => @panic("TODO background-repeat: round"),
-                    .no_repeat => .None,
-                },
-            },
-        },
+        .repeat = repeat,
     };
 }

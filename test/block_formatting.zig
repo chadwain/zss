@@ -174,7 +174,7 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
     var background = [len]zss.box_tree.Background{
         .{
             .color = .{ .rgba = 0xff2233ff },
-            .image = .{ .data = zss.sdl_freetype.textureAsBackgroundImage(zig_png) },
+            .image = .{ .image = zss.sdl_freetype.textureAsBackgroundImage(zig_png) },
             .position = .{ .position = .{
                 .horizontal = .{ .side = .right, .offset = .{ .percentage = 0 } },
                 .vertical = .{ .side = .top, .offset = .{ .percentage = 0.5 } },
@@ -183,8 +183,8 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
             .origin = .{ .padding_box = {} },
             .clip = .{ .padding_box = {} },
             .size = .{ .size = .{
-                .width = .{ .percentage = 0.3 },
-                .height = .{ .percentage = 1 },
+                .width = .{ .auto = {} },
+                .height = .{ .percentage = 0.3 },
             } },
         },
         .{ .color = .{ .rgba = 0x5c76d3ff } },

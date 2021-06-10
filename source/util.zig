@@ -47,6 +47,10 @@ pub fn divCeil(comptime T: type, a: T, b: T) T {
     return @divFloor(a, b) + @boolToInt(@mod(a, b) != 0);
 }
 
+pub fn divRound(a: anytype, b: anytype) @TypeOf(a, b) {
+    return @divFloor(a, b) + @boolToInt(2 * @mod(a, b) >= b);
+}
+
 pub fn roundUp(comptime T: type, a: T, comptime multiple: comptime_int) T {
     const mod = @mod(a, multiple);
     return a + (multiple - mod) * @boolToInt(mod != 0);

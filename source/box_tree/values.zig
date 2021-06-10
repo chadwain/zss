@@ -74,9 +74,22 @@ pub const Box = union(enum) {
     content_box,
 };
 
+pub const Dimensions = struct {
+    width: f32,
+    height: f32,
+};
+
 pub const BackgroundImage = union(enum) {
     pub const Data = opaque {};
-    data: *Data,
+    pub const Image = struct {
+        data: *Data,
+        getNaturalSizeFn: fn (data: *Data) Dimensions,
+
+        pub fn getNaturalSize(self: *Image) Dimensions {
+            return self.getNaturalSizeFn(self.data);
+        }
+    };
+    image: Image,
 };
 
 pub const BackgroundSize = union(enum) {
