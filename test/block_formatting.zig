@@ -182,10 +182,7 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
             .repeat = .{ .repeat = .{ .horizontal = .space, .vertical = .repeat } },
             .origin = .{ .padding_box = {} },
             .clip = .{ .padding_box = {} },
-            .size = .{ .size = .{
-                .width = .{ .auto = {} },
-                .height = .{ .percentage = 0.3 },
-            } },
+            .size = .{ .cover = {} },
         },
         .{ .color = .{ .rgba = 0x5c76d3ff } },
         .{},

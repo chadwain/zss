@@ -1190,6 +1190,21 @@ fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.Box
         .content_box => .{ .origin = .Content, .width = content_width, .height = content_height },
     };
 
+    const NaturalSize = struct {
+        width: CSSUnit,
+        height: CSSUnit,
+        has_aspect_ratio: bool,
+
+        fn init(img: *zss.values.BackgroundImage.Image) @This() {
+            const n = img.getNaturalSize();
+            assert(n.width >= 0);
+            assert(n.height >= 0);
+            return @This(){ .width = length(.px, n.width), .height = length(.px, n.height), .has_aspect_ratio = n.width != 0 and n.height != 0 };
+        }
+    };
+    // Initialize on first use.
+    var natural: ?NaturalSize = null;
+
     var width_was_auto = false;
     var height_was_auto = false;
     var size: used_values.Background2.Size = switch (bg.size) {
@@ -1227,8 +1242,19 @@ fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.Box
                 },
             },
         },
-        .cover => @panic("TODO background-size: cover"),
-        .contain => @panic("TODO background-size: contain"),
+        .contain, .cover => blk: {
+            if (natural == null) natural = NaturalSize.init(&image);
+            if (!natural.?.has_aspect_ratio) break :blk used_values.Background2.Size{ .width = natural.?.width, .height = natural.?.height };
+
+            const positioning_area_is_wider_than_image = positioning_area.width * natural.?.height > positioning_area.height * natural.?.width;
+            const is_contain = (bg.size == .contain);
+
+            if (positioning_area_is_wider_than_image == is_contain) {
+                break :blk used_values.Background2.Size{ .width = @divFloor(positioning_area.height * natural.?.width, natural.?.height), .height = positioning_area.height };
+            } else {
+                break :blk used_values.Background2.Size{ .width = positioning_area.width, .height = @divFloor(positioning_area.width * natural.?.height, natural.?.width) };
+            }
+        },
     };
 
     const repeat: used_values.Background2.Repeat = switch (bg.repeat) {
@@ -1250,21 +1276,15 @@ fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.Box
 
     if (width_was_auto or height_was_auto or repeat.x == .Round or repeat.y == .Round) {
         const divRound = zss.util.divRound;
-        const natural = blk: {
-            const n = image.getNaturalSize();
-            assert(n.width >= 0);
-            assert(n.height >= 0);
-            break :blk .{ .width = length(.px, n.width), .height = length(.px, n.height) };
-        };
-        const has_natural_aspect_ratio = natural.width != 0 and natural.height != 0;
+        if (natural == null) natural = NaturalSize.init(&image);
 
         if (width_was_auto and height_was_auto) {
-            size.width = natural.width;
-            size.height = natural.height;
+            size.width = natural.?.width;
+            size.height = natural.?.height;
         } else if (width_was_auto) {
-            size.width = if (has_natural_aspect_ratio) divRound(size.height * natural.width, natural.height) else positioning_area.width;
+            size.width = if (natural.?.has_aspect_ratio) divRound(size.height * natural.?.width, natural.?.height) else positioning_area.width;
         } else if (height_was_auto) {
-            size.height = if (has_natural_aspect_ratio) divRound(size.width * natural.height, natural.width) else positioning_area.height;
+            size.height = if (natural.?.has_aspect_ratio) divRound(size.width * natural.?.height, natural.?.width) else positioning_area.height;
         }
 
         if (repeat.x == .Round and repeat.y == .Round) {
@@ -1272,10 +1292,10 @@ fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.Box
             size.height = @divFloor(positioning_area.height, std.math.max(1, divRound(positioning_area.height, size.height)));
         } else if (repeat.x == .Round) {
             if (size.width > 0) size.width = @divFloor(positioning_area.width, std.math.max(1, divRound(positioning_area.width, size.width)));
-            if (height_was_auto and has_natural_aspect_ratio) size.height = @divFloor(size.width * natural.height, natural.width);
+            if (height_was_auto and natural.?.has_aspect_ratio) size.height = @divFloor(size.width * natural.?.height, natural.?.width);
         } else if (repeat.y == .Round) {
             if (size.height > 0) size.height = @divFloor(positioning_area.height, std.math.max(1, divRound(positioning_area.height, size.height)));
-            if (width_was_auto and has_natural_aspect_ratio) size.width = @divFloor(size.height * natural.width, natural.height);
+            if (width_was_auto and natural.?.has_aspect_ratio) size.width = @divFloor(size.height * natural.?.width, natural.?.height);
         }
     }
 
