@@ -76,8 +76,8 @@ pub fn drawBlockDataRoot(
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
 ) void {
-    const visual_effect = context.visual_effect[0];
-    if (visual_effect.visibility == .Hidden) return;
+    //const visual_effect = context.visual_effect[0];
+    //if (visual_effect.visibility == .Hidden) return;
     const borders = context.borders[0];
     const background1 = context.background1[0];
     const background2 = context.background2[0];
@@ -106,7 +106,7 @@ pub fn drawBlockDataChildren(
     const StackItem = struct {
         interval: Interval,
         cumulative_offset: Offset,
-        clip_rect: CSSRect,
+        //clip_rect: CSSRect,
     };
 
     var stack = std.ArrayList(StackItem).init(allocator);
@@ -114,33 +114,38 @@ pub fn drawBlockDataChildren(
 
     if (context.pdfs_flat_tree[0] != 1) {
         const box_offsets = context.box_offsets[0];
-        const borders = context.borders[0];
-        const clip_rect = switch (context.visual_effect[0].overflow) {
-            .Visible => initial_clip_rect,
-            .Hidden => blk: {
-                const padding_rect = CSSRect{
-                    .x = cumulative_offset.x + box_offsets.border_top_left.x + borders.left,
-                    .y = cumulative_offset.y + box_offsets.border_top_left.y + borders.top,
-                    .w = (box_offsets.border_bottom_right.x - borders.right) - (box_offsets.border_top_left.x + borders.left),
-                    .h = (box_offsets.border_bottom_right.y - borders.bottom) - (box_offsets.border_top_left.y + borders.top),
-                };
+        //const borders = context.borders[0];
+        //const clip_rect = switch (context.visual_effect[0].overflow) {
+        //    .Visible => initial_clip_rect,
+        //    .Hidden => blk: {
+        //        const padding_rect = CSSRect{
+        //            .x = cumulative_offset.x + box_offsets.border_top_left.x + borders.left,
+        //            .y = cumulative_offset.y + box_offsets.border_top_left.y + borders.top,
+        //            .w = (box_offsets.border_bottom_right.x - borders.right) - (box_offsets.border_top_left.x + borders.left),
+        //            .h = (box_offsets.border_bottom_right.y - borders.bottom) - (box_offsets.border_top_left.y + borders.top),
+        //        };
+        //
+        //        break :blk initial_clip_rect.intersect(padding_rect);
+        //    },
+        //};
+        //
+        //// No need to draw children if the clip rect is empty.
+        //if (!clip_rect.isEmpty()) {
+        //    try stack.append(StackItem{
+        //        .interval = Interval{ .begin = 1, .end = context.pdfs_flat_tree[0] },
+        //        .cumulative_offset = cumulative_offset.add(box_offsets.content_top_left),
+        //        .clip_rect = clip_rect,
+        //    });
+        //    assert(sdl.SDL_RenderSetClipRect(renderer, &cssRectToSdlRect(stack.items[0].clip_rect)) == 0);
+        //}
 
-                break :blk initial_clip_rect.intersect(padding_rect);
-            },
-        };
-
-        // No need to draw children if the clip rect is empty.
-        if (!clip_rect.isEmpty()) {
-            try stack.append(StackItem{
-                .interval = Interval{ .begin = 1, .end = context.pdfs_flat_tree[0] },
-                .cumulative_offset = cumulative_offset.add(box_offsets.content_top_left),
-                .clip_rect = clip_rect,
-            });
-            assert(sdl.SDL_RenderSetClipRect(renderer, &cssRectToSdlRect(stack.items[0].clip_rect)) == 0);
-        }
+        try stack.append(StackItem{
+            .interval = Interval{ .begin = 1, .end = context.pdfs_flat_tree[0] },
+            .cumulative_offset = cumulative_offset.add(box_offsets.content_top_left),
+        });
     }
 
-    stackLoop: while (stack.items.len > 0) {
+    while (stack.items.len > 0) {
         const stack_item = &stack.items[stack.items.len - 1];
         const interval = &stack_item.interval;
 
@@ -154,30 +159,35 @@ pub fn drawBlockDataChildren(
             const border_colors = context.border_colors[used_id];
             const background1 = context.background1[used_id];
             const background2 = context.background2[used_id];
-            const visual_effect = context.visual_effect[used_id];
+            //const visual_effect = context.visual_effect[used_id];
             const boxes = zss.util.getThreeBoxes(stack_item.cumulative_offset, box_offsets, borders);
 
-            if (visual_effect.visibility == .Visible) {
-                drawBackgroundAndBorders(&boxes, borders, background1, background2, border_colors, stack_item.clip_rect, renderer, pixel_format);
-            }
+            //if (visual_effect.visibility == .Visible) {
+            drawBackgroundAndBorders(&boxes, borders, background1, background2, border_colors, initial_clip_rect, renderer, pixel_format);
+            //}
 
             if (subtree_size != 1) {
-                const new_clip_rect = switch (visual_effect.overflow) {
-                    .Visible => stack_item.clip_rect,
-                    .Hidden => stack_item.clip_rect.intersect(boxes.padding),
-                };
+                //const new_clip_rect = switch (visual_effect.overflow) {
+                //    .Visible => stack_item.clip_rect,
+                //    .Hidden => stack_item.clip_rect.intersect(boxes.padding),
+                //};
+                //
+                //// No need to draw children if the clip rect is empty.
+                //if (!new_clip_rect.isEmpty()) {
+                //    // TODO maybe the wrong place to call SDL_RenderSetClipRect
+                //    assert(sdl.SDL_RenderSetClipRect(renderer, &cssRectToSdlRect(new_clip_rect)) == 0);
+                //    try stack.append(StackItem{
+                //        .interval = Interval{ .begin = used_id + 1, .end = used_id + subtree_size },
+                //        .cumulative_offset = stack_item.cumulative_offset.add(box_offsets.content_top_left),
+                //        .clip_rect = new_clip_rect,
+                //    });
+                //    continue :stackLoop;
+                //}
 
-                // No need to draw children if the clip rect is empty.
-                if (!new_clip_rect.isEmpty()) {
-                    // TODO maybe the wrong place to call SDL_RenderSetClipRect
-                    assert(sdl.SDL_RenderSetClipRect(renderer, &cssRectToSdlRect(new_clip_rect)) == 0);
-                    try stack.append(StackItem{
-                        .interval = Interval{ .begin = used_id + 1, .end = used_id + subtree_size },
-                        .cumulative_offset = stack_item.cumulative_offset.add(box_offsets.content_top_left),
-                        .clip_rect = new_clip_rect,
-                    });
-                    continue :stackLoop;
-                }
+                try stack.append(StackItem{
+                    .interval = Interval{ .begin = used_id + 1, .end = used_id + subtree_size },
+                    .cumulative_offset = stack_item.cumulative_offset.add(box_offsets.content_top_left),
+                });
             }
         }
 

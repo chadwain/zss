@@ -142,7 +142,7 @@ const IntermediateBlockRenderingData = struct {
     border_colors: ArrayListUnmanaged(used_values.BorderColor) = .{},
     background1: ArrayListUnmanaged(used_values.Background1) = .{},
     background2: ArrayListUnmanaged(used_values.Background2) = .{},
-    visual_effect: ArrayListUnmanaged(used_values.VisualEffect) = .{},
+    //visual_effect: ArrayListUnmanaged(used_values.VisualEffect) = .{},
     inline_data: ArrayListUnmanaged(BlockRenderingData.InlineData) = .{},
 
     fn deinit(self: *Self, allocator: *Allocator) void {
@@ -152,7 +152,7 @@ const IntermediateBlockRenderingData = struct {
         self.border_colors.deinit(allocator);
         self.background1.deinit(allocator);
         self.background2.deinit(allocator);
-        self.visual_effect.deinit(allocator);
+        //self.visual_effect.deinit(allocator);
         for (self.inline_data.items) |*inl| {
             inl.data.deinit(allocator);
             allocator.destroy(inl.data);
@@ -167,7 +167,7 @@ const IntermediateBlockRenderingData = struct {
         try self.border_colors.ensureCapacity(allocator, capacity);
         try self.background1.ensureCapacity(allocator, capacity);
         try self.background2.ensureCapacity(allocator, capacity);
-        try self.visual_effect.ensureCapacity(allocator, capacity);
+        //try self.visual_effect.ensureCapacity(allocator, capacity);
         try self.inline_data.ensureCapacity(allocator, capacity);
     }
 
@@ -179,7 +179,7 @@ const IntermediateBlockRenderingData = struct {
             .border_colors = self.border_colors.toOwnedSlice(allocator),
             .background1 = self.background1.toOwnedSlice(allocator),
             .background2 = self.background2.toOwnedSlice(allocator),
-            .visual_effect = self.visual_effect.toOwnedSlice(allocator),
+            //.visual_effect = self.visual_effect.toOwnedSlice(allocator),
             .inline_data = self.inline_data.toOwnedSlice(allocator),
         };
     }
@@ -278,7 +278,7 @@ fn blockLevelElementBeginProcessing(context: *BlockLayoutContext, data: *Interme
     _ = try data.border_colors.addOne(allocator);
     _ = try data.background1.addOne(allocator);
     _ = try data.background2.addOne(allocator);
-    _ = try data.visual_effect.addOne(allocator);
+    //_ = try data.visual_effect.addOne(allocator);
 
     if (subtree_size != 1) {
         try context.intervals.append(context.allocator, Interval{ .initial = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
@@ -336,9 +336,9 @@ fn blockContainerSolveOtherProperties(context: *BlockLayoutContext, data: *Inter
     background1_ptr.* = solveBackground1(background);
     background2_ptr.* = solveBackground2(background, box_offsets_ptr, borders_ptr);
 
-    const visual_effect_ptr = &data.visual_effect.items[used_id];
-    // TODO fill in all this data
-    visual_effect_ptr.* = .{};
+    //const visual_effect_ptr = &data.visual_effect.items[used_id];
+    //// TODO fill in all this data
+    //visual_effect_ptr.* = .{};
 }
 
 fn applyInFlowPositioningToChildren(context: *const BlockLayoutContext, box_offsets: []used_values.BoxOffsets, containing_block_block_size: CSSUnit) void {
@@ -632,7 +632,7 @@ fn blockLevelNewInlineData(context: *BlockLayoutContext, data: *IntermediateBloc
     try data.border_colors.append(allocator, .{});
     try data.background1.append(allocator, .{});
     try data.background2.append(allocator, .{});
-    try data.visual_effect.append(allocator, .{});
+    //try data.visual_effect.append(allocator, .{});
     parent_auto_block_size.* += inline_context.total_block_size;
 }
 

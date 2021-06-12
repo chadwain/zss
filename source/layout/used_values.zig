@@ -107,11 +107,11 @@ pub const Background2 = struct {
     origin: Origin = .Padding,
 };
 
-/// Contains the used value of the properties 'overflow' and 'visibility'.
-pub const VisualEffect = struct {
-    overflow: enum { Visible, Hidden } = .Visible,
-    visibility: enum { Visible, Hidden } = .Visible,
-};
+///// Contains the used value of the properties 'overflow' and 'visibility'.
+//pub const VisualEffect = struct {
+//    overflow: enum { Visible, Hidden } = .Visible,
+//    visibility: enum { Visible, Hidden } = .Visible,
+//};
 
 pub const UsedId = u16;
 
@@ -127,7 +127,7 @@ pub const BlockRenderingData = struct {
     border_colors: []BorderColor,
     background1: []Background1,
     background2: []Background2,
-    visual_effect: []VisualEffect,
+    //visual_effect: []VisualEffect,
     inline_data: []InlineData,
 
     pub fn deinit(self: *@This(), allocator: *Allocator) void {
@@ -137,7 +137,7 @@ pub const BlockRenderingData = struct {
         allocator.free(self.border_colors);
         allocator.free(self.background1);
         allocator.free(self.background2);
-        allocator.free(self.visual_effect);
+        //allocator.free(self.visual_effect);
         for (self.inline_data) |*inl| {
             inl.data.deinit(allocator);
             allocator.destroy(inl.data);
