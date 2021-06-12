@@ -105,7 +105,7 @@ fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocato
         .{},
         .{},
     };
-    var background = [len]box_tree.Background{ .{ .color = .{ .rgba = page_background_color } }, .{}, .{}, .{}, .{} };
+    var background = [len]box_tree.Background{ .{}, .{}, .{}, .{}, .{} };
     var tree = box_tree.BoxTree{
         .pdfs_flat_tree = &pdfs_flat_tree,
         .inline_size = &inline_size,
@@ -136,18 +136,14 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
     defer sdl.SDL_DestroyRenderer(renderer);
     assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BlendMode.SDL_BLENDMODE_BLEND) == 0);
 
-    var data: zss.used_values.BlockRenderingData = blk: {
-        var context = try zss.layout.BlockLayoutContext.init(tree, allocator, 0, pixelToCSSUnit(width), pixelToCSSUnit(height));
-        defer context.deinit();
-        break :blk try zss.layout.createBlockRenderingData(&context, allocator);
-    };
-    defer data.deinit(allocator);
+    var document = try zss.layout.doLayout(tree, allocator, pixelToCSSUnit(width), pixelToCSSUnit(height));
+    defer document.deinit(allocator);
     var atlas = try zss.sdl_freetype.GlyphAtlas.init(face, renderer, pixel_format, allocator);
     defer atlas.deinit(allocator);
     var needs_relayout = false;
 
-    var max_scroll_y = std.math.min(0, -data.box_offsets[0].border_top_left.y);
-    var min_scroll_y = max_scroll_y - std.math.max(0, data.box_offsets[0].border_bottom_right.y - data.box_offsets[0].border_top_left.y - height);
+    var max_scroll_y = std.math.min(0, -document.block_data.box_offsets[0].border_top_left.y);
+    var min_scroll_y = max_scroll_y - std.math.max(0, document.block_data.box_offsets[0].border_bottom_right.y - document.block_data.box_offsets[0].border_top_left.y - height);
     var scroll_y = max_scroll_y;
     const scroll_speed = 15;
 
@@ -199,43 +195,27 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
         if (needs_relayout) {
             needs_relayout = false;
 
-            var context = try zss.layout.BlockLayoutContext.init(tree, allocator, 0, pixelToCSSUnit(width), pixelToCSSUnit(height));
-            defer context.deinit();
-            var new_data = try zss.layout.createBlockRenderingData(&context, allocator);
-            data.deinit(allocator);
-            data = new_data;
+            var new_document = try zss.layout.doLayout(tree, allocator, pixelToCSSUnit(width), pixelToCSSUnit(height));
+            document.deinit(allocator);
+            document = new_document;
 
-            max_scroll_y = std.math.min(0, -data.box_offsets[0].border_top_left.y);
-            min_scroll_y = max_scroll_y - std.math.max(0, data.box_offsets[0].border_bottom_right.y - data.box_offsets[0].border_top_left.y - height);
+            max_scroll_y = std.math.min(0, -document.block_data.box_offsets[0].border_top_left.y);
+            min_scroll_y = max_scroll_y - std.math.max(0, document.block_data.box_offsets[0].border_bottom_right.y - document.block_data.box_offsets[0].border_top_left.y - height);
             scroll_y = std.math.clamp(scroll_y, min_scroll_y, max_scroll_y);
         }
 
-        {
-            zss.sdl_freetype.drawBackgroundColor(renderer, pixel_format, sdl.SDL_Rect{ .x = 0, .y = 0, .w = width, .h = height }, page_background_color);
-
-            const css_viewport_rect = zss.used_values.CSSRect{
-                .x = 0,
-                .y = 0,
-                .w = pixelToCSSUnit(width),
-                .h = pixelToCSSUnit(height),
-            };
-            const offset = zss.used_values.Offset{
-                .x = 0,
-                .y = scroll_y,
-            };
-            zss.sdl_freetype.drawBlockDataRoot(&data, offset, css_viewport_rect, renderer, pixel_format);
-            try zss.sdl_freetype.drawBlockDataChildren(&data, allocator, offset, css_viewport_rect, renderer, pixel_format);
-
-            for (data.inline_data) |inline_data| {
-                var o = offset;
-                var it = zss.util.PdfsFlatTreeIterator.init(data.pdfs_flat_tree, inline_data.id_of_containing_block);
-                while (it.next()) |id| {
-                    o = o.add(data.box_offsets[id].content_top_left);
-                }
-                try zss.sdl_freetype.drawInlineData(inline_data.data, o, renderer, pixel_format, &atlas);
-            }
-        }
-
+        const css_viewport_rect = zss.used_values.CSSRect{
+            .x = 0,
+            .y = 0,
+            .w = pixelToCSSUnit(width),
+            .h = pixelToCSSUnit(height),
+        };
+        const offset = zss.used_values.Offset{
+            .x = 0,
+            .y = scroll_y,
+        };
+        zss.sdl_freetype.drawBackgroundColor(renderer, pixel_format, sdl.SDL_Rect{ .x = 0, .y = 0, .w = width, .h = height }, page_background_color);
+        try zss.sdl_freetype.renderDocument(&document, renderer, pixel_format, &atlas, allocator, css_viewport_rect, offset);
         sdl.SDL_RenderPresent(renderer);
 
         const frame_time = timer.lap();

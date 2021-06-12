@@ -3,8 +3,10 @@ const assert = std.debug.assert;
 
 const zss = @import("../../zss.zig");
 const CSSUnit = zss.used_values.CSSUnit;
+const CSSRect = zss.used_values.CSSRect;
 const Offset = zss.used_values.Offset;
 const InlineRenderingData = zss.used_values.InlineRenderingData;
+const Document = zss.used_values.Document;
 
 const hb = @import("harfbuzz");
 const sdl = @import("SDL2");
@@ -22,6 +24,29 @@ pub const drawBackgroundColor = util.drawBackgroundColor;
 pub const textureAsBackgroundImage = util.textureAsBackgroundImage;
 pub const GlyphAtlas = util.GlyphAtlas;
 pub const makeGlyphAtlas = util.makeGlyphAtlas;
+
+pub fn renderDocument(
+    document: *const Document,
+    renderer: *sdl.SDL_Renderer,
+    pixel_format: *sdl.SDL_PixelFormat,
+    glyph_atlas: *GlyphAtlas,
+    allocator: *std.mem.Allocator,
+    clip_rect: CSSRect,
+    offset: Offset,
+) !void {
+    const block_data = &document.block_data;
+    drawBlockDataRoot(block_data, offset, clip_rect, renderer, pixel_format);
+    try drawBlockDataChildren(block_data, allocator, offset, clip_rect, renderer, pixel_format);
+
+    for (block_data.inline_data) |inline_data| {
+        var cumulative_offset = offset;
+        var it = zss.util.PdfsFlatTreeIterator.init(block_data.pdfs_flat_tree, inline_data.id_of_containing_block);
+        while (it.next()) |id| {
+            cumulative_offset = cumulative_offset.add(block_data.box_offsets[id].content_top_left);
+        }
+        try drawInlineData(inline_data.data, cumulative_offset, renderer, pixel_format, glyph_atlas);
+    }
+}
 
 pub fn drawInlineData(
     context: *const InlineRenderingData,

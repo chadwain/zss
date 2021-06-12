@@ -14,6 +14,7 @@ const CSSUnit = used_values.CSSUnit;
 const UsedId = used_values.UsedId;
 const BlockRenderingData = used_values.BlockRenderingData;
 const InlineRenderingData = used_values.InlineRenderingData;
+const Document = used_values.Document;
 
 const hb = @import("harfbuzz");
 
@@ -21,6 +22,12 @@ pub const Error = error{
     OutOfMemory,
     Overflow,
 };
+
+pub fn doLayout(box_tree: *const BoxTree, allocator: *Allocator, document_width: CSSUnit, document_height: CSSUnit) Error!Document {
+    var block_layout_context = try BlockLayoutContext.init(box_tree, allocator, 0, document_width, document_height);
+    defer block_layout_context.deinit();
+    return Document{ .block_data = try createBlockRenderingData(&block_layout_context, allocator) };
+}
 
 const Interval = struct {
     initial: BoxId,

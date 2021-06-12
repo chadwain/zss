@@ -246,6 +246,16 @@ pub const InlineRenderingData = struct {
     }
 };
 
+pub const Document = struct {
+    block_data: BlockRenderingData,
+
+    const Self = @This();
+
+    pub fn deinit(self: *Self, allocator: *Allocator) void {
+        self.block_data.deinit(allocator);
+    }
+};
+
 test "CSSRect" {
     const r1 = CSSRect{ .x = 0, .y = 0, .w = 10, .h = 10 };
     const r2 = CSSRect{ .x = 3, .y = 5, .w = 17, .h = 4 };

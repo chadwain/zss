@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const zss = @import("../../../zss.zig");
+const UsedId = zss.used_values.UsedId;
 const CSSUnit = zss.used_values.CSSUnit;
 const CSSRect = zss.used_values.CSSRect;
 const Offset = zss.used_values.Offset;
@@ -99,8 +100,8 @@ pub fn drawBlockDataChildren(
     pixel_format: *sdl.SDL_PixelFormat,
 ) !void {
     const Interval = struct {
-        begin: u16,
-        end: u16,
+        begin: UsedId,
+        end: UsedId,
     };
     const StackItem = struct {
         interval: Interval,
