@@ -482,8 +482,8 @@ fn getBackgroundImageRepeatInfo(
             .start_index = 0,
         },
         .Repeat => blk: {
-            const before = zss.util.divCeil(c_int, image_offset + positioning_area_offset, @intCast(c_int, image_size));
-            const after = zss.util.divCeil(c_int, @intCast(c_int, painting_area_size) - positioning_area_offset - image_offset - @intCast(c_int, image_size), @intCast(c_int, image_size));
+            const before = zss.util.divCeil(image_offset + positioning_area_offset, @intCast(c_int, image_size));
+            const after = zss.util.divCeil(@intCast(c_int, painting_area_size) - positioning_area_offset - image_offset - @intCast(c_int, image_size), @intCast(c_int, image_size));
             break :blk .{
                 .count = @intCast(c_uint, before + after + 1),
                 .space = zss.util.Ratio(c_uint){ .num = 0, .den = 1 },
@@ -503,12 +503,10 @@ fn getBackgroundImageRepeatInfo(
             } else {
                 const space = positioning_area_size % image_size;
                 const before = zss.util.divCeil(
-                    c_int,
                     @intCast(c_int, positioning_area_count - 1) * positioning_area_offset - @intCast(c_int, space),
                     @intCast(c_int, positioning_area_size - image_size),
                 );
                 const after = zss.util.divCeil(
-                    c_int,
                     @intCast(c_int, positioning_area_count - 1) * (@intCast(c_int, painting_area_size) - @intCast(c_int, positioning_area_size) - positioning_area_offset) - @intCast(c_int, space),
                     @intCast(c_int, positioning_area_size - image_size),
                 );

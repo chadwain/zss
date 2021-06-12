@@ -26,8 +26,8 @@ pub const GlyphAtlas = struct {
     const Self = @This();
 
     pub fn init(face: ft.FT_Face, renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, allocator: *Allocator) !Self {
-        const max_glyph_width = @intCast(u16, zss.util.roundUp(c_long, zss.util.divCeil(c_long, (face.*.bbox.xMax - face.*.bbox.xMin) * face.*.size.*.metrics.x_ppem, face.*.units_per_EM), 4));
-        const max_glyph_height = @intCast(u16, zss.util.roundUp(c_long, zss.util.divCeil(c_long, (face.*.bbox.yMax - face.*.bbox.yMin) * face.*.size.*.metrics.y_ppem, face.*.units_per_EM), 4));
+        const max_glyph_width = @intCast(u16, zss.util.roundUp(zss.util.divCeil((face.*.bbox.xMax - face.*.bbox.xMin) * face.*.size.*.metrics.x_ppem, face.*.units_per_EM), 4));
+        const max_glyph_height = @intCast(u16, zss.util.roundUp(zss.util.divCeil((face.*.bbox.yMax - face.*.bbox.yMin) * face.*.size.*.metrics.y_ppem, face.*.units_per_EM), 4));
 
         const surface = sdl.SDL_CreateRGBSurfaceWithFormat(
             0,

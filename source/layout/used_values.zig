@@ -221,9 +221,9 @@ pub const InlineRenderingData = struct {
         var i: usize = 0;
         while (i < self.glyph_indeces.len) : (i += 1) {
             const gi = self.glyph_indeces[i];
-            if (gi == special_index) {
+            if (gi == Special.glyph_index) {
                 i += 1;
-                p("{}\n", .{decodeSpecial(self.glyph_indeces[i])});
+                p("{}\n", .{Special.decode(self.glyph_indeces[i])});
             } else {
                 p("{x}\n", .{gi});
             }
@@ -234,7 +234,7 @@ pub const InlineRenderingData = struct {
         while (i < self.positions.len) : (i += 1) {
             const pos = self.positions[i];
             p("{}\n", .{pos});
-            if (self.glyph_indeces[i] == special_index) {
+            if (self.glyph_indeces[i] == Special.glyph_index) {
                 i += 1;
             }
         }

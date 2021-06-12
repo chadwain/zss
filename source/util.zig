@@ -43,7 +43,7 @@ pub fn getThreeBoxes(offset: used_values.Offset, box_offsets: used_values.BoxOff
     };
 }
 
-pub fn divCeil(comptime T: type, a: T, b: T) T {
+pub fn divCeil(a: anytype, b: anytype) @TypeOf(a, b) {
     return @divFloor(a, b) + @boolToInt(@mod(a, b) != 0);
 }
 
@@ -51,16 +51,16 @@ pub fn divRound(a: anytype, b: anytype) @TypeOf(a, b) {
     return @divFloor(a, b) + @boolToInt(2 * @mod(a, b) >= b);
 }
 
-pub fn roundUp(comptime T: type, a: T, comptime multiple: comptime_int) T {
+pub fn roundUp(a: anytype, comptime multiple: comptime_int) @TypeOf(a) {
     const mod = @mod(a, multiple);
     return a + (multiple - mod) * @boolToInt(mod != 0);
 }
 
 test "roundUp" {
-    try expect(roundUp(usize, 0, 4) == 0);
-    try expect(roundUp(usize, 1, 4) == 4);
-    try expect(roundUp(usize, 3, 4) == 4);
-    try expect(roundUp(usize, 62, 7) == 63);
+    try expect(roundUp(0, 4) == 0);
+    try expect(roundUp(1, 4) == 4);
+    try expect(roundUp(3, 4) == 4);
+    try expect(roundUp(62, 7) == 63);
 }
 
 /// The same as std.math.clamp, but without the assertion.

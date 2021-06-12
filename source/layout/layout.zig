@@ -1110,20 +1110,15 @@ test "inline used data" {
     if (hb_font == hb.hb_font_get_empty()) return error.HarfBuzzError;
     hb.hb_font_set_scale(hb_font, 40 * 64, 40 * 64);
 
-    const len = 5;
-    var pdfs_flat_tree = [len]BoxId{ 5, 1, 1, 1, 1 };
-    var inline_size = [len]computed.LogicalSize{
-        .{},
-        .{ .border_start_width = .{ .px = 10 }, .border_end_width = .{ .px = 40 } },
-        .{},
-        .{ .border_start_width = .{ .px = 30 }, .border_end_width = .{ .px = 40 } },
-        .{},
-    };
+    const len = 2;
+    var pdfs_flat_tree = [len]BoxId{ 2, 1 };
+    var inline_size = [_]computed.LogicalSize{.{}} ** len;
     var block_size = [_]computed.LogicalSize{.{}} ** len;
-    var display = [len]computed.Display{ .{ .block_flow_root = {} }, .{ .inline_flow = {} }, .{ .text = {} }, .{ .inline_flow = {} }, .{ .block_flow = {} } };
-    //var position_inset = [_]computed.PositionInset{.{}} ** len;
-    var latin1_text = [_]computed.Latin1Text{.{ .text = "" }} ** len;
-    latin1_text[2] = .{ .text = "hello world" };
+    var display = [len]computed.Display{
+        .{ .block_flow_root = {} },
+        .{ .text = {} },
+    };
+    var latin1_text = [len]computed.Latin1Text{ .{}, .{ .text = "hello world" } };
     var font = computed.Font{ .font = hb_font };
     var border = [_]computed.Border{.{}} ** len;
     var background = [_]computed.Background{.{}} ** len;
@@ -1132,20 +1127,18 @@ test "inline used data" {
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
-        //.position_inset = &position_inset,
         .latin1_text = &latin1_text,
         .font = font,
         .border = &border,
         .background = &background,
     };
-    //const viewport_rect = CSSSize{ .w = 50, .h = 400 };
 
-    var context = InlineLayoutContext.init(&tree, al, Interval{ .begin = 1, .end = pdfs_flat_tree[0] }, 50);
+    var context = InlineLayoutContext.init(&tree, al, Interval{ .initial = 0, .begin = 1, .end = pdfs_flat_tree[0] }, 50);
     defer context.deinit();
     var data = try createInlineRenderingData(&context, al);
     defer data.deinit(al);
 
-    try std.testing.expect(context.next_box_id == 4);
+    try std.testing.expect(context.next_box_id == 2);
     data.dump();
 }
 
