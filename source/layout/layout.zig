@@ -725,49 +725,49 @@ const IntermediateInlineRenderingData = struct {
     font: *hb.hb_font_t = undefined,
     font_color_rgba: u32 = undefined,
 
-    measures_top: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
-    measures_right: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
-    measures_bottom: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
-    measures_left: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
-    heights: ArrayListUnmanaged(InlineRenderingData.Heights) = .{},
-    background1: ArrayListUnmanaged(used_values.Background1) = .{},
+    //measures_top: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
+    //measures_right: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
+    //measures_bottom: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
+    //measures_left: ArrayListUnmanaged(InlineRenderingData.BoxMeasures) = .{},
+    //heights: ArrayListUnmanaged(InlineRenderingData.Heights) = .{},
+    //background1: ArrayListUnmanaged(used_values.Background1) = .{},
 
-    margins: ArrayListUnmanaged(MarginLeftRight) = .{},
+    //margins: ArrayListUnmanaged(MarginLeftRight) = .{},
 
     fn deinit(self: *Self, allocator: *Allocator) void {
         self.line_boxes.deinit(allocator);
         self.glyph_indeces.deinit(allocator);
         self.positions.deinit(allocator);
-        self.measures_top.deinit(allocator);
-        self.measures_right.deinit(allocator);
-        self.measures_bottom.deinit(allocator);
-        self.measures_left.deinit(allocator);
-        self.heights.deinit(allocator);
-        self.background1.deinit(allocator);
-        self.margins.deinit(allocator);
+        //self.measures_top.deinit(allocator);
+        //self.measures_right.deinit(allocator);
+        //self.measures_bottom.deinit(allocator);
+        //self.measures_left.deinit(allocator);
+        //self.heights.deinit(allocator);
+        //self.background1.deinit(allocator);
+        //self.margins.deinit(allocator);
     }
 
     fn ensureCapacity(self: *Self, allocator: *Allocator, count: usize) !void {
         try self.line_boxes.ensureCapacity(allocator, count);
         try self.glyph_indeces.ensureCapacity(allocator, count);
         try self.positions.ensureCapacity(allocator, count);
-        try self.measures_top.ensureCapacity(allocator, count);
-        try self.measures_right.ensureCapacity(allocator, count);
-        try self.measures_bottom.ensureCapacity(allocator, count);
-        try self.measures_left.ensureCapacity(allocator, count);
-        try self.heights.ensureCapacity(allocator, count);
-        try self.background1.ensureCapacity(allocator, count);
-        try self.margins.ensureCapacity(allocator, count);
+        //try self.measures_top.ensureCapacity(allocator, count);
+        //try self.measures_right.ensureCapacity(allocator, count);
+        //try self.measures_bottom.ensureCapacity(allocator, count);
+        //try self.measures_left.ensureCapacity(allocator, count);
+        //try self.heights.ensureCapacity(allocator, count);
+        //try self.background1.ensureCapacity(allocator, count);
+        //try self.margins.ensureCapacity(allocator, count);
     }
 
     fn toNormalData(self: *Self, allocator: *Allocator) InlineRenderingData {
-        self.measures_top.deinit(allocator);
-        self.measures_right.deinit(allocator);
-        self.measures_bottom.deinit(allocator);
-        self.measures_left.deinit(allocator);
-        self.heights.deinit(allocator);
-        self.background1.deinit(allocator);
-        self.margins.deinit(allocator);
+        //self.measures_top.deinit(allocator);
+        //self.measures_right.deinit(allocator);
+        //self.measures_bottom.deinit(allocator);
+        //self.measures_left.deinit(allocator);
+        //self.heights.deinit(allocator);
+        //self.background1.deinit(allocator);
+        //self.margins.deinit(allocator);
         return InlineRenderingData{
             .line_boxes = self.line_boxes.toOwnedSlice(allocator),
             .glyph_indeces = self.glyph_indeces.toOwnedSlice(allocator),
@@ -781,7 +781,7 @@ const IntermediateInlineRenderingData = struct {
 pub const InlineLayoutContext = struct {
     box_tree: *const BoxTree,
     intervals: ArrayListUnmanaged(Interval),
-    used_ids: ArrayListUnmanaged(UsedId),
+    //used_ids: ArrayListUnmanaged(UsedId),
     allocator: *Allocator,
     block_container_interval: Interval,
     containing_block_inline_size: CSSUnit,
@@ -795,7 +795,7 @@ pub const InlineLayoutContext = struct {
         return Self{
             .box_tree = box_tree,
             .intervals = .{},
-            .used_ids = .{},
+            //.used_ids = .{},
             .allocator = allocator,
             .block_container_interval = block_container_interval,
             .containing_block_inline_size = containing_block_inline_size,
@@ -804,7 +804,7 @@ pub const InlineLayoutContext = struct {
 
     pub fn deinit(self: *Self) void {
         self.intervals.deinit(self.allocator);
-        self.used_ids.deinit(self.allocator);
+        //self.used_ids.deinit(self.allocator);
     }
 };
 
@@ -821,14 +821,15 @@ pub fn createInlineRenderingData(context: *InlineLayoutContext, allocator: *Allo
         .rgba => |rgba| rgba,
     };
 
-    const root_used_id = try addRootInlineBoxData(&data, allocator);
-    try addBoxStart(&data, allocator, root_used_id);
+    const root_used_id = 0;
+    //const root_used_id = try addRootInlineBoxData(&data, allocator);
+    //try addBoxStart(&data, allocator, root_used_id);
 
     if (root_interval.begin != root_interval.end) {
         try context.intervals.append(context.allocator, root_interval);
-        try context.used_ids.append(context.allocator, root_used_id);
+        //try context.used_ids.append(context.allocator, root_used_id);
     } else {
-        try addBoxEnd(&data, allocator, root_used_id);
+        //try addBoxEnd(&data, allocator, root_used_id);
     }
 
     var next_box_id: ?BoxId = null;
@@ -836,11 +837,11 @@ pub fn createInlineRenderingData(context: *InlineLayoutContext, allocator: *Allo
     while (context.intervals.items.len > 0) {
         const interval = &context.intervals.items[context.intervals.items.len - 1];
         if (interval.begin == interval.end) {
-            const used_id = context.used_ids.items[context.used_ids.items.len - 1];
-            try addBoxEnd(&data, allocator, used_id);
+            //const used_id = context.used_ids.items[context.used_ids.items.len - 1];
+            //try addBoxEnd(&data, allocator, used_id);
 
             _ = context.intervals.pop();
-            _ = context.used_ids.pop();
+            //_ = context.used_ids.pop();
         } else {
             const box_id = interval.begin;
             const subtree_size = context.box_tree.pdfs_flat_tree[box_id];
@@ -861,10 +862,10 @@ pub fn createInlineRenderingData(context: *InlineLayoutContext, allocator: *Allo
                 .text => try addText(&data, allocator, context.box_tree.latin1_text[box_id], font),
                 .block_flow, .block_flow_root => {
                     // Immediately finish off this group of inline elements.
-                    var i: usize = context.used_ids.items.len;
-                    while (i > 0) : (i -= 1) {
-                        try addBoxEnd(&data, allocator, context.used_ids.items[i - 1]);
-                    }
+                    //var i: usize = context.used_ids.items.len;
+                    //while (i > 0) : (i -= 1) {
+                    //    try addBoxEnd(&data, allocator, context.used_ids.items[i - 1]);
+                    //}
                     next_box_id = box_id;
                     break;
                 },

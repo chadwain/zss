@@ -149,16 +149,16 @@ pub const BlockRenderingData = struct {
 pub const InlineRenderingData = struct {
     const hb = @import("harfbuzz");
 
-    pub const BoxMeasures = struct {
-        border: CSSUnit = 0,
-        padding: CSSUnit = 0,
-        border_color_rgba: u32 = 0,
-    };
+    //pub const BoxMeasures = struct {
+    //    border: CSSUnit = 0,
+    //    padding: CSSUnit = 0,
+    //    border_color_rgba: u32 = 0,
+    //};
 
-    pub const Heights = struct {
-        above_baseline: CSSUnit,
-        below_baseline: CSSUnit,
-    };
+    //pub const Heights = struct {
+    //    above_baseline: CSSUnit,
+    //    below_baseline: CSSUnit,
+    //};
 
     pub const LineBox = struct {
         baseline: CSSUnit,
