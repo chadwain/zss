@@ -161,7 +161,7 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
         .{},
     };
     var display = [len]zss.box_tree.Display{
-        .{ .block_flow_root = {} },
+        .{ .block_flow = {} },
         .{ .block_flow = {} },
         .{ .text = {} },
     };

@@ -1,7 +1,3 @@
-const values = @import("./values.zig");
-
-pub const BoxId = u16;
-
 /// Defines the structure of the document, and also contains the
 /// computed values of every property for each box in the document.
 pub const BoxTree = struct {
@@ -17,45 +13,69 @@ pub const BoxTree = struct {
     //position_inset: []PositionInset,
 };
 
-fn withNone(comptime T: type) type {
-    return values.mergeUnions(T, values.None);
-}
+pub const BoxId = u16;
 
-fn withAuto(comptime T: type) type {
-    return values.mergeUnions(T, values.Auto);
-}
-
-pub const LogicalSize = struct {
-    pub const Size = withAuto(values.LengthPercentage);
-    pub const MinValue = values.LengthPercentage;
-    pub const MaxValue = withNone(values.LengthPercentage);
-    pub const BorderValue = values.LineWidth;
-    pub const PaddingValue = values.LengthPercentage;
-    pub const MarginValue = withAuto(values.LengthPercentage);
-
-    size: Size = .{ .auto = {} },
-    min_size: MinValue = .{ .px = 0 },
-    max_size: MaxValue = .{ .none = {} },
-    // TODO wrong defaults for border values
-    border_start_width: BorderValue = .{ .px = 0 },
-    border_end_width: BorderValue = .{ .px = 0 },
-    padding_start: PaddingValue = .{ .px = 0 },
-    padding_end: PaddingValue = .{ .px = 0 },
-    margin_start: MarginValue = .{ .px = 0 },
-    margin_end: MarginValue = .{ .px = 0 },
+pub const Display = union(enum) {
+    block_flow,
+    text,
+    none,
 };
 
-pub const Display = withNone(values.Display);
+pub const LogicalSize = struct {
+    pub const Size = union(enum) {
+        px: f32,
+        percentage: f32,
+        auto,
+    };
+    pub const Min = union(enum) {
+        px: f32,
+        percentage: f32,
+    };
+    pub const Max = union(enum) {
+        px: f32,
+        percentage: f32,
+        none,
+    };
+    pub const BorderWidth = union(enum) {
+        px: f32,
+    };
+    pub const Padding = union(enum) {
+        px: f32,
+        percentage: f32,
+    };
+    pub const Margin = union(enum) {
+        px: f32,
+        percentage: f32,
+        auto,
+    };
+
+    size: Size = .{ .auto = {} },
+    min_size: Min = .{ .px = 0 },
+    max_size: Max = .{ .none = {} },
+    border_start_width: BorderWidth = .{ .px = 0 },
+    border_end_width: BorderWidth = .{ .px = 0 },
+    padding_start: Padding = .{ .px = 0 },
+    padding_end: Padding = .{ .px = 0 },
+    margin_start: Margin = .{ .px = 0 },
+    margin_end: Margin = .{ .px = 0 },
+};
 
 pub const PositionInset = struct {
-    pub const PositionValue = values.Position;
-    pub const InsetValue = withAuto(values.LengthPercentage);
+    pub const Position = union(enum) {
+        static,
+        relative,
+    };
+    pub const Inset = union(enum) {
+        px: f32,
+        percentage: f32,
+        auto,
+    };
 
-    position: PositionValue = .{ .static = {} },
-    block_start: InsetValue = .{ .auto = {} },
-    block_end: InsetValue = .{ .auto = {} },
-    inline_start: InsetValue = .{ .auto = {} },
-    inline_end: InsetValue = .{ .auto = {} },
+    position: Position = .{ .static = {} },
+    block_start: Inset = .{ .auto = {} },
+    block_end: Inset = .{ .auto = {} },
+    inline_start: Inset = .{ .auto = {} },
+    inline_end: Inset = .{ .auto = {} },
 };
 
 pub const Latin1Text = struct {
@@ -65,45 +85,113 @@ pub const Latin1Text = struct {
 
 pub const Font = struct {
     const hb = @import("harfbuzz");
+    pub const Color = union(enum) {
+        rgba: u32,
+    };
+
     font: ?*hb.hb_font_t,
-    color: values.Color = .{ .rgba = 0xffffffff },
+    color: Color = .{ .rgba = 0xffffffff },
 };
 
 pub const Background = struct {
-    pub const ImageValue = withNone(values.BackgroundImage);
-    pub const ColorValue = values.Color;
-    pub const ClipValue = values.Box;
-    pub const OriginValue = values.Box;
-    pub const SizeValue = values.BackgroundSize;
-    pub const PositionValue = values.BackgroundPosition;
-    pub const RepeatValue = values.RepeatStyle;
+    pub const Image = union(enum) {
+        pub const Object = struct {
+            pub const Data = opaque {};
+            pub const Dimensions = struct {
+                width: f32,
+                height: f32,
+            };
 
-    image: ImageValue = .{ .none = {} },
-    // TODO wrong default here
-    color: ColorValue = .{ .rgba = 0 },
-    clip: ClipValue = .{ .border_box = {} },
-    origin: OriginValue = .{ .padding_box = {} },
-    // TODO wrong defaults here
-    size: SizeValue = .{ .size = .{
-        .width = .{ .percentage = 1 },
-        .height = .{ .percentage = 1 },
+            data: *Data,
+            getNaturalSizeFn: fn (data: *Data) Dimensions,
+
+            pub fn getNaturalSize(self: *Object) Dimensions {
+                return self.getNaturalSizeFn(self.data);
+            }
+        };
+
+        image: Object,
+        none,
+    };
+    pub const Color = union(enum) {
+        rgba: u32,
+    };
+    pub const Clip = union(enum) {
+        border_box,
+        padding_box,
+        content_box,
+    };
+    pub const Origin = union(enum) {
+        border_box,
+        padding_box,
+        content_box,
+    };
+    pub const Size = union(enum) {
+        pub const SizeType = union(enum) {
+            px: f32,
+            percentage: f32,
+            auto,
+        };
+
+        size: struct {
+            width: SizeType,
+            height: SizeType,
+        },
+        contain,
+        cover,
+    };
+    pub const Position = union(enum) {
+        pub const Offset = union(enum) {
+            px: f32,
+            percentage: f32,
+        };
+
+        position: struct {
+            horizontal: struct {
+                side: enum { left, right },
+                offset: Offset,
+            },
+            vertical: struct {
+                side: enum { top, bottom },
+                offset: Offset,
+            },
+        },
+    };
+    pub const Repeat = union(enum) {
+        pub const Style = enum { repeat, space, round, no_repeat };
+
+        repeat: struct {
+            horizontal: Style,
+            vertical: Style,
+        },
+    };
+
+    image: Image = .{ .none = {} },
+    color: Color = .{ .rgba = 0 },
+    clip: Clip = .{ .border_box = {} },
+    origin: Origin = .{ .padding_box = {} },
+    size: Size = .{ .size = .{
+        .width = .{ .auto = {} },
+        .height = .{ .auto = {} },
     } },
-    position: PositionValue = .{ .position = .{
+    position: Position = .{ .position = .{
         .horizontal = .{ .side = .left, .offset = .{ .percentage = 0 } },
         .vertical = .{ .side = .top, .offset = .{ .percentage = 0 } },
     } },
-    repeat: RepeatValue = .{ .repeat = .{
+    repeat: Repeat = .{ .repeat = .{
         .horizontal = .repeat,
         .vertical = .repeat,
     } },
 };
 
 pub const Border = struct {
-    pub const BorderColor = values.Color;
+    pub const Color = union(enum) {
+        rgba: u32,
+    };
 
     // TODO wrong defaults
-    block_start_color: BorderColor = .{ .rgba = 0 },
-    block_end_color: BorderColor = .{ .rgba = 0 },
-    inline_start_color: BorderColor = .{ .rgba = 0 },
-    inline_end_color: BorderColor = .{ .rgba = 0 },
+    block_start_color: Color = .{ .rgba = 0 },
+    block_end_color: Color = .{ .rgba = 0 },
+    inline_start_color: Color = .{ .rgba = 0 },
+    inline_end_color: Color = .{ .rgba = 0 },
 };

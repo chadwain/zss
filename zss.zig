@@ -1,6 +1,5 @@
 pub const util = @import("source/util.zig");
 
-pub const values = @import("source/box_tree/values.zig");
 pub const box_tree = @import("source/box_tree/box_tree.zig");
 
 pub const layout = @import("source/layout/layout.zig");

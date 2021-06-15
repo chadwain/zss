@@ -109,7 +109,7 @@ fn exampleInlineData(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFor
     var pdfs_flat_tree = [len]box_tree.BoxId{ 2, 1 };
     var inline_size = [_]box_tree.LogicalSize{.{}} ** len;
     var block_size = [_]box_tree.LogicalSize{.{}} ** len;
-    var display = [len]box_tree.Display{ .{ .block_flow_root = {} }, .{ .text = {} } };
+    var display = [len]box_tree.Display{ .{ .block_flow = {} }, .{ .text = {} } };
     var latin1_text = [len]box_tree.Latin1Text{ .{}, .{ .text = "hello world." } };
     var font = box_tree.Font{ .font = hbfont };
     var border = [_]box_tree.Border{.{}} ** len;

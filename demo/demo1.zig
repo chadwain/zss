@@ -79,8 +79,8 @@ fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocato
 
     const len = 5;
     var pdfs_flat_tree = [len]zss.box_tree.BoxId{ 5, 2, 1, 2, 1 };
-    const root_border_width = zss.box_tree.LogicalSize.BorderValue{ .px = 10 };
-    const root_padding = zss.box_tree.LogicalSize.PaddingValue{ .px = 30 };
+    const root_border_width = zss.box_tree.LogicalSize.BorderWidth{ .px = 10 };
+    const root_padding = zss.box_tree.LogicalSize.Padding{ .px = 30 };
     var inline_size = [len]box_tree.LogicalSize{
         .{ .min_size = .{ .px = 200 }, .padding_start = root_padding, .padding_end = root_padding, .border_start_width = root_border_width, .border_end_width = root_border_width },
         .{},
@@ -95,9 +95,9 @@ fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocato
         .{},
         .{},
     };
-    var display = [len]box_tree.Display{ .{ .block_flow_root = {} }, .{ .block_flow = {} }, .{ .text = {} }, .{ .block_flow = {} }, .{ .text = {} } };
+    var display = [len]box_tree.Display{ .{ .block_flow = {} }, .{ .block_flow = {} }, .{ .text = {} }, .{ .block_flow = {} }, .{ .text = {} } };
     var latin1_text = [len]box_tree.Latin1Text{ .{}, .{}, .{ .text = filename }, .{}, .{ .text = bytes } };
-    const root_border_color = zss.box_tree.Border.BorderColor{ .rgba = 0xaf2233ff };
+    const root_border_color = zss.box_tree.Border.Color{ .rgba = 0xaf2233ff };
     var border = [len]box_tree.Border{
         .{ .inline_start_color = root_border_color, .inline_end_color = root_border_color, .block_start_color = root_border_color, .block_end_color = root_border_color },
         .{ .block_end_color = .{ .rgba = 0x202020ff } },

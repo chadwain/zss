@@ -100,7 +100,7 @@ pub const Background2 = struct {
         y: Style = .None,
     };
 
-    image: ?*zss.values.BackgroundImage.Data = null,
+    image: ?*zss.box_tree.Background.Image.Object.Data = null,
     position: Position = .{},
     size: Size = .{},
     repeat: Repeat = .{},

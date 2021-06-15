@@ -238,7 +238,7 @@ pub fn createBlockRenderingData(context: *BlockLayoutContext, allocator: *Alloca
 
 fn blockLevelElementSwitch(context: *BlockLayoutContext, data: *IntermediateBlockRenderingData, allocator: *Allocator, interval: *Interval) !void {
     switch (context.box_tree.display[interval.begin]) {
-        .block_flow_root, .block_flow => return blockLevelElementBeginProcessing(context, data, allocator, interval),
+        .block_flow => return blockLevelElementBeginProcessing(context, data, allocator, interval),
         //.inline_flow,
         .text => return blockLevelNewInlineData(context, data, allocator, interval),
         .none => return,
@@ -410,23 +410,17 @@ fn percentage(value: f32, unit: CSSUnit) CSSUnit {
     return @floatToInt(CSSUnit, @round(@intToFloat(f32, unit) * value));
 }
 
-fn borderWidth(val: computed.LogicalSize.BorderValue) CSSUnit {
-    const result = switch (val) {
-        .px => |value| length(.px, value),
-        .thin => 1,
-        .medium => 5,
-        .thick => 10,
-    };
-    return result;
-}
-
 fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, box_id: BoxId, box_offsets: *used_values.BoxOffsets, borders: *used_values.Borders) CSSUnit {
     const max = std.math.max;
     const inline_size = context.box_tree.inline_size[box_id];
     const containing_block_inline_size = context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1];
 
-    const border_start = borderWidth(inline_size.border_start_width);
-    const border_end = borderWidth(inline_size.border_end_width);
+    const border_start = switch (inline_size.border_start_width) {
+        .px => |value| length(.px, value),
+    };
+    const border_end = switch (inline_size.border_end_width) {
+        .px => |value| length(.px, value),
+    };
     const padding_start = switch (inline_size.padding_start) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
@@ -531,8 +525,12 @@ fn blockLevelBoxSolveBlockSizesAndOffsets(context: *const BlockLayoutContext, bo
             null,
         .auto => null,
     };
-    const border_start = borderWidth(block_size.border_start_width);
-    const border_end = borderWidth(block_size.border_end_width);
+    const border_start = switch (block_size.border_start_width) {
+        .px => |value| length(.px, value),
+    };
+    const border_end = switch (block_size.border_end_width) {
+        .px => |value| length(.px, value),
+    };
     const padding_start = switch (block_size.padding_start) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_inline_size),
@@ -668,7 +666,7 @@ test "used data" {
     var inline_size = [len]computed.LogicalSize{ inline_size_1, inline_size_2, inline_size_1, inline_size_1 };
     var block_size = [len]computed.LogicalSize{ block_size_1, block_size_2, block_size_1, block_size_1 };
     var display = [len]computed.Display{
-        .{ .block_flow_root = {} },
+        .{ .block_flow = {} },
         .{ .block_flow = {} },
         .{ .block_flow = {} },
         .{ .block_flow = {} },
@@ -860,7 +858,7 @@ pub fn createInlineRenderingData(context: *InlineLayoutContext, allocator: *Allo
                 //    }
                 //},
                 .text => try addText(&data, allocator, context.box_tree.latin1_text[box_id], font),
-                .block_flow, .block_flow_root => {
+                .block_flow => {
                     // Immediately finish off this group of inline elements.
                     //var i: usize = context.used_ids.items.len;
                     //while (i > 0) : (i -= 1) {
@@ -1116,7 +1114,7 @@ test "inline used data" {
     var inline_size = [_]computed.LogicalSize{.{}} ** len;
     var block_size = [_]computed.LogicalSize{.{}} ** len;
     var display = [len]computed.Display{
-        .{ .block_flow_root = {} },
+        .{ .block_flow = {} },
         .{ .text = {} },
     };
     var latin1_text = [len]computed.Latin1Text{ .{}, .{ .text = "hello world" } };
@@ -1145,7 +1143,7 @@ test "inline used data" {
 
 fn solveBorderColors(border: computed.Border) used_values.BorderColor {
     const solveOneBorderColor = struct {
-        fn f(color: computed.Border.BorderColor) u32 {
+        fn f(color: computed.Border.Color) u32 {
             return switch (color) {
                 .rgba => |rgba| rgba,
             };
@@ -1196,7 +1194,7 @@ fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.Box
         height: CSSUnit,
         has_aspect_ratio: bool,
 
-        fn init(img: *zss.values.BackgroundImage.Image) @This() {
+        fn init(img: *zss.box_tree.Background.Image.Object) @This() {
             const n = img.getNaturalSize();
             assert(n.width >= 0);
             assert(n.height >= 0);
