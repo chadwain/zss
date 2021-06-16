@@ -3,36 +3,27 @@ const assert = std.debug.assert;
 
 const zss = @import("../../../zss.zig");
 const UsedId = zss.used_values.UsedId;
-const CSSUnit = zss.used_values.CSSUnit;
-const CSSRect = zss.used_values.CSSRect;
-const Offset = zss.used_values.Offset;
+const ZssUnit = zss.used_values.ZssUnit;
+const ZssVector = zss.used_values.ZssVector;
+const ZssRect = zss.used_values.ZssRect;
 const BlockRenderingData = zss.used_values.BlockRenderingData;
 
 const sdl = @import("SDL2");
 
-pub fn cssUnitToSdlPixel(css: CSSUnit) i32 {
-    return css;
+pub fn zssUnitToPixel(unit: ZssUnit) i32 {
+    return unit;
 }
 
-pub fn pixelToCSSUnit(pixels: c_int) CSSUnit {
+pub fn pixelToZssUnit(pixels: c_int) ZssUnit {
     return pixels;
 }
 
-pub fn cssRectToSdlRect(css: CSSRect) sdl.SDL_Rect {
+pub fn zssRectToSdlRect(rect: ZssRect) sdl.SDL_Rect {
     return sdl.SDL_Rect{
-        .x = cssUnitToSdlPixel(css.x),
-        .y = cssUnitToSdlPixel(css.y),
-        .w = cssUnitToSdlPixel(css.w),
-        .h = cssUnitToSdlPixel(css.h),
-    };
-}
-
-pub fn sdlRectToCssRect(rect: sdl.SDL_Rect) CSSRect {
-    return CSSRect{
-        .x = rect.x,
-        .y = rect.y,
-        .w = rect.w,
-        .h = rect.h,
+        .x = zssUnitToPixel(rect.x),
+        .y = zssUnitToPixel(rect.y),
+        .w = zssUnitToPixel(rect.w),
+        .h = zssUnitToPixel(rect.h),
     };
 }
 
@@ -71,8 +62,8 @@ pub fn textureAsBackgroundImage(texture: *sdl.SDL_Texture) zss.box_tree.Backgrou
 /// block box. This implements §Appendix E.2 Step 2.
 pub fn drawBlockDataRoot(
     context: *const BlockRenderingData,
-    cumulative_offset: Offset,
-    clip_rect: CSSRect,
+    translation: ZssVector,
+    clip_rect: ZssRect,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
 ) void {
@@ -84,7 +75,7 @@ pub fn drawBlockDataRoot(
     const border_colors = context.border_colors[0];
     const box_offsets = context.box_offsets[0];
 
-    const boxes = zss.util.getThreeBoxes(cumulative_offset, box_offsets, borders);
+    const boxes = zss.util.getThreeBoxes(translation, box_offsets, borders);
     drawBackgroundAndBorders(&boxes, borders, background1, background2, border_colors, clip_rect, renderer, pixel_format);
 }
 
@@ -94,8 +85,8 @@ pub fn drawBlockDataRoot(
 pub fn drawBlockDataChildren(
     context: *const BlockRenderingData,
     allocator: *std.mem.Allocator,
-    cumulative_offset: Offset,
-    initial_clip_rect: CSSRect,
+    translation: ZssVector,
+    initial_clip_rect: ZssRect,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
 ) !void {
@@ -105,8 +96,8 @@ pub fn drawBlockDataChildren(
     };
     const StackItem = struct {
         interval: Interval,
-        cumulative_offset: Offset,
-        //clip_rect: CSSRect,
+        translation: ZssVector,
+        //clip_rect: ZssRect,
     };
 
     var stack = std.ArrayList(StackItem).init(allocator);
@@ -118,9 +109,9 @@ pub fn drawBlockDataChildren(
         //const clip_rect = switch (context.visual_effect[0].overflow) {
         //    .Visible => initial_clip_rect,
         //    .Hidden => blk: {
-        //        const padding_rect = CSSRect{
-        //            .x = cumulative_offset.x + box_offsets.border_top_left.x + borders.left,
-        //            .y = cumulative_offset.y + box_offsets.border_top_left.y + borders.top,
+        //        const padding_rect = ZssRect{
+        //            .x = translation.x + box_offsets.border_top_left.x + borders.left,
+        //            .y = translation.y + box_offsets.border_top_left.y + borders.top,
         //            .w = (box_offsets.border_bottom_right.x - borders.right) - (box_offsets.border_top_left.x + borders.left),
         //            .h = (box_offsets.border_bottom_right.y - borders.bottom) - (box_offsets.border_top_left.y + borders.top),
         //        };
@@ -133,15 +124,15 @@ pub fn drawBlockDataChildren(
         //if (!clip_rect.isEmpty()) {
         //    try stack.append(StackItem{
         //        .interval = Interval{ .begin = 1, .end = context.pdfs_flat_tree[0] },
-        //        .cumulative_offset = cumulative_offset.add(box_offsets.content_top_left),
+        //        .translation = translation.add(box_offsets.content_top_left),
         //        .clip_rect = clip_rect,
         //    });
-        //    assert(sdl.SDL_RenderSetClipRect(renderer, &cssRectToSdlRect(stack.items[0].clip_rect)) == 0);
+        //    assert(sdl.SDL_RenderSetClipRect(renderer, &zssRectToSdlRect(stack.items[0].clip_rect)) == 0);
         //}
 
         try stack.append(StackItem{
             .interval = Interval{ .begin = 1, .end = context.pdfs_flat_tree[0] },
-            .cumulative_offset = cumulative_offset.add(box_offsets.content_top_left),
+            .translation = translation.add(box_offsets.content_top_left),
         });
     }
 
@@ -160,7 +151,7 @@ pub fn drawBlockDataChildren(
             const background1 = context.background1[used_id];
             const background2 = context.background2[used_id];
             //const visual_effect = context.visual_effect[used_id];
-            const boxes = zss.util.getThreeBoxes(stack_item.cumulative_offset, box_offsets, borders);
+            const boxes = zss.util.getThreeBoxes(stack_item.translation, box_offsets, borders);
 
             //if (visual_effect.visibility == .Visible) {
             drawBackgroundAndBorders(&boxes, borders, background1, background2, border_colors, initial_clip_rect, renderer, pixel_format);
@@ -175,10 +166,10 @@ pub fn drawBlockDataChildren(
                 //// No need to draw children if the clip rect is empty.
                 //if (!new_clip_rect.isEmpty()) {
                 //    // TODO maybe the wrong place to call SDL_RenderSetClipRect
-                //    assert(sdl.SDL_RenderSetClipRect(renderer, &cssRectToSdlRect(new_clip_rect)) == 0);
+                //    assert(sdl.SDL_RenderSetClipRect(renderer, &zssRectToSdlRect(new_clip_rect)) == 0);
                 //    try stack.append(StackItem{
                 //        .interval = Interval{ .begin = used_id + 1, .end = used_id + subtree_size },
-                //        .cumulative_offset = stack_item.cumulative_offset.add(box_offsets.content_top_left),
+                //        .translation = stack_item.translation.add(box_offsets.content_top_left),
                 //        .clip_rect = new_clip_rect,
                 //    });
                 //    continue :stackLoop;
@@ -186,7 +177,7 @@ pub fn drawBlockDataChildren(
 
                 try stack.append(StackItem{
                     .interval = Interval{ .begin = used_id + 1, .end = used_id + subtree_size },
-                    .cumulative_offset = stack_item.cumulative_offset.add(box_offsets.content_top_left),
+                    .translation = stack_item.translation.add(box_offsets.content_top_left),
                 });
             }
         }
@@ -216,11 +207,11 @@ pub fn drawBackgroundAndBorders(
     background2: zss.used_values.Background2,
     border_colors: zss.used_values.BorderColor,
     // TODO clip_rect is unused
-    clip_rect: CSSRect,
+    clip_rect: ZssRect,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
 ) void {
-    const bg_clip_rect = cssRectToSdlRect(switch (background1.clip) {
+    const bg_clip_rect = zssRectToSdlRect(switch (background1.clip) {
         .Border => boxes.border,
         .Padding => boxes.padding,
         .Content => boxes.content,
@@ -235,14 +226,14 @@ pub fn drawBackgroundAndBorders(
         var tw: c_int = undefined;
         var th: c_int = undefined;
         assert(sdl.SDL_QueryTexture(texture, null, null, &tw, &th) == 0);
-        const origin_rect = cssRectToSdlRect(switch (background2.origin) {
+        const origin_rect = zssRectToSdlRect(switch (background2.origin) {
             .Border => boxes.border,
             .Padding => boxes.padding,
             .Content => boxes.content,
         });
         const size = sdl.SDL_Point{
-            .x = cssUnitToSdlPixel(background2.size.width),
-            .y = cssUnitToSdlPixel(background2.size.height),
+            .x = zssUnitToPixel(background2.size.width),
+            .y = zssUnitToPixel(background2.size.height),
         };
         drawBackgroundImage(
             renderer,
@@ -250,8 +241,8 @@ pub fn drawBackgroundAndBorders(
             origin_rect,
             bg_clip_rect,
             sdl.SDL_Point{
-                .x = origin_rect.x + cssUnitToSdlPixel(background2.position.horizontal),
-                .y = origin_rect.y + cssUnitToSdlPixel(background2.position.vertical),
+                .x = origin_rect.x + zssUnitToPixel(background2.position.horizontal),
+                .y = origin_rect.y + zssUnitToPixel(background2.position.vertical),
             },
             size,
             background2.repeat,
@@ -262,12 +253,12 @@ pub fn drawBackgroundAndBorders(
     drawBordersSolid(
         renderer,
         pixel_format,
-        &cssRectToSdlRect(boxes.border),
+        &zssRectToSdlRect(boxes.border),
         &BorderWidths{
-            .top = cssUnitToSdlPixel(borders.top),
-            .right = cssUnitToSdlPixel(borders.right),
-            .bottom = cssUnitToSdlPixel(borders.bottom),
-            .left = cssUnitToSdlPixel(borders.left),
+            .top = zssUnitToPixel(borders.top),
+            .right = zssUnitToPixel(borders.right),
+            .bottom = zssUnitToPixel(borders.bottom),
+            .left = zssUnitToPixel(borders.left),
         },
         &BorderColor{
             .top_rgba = border_colors.top_rgba,

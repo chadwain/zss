@@ -10,7 +10,7 @@ const BoxId = computed.BoxId;
 const BoxTree = computed.BoxTree;
 
 const used_values = @import("./used_values.zig");
-const CSSUnit = used_values.CSSUnit;
+const ZssUnit = used_values.ZssUnit;
 const UsedId = used_values.UsedId;
 const BlockRenderingData = used_values.BlockRenderingData;
 const InlineRenderingData = used_values.InlineRenderingData;
@@ -23,7 +23,7 @@ pub const Error = error{
     Overflow,
 };
 
-pub fn doLayout(box_tree: *const BoxTree, allocator: *Allocator, document_width: CSSUnit, document_height: CSSUnit) Error!Document {
+pub fn doLayout(box_tree: *const BoxTree, allocator: *Allocator, document_width: ZssUnit, document_height: ZssUnit) Error!Document {
     var block_layout_context = try BlockLayoutContext.init(box_tree, allocator, 0, document_width, document_height);
     defer block_layout_context.deinit();
     return Document{ .block_data = try createBlockRenderingData(&block_layout_context, allocator) };
@@ -41,21 +41,21 @@ const UsedIdAndSubtreeSize = struct {
 };
 
 const UsedBlockSizes = struct {
-    size: ?CSSUnit,
-    min_size: CSSUnit,
-    max_size: CSSUnit,
-    margin_start: CSSUnit,
-    margin_end: CSSUnit,
+    size: ?ZssUnit,
+    min_size: ZssUnit,
+    max_size: ZssUnit,
+    margin_start: ZssUnit,
+    margin_end: ZssUnit,
 };
 
 const InFlowInsets = struct {
     const BlockInset = union(enum) {
         /// A used length value.
-        length: CSSUnit,
+        length: ZssUnit,
         /// A computed percentage value.
         percentage: f32,
     };
-    inline_axis: CSSUnit,
+    inline_axis: ZssUnit,
     block_axis: BlockInset,
 };
 
@@ -72,13 +72,13 @@ pub const BlockLayoutContext = struct {
     allocator: *Allocator,
     intervals: ArrayListUnmanaged(Interval),
     used_id_and_subtree_size: ArrayListUnmanaged(UsedIdAndSubtreeSize),
-    static_containing_block_used_inline_size: ArrayListUnmanaged(CSSUnit),
-    static_containing_block_auto_block_size: ArrayListUnmanaged(CSSUnit),
+    static_containing_block_used_inline_size: ArrayListUnmanaged(ZssUnit),
+    static_containing_block_auto_block_size: ArrayListUnmanaged(ZssUnit),
     static_containing_block_used_block_sizes: ArrayListUnmanaged(UsedBlockSizes),
     //in_flow_positioning_data: ArrayListUnmanaged(InFlowPositioningData),
     //in_flow_positioning_data_count: ArrayListUnmanaged(UsedId),
 
-    pub fn init(box_tree: *const BoxTree, allocator: *Allocator, root_box_id: BoxId, containing_block_inline_size: CSSUnit, containing_block_block_size: ?CSSUnit) !Self {
+    pub fn init(box_tree: *const BoxTree, allocator: *Allocator, root_box_id: BoxId, containing_block_inline_size: ZssUnit, containing_block_block_size: ?ZssUnit) !Self {
         //var in_flow_positioning_data_count = ArrayListUnmanaged(UsedId){};
         //errdefer in_flow_positioning_data_count.deinit(allocator);
         //try in_flow_positioning_data_count.append(allocator, 0);
@@ -90,11 +90,11 @@ pub const BlockLayoutContext = struct {
             .used_subtree_size = 1,
         });
 
-        var static_containing_block_used_inline_size = ArrayListUnmanaged(CSSUnit){};
+        var static_containing_block_used_inline_size = ArrayListUnmanaged(ZssUnit){};
         errdefer static_containing_block_used_inline_size.deinit(allocator);
         try static_containing_block_used_inline_size.append(allocator, containing_block_inline_size);
 
-        var static_containing_block_auto_block_size = ArrayListUnmanaged(CSSUnit){};
+        var static_containing_block_auto_block_size = ArrayListUnmanaged(ZssUnit){};
         errdefer static_containing_block_auto_block_size.deinit(allocator);
         try static_containing_block_auto_block_size.append(allocator, 0);
 
@@ -229,7 +229,7 @@ pub fn createBlockRenderingData(context: *BlockLayoutContext, allocator: *Alloca
             .content_top_left = .{ .x = 0, .y = 0 },
             .content_bottom_right = .{ .x = 0, .y = 0 },
         };
-        var parent_auto_block_size = @as(CSSUnit, 0);
+        var parent_auto_block_size = @as(ZssUnit, 0);
         blockContainerFinishProcessing(context, &data, &box_offsets, &parent_auto_block_size);
     }
 
@@ -302,15 +302,15 @@ fn blockLevelElementBeginProcessing(context: *BlockLayoutContext, data: *Interme
     }
 }
 
-fn blockContainerFinishProcessing(context: *BlockLayoutContext, data: *IntermediateBlockRenderingData, box_offsets: *used_values.BoxOffsets, parent_auto_block_size: *CSSUnit) void {
+fn blockContainerFinishProcessing(context: *BlockLayoutContext, data: *IntermediateBlockRenderingData, box_offsets: *used_values.BoxOffsets, parent_auto_block_size: *ZssUnit) void {
     const used_block_sizes = context.static_containing_block_used_block_sizes.items[context.static_containing_block_used_block_sizes.items.len - 1];
     const auto_block_size = context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
     const sizes = blockContainerFinalizeBlockSizes(box_offsets, used_block_sizes, auto_block_size, parent_auto_block_size);
     //applyInFlowPositioningToChildren(context, data.box_offsets.items, sizes.used_block_size);
 }
 
-fn blockContainerFinalizeBlockSizes(box_offsets: *used_values.BoxOffsets, used_block_sizes: UsedBlockSizes, auto_block_size: CSSUnit, parent_auto_block_size: *CSSUnit) struct {
-    used_block_size: CSSUnit,
+fn blockContainerFinalizeBlockSizes(box_offsets: *used_values.BoxOffsets, used_block_sizes: UsedBlockSizes, auto_block_size: ZssUnit, parent_auto_block_size: *ZssUnit) struct {
+    used_block_size: ZssUnit,
 } {
     const used_block_size = zss.util.clamp(used_block_sizes.size orelse auto_block_size, used_block_sizes.min_size, used_block_sizes.max_size);
     box_offsets.border_top_left.y = parent_auto_block_size.* + used_block_sizes.margin_start;
@@ -341,12 +341,12 @@ fn blockContainerSolveOtherProperties(context: *BlockLayoutContext, data: *Inter
     //visual_effect_ptr.* = .{};
 }
 
-fn applyInFlowPositioningToChildren(context: *const BlockLayoutContext, box_offsets: []used_values.BoxOffsets, containing_block_block_size: CSSUnit) void {
+fn applyInFlowPositioningToChildren(context: *const BlockLayoutContext, box_offsets: []used_values.BoxOffsets, containing_block_block_size: ZssUnit) void {
     const count = context.in_flow_positioning_data_count.items[context.in_flow_positioning_data_count.items.len - 1];
     var i: UsedId = 0;
     while (i < count) : (i += 1) {
         const positioning_data = context.in_flow_positioning_data.items[context.in_flow_positioning_data.items.len - 1 - i];
-        const positioning_offset = zss.types.Offset{
+        const positioning_offset = zss.types.ZssVector{
             // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
             .x = positioning_data.insets.inline_axis,
             // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
@@ -400,17 +400,17 @@ fn resolveRelativePositionInset(context: *BlockLayoutContext, position_inset: *c
 
 const LengthUnit = enum { px };
 
-fn length(comptime unit: LengthUnit, value: f32) CSSUnit {
+fn length(comptime unit: LengthUnit, value: f32) ZssUnit {
     return switch (unit) {
-        .px => @floatToInt(CSSUnit, @round(value)),
+        .px => @floatToInt(ZssUnit, @round(value)),
     };
 }
 
-fn percentage(value: f32, unit: CSSUnit) CSSUnit {
-    return @floatToInt(CSSUnit, @round(@intToFloat(f32, unit) * value));
+fn percentage(value: f32, unit: ZssUnit) ZssUnit {
+    return @floatToInt(ZssUnit, @round(@intToFloat(f32, unit) * value));
 }
 
-fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, box_id: BoxId, box_offsets: *used_values.BoxOffsets, borders: *used_values.Borders) CSSUnit {
+fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, box_id: BoxId, box_offsets: *used_values.BoxOffsets, borders: *used_values.Borders) ZssUnit {
     const max = std.math.max;
     const inline_size = context.box_tree.inline_size[box_id];
     const containing_block_inline_size = context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1];
@@ -437,7 +437,7 @@ fn blockLevelBoxSolveInlineSizesAndOffsets(context: *const BlockLayoutContext, b
     const max_size = switch (inline_size.max_size) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, max(0, containing_block_inline_size)),
-        .none => std.math.maxInt(CSSUnit),
+        .none => std.math.maxInt(ZssUnit),
     };
 
     var auto_bitfield: u3 = 0;
@@ -562,8 +562,8 @@ fn blockLevelBoxSolveBlockSizesAndOffsets(context: *const BlockLayoutContext, bo
         .percentage => |value| if (containing_block_block_size) |s|
             percentage(value, s)
         else
-            std.math.maxInt(CSSUnit),
-        .none => std.math.maxInt(CSSUnit),
+            std.math.maxInt(ZssUnit),
+        .none => std.math.maxInt(ZssUnit),
     };
 
     // All of these must be positive.
@@ -713,8 +713,8 @@ test "used data" {
 const IntermediateInlineRenderingData = struct {
     const Self = @This();
     pub const MarginLeftRight = struct {
-        left: CSSUnit = 0,
-        right: CSSUnit = 0,
+        left: ZssUnit = 0,
+        right: ZssUnit = 0,
     };
 
     line_boxes: ArrayListUnmanaged(InlineRenderingData.LineBox) = .{},
@@ -782,14 +782,14 @@ pub const InlineLayoutContext = struct {
     //used_ids: ArrayListUnmanaged(UsedId),
     allocator: *Allocator,
     block_container_interval: Interval,
-    containing_block_inline_size: CSSUnit,
+    containing_block_inline_size: ZssUnit,
 
-    total_block_size: CSSUnit = undefined,
+    total_block_size: ZssUnit = undefined,
     next_box_id: BoxId = undefined,
 
     const Self = @This();
 
-    pub fn init(box_tree: *const BoxTree, allocator: *Allocator, block_container_interval: Interval, containing_block_inline_size: CSSUnit) Self {
+    pub fn init(box_tree: *const BoxTree, allocator: *Allocator, block_container_interval: Interval, containing_block_inline_size: ZssUnit) Self {
         return Self{
             .box_tree = box_tree,
             .intervals = .{},
@@ -985,7 +985,7 @@ fn addRootInlineBoxData(data: *IntermediateInlineRenderingData, allocator: *Allo
     return 0;
 }
 
-fn addInlineElementData(box_tree: *const BoxTree, data: *IntermediateInlineRenderingData, allocator: *Allocator, box_id: BoxId, containing_block_inline_size: CSSUnit) !UsedId {
+fn addInlineElementData(box_tree: *const BoxTree, data: *IntermediateInlineRenderingData, allocator: *Allocator, box_id: BoxId, containing_block_inline_size: ZssUnit) !UsedId {
     const inline_sizes = box_tree.inline_size[box_id];
 
     const margin_inline_start = switch (inline_sizes.margin_start) {
@@ -1046,7 +1046,7 @@ fn addInlineElementData(box_tree: *const BoxTree, data: *IntermediateInlineRende
     return std.math.cast(UsedId, data.measures_left.items.len - 1);
 }
 
-fn splitIntoLineBoxes(data: *IntermediateInlineRenderingData, allocator: *Allocator, font: *hb.hb_font_t, containing_block_inline_size: CSSUnit) !CSSUnit {
+fn splitIntoLineBoxes(data: *IntermediateInlineRenderingData, allocator: *Allocator, font: *hb.hb_font_t, containing_block_inline_size: ZssUnit) !ZssUnit {
     var font_extents: hb.hb_font_extents_t = undefined;
     // TODO assuming ltr direction
     assert(hb.hb_font_get_h_extents(font, &font_extents) != 0);
@@ -1055,7 +1055,7 @@ fn splitIntoLineBoxes(data: *IntermediateInlineRenderingData, allocator: *Alloca
     const line_gap = @divFloor(font_extents.line_gap, 64);
     const line_spacing = ascender - descender + line_gap;
 
-    var cursor: CSSUnit = 0;
+    var cursor: ZssUnit = 0;
     var line_box = InlineRenderingData.LineBox{ .baseline = ascender, .elements = [2]usize{ 0, 0 } };
 
     var i: usize = 0;
@@ -1183,15 +1183,15 @@ fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.Box
     const padding_height = border_height - borders.top - borders.bottom;
     const content_width = box_offsets.content_bottom_right.x - box_offsets.content_top_left.x;
     const content_height = box_offsets.content_bottom_right.y - box_offsets.content_top_left.y;
-    const positioning_area: struct { origin: used_values.Background2.Origin, width: CSSUnit, height: CSSUnit } = switch (bg.origin) {
+    const positioning_area: struct { origin: used_values.Background2.Origin, width: ZssUnit, height: ZssUnit } = switch (bg.origin) {
         .border_box => .{ .origin = .Border, .width = border_width, .height = border_height },
         .padding_box => .{ .origin = .Padding, .width = padding_width, .height = padding_height },
         .content_box => .{ .origin = .Content, .width = content_width, .height = content_height },
     };
 
     const NaturalSize = struct {
-        width: CSSUnit,
-        height: CSSUnit,
+        width: ZssUnit,
+        height: ZssUnit,
         has_aspect_ratio: bool,
 
         fn init(img: *zss.box_tree.Background.Image.Object) @This() {

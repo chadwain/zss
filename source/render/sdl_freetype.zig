@@ -2,9 +2,9 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const zss = @import("../../zss.zig");
-const CSSUnit = zss.used_values.CSSUnit;
-const CSSRect = zss.used_values.CSSRect;
-const Offset = zss.used_values.Offset;
+const ZssUnit = zss.used_values.ZssUnit;
+const ZssRect = zss.used_values.ZssRect;
+const ZssVector = zss.used_values.ZssVector;
 const InlineRenderingData = zss.used_values.InlineRenderingData;
 const Document = zss.used_values.Document;
 
@@ -16,7 +16,7 @@ const util = struct {
     usingnamespace @import("util/sdl_freetype.zig");
 };
 
-pub const pixelToCSSUnit = util.pixelToCSSUnit;
+pub const pixelToZssUnit = util.pixelToZssUnit;
 
 pub const drawBlockDataRoot = util.drawBlockDataRoot;
 pub const drawBlockDataChildren = util.drawBlockDataChildren;
@@ -31,26 +31,26 @@ pub fn renderDocument(
     pixel_format: *sdl.SDL_PixelFormat,
     glyph_atlas: *GlyphAtlas,
     allocator: *std.mem.Allocator,
-    clip_rect: CSSRect,
-    offset: Offset,
+    clip_rect: ZssRect,
+    translation: ZssVector,
 ) !void {
     const block_data = &document.block_data;
-    drawBlockDataRoot(block_data, offset, clip_rect, renderer, pixel_format);
-    try drawBlockDataChildren(block_data, allocator, offset, clip_rect, renderer, pixel_format);
+    drawBlockDataRoot(block_data, translation, clip_rect, renderer, pixel_format);
+    try drawBlockDataChildren(block_data, allocator, translation, clip_rect, renderer, pixel_format);
 
     for (block_data.inline_data) |inline_data| {
-        var cumulative_offset = offset;
+        var cumulative_translation = translation;
         var it = zss.util.PdfsFlatTreeIterator.init(block_data.pdfs_flat_tree, inline_data.id_of_containing_block);
         while (it.next()) |id| {
-            cumulative_offset = cumulative_offset.add(block_data.box_offsets[id].content_top_left);
+            cumulative_translation = cumulative_translation.add(block_data.box_offsets[id].content_top_left);
         }
-        try drawInlineData(inline_data.data, cumulative_offset, renderer, pixel_format, glyph_atlas);
+        try drawInlineData(inline_data.data, cumulative_translation, renderer, pixel_format, glyph_atlas);
     }
 }
 
 pub fn drawInlineData(
     context: *const InlineRenderingData,
-    cumulative_offset: Offset,
+    translation: ZssVector,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
     atlas: *GlyphAtlas,
@@ -61,7 +61,7 @@ pub fn drawInlineData(
     assert(sdl.SDL_SetTextureAlphaMod(atlas.texture, color[3]) == 0);
 
     for (context.line_boxes) |line_box| {
-        var cursor: CSSUnit = 0;
+        var cursor: ZssUnit = 0;
         var i = line_box.elements[0];
         while (i < line_box.elements[1]) : (i += 1) {
             var glyph_index = context.glyph_indeces[i];
@@ -99,8 +99,8 @@ pub fn drawInlineData(
                     .h = glyph_info.height,
                 },
                 &sdl.SDL_Rect{
-                    .x = util.cssUnitToSdlPixel(cumulative_offset.x + cursor + position.offset),
-                    .y = util.cssUnitToSdlPixel(cumulative_offset.y + line_box.baseline) - glyph_info.ascender_px,
+                    .x = util.zssUnitToPixel(translation.x + cursor + position.offset),
+                    .y = util.zssUnitToPixel(translation.y + line_box.baseline) - glyph_info.ascender_px,
                     .w = glyph_info.width,
                     .h = glyph_info.height,
                 },

@@ -5,15 +5,15 @@ const Allocator = std.mem.Allocator;
 const zss = @import("../../zss.zig");
 
 /// The fundamental unit of space used for all CSS layout computations in zss.
-pub const CSSUnit = i32;
+pub const ZssUnit = i32;
 
 /// A floating point number usually between 0 and 1, but it can
 /// exceed these values.
 pub const Percentage = f32;
 
-pub const Offset = struct {
-    x: CSSUnit,
-    y: CSSUnit,
+pub const ZssVector = struct {
+    x: ZssUnit,
+    y: ZssUnit,
 
     const Self = @This();
     pub fn add(lhs: Self, rhs: Self) Self {
@@ -21,16 +21,16 @@ pub const Offset = struct {
     }
 };
 
-pub const CSSSize = struct {
-    w: CSSUnit,
-    h: CSSUnit,
+pub const ZssSize = struct {
+    w: ZssUnit,
+    h: ZssUnit,
 };
 
-pub const CSSRect = struct {
-    x: CSSUnit,
-    y: CSSUnit,
-    w: CSSUnit,
-    h: CSSUnit,
+pub const ZssRect = struct {
+    x: ZssUnit,
+    y: ZssUnit,
+    w: ZssUnit,
+    h: ZssUnit,
 
     const Self = @This();
 
@@ -56,19 +56,19 @@ pub const CSSRect = struct {
 /// The offsets of various points of a block box, taken from the top-left
 /// corner of the content box of its parent.
 pub const BoxOffsets = struct {
-    border_top_left: Offset,
-    border_bottom_right: Offset,
-    content_top_left: Offset,
-    content_bottom_right: Offset,
+    border_top_left: ZssVector,
+    border_bottom_right: ZssVector,
+    content_top_left: ZssVector,
+    content_bottom_right: ZssVector,
 };
 
 /// Contains the used values of the properties 'border-top-width',
 /// 'border-right-width', 'border-bottom-width', and 'border-left-width'.
 pub const Borders = struct {
-    top: CSSUnit = 0,
-    right: CSSUnit = 0,
-    bottom: CSSUnit = 0,
-    left: CSSUnit = 0,
+    top: ZssUnit = 0,
+    right: ZssUnit = 0,
+    bottom: ZssUnit = 0,
+    left: ZssUnit = 0,
 };
 
 /// Contains the used values of the properties 'border-top-color',
@@ -92,8 +92,8 @@ pub const Background1 = struct {
 /// and 'background-repeat'.
 pub const Background2 = struct {
     pub const Origin = enum { Padding, Border, Content };
-    pub const Position = struct { horizontal: CSSUnit = 0, vertical: CSSUnit = 0 };
-    pub const Size = struct { width: CSSUnit = 0, height: CSSUnit = 0 };
+    pub const Position = struct { horizontal: ZssUnit = 0, vertical: ZssUnit = 0 };
+    pub const Size = struct { width: ZssUnit = 0, height: ZssUnit = 0 };
     pub const Repeat = struct {
         pub const Style = enum { None, Repeat, Space, Round };
         x: Style = .None,
@@ -150,18 +150,18 @@ pub const InlineRenderingData = struct {
     const hb = @import("harfbuzz");
 
     //pub const BoxMeasures = struct {
-    //    border: CSSUnit = 0,
-    //    padding: CSSUnit = 0,
+    //    border: ZssUnit = 0,
+    //    padding: ZssUnit = 0,
     //    border_color_rgba: u32 = 0,
     //};
 
     //pub const Heights = struct {
-    //    above_baseline: CSSUnit,
-    //    below_baseline: CSSUnit,
+    //    above_baseline: ZssUnit,
+    //    below_baseline: ZssUnit,
     //};
 
     pub const LineBox = struct {
-        baseline: CSSUnit,
+        baseline: ZssUnit,
         elements: [2]usize,
     };
 
@@ -197,9 +197,9 @@ pub const InlineRenderingData = struct {
 
     pub const Position = struct {
         // NOTE It seems that offset is 0 almost all the time, maybe no need to record it.
-        offset: CSSUnit,
-        advance: CSSUnit,
-        width: CSSUnit,
+        offset: ZssUnit,
+        advance: ZssUnit,
+        width: ZssUnit,
     };
 
     glyph_indeces: []hb.hb_codepoint_t,
@@ -256,17 +256,17 @@ pub const Document = struct {
     }
 };
 
-test "CSSRect" {
-    const r1 = CSSRect{ .x = 0, .y = 0, .w = 10, .h = 10 };
-    const r2 = CSSRect{ .x = 3, .y = 5, .w = 17, .h = 4 };
-    const r3 = CSSRect{ .x = 15, .y = 0, .w = 20, .h = 9 };
-    const r4 = CSSRect{ .x = 20, .y = 1, .w = 10, .h = 0 };
+test "ZssRect" {
+    const r1 = ZssRect{ .x = 0, .y = 0, .w = 10, .h = 10 };
+    const r2 = ZssRect{ .x = 3, .y = 5, .w = 17, .h = 4 };
+    const r3 = ZssRect{ .x = 15, .y = 0, .w = 20, .h = 9 };
+    const r4 = ZssRect{ .x = 20, .y = 1, .w = 10, .h = 0 };
 
-    const intersect = CSSRect.intersect;
-    try expect(std.meta.eql(intersect(r1, r2), CSSRect{ .x = 3, .y = 5, .w = 7, .h = 4 }));
+    const intersect = ZssRect.intersect;
+    try expect(std.meta.eql(intersect(r1, r2), ZssRect{ .x = 3, .y = 5, .w = 7, .h = 4 }));
     try expect(intersect(r1, r3).isEmpty());
     try expect(intersect(r1, r4).isEmpty());
-    try expect(std.meta.eql(intersect(r2, r3), CSSRect{ .x = 15, .y = 5, .w = 5, .h = 4 }));
+    try expect(std.meta.eql(intersect(r2, r3), ZssRect{ .x = 15, .y = 5, .w = 5, .h = 4 }));
     try expect(intersect(r2, r4).isEmpty());
     try expect(intersect(r3, r4).isEmpty());
 }

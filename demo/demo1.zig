@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("zss");
 const box_tree = zss.box_tree;
-const pixelToCSSUnit = zss.sdl_freetype.pixelToCSSUnit;
+const pixelToZssUnit = zss.sdl_freetype.pixelToZssUnit;
 
 const sdl = @import("SDL2");
 const ft = @import("freetype");
@@ -136,7 +136,7 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
     defer sdl.SDL_DestroyRenderer(renderer);
     assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BlendMode.SDL_BLENDMODE_BLEND) == 0);
 
-    var document = try zss.layout.doLayout(tree, allocator, pixelToCSSUnit(width), pixelToCSSUnit(height));
+    var document = try zss.layout.doLayout(tree, allocator, pixelToZssUnit(width), pixelToZssUnit(height));
     defer document.deinit(allocator);
     var atlas = try zss.sdl_freetype.GlyphAtlas.init(face, renderer, pixel_format, allocator);
     defer atlas.deinit(allocator);
@@ -195,7 +195,7 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
         if (needs_relayout) {
             needs_relayout = false;
 
-            var new_document = try zss.layout.doLayout(tree, allocator, pixelToCSSUnit(width), pixelToCSSUnit(height));
+            var new_document = try zss.layout.doLayout(tree, allocator, pixelToZssUnit(width), pixelToZssUnit(height));
             document.deinit(allocator);
             document = new_document;
 
@@ -204,13 +204,13 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
             scroll_y = std.math.clamp(scroll_y, min_scroll_y, max_scroll_y);
         }
 
-        const css_viewport_rect = zss.used_values.CSSRect{
+        const css_viewport_rect = zss.used_values.ZssRect{
             .x = 0,
             .y = 0,
-            .w = pixelToCSSUnit(width),
-            .h = pixelToCSSUnit(height),
+            .w = pixelToZssUnit(width),
+            .h = pixelToZssUnit(height),
         };
-        const offset = zss.used_values.Offset{
+        const offset = zss.used_values.ZssVector{
             .x = 0,
             .y = scroll_y,
         };

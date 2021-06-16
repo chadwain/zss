@@ -7,7 +7,7 @@ const zss = @import("zss");
 const sdl = @import("SDL2");
 const hb = @import("harfbuzz");
 
-const viewport_rect = zss.used_values.CSSSize{ .w = 800, .h = 600 };
+const viewport_rect = zss.used_values.ZssSize{ .w = 800, .h = 600 };
 
 pub fn main() !void {
     assert(sdl.SDL_Init(sdl.SDL_INIT_VIDEO) == 0);
@@ -111,11 +111,11 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
     var ctx = try exampleBlockData(&gpa.allocator, zig_png, hbfont);
     defer ctx.deinit(&gpa.allocator);
 
-    const offset = zss.used_values.Offset{
+    const offset = zss.used_values.ZssVector{
         .x = 0,
         .y = 0,
     };
-    const clip_rect = zss.used_values.CSSRect{
+    const clip_rect = zss.used_values.ZssRect{
         .x = 0,
         .y = 0,
         .w = viewport_rect.w,
