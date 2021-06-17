@@ -18,6 +18,22 @@ pub fn pixelToZssUnit(pixels: c_int) ZssUnit {
     return pixels;
 }
 
+pub fn sdlPointToZssVector(point: sdl.SDL_Point) ZssVector {
+    return ZssVector{
+        .x = pixelToZssUnit(point.x),
+        .y = pixelToZssUnit(point.y),
+    };
+}
+
+pub fn sdlRectToZssRect(rect: sdl.SDL_Rect) ZssRect {
+    return ZssRect{
+        .x = pixelToZssUnit(rect.x),
+        .y = pixelToZssUnit(rect.y),
+        .w = pixelToZssUnit(rect.w),
+        .h = pixelToZssUnit(rect.h),
+    };
+}
+
 pub fn zssRectToSdlRect(rect: ZssRect) sdl.SDL_Rect {
     return sdl.SDL_Rect{
         .x = zssUnitToPixel(rect.x),

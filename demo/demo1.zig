@@ -142,8 +142,8 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
     defer atlas.deinit(allocator);
     var needs_relayout = false;
 
-    var max_scroll_y = std.math.min(0, -document.block_data.box_offsets[0].border_top_left.y);
-    var min_scroll_y = max_scroll_y - std.math.max(0, document.block_data.box_offsets[0].border_bottom_right.y - document.block_data.box_offsets[0].border_top_left.y - height);
+    var max_scroll_y: c_int = 0;
+    var min_scroll_y: c_int = max_scroll_y - std.math.max(0, zss.sdl_freetype.zssUnitToPixel(document.block_data.box_offsets[0].border_bottom_right.y) - height);
     var scroll_y = max_scroll_y;
     const scroll_speed = 15;
 
@@ -199,23 +199,23 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
             document.deinit(allocator);
             document = new_document;
 
-            max_scroll_y = std.math.min(0, -document.block_data.box_offsets[0].border_top_left.y);
-            min_scroll_y = max_scroll_y - std.math.max(0, document.block_data.box_offsets[0].border_bottom_right.y - document.block_data.box_offsets[0].border_top_left.y - height);
+            max_scroll_y = 0;
+            min_scroll_y = max_scroll_y - std.math.max(0, zss.sdl_freetype.zssUnitToPixel(document.block_data.box_offsets[0].border_bottom_right.y) - height);
             scroll_y = std.math.clamp(scroll_y, min_scroll_y, max_scroll_y);
         }
 
-        const css_viewport_rect = zss.used_values.ZssRect{
+        const viewport_rect = sdl.SDL_Rect{
             .x = 0,
             .y = 0,
-            .w = pixelToZssUnit(width),
-            .h = pixelToZssUnit(height),
+            .w = width,
+            .h = height,
         };
-        const offset = zss.used_values.ZssVector{
+        const translation = sdl.SDL_Point{
             .x = 0,
             .y = scroll_y,
         };
-        zss.sdl_freetype.drawBackgroundColor(renderer, pixel_format, sdl.SDL_Rect{ .x = 0, .y = 0, .w = width, .h = height }, page_background_color);
-        try zss.sdl_freetype.renderDocument(&document, renderer, pixel_format, &atlas, allocator, css_viewport_rect, offset);
+        zss.sdl_freetype.drawBackgroundColor(renderer, pixel_format, viewport_rect, page_background_color);
+        try zss.sdl_freetype.renderDocument(&document, renderer, pixel_format, &atlas, allocator, viewport_rect, translation);
         sdl.SDL_RenderPresent(renderer);
 
         const frame_time = timer.lap();

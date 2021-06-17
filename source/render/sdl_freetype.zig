@@ -17,6 +17,7 @@ const util = struct {
 };
 
 pub const pixelToZssUnit = util.pixelToZssUnit;
+pub const zssUnitToPixel = util.zssUnitToPixel;
 
 pub const drawBlockDataRoot = util.drawBlockDataRoot;
 pub const drawBlockDataChildren = util.drawBlockDataChildren;
@@ -31,15 +32,18 @@ pub fn renderDocument(
     pixel_format: *sdl.SDL_PixelFormat,
     glyph_atlas: *GlyphAtlas,
     allocator: *std.mem.Allocator,
-    clip_rect: ZssRect,
-    translation: ZssVector,
+    clip_rect: sdl.SDL_Rect,
+    translation: sdl.SDL_Point,
 ) !void {
     const block_data = &document.block_data;
-    drawBlockDataRoot(block_data, translation, clip_rect, renderer, pixel_format);
-    try drawBlockDataChildren(block_data, allocator, translation, clip_rect, renderer, pixel_format);
+    const translation_zss = util.sdlPointToZssVector(translation);
+    const clip_rect_zss = util.sdlRectToZssRect(clip_rect);
+
+    drawBlockDataRoot(block_data, translation_zss, clip_rect_zss, renderer, pixel_format);
+    try drawBlockDataChildren(block_data, allocator, translation_zss, clip_rect_zss, renderer, pixel_format);
 
     for (block_data.inline_data) |inline_data| {
-        var cumulative_translation = translation;
+        var cumulative_translation = translation_zss;
         var it = zss.util.PdfsFlatTreeIterator.init(block_data.pdfs_flat_tree, inline_data.id_of_containing_block);
         while (it.next()) |id| {
             cumulative_translation = cumulative_translation.add(block_data.box_offsets[id].content_top_left);
@@ -85,7 +89,7 @@ pub fn drawInlineData(
 
             const glyph_info = atlas.getOrLoadGlyph(glyph_index) catch |err| switch (err) {
                 error.OutOfGlyphSlots => {
-                    std.log.err("Could not load glyph with index {}: {s}\n", .{ glyph_index, @errorName(err) });
+                    std.log.err("Could not load glyph with index {}: {s}", .{ glyph_index, @errorName(err) });
                     continue;
                 },
             };
