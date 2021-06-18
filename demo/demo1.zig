@@ -120,11 +120,52 @@ fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocato
     try sdlMainLoop(window, face, allocator, &tree);
 }
 
-fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator, tree: *box_tree.BoxTree) !void {
-    var width: c_int = undefined;
-    var height: c_int = undefined;
-    sdl.SDL_GetWindowSize(window, &width, &height);
+const ProgramState = struct {
+    tree: *const box_tree.BoxTree,
+    document: zss.used_values.Document,
+    atlas: zss.sdl_freetype.GlyphAtlas,
+    width: c_int,
+    height: c_int,
+    scroll_y: c_int,
+    max_scroll_y: c_int,
 
+    const Self = @This();
+
+    fn init(tree: *const box_tree.BoxTree, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, face: hb.FT_Face, allocator: *Allocator) !Self {
+        var result = @as(Self, undefined);
+
+        result.tree = tree;
+        sdl.SDL_GetWindowSize(window, &result.width, &result.height);
+
+        result.document = try zss.layout.doLayout(tree, allocator, pixelToZssUnit(result.width), pixelToZssUnit(result.height));
+        errdefer result.document.deinit(allocator);
+
+        result.atlas = try zss.sdl_freetype.GlyphAtlas.init(face, renderer, pixel_format, allocator);
+        errdefer result.atlas.deinit(allocator);
+
+        result.updateMaxScroll();
+        return result;
+    }
+
+    fn deinit(self: *Self, allocator: *Allocator) void {
+        self.document.deinit(allocator);
+        self.atlas.deinit(allocator);
+    }
+
+    fn updateDocument(self: *Self, allocator: *Allocator) !void {
+        var new_document = try zss.layout.doLayout(self.tree, allocator, pixelToZssUnit(self.width), pixelToZssUnit(self.height));
+        self.document.deinit(allocator);
+        self.document = new_document;
+        self.updateMaxScroll();
+    }
+
+    fn updateMaxScroll(self: *Self) void {
+        self.max_scroll_y = std.math.max(0, zss.sdl_freetype.zssUnitToPixel(self.document.block_data.box_offsets[0].border_bottom_right.y) - self.height);
+        self.scroll_y = std.math.clamp(self.scroll_y, 0, self.max_scroll_y);
+    }
+};
+
+fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator, tree: *box_tree.BoxTree) !void {
     const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
 
@@ -136,15 +177,9 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
     defer sdl.SDL_DestroyRenderer(renderer);
     assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BlendMode.SDL_BLENDMODE_BLEND) == 0);
 
-    var document = try zss.layout.doLayout(tree, allocator, pixelToZssUnit(width), pixelToZssUnit(height));
-    defer document.deinit(allocator);
-    var atlas = try zss.sdl_freetype.GlyphAtlas.init(face, renderer, pixel_format, allocator);
-    defer atlas.deinit(allocator);
-    var needs_relayout = false;
+    var ps = try ProgramState.init(tree, window, renderer, pixel_format, face, allocator);
+    defer ps.deinit(allocator);
 
-    var max_scroll_y: c_int = 0;
-    var min_scroll_y: c_int = max_scroll_y - std.math.max(0, zss.sdl_freetype.zssUnitToPixel(document.block_data.box_offsets[0].border_bottom_right.y) - height);
-    var scroll_y = max_scroll_y;
     const scroll_speed = 15;
 
     var frame_times = [1]u64{0} ** 64;
@@ -152,6 +187,7 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
     var sum_of_frame_times: u64 = 0;
     var timer = try std.time.Timer.start();
 
+    var needs_relayout = false;
     var event: sdl.SDL_Event = undefined;
     mainLoop: while (true) {
         while (sdl.SDL_PollEvent(&event) != 0) {
@@ -159,8 +195,8 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
                 .SDL_WINDOWEVENT => {
                     switch (@intToEnum(sdl.SDL_WindowEventID, event.window.event)) {
                         .SDL_WINDOWEVENT_SIZE_CHANGED => {
-                            width = event.window.data1;
-                            height = event.window.data2;
+                            ps.width = event.window.data1;
+                            ps.height = event.window.data2;
                             needs_relayout = true;
                         },
                         else => {},
@@ -169,18 +205,18 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
                 .SDL_KEYDOWN => {
                     switch (event.key.keysym.sym) {
                         sdl.SDLK_UP => {
-                            scroll_y += scroll_speed;
-                            if (scroll_y > max_scroll_y) scroll_y = max_scroll_y;
+                            ps.scroll_y -= scroll_speed;
+                            if (ps.scroll_y < 0) ps.scroll_y = 0;
                         },
                         sdl.SDLK_DOWN => {
-                            scroll_y -= scroll_speed;
-                            if (scroll_y < min_scroll_y) scroll_y = min_scroll_y;
+                            ps.scroll_y += scroll_speed;
+                            if (ps.scroll_y > ps.max_scroll_y) ps.scroll_y = ps.max_scroll_y;
                         },
                         sdl.SDLK_HOME => {
-                            scroll_y = max_scroll_y;
+                            ps.scroll_y = 0;
                         },
                         sdl.SDLK_END => {
-                            scroll_y = min_scroll_y;
+                            ps.scroll_y = ps.max_scroll_y;
                         },
                         else => {},
                     }
@@ -194,28 +230,21 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
 
         if (needs_relayout) {
             needs_relayout = false;
-
-            var new_document = try zss.layout.doLayout(tree, allocator, pixelToZssUnit(width), pixelToZssUnit(height));
-            document.deinit(allocator);
-            document = new_document;
-
-            max_scroll_y = 0;
-            min_scroll_y = max_scroll_y - std.math.max(0, zss.sdl_freetype.zssUnitToPixel(document.block_data.box_offsets[0].border_bottom_right.y) - height);
-            scroll_y = std.math.clamp(scroll_y, min_scroll_y, max_scroll_y);
+            try ps.updateDocument(allocator);
         }
 
         const viewport_rect = sdl.SDL_Rect{
             .x = 0,
             .y = 0,
-            .w = width,
-            .h = height,
+            .w = ps.width,
+            .h = ps.height,
         };
         const translation = sdl.SDL_Point{
             .x = 0,
-            .y = scroll_y,
+            .y = -ps.scroll_y,
         };
         zss.sdl_freetype.drawBackgroundColor(renderer, pixel_format, viewport_rect, page_background_color);
-        try zss.sdl_freetype.renderDocument(&document, renderer, pixel_format, &atlas, allocator, viewport_rect, translation);
+        try zss.sdl_freetype.renderDocument(&ps.document, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
         sdl.SDL_RenderPresent(renderer);
 
         const frame_time = timer.lap();
