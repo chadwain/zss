@@ -11,11 +11,11 @@ const BlockLevelUsedValues = zss.used_values.BlockLevelUsedValues;
 const sdl = @import("SDL2");
 
 pub fn zssUnitToPixel(unit: ZssUnit) i32 {
-    return unit;
+    return @divFloor(unit, zss.used_values.unitsPerPixel);
 }
 
 pub fn pixelToZssUnit(pixels: c_int) ZssUnit {
-    return pixels;
+    return pixels * zss.used_values.unitsPerPixel;
 }
 
 pub fn sdlPointToZssVector(point: sdl.SDL_Point) ZssVector {

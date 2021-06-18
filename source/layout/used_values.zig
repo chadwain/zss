@@ -7,6 +7,9 @@ const zss = @import("../../zss.zig");
 /// The fundamental unit of space used for all CSS layout computations in zss.
 pub const ZssUnit = i32;
 
+///The number of ZssUnits contained wthin 1 screen pixel.
+pub const unitsPerPixel = 4;
+
 /// A floating point number usually between 0 and 1, but it can
 /// exceed these values.
 pub const Percentage = f32;

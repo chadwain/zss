@@ -10,6 +10,7 @@ const BoxTree = computed.BoxTree;
 
 const used_values = @import("./used_values.zig");
 const ZssUnit = used_values.ZssUnit;
+const unitsPerPixel = used_values.unitsPerPixel;
 const UsedId = used_values.UsedId;
 const BlockLevelUsedValues = used_values.BlockLevelUsedValues;
 const InlineLevelUsedValues = used_values.InlineLevelUsedValues;
@@ -32,7 +33,7 @@ const LengthUnit = enum { px };
 
 fn length(comptime unit: LengthUnit, value: f32) ZssUnit {
     return switch (unit) {
-        .px => @floatToInt(ZssUnit, @round(value)),
+        .px => @floatToInt(ZssUnit, @round(value * unitsPerPixel)),
     };
 }
 
@@ -966,7 +967,7 @@ fn addTextRun(values: *IntermediateInlineLevelUsedValues, buffer: *hb.hb_buffer_
         const extents_result = hb.hb_font_get_glyph_extents(font.font.?, info.codepoint, &extents);
         const width = if (extents_result != 0) extents.width else 0;
         values.glyph_indeces.appendAssumeCapacity(info.codepoint);
-        values.metrics.appendAssumeCapacity(.{ .offset = @divFloor(pos.x_offset, 64), .advance = @divFloor(pos.x_advance, 64), .width = @divFloor(width, 64) });
+        values.metrics.appendAssumeCapacity(.{ .offset = @divFloor(pos.x_offset * unitsPerPixel, 64), .advance = @divFloor(pos.x_advance * unitsPerPixel, 64), .width = @divFloor(width * unitsPerPixel, 64) });
 
         if (info.codepoint == InlineLevelUsedValues.Special.glyph_index) {
             values.glyph_indeces.appendAssumeCapacity(InlineLevelUsedValues.Special.encodeLiteralGlyphIndex());
@@ -1072,9 +1073,9 @@ fn splitIntoLineBoxes(values: *IntermediateInlineLevelUsedValues, font: *hb.hb_f
     var font_extents: hb.hb_font_extents_t = undefined;
     // TODO assuming ltr direction
     assert(hb.hb_font_get_h_extents(font, &font_extents) != 0);
-    const ascender = @divFloor(font_extents.ascender, 64);
-    const descender = @divFloor(font_extents.descender, 64);
-    const line_gap = @divFloor(font_extents.line_gap, 64);
+    const ascender = @divFloor(font_extents.ascender * unitsPerPixel, 64);
+    const descender = @divFloor(font_extents.descender * unitsPerPixel, 64);
+    const line_gap = @divFloor(font_extents.line_gap * unitsPerPixel, 64);
     const line_spacing = ascender - descender + line_gap;
 
     var cursor: ZssUnit = 0;
