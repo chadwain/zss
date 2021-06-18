@@ -5,7 +5,7 @@ const zss = @import("../../zss.zig");
 const ZssUnit = zss.used_values.ZssUnit;
 const ZssRect = zss.used_values.ZssRect;
 const ZssVector = zss.used_values.ZssVector;
-const InlineRenderingData = zss.used_values.InlineRenderingData;
+const InlineLevelUsedValues = zss.used_values.InlineLevelUsedValues;
 const Document = zss.used_values.Document;
 
 const hb = @import("harfbuzz");
@@ -19,10 +19,10 @@ const util = struct {
 pub const pixelToZssUnit = util.pixelToZssUnit;
 pub const zssUnitToPixel = util.zssUnitToPixel;
 
-pub const drawBlockDataRoot = util.drawBlockDataRoot;
-pub const drawBlockDataChildren = util.drawBlockDataChildren;
+pub const drawBlockValuesRoot = util.drawBlockValuesRoot;
+pub const drawBlockValuesChildren = util.drawBlockValuesChildren;
 pub const drawBackgroundColor = util.drawBackgroundColor;
-pub const textureAsBackgroundImage = util.textureAsBackgroundImage;
+pub const textureAsBackgroundImageObject = util.textureAsBackgroundImageObject;
 pub const GlyphAtlas = util.GlyphAtlas;
 pub const makeGlyphAtlas = util.makeGlyphAtlas;
 
@@ -35,54 +35,51 @@ pub fn renderDocument(
     clip_rect: sdl.SDL_Rect,
     translation: sdl.SDL_Point,
 ) !void {
-    const block_data = &document.block_data;
+    const block_values = &document.block_values;
     const translation_zss = util.sdlPointToZssVector(translation);
     const clip_rect_zss = util.sdlRectToZssRect(clip_rect);
 
-    drawBlockDataRoot(block_data, translation_zss, clip_rect_zss, renderer, pixel_format);
-    try drawBlockDataChildren(block_data, allocator, translation_zss, clip_rect_zss, renderer, pixel_format);
+    drawBlockValuesRoot(block_values, translation_zss, clip_rect_zss, renderer, pixel_format);
+    try drawBlockValuesChildren(block_values, allocator, translation_zss, clip_rect_zss, renderer, pixel_format);
 
-    for (block_data.inline_data) |inline_data| {
+    for (block_values.inline_values) |inline_values| {
         var cumulative_translation = translation_zss;
-        var it = zss.util.PdfsFlatTreeIterator.init(block_data.pdfs_flat_tree, inline_data.id_of_containing_block);
+        var it = zss.util.PdfsFlatTreeIterator.init(block_values.pdfs_flat_tree, inline_values.id_of_containing_block);
         while (it.next()) |id| {
-            cumulative_translation = cumulative_translation.add(block_data.box_offsets[id].content_top_left);
+            cumulative_translation = cumulative_translation.add(block_values.box_offsets[id].content_top_left);
         }
-        try drawInlineData(inline_data.data, cumulative_translation, renderer, pixel_format, glyph_atlas);
+        try drawInlineValues(inline_values.values, cumulative_translation, renderer, pixel_format, glyph_atlas);
     }
 }
 
-pub fn drawInlineData(
-    context: *const InlineRenderingData,
+pub fn drawInlineValues(
+    values: *const InlineLevelUsedValues,
     translation: ZssVector,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
     atlas: *GlyphAtlas,
 ) !void {
-    const face = hb.hb_ft_font_get_face(context.font);
-    const color = util.rgbaMap(pixel_format, context.font_color_rgba);
+    const face = hb.hb_ft_font_get_face(values.font);
+    const color = util.rgbaMap(pixel_format, values.font_color_rgba);
     assert(sdl.SDL_SetTextureColorMod(atlas.texture, color[0], color[1], color[2]) == 0);
     assert(sdl.SDL_SetTextureAlphaMod(atlas.texture, color[3]) == 0);
 
-    for (context.line_boxes) |line_box| {
+    for (values.line_boxes) |line_box| {
         var cursor: ZssUnit = 0;
         var i = line_box.elements[0];
         while (i < line_box.elements[1]) : (i += 1) {
-            var glyph_index = context.glyph_indeces[i];
-            const position = context.positions[i];
-            defer cursor += position.advance;
+            const glyph_index = values.glyph_indeces[i];
+            const metrics = values.metrics[i];
+            defer cursor += metrics.advance;
 
-            if (glyph_index == InlineRenderingData.Special.glyph_index) blk: {
+            if (glyph_index == InlineLevelUsedValues.Special.glyph_index) blk: {
                 i += 1;
-                const special = InlineRenderingData.Special.decode(context.glyph_indeces[i]);
+                const special = InlineLevelUsedValues.Special.decode(values.glyph_indeces[i]);
                 switch (special.meaning) {
+                    .LiteralGlyphIndex => break :blk,
                     // TODO not actually drawing the inline boxes
                     .BoxStart, .BoxEnd => {},
-                    .LiteralFFFF => {
-                        assert(hb.hb_font_get_glyph(context.font, 0xFFFF, 0, &glyph_index) != 0);
-                        break :blk;
-                    },
-                    .LineBreak => unreachable,
+                    _ => unreachable,
                 }
                 continue;
             }
@@ -103,7 +100,7 @@ pub fn drawInlineData(
                     .h = glyph_info.height,
                 },
                 &sdl.SDL_Rect{
-                    .x = util.zssUnitToPixel(translation.x + cursor + position.offset),
+                    .x = util.zssUnitToPixel(translation.x + cursor + metrics.offset),
                     .y = util.zssUnitToPixel(translation.y + line_box.baseline) - glyph_info.ascender_px,
                     .w = glyph_info.width,
                     .h = glyph_info.height,

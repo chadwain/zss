@@ -137,7 +137,7 @@ const ProgramState = struct {
         result.tree = tree;
         sdl.SDL_GetWindowSize(window, &result.width, &result.height);
 
-        result.document = try zss.layout.doLayout(tree, allocator, pixelToZssUnit(result.width), pixelToZssUnit(result.height));
+        result.document = try zss.layout.doLayout(tree, allocator, allocator, pixelToZssUnit(result.width), pixelToZssUnit(result.height));
         errdefer result.document.deinit(allocator);
 
         result.atlas = try zss.sdl_freetype.GlyphAtlas.init(face, renderer, pixel_format, allocator);
@@ -153,14 +153,14 @@ const ProgramState = struct {
     }
 
     fn updateDocument(self: *Self, allocator: *Allocator) !void {
-        var new_document = try zss.layout.doLayout(self.tree, allocator, pixelToZssUnit(self.width), pixelToZssUnit(self.height));
+        var new_document = try zss.layout.doLayout(self.tree, allocator, allocator, pixelToZssUnit(self.width), pixelToZssUnit(self.height));
         self.document.deinit(allocator);
         self.document = new_document;
         self.updateMaxScroll();
     }
 
     fn updateMaxScroll(self: *Self) void {
-        self.max_scroll_y = std.math.max(0, zss.sdl_freetype.zssUnitToPixel(self.document.block_data.box_offsets[0].border_bottom_right.y) - self.height);
+        self.max_scroll_y = std.math.max(0, zss.sdl_freetype.zssUnitToPixel(self.document.block_values.box_offsets[0].border_bottom_right.y) - self.height);
         self.scroll_y = std.math.clamp(self.scroll_y, 0, self.max_scroll_y);
     }
 };

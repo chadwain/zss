@@ -60,23 +60,23 @@ pub const LogicalSize = struct {
     margin_end: Margin = .{ .px = 0 },
 };
 
-pub const PositionInset = struct {
-    pub const Position = union(enum) {
-        static,
-        relative,
-    };
-    pub const Inset = union(enum) {
-        px: f32,
-        percentage: f32,
-        auto,
-    };
-
-    position: Position = .{ .static = {} },
-    block_start: Inset = .{ .auto = {} },
-    block_end: Inset = .{ .auto = {} },
-    inline_start: Inset = .{ .auto = {} },
-    inline_end: Inset = .{ .auto = {} },
-};
+//pub const PositionInset = struct {
+//    pub const Position = union(enum) {
+//        static,
+//        relative,
+//    };
+//    pub const Inset = union(enum) {
+//        px: f32,
+//        percentage: f32,
+//        auto,
+//    };
+//
+//    position: Position = .{ .static = {} },
+//    block_start: Inset = .{ .auto = {} },
+//    block_end: Inset = .{ .auto = {} },
+//    inline_start: Inset = .{ .auto = {} },
+//    inline_end: Inset = .{ .auto = {} },
+//};
 
 pub const Latin1Text = struct {
     // TODO should this be nullable?
@@ -110,7 +110,7 @@ pub const Background = struct {
             }
         };
 
-        image: Object,
+        object: Object,
         none,
     };
     pub const Color = union(enum) {

@@ -72,7 +72,7 @@ pub fn main() !void {
     defer sdl.SDL_DestroyTexture(texture);
     assert(sdl.SDL_SetRenderTarget(renderer, texture) == 0);
 
-    try exampleInlineData(renderer, texture_pixel_format, hbfont);
+    try exampleInlineValues(renderer, texture_pixel_format, hbfont);
     sdl.SDL_RenderPresent(renderer);
 
     assert(sdl.SDL_SetRenderTarget(renderer, window_texture) == 0);
@@ -99,7 +99,7 @@ pub fn main() !void {
     }
 }
 
-fn exampleInlineData(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFormat, hbfont: *hb.hb_font_t) !void {
+fn exampleInlineValues(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFormat, hbfont: *hb.hb_font_t) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(!gpa.deinit());
     const al = &gpa.allocator;
@@ -114,7 +114,7 @@ fn exampleInlineData(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFor
     var font = box_tree.Font{ .font = hbfont };
     var border = [_]box_tree.Border{.{}} ** len;
     var background = [_]box_tree.Background{.{}} ** len;
-    var context = zss.layout.InlineLayoutContext.init(
+    var context = zss.layout.InlineLevelLayoutContext.init(
         &zss.box_tree.BoxTree{
             .pdfs_flat_tree = &pdfs_flat_tree,
             .inline_size = &inline_size,
@@ -126,15 +126,15 @@ fn exampleInlineData(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelFor
             .background = &background,
         },
         al,
-        .{ .initial = 0, .begin = 1, .end = pdfs_flat_tree[0] },
+        .{ .parent = 0, .begin = 1, .end = pdfs_flat_tree[0] },
         500,
     );
     defer context.deinit();
-    var inl = try zss.layout.createInlineRenderingData(&context, al);
+    var inl = try zss.layout.createInlineLevelUsedValues(&context, al);
     defer inl.deinit(al);
 
     var atlas = try zss.sdl_freetype.GlyphAtlas.init(hb.hb_ft_font_get_face(hbfont), renderer, pixelFormat, al);
     defer atlas.deinit(al);
 
-    try zss.sdl_freetype.drawInlineData(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat, &atlas);
+    try zss.sdl_freetype.drawInlineValues(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat, &atlas);
 }

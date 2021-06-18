@@ -108,8 +108,8 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(!gpa.deinit());
 
-    var ctx = try exampleBlockData(&gpa.allocator, zig_png, hbfont);
-    defer ctx.deinit(&gpa.allocator);
+    var values = try exampleBlockLevelUsedValues(&gpa.allocator, zig_png, hbfont);
+    defer values.deinit(&gpa.allocator);
 
     const offset = zss.used_values.ZssVector{
         .x = 0,
@@ -122,22 +122,22 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
         .h = viewport_rect.h,
     };
 
-    zss.sdl_freetype.drawBlockDataRoot(&ctx, offset, clip_rect, renderer, pixel_format);
-    try zss.sdl_freetype.drawBlockDataChildren(&ctx, &gpa.allocator, offset, clip_rect, renderer, pixel_format);
+    zss.sdl_freetype.drawBlockValuesRoot(&values, offset, clip_rect, renderer, pixel_format);
+    try zss.sdl_freetype.drawBlockValuesChildren(&values, &gpa.allocator, offset, clip_rect, renderer, pixel_format);
 
     var atlas = try zss.sdl_freetype.GlyphAtlas.init(face, renderer, pixel_format, &gpa.allocator);
     defer atlas.deinit(&gpa.allocator);
-    for (ctx.inline_data) |inline_data| {
+    for (values.inline_values) |inline_values| {
         var o = offset;
-        var it = zss.util.PdfsFlatTreeIterator.init(ctx.pdfs_flat_tree, inline_data.id_of_containing_block);
+        var it = zss.util.PdfsFlatTreeIterator.init(values.pdfs_flat_tree, inline_values.id_of_containing_block);
         while (it.next()) |id| {
-            o = o.add(ctx.box_offsets[id].content_top_left);
+            o = o.add(values.box_offsets[id].content_top_left);
         }
-        try zss.sdl_freetype.drawInlineData(inline_data.data, o, renderer, pixel_format, &atlas);
+        try zss.sdl_freetype.drawInlineValues(inline_values.values, o, renderer, pixel_format, &atlas);
     }
 }
 
-fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hbfont: *hb.hb_font_t) !zss.used_values.BlockRenderingData {
+fn exampleBlockLevelUsedValues(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hbfont: *hb.hb_font_t) !zss.used_values.BlockLevelUsedValues {
     const len = 3;
     var pdfs_flat_tree = [len]zss.box_tree.BoxId{ 3, 2, 1 };
     var inline_size = [len]zss.box_tree.LogicalSize{
@@ -174,7 +174,7 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
     var background = [len]zss.box_tree.Background{
         .{
             .color = .{ .rgba = 0xff2233ff },
-            .image = .{ .image = zss.sdl_freetype.textureAsBackgroundImage(zig_png) },
+            .image = .{ .object = zss.sdl_freetype.textureAsBackgroundImageObject(zig_png) },
             .position = .{ .position = .{
                 .horizontal = .{ .side = .right, .offset = .{ .percentage = 0 } },
                 .vertical = .{ .side = .top, .offset = .{ .percentage = 0.5 } },
@@ -200,9 +200,9 @@ fn exampleBlockData(allocator: *std.mem.Allocator, zig_png: *sdl.SDL_Texture, hb
         .background = &background,
     };
 
-    var context = try zss.layout.BlockLayoutContext.init(&box_tree, allocator, 0, viewport_rect.w, viewport_rect.h);
+    var context = try zss.layout.BlockLevelLayoutContext.init(&box_tree, allocator, 0, viewport_rect.w, viewport_rect.h);
     defer context.deinit();
-    var data = try zss.layout.createBlockRenderingData(&context, allocator);
+    var data = try zss.layout.createBlockLevelUsedValues(&context, allocator);
 
     return data;
 }

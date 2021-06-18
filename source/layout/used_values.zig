@@ -115,9 +115,9 @@ pub const Background2 = struct {
 
 pub const UsedId = u16;
 
-pub const BlockRenderingData = struct {
-    pub const InlineData = struct {
-        data: *InlineRenderingData,
+pub const BlockLevelUsedValues = struct {
+    pub const InlineValues = struct {
+        values: *InlineLevelUsedValues,
         id_of_containing_block: UsedId,
     };
 
@@ -128,7 +128,7 @@ pub const BlockRenderingData = struct {
     background1: []Background1,
     background2: []Background2,
     //visual_effect: []VisualEffect,
-    inline_data: []InlineData,
+    inline_values: []InlineValues,
 
     pub fn deinit(self: *@This(), allocator: *Allocator) void {
         allocator.free(self.pdfs_flat_tree);
@@ -138,15 +138,15 @@ pub const BlockRenderingData = struct {
         allocator.free(self.background1);
         allocator.free(self.background2);
         //allocator.free(self.visual_effect);
-        for (self.inline_data) |*inl| {
-            inl.data.deinit(allocator);
-            allocator.destroy(inl.data);
+        for (self.inline_values) |*inl| {
+            inl.values.deinit(allocator);
+            allocator.destroy(inl.values);
         }
-        allocator.free(self.inline_data);
+        allocator.free(self.inline_values);
     }
 };
 
-pub const InlineRenderingData = struct {
+pub const InlineLevelUsedValues = struct {
     const hb = @import("harfbuzz");
 
     //pub const BoxMeasures = struct {
@@ -168,8 +168,15 @@ pub const InlineRenderingData = struct {
     // NOTE may need to make sure this is never a valid glyph index when bitcasted
     // NOTE Not making this an extern struct keeps crashing compiler
     pub const Special = extern struct {
-        pub const glyph_index = 0xFFFF;
-        pub const Meaning = extern enum(u16) { BoxStart, BoxEnd, LiteralFFFF, LineBreak };
+        pub const glyph_index = 0;
+        pub const Meaning = extern enum(u16) { LiteralGlyphIndex, BoxStart, BoxEnd, _ };
+        pub const LayoutInternalMeaning = extern enum(u16) { LiteralGlyphIndex, BoxStart, BoxEnd, LineBreak };
+
+        comptime {
+            for (std.meta.fields(Meaning)) |f| {
+                std.debug.assert(std.mem.eql(u8, f.name, @tagName(@intToEnum(LayoutInternalMeaning, f.value))));
+            }
+        }
 
         meaning: Meaning,
         data: u16,
@@ -186,16 +193,16 @@ pub const InlineRenderingData = struct {
             return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .BoxEnd, .data = used_id });
         }
 
-        pub fn encodeLiteralFFFF() hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .LiteralFFFF, .data = undefined });
+        pub fn encodeLiteralGlyphIndex() hb.hb_codepoint_t {
+            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .LiteralGlyphIndex, .data = undefined });
         }
 
         pub fn encodeLineBreak() hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .LineBreak, .data = undefined });
+            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = @intToEnum(Meaning, @enumToInt(LayoutInternalMeaning.LineBreak)), .data = undefined });
         }
     };
 
-    pub const Position = struct {
+    pub const Metrics = struct {
         // NOTE It seems that offset is 0 almost all the time, maybe no need to record it.
         offset: ZssUnit,
         advance: ZssUnit,
@@ -203,14 +210,14 @@ pub const InlineRenderingData = struct {
     };
 
     glyph_indeces: []hb.hb_codepoint_t,
-    positions: []Position,
+    metrics: []Metrics,
     line_boxes: []LineBox,
     font: *hb.hb_font_t,
     font_color_rgba: u32,
 
     pub fn deinit(self: *@This(), allocator: *Allocator) void {
         allocator.free(self.glyph_indeces);
-        allocator.free(self.positions);
+        allocator.free(self.metrics);
         allocator.free(self.line_boxes);
     }
 
@@ -229,11 +236,11 @@ pub const InlineRenderingData = struct {
             }
         }
         p("\n", .{});
-        p("positions\n", .{});
+        p("metrics\n", .{});
         i = 0;
-        while (i < self.positions.len) : (i += 1) {
-            const pos = self.positions[i];
-            p("{}\n", .{pos});
+        while (i < self.metrics.len) : (i += 1) {
+            const metrics = self.metrics[i];
+            p("{}\n", .{metrics});
             if (self.glyph_indeces[i] == Special.glyph_index) {
                 i += 1;
             }
@@ -247,12 +254,12 @@ pub const InlineRenderingData = struct {
 };
 
 pub const Document = struct {
-    block_data: BlockRenderingData,
+    block_values: BlockLevelUsedValues,
 
     const Self = @This();
 
     pub fn deinit(self: *Self, allocator: *Allocator) void {
-        self.block_data.deinit(allocator);
+        self.block_values.deinit(allocator);
     }
 };
 

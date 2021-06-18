@@ -6,7 +6,7 @@ const UsedId = zss.used_values.UsedId;
 const ZssUnit = zss.used_values.ZssUnit;
 const ZssVector = zss.used_values.ZssVector;
 const ZssRect = zss.used_values.ZssRect;
-const BlockRenderingData = zss.used_values.BlockRenderingData;
+const BlockLevelUsedValues = zss.used_values.BlockLevelUsedValues;
 
 const sdl = @import("SDL2");
 
@@ -67,7 +67,7 @@ const bg_image_fns = struct {
     }
 };
 
-pub fn textureAsBackgroundImage(texture: *sdl.SDL_Texture) zss.box_tree.Background.Image.Object {
+pub fn textureAsBackgroundImageObject(texture: *sdl.SDL_Texture) zss.box_tree.Background.Image.Object {
     return .{
         .data = @ptrCast(*zss.box_tree.Background.Image.Object.Data, texture),
         .getNaturalSizeFn = bg_image_fns.getNaturalSize,
@@ -76,20 +76,20 @@ pub fn textureAsBackgroundImage(texture: *sdl.SDL_Texture) zss.box_tree.Backgrou
 
 /// Draws the background color, background image, and borders of a
 /// block box. This implements §Appendix E.2 Step 2.
-pub fn drawBlockDataRoot(
-    context: *const BlockRenderingData,
+pub fn drawBlockValuesRoot(
+    values: *const BlockLevelUsedValues,
     translation: ZssVector,
     clip_rect: ZssRect,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
 ) void {
-    //const visual_effect = context.visual_effect[0];
+    //const visual_effect = values.visual_effect[0];
     //if (visual_effect.visibility == .Hidden) return;
-    const borders = context.borders[0];
-    const background1 = context.background1[0];
-    const background2 = context.background2[0];
-    const border_colors = context.border_colors[0];
-    const box_offsets = context.box_offsets[0];
+    const borders = values.borders[0];
+    const background1 = values.background1[0];
+    const background2 = values.background2[0];
+    const border_colors = values.border_colors[0];
+    const box_offsets = values.box_offsets[0];
 
     const boxes = zss.util.getThreeBoxes(translation, box_offsets, borders);
     drawBackgroundAndBorders(&boxes, borders, background1, background2, border_colors, clip_rect, renderer, pixel_format);
@@ -98,8 +98,8 @@ pub fn drawBlockDataRoot(
 /// Draws the background color, background image, and borders of all of the
 /// descendant boxes in a block context (i.e. excluding the top element).
 /// This implements §Appendix E.2 Step 4.
-pub fn drawBlockDataChildren(
-    context: *const BlockRenderingData,
+pub fn drawBlockValuesChildren(
+    values: *const BlockLevelUsedValues,
     allocator: *std.mem.Allocator,
     translation: ZssVector,
     initial_clip_rect: ZssRect,
@@ -119,10 +119,10 @@ pub fn drawBlockDataChildren(
     var stack = std.ArrayList(StackItem).init(allocator);
     defer stack.deinit();
 
-    if (context.pdfs_flat_tree[0] != 1) {
-        const box_offsets = context.box_offsets[0];
-        //const borders = context.borders[0];
-        //const clip_rect = switch (context.visual_effect[0].overflow) {
+    if (values.pdfs_flat_tree[0] != 1) {
+        const box_offsets = values.box_offsets[0];
+        //const borders = values.borders[0];
+        //const clip_rect = switch (values.visual_effect[0].overflow) {
         //    .Visible => initial_clip_rect,
         //    .Hidden => blk: {
         //        const padding_rect = ZssRect{
@@ -139,7 +139,7 @@ pub fn drawBlockDataChildren(
         //// No need to draw children if the clip rect is empty.
         //if (!clip_rect.isEmpty()) {
         //    try stack.append(StackItem{
-        //        .interval = Interval{ .begin = 1, .end = context.pdfs_flat_tree[0] },
+        //        .interval = Interval{ .begin = 1, .end = values.pdfs_flat_tree[0] },
         //        .translation = translation.add(box_offsets.content_top_left),
         //        .clip_rect = clip_rect,
         //    });
@@ -147,7 +147,7 @@ pub fn drawBlockDataChildren(
         //}
 
         try stack.append(StackItem{
-            .interval = Interval{ .begin = 1, .end = context.pdfs_flat_tree[0] },
+            .interval = Interval{ .begin = 1, .end = values.pdfs_flat_tree[0] },
             .translation = translation.add(box_offsets.content_top_left),
         });
     }
@@ -158,15 +158,15 @@ pub fn drawBlockDataChildren(
 
         while (interval.begin != interval.end) {
             const used_id = interval.begin;
-            const subtree_size = context.pdfs_flat_tree[used_id];
+            const subtree_size = values.pdfs_flat_tree[used_id];
             defer interval.begin += subtree_size;
 
-            const box_offsets = context.box_offsets[used_id];
-            const borders = context.borders[used_id];
-            const border_colors = context.border_colors[used_id];
-            const background1 = context.background1[used_id];
-            const background2 = context.background2[used_id];
-            //const visual_effect = context.visual_effect[used_id];
+            const box_offsets = values.box_offsets[used_id];
+            const borders = values.borders[used_id];
+            const border_colors = values.border_colors[used_id];
+            const background1 = values.background1[used_id];
+            const background2 = values.background2[used_id];
+            //const visual_effect = values.visual_effect[used_id];
             const boxes = zss.util.getThreeBoxes(stack_item.translation, box_offsets, borders);
 
             //if (visual_effect.visibility == .Visible) {
