@@ -136,5 +136,5 @@ fn exampleInlineValues(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelF
     var atlas = try zss.sdl_freetype.GlyphAtlas.init(hb.hb_ft_font_get_face(hbfont), renderer, pixelFormat, al);
     defer atlas.deinit(al);
 
-    try zss.sdl_freetype.drawInlineValues(&inl, .{ .x = 0, .y = 0 }, renderer, pixelFormat, &atlas);
+    try zss.sdl_freetype.drawInlineValues(&inl, .{ .x = 0, .y = 0 }, al, renderer, pixelFormat, &atlas);
 }

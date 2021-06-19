@@ -133,7 +133,7 @@ fn drawBlockContext(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFor
         while (it.next()) |id| {
             o = o.add(values.box_offsets[id].content_top_left);
         }
-        try zss.sdl_freetype.drawInlineValues(inline_values.values, o, renderer, pixel_format, &atlas);
+        try zss.sdl_freetype.drawInlineValues(inline_values.values, o, &gpa.allocator, renderer, pixel_format, &atlas);
     }
 }
 

@@ -557,29 +557,68 @@ pub fn drawInlineBox(
     const content_top_y = position.y - values.ascender;
     const padding_top_y = content_top_y - block_start.padding;
     const border_top_y = padding_top_y - block_start.border;
-    const padding_bottom_y = position.y + values.descender + block_end.padding;
+    const content_bottom_y = position.y + values.descender;
+    const padding_bottom_y = content_bottom_y + block_end.padding;
     const border_bottom_y = padding_bottom_y + block_end.border;
 
     const inline_start = values.inline_start[used_id];
+    const inline_end = values.inline_end[used_id];
+    {
+        const background1 = values.background1[used_id];
+        var background_clip_rect = ZssRect{
+            .x = position.x,
+            .y = undefined,
+            .w = middle_length,
+            .h = undefined,
+        };
+        switch (background1.clip) {
+            .Border => {
+                background_clip_rect.y = border_top_y;
+                background_clip_rect.h = border_bottom_y - border_top_y;
+                if (draw_start) background_clip_rect.w += inline_start.padding + inline_start.border;
+                if (draw_end) background_clip_rect.w += inline_end.padding + inline_end.border;
+            },
+            .Padding => {
+                background_clip_rect.y = padding_top_y;
+                background_clip_rect.h = padding_bottom_y - padding_top_y;
+                if (draw_start) {
+                    background_clip_rect.x += inline_start.border;
+                    background_clip_rect.w += inline_start.padding;
+                }
+                if (draw_end) background_clip_rect.w += inline_end.padding;
+            },
+            .Content => {
+                background_clip_rect.y = content_top_y;
+                background_clip_rect.h = content_bottom_y - content_top_y;
+                if (draw_start) background_clip_rect.x += inline_start.padding + inline_start.border;
+            },
+        }
+
+        const color = rgbaMap(pixel_format, background1.color_rgba);
+        assert(sdl.SDL_SetRenderDrawColor(renderer, color[0], color[1], color[2], color[3]) == 0);
+        assert(sdl.SDL_RenderFillRect(renderer, &zssRectToSdlRect(background_clip_rect)) == 0);
+    }
+
+    var section_start_x = position.x;
     if (draw_start) {
         const rects = [3]sdl.SDL_Rect{
             // left
             sdl.SDL_Rect{
-                .x = zssUnitToPixel(position.x),
+                .x = zssUnitToPixel(section_start_x),
                 .y = zssUnitToPixel(padding_top_y),
                 .w = zssUnitToPixel(inline_start.border),
                 .h = zssUnitToPixel(values.ascender + values.descender + block_start.padding + block_end.padding),
             },
             // top
             sdl.SDL_Rect{
-                .x = zssUnitToPixel(position.x + inline_start.border),
+                .x = zssUnitToPixel(section_start_x + inline_start.border),
                 .y = zssUnitToPixel(border_top_y),
                 .w = zssUnitToPixel(inline_start.padding),
                 .h = zssUnitToPixel(block_start.border),
             },
             // bottom
             sdl.SDL_Rect{
-                .x = zssUnitToPixel(position.x + inline_start.border),
+                .x = zssUnitToPixel(section_start_x + inline_start.border),
                 .y = zssUnitToPixel(padding_bottom_y),
                 .w = zssUnitToPixel(inline_start.padding),
                 .h = zssUnitToPixel(block_end.border),
@@ -600,8 +639,8 @@ pub fn drawInlineBox(
         // top left
         drawBordersSolidCorners(
             renderer,
-            zssUnitToPixel(position.x),
-            zssUnitToPixel(position.x + inline_start.border),
+            zssUnitToPixel(section_start_x),
+            zssUnitToPixel(section_start_x + inline_start.border),
             zssUnitToPixel(border_top_y),
             zssUnitToPixel(padding_top_y),
             colors[0],
@@ -611,29 +650,30 @@ pub fn drawInlineBox(
         // bottom left
         drawBordersSolidCorners(
             renderer,
-            zssUnitToPixel(position.x + inline_start.border),
-            zssUnitToPixel(position.x),
+            zssUnitToPixel(section_start_x + inline_start.border),
+            zssUnitToPixel(section_start_x),
             zssUnitToPixel(padding_bottom_y),
             zssUnitToPixel(border_bottom_y),
             colors[2],
             colors[0],
             false,
         );
+
+        section_start_x += inline_start.border + inline_start.padding;
     }
 
-    const middle_start_x = position.x + inline_start.border + inline_start.padding;
     {
         const rects = [2]sdl.SDL_Rect{
             // top
             sdl.SDL_Rect{
-                .x = zssUnitToPixel(middle_start_x),
+                .x = zssUnitToPixel(section_start_x),
                 .y = zssUnitToPixel(border_top_y),
                 .w = zssUnitToPixel(middle_length),
                 .h = zssUnitToPixel(block_start.border),
             },
             // bottom
             sdl.SDL_Rect{
-                .x = zssUnitToPixel(middle_start_x),
+                .x = zssUnitToPixel(section_start_x),
                 .y = zssUnitToPixel(padding_bottom_y),
                 .w = zssUnitToPixel(middle_length),
                 .h = zssUnitToPixel(block_end.border),
@@ -650,29 +690,29 @@ pub fn drawInlineBox(
             assert(sdl.SDL_SetRenderDrawColor(renderer, c[0], c[1], c[2], c[3]) == 0);
             assert(sdl.SDL_RenderFillRect(renderer, &rects[i]) == 0);
         }
+
+        section_start_x += middle_length;
     }
 
-    const end_start_x = middle_start_x + middle_length;
     if (draw_end) {
-        const inline_end = values.inline_end[used_id];
         const rects = [3]sdl.SDL_Rect{
             // right
             sdl.SDL_Rect{
-                .x = zssUnitToPixel(end_start_x + inline_end.padding),
+                .x = zssUnitToPixel(section_start_x + inline_end.padding),
                 .y = zssUnitToPixel(padding_top_y),
                 .w = zssUnitToPixel(inline_end.border),
                 .h = zssUnitToPixel(values.ascender + values.descender + block_start.padding + block_end.padding),
             },
             // top
             sdl.SDL_Rect{
-                .x = zssUnitToPixel(end_start_x),
+                .x = zssUnitToPixel(section_start_x),
                 .y = zssUnitToPixel(border_top_y),
                 .w = zssUnitToPixel(inline_end.padding),
                 .h = zssUnitToPixel(block_start.border),
             },
             // bottom
             sdl.SDL_Rect{
-                .x = zssUnitToPixel(end_start_x),
+                .x = zssUnitToPixel(section_start_x),
                 .y = zssUnitToPixel(padding_bottom_y),
                 .w = zssUnitToPixel(inline_end.padding),
                 .h = zssUnitToPixel(block_end.border),
@@ -693,8 +733,8 @@ pub fn drawInlineBox(
         // top right
         drawBordersSolidCorners(
             renderer,
-            zssUnitToPixel(end_start_x + inline_end.padding + inline_end.border),
-            zssUnitToPixel(end_start_x + inline_end.padding),
+            zssUnitToPixel(section_start_x + inline_end.padding + inline_end.border),
+            zssUnitToPixel(section_start_x + inline_end.padding),
             zssUnitToPixel(border_top_y),
             zssUnitToPixel(padding_top_y),
             colors[0],
@@ -704,8 +744,8 @@ pub fn drawInlineBox(
         // bottom right
         drawBordersSolidCorners(
             renderer,
-            zssUnitToPixel(end_start_x + inline_end.padding),
-            zssUnitToPixel(end_start_x + inline_end.padding + inline_end.border),
+            zssUnitToPixel(section_start_x + inline_end.padding),
+            zssUnitToPixel(section_start_x + inline_end.padding + inline_end.border),
             zssUnitToPixel(padding_bottom_y),
             zssUnitToPixel(border_bottom_y),
             colors[2],

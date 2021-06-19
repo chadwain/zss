@@ -49,13 +49,14 @@ pub fn renderDocument(
         while (it.next()) |id| {
             cumulative_translation = cumulative_translation.add(block_values.box_offsets[id].content_top_left);
         }
-        try drawInlineValues(inline_values.values, cumulative_translation, renderer, pixel_format, glyph_atlas);
+        try drawInlineValues(inline_values.values, cumulative_translation, allocator, renderer, pixel_format, glyph_atlas);
     }
 }
 
 pub fn drawInlineValues(
     values: *const InlineLevelUsedValues,
     translation: ZssVector,
+    allocator: *std.mem.Allocator,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
     atlas: *GlyphAtlas,
@@ -64,8 +65,24 @@ pub fn drawInlineValues(
     const color = util.rgbaMap(pixel_format, values.font_color_rgba);
     assert(sdl.SDL_SetTextureColorMod(atlas.texture, color[0], color[1], color[2]) == 0);
     assert(sdl.SDL_SetTextureAlphaMod(atlas.texture, color[3]) == 0);
+    var inline_box_stack = std.ArrayList(UsedId).init(allocator);
+    defer inline_box_stack.deinit();
 
     for (values.line_boxes) |line_box| {
+        for (inline_box_stack.items) |used_id| {
+            const match_info = findMatchingBoxEnd(values.glyph_indeces[line_box.elements[0]..line_box.elements[1]], values.metrics[line_box.elements[0]..line_box.elements[1]], used_id);
+            util.drawInlineBox(
+                renderer,
+                pixel_format,
+                values,
+                used_id,
+                ZssVector{ .x = translation.x, .y = translation.y + line_box.baseline },
+                match_info.advance,
+                false,
+                match_info.found,
+            );
+        }
+
         var cursor: ZssUnit = 0;
         var i = line_box.elements[0];
         while (i < line_box.elements[1]) : (i += 1) {
@@ -78,7 +95,6 @@ pub fn drawInlineValues(
                 const special = InlineLevelUsedValues.Special.decode(values.glyph_indeces[i]);
                 switch (special.meaning) {
                     .LiteralGlyphIndex => break :blk,
-                    // TODO not actually drawing the inline boxes
                     .BoxStart => {
                         const match_info = findMatchingBoxEnd(values.glyph_indeces[i + 1 .. line_box.elements[1]], values.metrics[i + 1 .. line_box.elements[1]], special.data);
                         util.drawInlineBox(
@@ -91,8 +107,9 @@ pub fn drawInlineValues(
                             true,
                             match_info.found,
                         );
+                        try inline_box_stack.append(special.data);
                     },
-                    .BoxEnd => {},
+                    .BoxEnd => assert(special.data == inline_box_stack.pop()),
                     _ => unreachable,
                 }
                 continue;
