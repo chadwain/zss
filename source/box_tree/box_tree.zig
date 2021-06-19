@@ -17,6 +17,7 @@ pub const BoxId = u16;
 
 pub const Display = union(enum) {
     block_flow,
+    inline_flow,
     text,
     none,
 };

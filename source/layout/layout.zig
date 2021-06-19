@@ -41,12 +41,6 @@ fn percentage(value: f32, unit: ZssUnit) ZssUnit {
     return @floatToInt(ZssUnit, @round(@intToFloat(f32, unit) * value));
 }
 
-const Interval = struct {
-    parent: BoxId,
-    begin: BoxId,
-    end: BoxId,
-};
-
 const UsedIdAndSubtreeSize = struct {
     used_id: UsedId,
     used_subtree_size: UsedId,
@@ -78,6 +72,12 @@ const UsedBlockSizes = struct {
 
 pub const BlockLevelLayoutContext = struct {
     const Self = @This();
+
+    const Interval = struct {
+        parent: BoxId,
+        begin: BoxId,
+        end: BoxId,
+    };
 
     box_tree: *const BoxTree,
     root_box_id: BoxId,
@@ -201,7 +201,7 @@ const IntermediateBlockLevelUsedValues = struct {
 pub fn createBlockLevelUsedValues(context: *BlockLevelLayoutContext, values_allocator: *Allocator) Error!BlockLevelUsedValues {
     const root_box_id = context.root_box_id;
     const root_subtree_size = context.box_tree.pdfs_flat_tree[root_box_id];
-    var root_interval = Interval{ .parent = root_box_id, .begin = root_box_id, .end = root_box_id + root_subtree_size };
+    var root_interval = BlockLevelLayoutContext.Interval{ .parent = root_box_id, .begin = root_box_id, .end = root_box_id + root_subtree_size };
 
     var values = IntermediateBlockLevelUsedValues{ .allocator = values_allocator };
     errdefer values.deinit();
@@ -232,16 +232,15 @@ pub fn createBlockLevelUsedValues(context: *BlockLevelLayoutContext, values_allo
     return values.toBlockLevelUsedValues();
 }
 
-fn blockLevelElementPush(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, interval: *Interval) !void {
+fn blockLevelElementPush(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, interval: *BlockLevelLayoutContext.Interval) !void {
     switch (context.box_tree.display[interval.begin]) {
         .block_flow => return blockContainerSolveSizeAndPositionPart1(context, values, interval),
-        //.inline_flow,
-        .text => return blockLevelAddInlineData(context, values, interval),
+        .inline_flow, .text => return blockLevelAddInlineData(context, values, interval),
         .none => return,
     }
 }
 
-fn blockLevelElementPop(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, interval: Interval) void {
+fn blockLevelElementPop(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, interval: BlockLevelLayoutContext.Interval) void {
     const id_subtree_size = context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1];
     const used_id = id_subtree_size.used_id;
     const used_subtree_size = id_subtree_size.used_subtree_size;
@@ -262,7 +261,7 @@ fn blockLevelElementPop(context: *BlockLevelLayoutContext, values: *Intermediate
     //context.in_flow_positioning_data.shrinkRetainingCapacity(context.in_flow_positioning_data.items.len - in_flow_positioning_data_count);
 }
 
-fn blockContainerSolveSizeAndPositionPart1(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, interval: *Interval) !void {
+fn blockContainerSolveSizeAndPositionPart1(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, interval: *BlockLevelLayoutContext.Interval) !void {
     const box_id = interval.begin;
     const subtree_size = context.box_tree.pdfs_flat_tree[box_id];
     interval.begin += subtree_size;
@@ -296,7 +295,7 @@ fn blockContainerSolveSizeAndPositionPart1(context: *BlockLevelLayoutContext, va
     //_ = try values.visual_effect.addOne(values.allocator);
 
     if (subtree_size != 1) {
-        try context.intervals.append(context.allocator, Interval{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
+        try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
         try context.static_containing_block_used_inline_size.append(context.allocator, inline_size);
         // TODO don't add elements to this stack unconditionally
         try context.static_containing_block_auto_block_size.append(context.allocator, 0);
@@ -592,7 +591,7 @@ fn blockContainerSolveBlockSizesAndOffsets(context: *const BlockLevelLayoutConte
     };
 }
 
-fn blockLevelAddInlineData(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, interval: *Interval) !void {
+fn blockLevelAddInlineData(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, interval: *BlockLevelLayoutContext.Interval) !void {
     const used_id = try std.math.cast(UsedId, values.pdfs_flat_tree.items.len);
 
     var inline_context = InlineLevelLayoutContext.init(
@@ -715,9 +714,9 @@ test "block used values" {
 
 const IntermediateInlineLevelUsedValues = struct {
     const Self = @This();
-    pub const MarginLeftRight = struct {
-        left: ZssUnit = 0,
-        right: ZssUnit = 0,
+    pub const Margins = struct {
+        start: ZssUnit = 0,
+        end: ZssUnit = 0,
     };
 
     allocator: *Allocator,
@@ -727,79 +726,84 @@ const IntermediateInlineLevelUsedValues = struct {
     font: *hb.hb_font_t = undefined,
     font_color_rgba: u32 = undefined,
 
-    //measures_top: ArrayListUnmanaged(InlineLevelUsedValues.BoxMeasures) = .{},
-    //measures_right: ArrayListUnmanaged(InlineLevelUsedValues.BoxMeasures) = .{},
-    //measures_bottom: ArrayListUnmanaged(InlineLevelUsedValues.BoxMeasures) = .{},
-    //measures_left: ArrayListUnmanaged(InlineLevelUsedValues.BoxMeasures) = .{},
-    //heights: ArrayListUnmanaged(InlineLevelUsedValues.Heights) = .{},
-    //background1: ArrayListUnmanaged(used_values.Background1) = .{},
+    inline_start: ArrayListUnmanaged(InlineLevelUsedValues.BoxProperties) = .{},
+    inline_end: ArrayListUnmanaged(InlineLevelUsedValues.BoxProperties) = .{},
+    block_start: ArrayListUnmanaged(InlineLevelUsedValues.BoxProperties) = .{},
+    block_end: ArrayListUnmanaged(InlineLevelUsedValues.BoxProperties) = .{},
+    background1: ArrayListUnmanaged(used_values.Background1) = .{},
+    ascender: ZssUnit = undefined,
+    descender: ZssUnit = undefined,
 
-    //margins: ArrayListUnmanaged(MarginLeftRight) = .{},
+    margins: ArrayListUnmanaged(Margins) = .{},
 
     fn deinit(self: *Self) void {
         self.line_boxes.deinit(self.allocator);
         self.glyph_indeces.deinit(self.allocator);
         self.metrics.deinit(self.allocator);
-        //self.measures_top.deinit(self.allocator);
-        //self.measures_right.deinit(self.allocator);
-        //self.measures_bottom.deinit(self.allocator);
-        //self.measures_left.deinit(self.allocator);
-        //self.heights.deinit(self.allocator);
-        //self.background1.deinit(self.allocator);
-        //self.margins.deinit(self.allocator);
+        self.inline_start.deinit(self.allocator);
+        self.inline_end.deinit(self.allocator);
+        self.block_start.deinit(self.allocator);
+        self.block_end.deinit(self.allocator);
+        self.background1.deinit(self.allocator);
+        self.margins.deinit(self.allocator);
     }
 
     fn ensureCapacity(self: *Self, count: usize) !void {
         try self.line_boxes.ensureCapacity(self.allocator, count);
         try self.glyph_indeces.ensureCapacity(self.allocator, count);
         try self.metrics.ensureCapacity(self.allocator, count);
-        //try self.measures_top.ensureCapacity(self.allocator, count);
-        //try self.measures_right.ensureCapacity(self.allocator, count);
-        //try self.measures_bottom.ensureCapacity(self.allocator, count);
-        //try self.measures_left.ensureCapacity(self.allocator, count);
-        //try self.heights.ensureCapacity(self.allocator, count);
-        //try self.background1.ensureCapacity(self.allocator, count);
-        //try self.margins.ensureCapacity(self.allocator, count);
+        try self.inline_start.ensureCapacity(self.allocator, count);
+        try self.inline_end.ensureCapacity(self.allocator, count);
+        try self.block_start.ensureCapacity(self.allocator, count);
+        try self.block_end.ensureCapacity(self.allocator, count);
+        try self.background1.ensureCapacity(self.allocator, count);
+        try self.margins.ensureCapacity(self.allocator, count);
     }
 
     fn toInlineLevelUsedValues(self: *Self) InlineLevelUsedValues {
-        //self.measures_top.deinit(self.allocator);
-        //self.measures_right.deinit(self.allocator);
-        //self.measures_bottom.deinit(self.allocator);
-        //self.measures_left.deinit(self.allocator);
-        //self.heights.deinit(self.allocator);
-        //self.background1.deinit(self.allocator);
-        //self.margins.deinit(self.allocator);
+        self.margins.deinit(self.allocator);
         return InlineLevelUsedValues{
             .line_boxes = self.line_boxes.toOwnedSlice(self.allocator),
             .glyph_indeces = self.glyph_indeces.toOwnedSlice(self.allocator),
             .metrics = self.metrics.toOwnedSlice(self.allocator),
             .font = self.font,
             .font_color_rgba = self.font_color_rgba,
+            .inline_start = self.inline_start.toOwnedSlice(self.allocator),
+            .inline_end = self.inline_end.toOwnedSlice(self.allocator),
+            .block_start = self.block_start.toOwnedSlice(self.allocator),
+            .block_end = self.block_end.toOwnedSlice(self.allocator),
+            .background1 = self.background1.toOwnedSlice(self.allocator),
+            .ascender = self.ascender,
+            .descender = self.descender,
         };
     }
 };
 
 pub const InlineLevelLayoutContext = struct {
+    const Self = @This();
+
+    const Interval = struct {
+        begin: BoxId,
+        end: BoxId,
+    };
+
     box_tree: *const BoxTree,
     intervals: ArrayListUnmanaged(Interval),
-    //used_ids: ArrayListUnmanaged(UsedId),
+    used_ids: ArrayListUnmanaged(UsedId),
     allocator: *Allocator,
-    block_container_interval: Interval,
+    root_interval: Interval,
     containing_block_inline_size: ZssUnit,
 
     total_block_size: ZssUnit = undefined,
     next_box_id: BoxId,
 
-    const Self = @This();
-
-    pub fn init(box_tree: *const BoxTree, allocator: *Allocator, block_container_interval: Interval, containing_block_inline_size: ZssUnit) Self {
+    pub fn init(box_tree: *const BoxTree, allocator: *Allocator, block_container_interval: BlockLevelLayoutContext.Interval, containing_block_inline_size: ZssUnit) Self {
         return Self{
             .box_tree = box_tree,
             .intervals = .{},
-            //.used_ids = .{},
+            .used_ids = .{},
             .allocator = allocator,
-            .block_container_interval = block_container_interval,
+            .root_interval = Interval{ .begin = block_container_interval.begin, .end = block_container_interval.end },
             .containing_block_inline_size = containing_block_inline_size,
             .next_box_id = block_container_interval.end,
         };
@@ -807,12 +811,12 @@ pub const InlineLevelLayoutContext = struct {
 
     pub fn deinit(self: *Self) void {
         self.intervals.deinit(self.allocator);
-        //self.used_ids.deinit(self.allocator);
+        self.used_ids.deinit(self.allocator);
     }
 };
 
 pub fn createInlineLevelUsedValues(context: *InlineLevelLayoutContext, values_allocator: *Allocator) Error!InlineLevelUsedValues {
-    const root_interval = context.block_container_interval;
+    const root_interval = context.root_interval;
 
     var values = IntermediateInlineLevelUsedValues{ .allocator = values_allocator };
     errdefer values.deinit();
@@ -826,7 +830,7 @@ pub fn createInlineLevelUsedValues(context: *InlineLevelLayoutContext, values_al
             const should_break = try inlineLevelElementPush(context, &values, interval);
             if (should_break) break;
         } else {
-            inlineLevelElementPop(context);
+            try inlineLevelElementPop(context, &values);
         }
     }
 
@@ -834,41 +838,46 @@ pub fn createInlineLevelUsedValues(context: *InlineLevelLayoutContext, values_al
     values.font_color_rgba = switch (context.box_tree.font.color) {
         .rgba => |rgba| rgba,
     };
+    var font_extents: hb.hb_font_extents_t = undefined;
+    // TODO assuming ltr direction
+    assert(hb.hb_font_get_h_extents(values.font, &font_extents) != 0);
+    values.ascender = @divFloor(font_extents.ascender * unitsPerPixel, 64);
+    values.descender = -@divFloor(font_extents.descender * unitsPerPixel, 64);
 
     context.total_block_size = try splitIntoLineBoxes(&values, values.font, context.containing_block_inline_size);
 
     return values.toInlineLevelUsedValues();
 }
 
-fn inlineLevelRootElementPush(context: *InlineLevelLayoutContext, values: *IntermediateInlineLevelUsedValues, root_interval: Interval) !void {
-    //const root_used_id = try addRootInlineBoxData(&values, allocator);
-    //try addBoxStart(&values, allocator, root_used_id);
+fn inlineLevelRootElementPush(context: *InlineLevelLayoutContext, values: *IntermediateInlineLevelUsedValues, root_interval: InlineLevelLayoutContext.Interval) !void {
+    const root_used_id = try addRootInlineBoxData(values);
+    try addBoxStart(values, root_used_id);
 
     if (root_interval.begin != root_interval.end) {
         try context.intervals.append(context.allocator, root_interval);
-        //try context.used_ids.append(context.allocator, root_used_id);
+        try context.used_ids.append(context.allocator, root_used_id);
     } else {
-        //try addBoxEnd(&values, allocator, root_used_id);
+        try addBoxEnd(values, root_used_id);
     }
 }
 
-fn inlineLevelElementPush(context: *InlineLevelLayoutContext, values: *IntermediateInlineLevelUsedValues, interval: *Interval) !bool {
+fn inlineLevelElementPush(context: *InlineLevelLayoutContext, values: *IntermediateInlineLevelUsedValues, interval: *InlineLevelLayoutContext.Interval) !bool {
     const box_id = interval.begin;
     const subtree_size = context.box_tree.pdfs_flat_tree[box_id];
     interval.begin += subtree_size;
 
     switch (context.box_tree.display[box_id]) {
-        //.inline_flow => {
-        //    const used_id = try addInlineElementData(context.box_tree, &values, allocator, box_id, context.containing_block_inline_size);
-        //    try addBoxStart(&values, allocator, used_id);
+        .inline_flow => {
+            const used_id = try addInlineElementData(context.box_tree, values, box_id, context.containing_block_inline_size);
+            try addBoxStart(values, used_id);
 
-        //    if (subtree_size != 1) {
-        //        try context.intervals.append(context.allocator, Interval{ .begin = box_id + 1, .end = box_id + subtree_size });
-        //        try context.used_ids.append(context.allocator, used_id);
-        //    } else {
-        //        try addBoxEnd(&values, allocator, used_id);
-        //    }
-        //},
+            if (subtree_size != 1) {
+                try context.intervals.append(context.allocator, .{ .begin = box_id + 1, .end = box_id + subtree_size });
+                try context.used_ids.append(context.allocator, used_id);
+            } else {
+                try addBoxEnd(values, used_id);
+            }
+        },
         .text => try addText(values, context.box_tree.latin1_text[box_id], context.box_tree.font),
         .block_flow => {
             // Immediately finish off this inline layout context.
@@ -881,12 +890,12 @@ fn inlineLevelElementPush(context: *InlineLevelLayoutContext, values: *Intermedi
     return false;
 }
 
-fn inlineLevelElementPop(context: *InlineLevelLayoutContext) void {
-    //const used_id = context.used_ids.items[context.used_ids.items.len - 1];
-    //try addBoxEnd(&values, allocator, used_id);
+fn inlineLevelElementPop(context: *InlineLevelLayoutContext, values: *IntermediateInlineLevelUsedValues) !void {
+    const used_id = context.used_ids.items[context.used_ids.items.len - 1];
+    try addBoxEnd(values, used_id);
 
     _ = context.intervals.pop();
-    //_ = context.used_ids.pop();
+    _ = context.used_ids.pop();
 }
 
 fn addText(values: *IntermediateInlineLevelUsedValues, latin1_text: computed.Latin1Text, font: computed.Font) !void {
@@ -981,93 +990,105 @@ fn addLineBreak(values: *IntermediateInlineLevelUsedValues) !void {
     try values.metrics.appendSlice(values.allocator, &.{ .{ .offset = 0, .advance = 0, .width = 0 }, undefined });
 }
 
-//fn addBoxStart(values: *IntermediateInlineLevelUsedValues, allocator: *Allocator, used_id: UsedId) !void {
-//    const left = values.measures_left.items[used_id];
-//    const margin = values.margins.items[used_id].left;
-//    const width = left.border + left.padding + margin;
-//    try values.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineLevelUsedValues.Special.glyph_index, InlineLevelUsedValues.Special.encodeBoxStart(used_id) });
-//    try values.positions.appendSlice(allocator, &[2]InlineLevelUsedValues.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
-//}
-//
-//fn addBoxEnd(values: *IntermediateInlineLevelUsedValues, allocator: *Allocator, used_id: UsedId) !void {
-//    const right = values.measures_right.items[used_id];
-//    const margin = values.margins.items[used_id].right;
-//    const width = right.border + right.padding + margin;
-//    try values.glyph_indeces.appendSlice(allocator, &[2]hb.hb_codepoint_t{ InlineLevelUsedValues.Special.glyph_index, InlineLevelUsedValues.Special.encodeBoxEnd(used_id) });
-//    try values.positions.appendSlice(allocator, &[2]InlineLevelUsedValues.Position{ .{ .offset = 0, .advance = width, .width = width }, undefined });
-//}
-//
-//fn addRootInlineBoxData(values: *IntermediateInlineLevelUsedValues, allocator: *Allocator) !UsedId {
-//    try values.measures_top.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
-//    try values.measures_right.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
-//    try values.measures_bottom.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
-//    try values.measures_left.append(allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
-//    try values.margins.append(allocator, .{ .left = 0, .right = 0 });
-//    try values.heights.append(allocator, undefined);
-//    try values.background1.append(allocator, .{});
-//    return 0;
-//}
-//
-//fn addInlineElementData(box_tree: *const BoxTree, values: *IntermediateInlineLevelUsedValues, allocator: *Allocator, box_id: BoxId, containing_block_inline_size: ZssUnit) !UsedId {
-//    const inline_sizes = box_tree.inline_size[box_id];
-//
-//    const margin_inline_start = switch (inline_sizes.margin_start) {
-//        .px => |value| length(.px, value),
-//        .percentage => |value| percentage(value, containing_block_inline_size),
-//        .auto => 0,
-//    };
-//    const border_inline_start = borderWidth(inline_sizes.border_start_width);
-//    const padding_inline_start = switch (inline_sizes.padding_start) {
-//        .px => |value| length(.px, value),
-//        .percentage => |value| percentage(value, containing_block_inline_size),
-//    };
-//    const margin_inline_end = switch (inline_sizes.margin_end) {
-//        .px => |value| length(.px, value),
-//        .percentage => |value| percentage(value, containing_block_inline_size),
-//        .auto => 0,
-//    };
-//    const border_inline_end = borderWidth(inline_sizes.border_end_width);
-//    const padding_inline_end = switch (inline_sizes.padding_end) {
-//        .px => |value| length(.px, value),
-//        .percentage => |value| percentage(value, containing_block_inline_size),
-//    };
-//
-//    const block_sizes = box_tree.block_size[box_id];
-//
-//    const border_block_start = borderWidth(block_sizes.border_start_width);
-//    const padding_block_start = switch (block_sizes.padding_start) {
-//        .px => |value| length(.px, value),
-//        .percentage => |value| percentage(value, containing_block_inline_size),
-//    };
-//    const border_block_end = borderWidth(block_sizes.border_end_width);
-//    const padding_block_end = switch (block_sizes.padding_end) {
-//        .px => |value| length(.px, value),
-//        .percentage => |value| percentage(value, containing_block_inline_size),
-//    };
-//
-//    // All of these must be positive.
-//    // TODO return an error instead
-//    assert(border_inline_start >= 0);
-//    assert(border_inline_end >= 0);
-//    assert(border_block_start >= 0);
-//    assert(border_block_end >= 0);
-//    assert(padding_inline_start >= 0);
-//    assert(padding_inline_end >= 0);
-//    assert(padding_block_start >= 0);
-//    assert(padding_block_end >= 0);
-//
-//    const border_colors = solveBorderColors(box_tree.border[box_id]);
-//
-//    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
-//    try values.measures_left.append(allocator, .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = border_colors.left_rgba });
-//    try values.measures_right.append(allocator, .{ .border = border_inline_end, .padding = padding_inline_end, .border_color_rgba = border_colors.right_rgba });
-//    try values.measures_top.append(allocator, .{ .border = border_block_start, .padding = padding_block_start, .border_color_rgba = border_colors.top_rgba });
-//    try values.measures_bottom.append(allocator, .{ .border = border_block_end, .padding = padding_block_end, .border_color_rgba = border_colors.bottom_rgba });
-//    try values.margins.append(allocator, .{ .left = margin_inline_start, .right = margin_inline_end });
-//    try values.heights.append(allocator, undefined);
-//    try values.background1.append(allocator, solveBackground1(box_tree.background[box_id]));
-//    return std.math.cast(UsedId, values.measures_left.items.len - 1);
-//}
+fn addBoxStart(values: *IntermediateInlineLevelUsedValues, used_id: UsedId) !void {
+    const inline_start = values.inline_start.items[used_id];
+    const margin = values.margins.items[used_id].start;
+    const advance = inline_start.border + inline_start.padding + margin;
+
+    const glyph_indeces = [2]hb.hb_codepoint_t{ InlineLevelUsedValues.Special.glyph_index, InlineLevelUsedValues.Special.encodeBoxStart(used_id) };
+    try values.glyph_indeces.appendSlice(values.allocator, &glyph_indeces);
+    const metrics = [2]InlineLevelUsedValues.Metrics{ .{ .offset = 0, .advance = advance, .width = advance }, undefined };
+    try values.metrics.appendSlice(values.allocator, &metrics);
+}
+
+fn addBoxEnd(values: *IntermediateInlineLevelUsedValues, used_id: UsedId) !void {
+    const inline_end = values.inline_end.items[used_id];
+    const margin = values.margins.items[used_id].end;
+    const advance = inline_end.border + inline_end.padding + margin;
+
+    const glyph_indeces = [2]hb.hb_codepoint_t{ InlineLevelUsedValues.Special.glyph_index, InlineLevelUsedValues.Special.encodeBoxEnd(used_id) };
+    try values.glyph_indeces.appendSlice(values.allocator, &glyph_indeces);
+    const metrics = [2]InlineLevelUsedValues.Metrics{ .{ .offset = 0, .advance = advance, .width = advance }, undefined };
+    try values.metrics.appendSlice(values.allocator, &metrics);
+}
+
+fn addRootInlineBoxData(values: *IntermediateInlineLevelUsedValues) !UsedId {
+    try values.inline_start.append(values.allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
+    try values.inline_end.append(values.allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
+    try values.block_start.append(values.allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
+    try values.block_end.append(values.allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
+    try values.margins.append(values.allocator, .{ .start = 0, .end = 0 });
+    try values.background1.append(values.allocator, .{});
+    return 0;
+}
+
+fn addInlineElementData(box_tree: *const BoxTree, values: *IntermediateInlineLevelUsedValues, box_id: BoxId, containing_block_inline_size: ZssUnit) !UsedId {
+    const inline_sizes = box_tree.inline_size[box_id];
+
+    const margin_inline_start = switch (inline_sizes.margin_start) {
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
+        .auto => 0,
+    };
+    const border_inline_start = switch (inline_sizes.border_start_width) {
+        .px => |value| length(.px, value),
+    };
+    const padding_inline_start = switch (inline_sizes.padding_start) {
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
+    };
+    const margin_inline_end = switch (inline_sizes.margin_end) {
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
+        .auto => 0,
+    };
+    const border_inline_end = switch (inline_sizes.border_end_width) {
+        .px => |value| length(.px, value),
+    };
+    const padding_inline_end = switch (inline_sizes.padding_end) {
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
+    };
+
+    const block_sizes = box_tree.block_size[box_id];
+
+    const border_block_start = switch (block_sizes.border_start_width) {
+        .px => |value| length(.px, value),
+    };
+    const padding_block_start = switch (block_sizes.padding_start) {
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
+    };
+    const border_block_end = switch (block_sizes.border_end_width) {
+        .px => |value| length(.px, value),
+    };
+    const padding_block_end = switch (block_sizes.padding_end) {
+        .px => |value| length(.px, value),
+        .percentage => |value| percentage(value, containing_block_inline_size),
+    };
+
+    // All of these must be positive.
+    // TODO return an error instead
+    assert(border_inline_start >= 0);
+    assert(border_inline_end >= 0);
+    assert(border_block_start >= 0);
+    assert(border_block_end >= 0);
+    assert(padding_inline_start >= 0);
+    assert(padding_inline_end >= 0);
+    assert(padding_block_start >= 0);
+    assert(padding_block_end >= 0);
+
+    const border_colors = solveBorderColors(box_tree.border[box_id]);
+
+    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
+    try values.inline_start.append(values.allocator, .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = border_colors.left_rgba });
+    try values.inline_end.append(values.allocator, .{ .border = border_inline_end, .padding = padding_inline_end, .border_color_rgba = border_colors.right_rgba });
+    try values.block_start.append(values.allocator, .{ .border = border_block_start, .padding = padding_block_start, .border_color_rgba = border_colors.top_rgba });
+    try values.block_end.append(values.allocator, .{ .border = border_block_end, .padding = padding_block_end, .border_color_rgba = border_colors.bottom_rgba });
+    try values.margins.append(values.allocator, .{ .start = margin_inline_start, .end = margin_inline_end });
+    try values.background1.append(values.allocator, solveBackground1(box_tree.background[box_id]));
+    return std.math.cast(UsedId, values.inline_start.items.len - 1);
+}
 
 fn splitIntoLineBoxes(values: *IntermediateInlineLevelUsedValues, font: *hb.hb_font_t, containing_block_inline_size: ZssUnit) !ZssUnit {
     var font_extents: hb.hb_font_extents_t = undefined;

@@ -5,6 +5,7 @@ const zss = @import("../../zss.zig");
 const ZssUnit = zss.used_values.ZssUnit;
 const ZssRect = zss.used_values.ZssRect;
 const ZssVector = zss.used_values.ZssVector;
+const UsedId = zss.used_values.UsedId;
 const InlineLevelUsedValues = zss.used_values.InlineLevelUsedValues;
 const Document = zss.used_values.Document;
 
@@ -78,7 +79,20 @@ pub fn drawInlineValues(
                 switch (special.meaning) {
                     .LiteralGlyphIndex => break :blk,
                     // TODO not actually drawing the inline boxes
-                    .BoxStart, .BoxEnd => {},
+                    .BoxStart => {
+                        const match_info = findMatchingBoxEnd(values.glyph_indeces[i + 1 .. line_box.elements[1]], values.metrics[i + 1 .. line_box.elements[1]], special.data);
+                        util.drawInlineBox(
+                            renderer,
+                            pixel_format,
+                            values,
+                            special.data,
+                            ZssVector{ .x = translation.x + cursor + metrics.offset, .y = translation.y + line_box.baseline },
+                            match_info.advance,
+                            true,
+                            match_info.found,
+                        );
+                    },
+                    .BoxEnd => {},
                     _ => unreachable,
                 }
                 continue;
@@ -108,4 +122,28 @@ pub fn drawInlineValues(
             ) == 0);
         }
     }
+}
+
+fn findMatchingBoxEnd(glyph_indeces: []const hb.hb_codepoint_t, metrics: []const InlineLevelUsedValues.Metrics, used_id: UsedId) struct { advance: ZssUnit, found: bool } {
+    var found = false;
+    var advance: ZssUnit = 0;
+    var i: usize = 0;
+    while (i < glyph_indeces.len) : (i += 1) {
+        const glyph_index = glyph_indeces[i];
+        const metric = metrics[i];
+
+        if (glyph_index == InlineLevelUsedValues.Special.glyph_index) {
+            i += 1;
+            const special = InlineLevelUsedValues.Special.decode(glyph_indeces[i]);
+            if (special.meaning == .BoxEnd and special.data == used_id) {
+                advance += metric.offset;
+                found = true;
+                break;
+            }
+        }
+
+        advance += metric.advance;
+    }
+
+    return .{ .advance = advance, .found = found };
 }

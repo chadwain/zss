@@ -152,15 +152,15 @@ pub const BlockLevelUsedValues = struct {
 pub const InlineLevelUsedValues = struct {
     const hb = @import("harfbuzz");
 
-    //pub const BoxMeasures = struct {
-    //    border: ZssUnit = 0,
-    //    padding: ZssUnit = 0,
-    //    border_color_rgba: u32 = 0,
-    //};
+    pub const BoxProperties = struct {
+        border: ZssUnit = 0,
+        padding: ZssUnit = 0,
+        border_color_rgba: u32 = 0,
+    };
 
     //pub const Heights = struct {
-    //    above_baseline: ZssUnit,
-    //    below_baseline: ZssUnit,
+    //    ascender: ZssUnit,
+    //    descender: ZssUnit,
     //};
 
     pub const LineBox = struct {
@@ -218,10 +218,23 @@ pub const InlineLevelUsedValues = struct {
     font: *hb.hb_font_t,
     font_color_rgba: u32,
 
+    inline_start: []BoxProperties,
+    inline_end: []BoxProperties,
+    block_start: []BoxProperties,
+    block_end: []BoxProperties,
+    background1: []Background1,
+    ascender: ZssUnit,
+    descender: ZssUnit,
+
     pub fn deinit(self: *@This(), allocator: *Allocator) void {
         allocator.free(self.glyph_indeces);
         allocator.free(self.metrics);
         allocator.free(self.line_boxes);
+        allocator.free(self.inline_start);
+        allocator.free(self.inline_end);
+        allocator.free(self.block_start);
+        allocator.free(self.block_end);
+        allocator.free(self.background1);
     }
 
     pub fn dump(self: *const @This()) void {

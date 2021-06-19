@@ -7,6 +7,7 @@ const ZssUnit = zss.used_values.ZssUnit;
 const ZssVector = zss.used_values.ZssVector;
 const ZssRect = zss.used_values.ZssRect;
 const BlockLevelUsedValues = zss.used_values.BlockLevelUsedValues;
+const InlineLevelUsedValues = zss.used_values.InlineLevelUsedValues;
 
 const sdl = @import("SDL2");
 
@@ -538,4 +539,178 @@ fn getBackgroundImageRepeatInfo(
         },
         .Round => @panic("TODO SDL: Background image round repeat style"),
     };
+}
+
+pub fn drawInlineBox(
+    renderer: *sdl.SDL_Renderer,
+    pixel_format: *sdl.SDL_PixelFormat,
+    values: *const InlineLevelUsedValues,
+    used_id: UsedId,
+    position: ZssVector,
+    middle_length: ZssUnit,
+    draw_start: bool,
+    draw_end: bool,
+) void {
+    const block_start = values.block_start[used_id];
+    const block_end = values.block_end[used_id];
+
+    const content_top_y = position.y - values.ascender;
+    const padding_top_y = content_top_y - block_start.padding;
+    const border_top_y = padding_top_y - block_start.border;
+    const padding_bottom_y = position.y + values.descender + block_end.padding;
+    const border_bottom_y = padding_bottom_y + block_end.border;
+
+    const inline_start = values.inline_start[used_id];
+    if (draw_start) {
+        const rects = [3]sdl.SDL_Rect{
+            // left
+            sdl.SDL_Rect{
+                .x = zssUnitToPixel(position.x),
+                .y = zssUnitToPixel(padding_top_y),
+                .w = zssUnitToPixel(inline_start.border),
+                .h = zssUnitToPixel(values.ascender + values.descender + block_start.padding + block_end.padding),
+            },
+            // top
+            sdl.SDL_Rect{
+                .x = zssUnitToPixel(position.x + inline_start.border),
+                .y = zssUnitToPixel(border_top_y),
+                .w = zssUnitToPixel(inline_start.padding),
+                .h = zssUnitToPixel(block_start.border),
+            },
+            // bottom
+            sdl.SDL_Rect{
+                .x = zssUnitToPixel(position.x + inline_start.border),
+                .y = zssUnitToPixel(padding_bottom_y),
+                .w = zssUnitToPixel(inline_start.padding),
+                .h = zssUnitToPixel(block_end.border),
+            },
+        };
+        const colors = [3][4]u8{
+            rgbaMap(pixel_format, inline_start.border_color_rgba),
+            rgbaMap(pixel_format, block_start.border_color_rgba),
+            rgbaMap(pixel_format, block_end.border_color_rgba),
+        };
+
+        comptime var i = 0;
+        inline while (i < 3) : (i += 1) {
+            const c = colors[i];
+            assert(sdl.SDL_SetRenderDrawColor(renderer, c[0], c[1], c[2], c[3]) == 0);
+            assert(sdl.SDL_RenderFillRect(renderer, &rects[i]) == 0);
+        }
+        // top left
+        drawBordersSolidCorners(
+            renderer,
+            zssUnitToPixel(position.x),
+            zssUnitToPixel(position.x + inline_start.border),
+            zssUnitToPixel(border_top_y),
+            zssUnitToPixel(padding_top_y),
+            colors[0],
+            colors[1],
+            true,
+        );
+        // bottom left
+        drawBordersSolidCorners(
+            renderer,
+            zssUnitToPixel(position.x + inline_start.border),
+            zssUnitToPixel(position.x),
+            zssUnitToPixel(padding_bottom_y),
+            zssUnitToPixel(border_bottom_y),
+            colors[2],
+            colors[0],
+            false,
+        );
+    }
+
+    const middle_start_x = position.x + inline_start.border + inline_start.padding;
+    {
+        const rects = [2]sdl.SDL_Rect{
+            // top
+            sdl.SDL_Rect{
+                .x = zssUnitToPixel(middle_start_x),
+                .y = zssUnitToPixel(border_top_y),
+                .w = zssUnitToPixel(middle_length),
+                .h = zssUnitToPixel(block_start.border),
+            },
+            // bottom
+            sdl.SDL_Rect{
+                .x = zssUnitToPixel(middle_start_x),
+                .y = zssUnitToPixel(padding_bottom_y),
+                .w = zssUnitToPixel(middle_length),
+                .h = zssUnitToPixel(block_end.border),
+            },
+        };
+        const colors = [2][4]u8{
+            rgbaMap(pixel_format, block_start.border_color_rgba),
+            rgbaMap(pixel_format, block_end.border_color_rgba),
+        };
+
+        comptime var i = 0;
+        inline while (i < 2) : (i += 1) {
+            const c = colors[i];
+            assert(sdl.SDL_SetRenderDrawColor(renderer, c[0], c[1], c[2], c[3]) == 0);
+            assert(sdl.SDL_RenderFillRect(renderer, &rects[i]) == 0);
+        }
+    }
+
+    const end_start_x = middle_start_x + middle_length;
+    if (draw_end) {
+        const inline_end = values.inline_end[used_id];
+        const rects = [3]sdl.SDL_Rect{
+            // right
+            sdl.SDL_Rect{
+                .x = zssUnitToPixel(end_start_x + inline_end.padding),
+                .y = zssUnitToPixel(padding_top_y),
+                .w = zssUnitToPixel(inline_end.border),
+                .h = zssUnitToPixel(values.ascender + values.descender + block_start.padding + block_end.padding),
+            },
+            // top
+            sdl.SDL_Rect{
+                .x = zssUnitToPixel(end_start_x),
+                .y = zssUnitToPixel(border_top_y),
+                .w = zssUnitToPixel(inline_end.padding),
+                .h = zssUnitToPixel(block_start.border),
+            },
+            // bottom
+            sdl.SDL_Rect{
+                .x = zssUnitToPixel(end_start_x),
+                .y = zssUnitToPixel(padding_bottom_y),
+                .w = zssUnitToPixel(inline_end.padding),
+                .h = zssUnitToPixel(block_end.border),
+            },
+        };
+        const colors = [3][4]u8{
+            rgbaMap(pixel_format, inline_end.border_color_rgba),
+            rgbaMap(pixel_format, block_start.border_color_rgba),
+            rgbaMap(pixel_format, block_end.border_color_rgba),
+        };
+
+        comptime var i = 0;
+        inline while (i < 3) : (i += 1) {
+            const c = colors[i];
+            assert(sdl.SDL_SetRenderDrawColor(renderer, c[0], c[1], c[2], c[3]) == 0);
+            assert(sdl.SDL_RenderFillRect(renderer, &rects[i]) == 0);
+        }
+        // top right
+        drawBordersSolidCorners(
+            renderer,
+            zssUnitToPixel(end_start_x + inline_end.padding + inline_end.border),
+            zssUnitToPixel(end_start_x + inline_end.padding),
+            zssUnitToPixel(border_top_y),
+            zssUnitToPixel(padding_top_y),
+            colors[0],
+            colors[1],
+            false,
+        );
+        // bottom right
+        drawBordersSolidCorners(
+            renderer,
+            zssUnitToPixel(end_start_x + inline_end.padding),
+            zssUnitToPixel(end_start_x + inline_end.padding + inline_end.border),
+            zssUnitToPixel(padding_bottom_y),
+            zssUnitToPixel(border_bottom_y),
+            colors[2],
+            colors[0],
+            true,
+        );
+    }
 }
