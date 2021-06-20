@@ -127,7 +127,7 @@ fn exampleInlineValues(renderer: *sdl.SDL_Renderer, pixelFormat: *sdl.SDL_PixelF
         },
         al,
         .{ .parent = 0, .begin = 1, .end = pdfs_flat_tree[0] },
-        500,
+        500 * zss.used_values.unitsPerPixel,
     );
     defer context.deinit();
     var inl = try zss.layout.createInlineLevelUsedValues(&context, al);
