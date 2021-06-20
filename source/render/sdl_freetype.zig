@@ -153,7 +153,6 @@ fn findMatchingBoxEnd(glyph_indeces: []const hb.hb_codepoint_t, metrics: []const
             i += 1;
             const special = InlineLevelUsedValues.Special.decode(glyph_indeces[i]);
             if (special.meaning == .BoxEnd and special.data == used_id) {
-                advance += metric.offset;
                 found = true;
                 break;
             }

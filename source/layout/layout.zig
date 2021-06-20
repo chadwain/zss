@@ -991,22 +991,24 @@ fn addLineBreak(values: *IntermediateInlineLevelUsedValues) !void {
 fn addBoxStart(values: *IntermediateInlineLevelUsedValues, used_id: UsedId) !void {
     const inline_start = values.inline_start.items[used_id];
     const margin = values.margins.items[used_id].start;
-    const advance = inline_start.border + inline_start.padding + margin;
+    const width = inline_start.border + inline_start.padding;
+    const advance = width + margin;
 
     const glyph_indeces = [2]hb.hb_codepoint_t{ InlineLevelUsedValues.Special.glyph_index, InlineLevelUsedValues.Special.encodeBoxStart(used_id) };
     try values.glyph_indeces.appendSlice(values.allocator, &glyph_indeces);
-    const metrics = [2]InlineLevelUsedValues.Metrics{ .{ .offset = 0, .advance = advance, .width = advance }, undefined };
+    const metrics = [2]InlineLevelUsedValues.Metrics{ .{ .offset = margin, .advance = advance, .width = width }, undefined };
     try values.metrics.appendSlice(values.allocator, &metrics);
 }
 
 fn addBoxEnd(values: *IntermediateInlineLevelUsedValues, used_id: UsedId) !void {
     const inline_end = values.inline_end.items[used_id];
     const margin = values.margins.items[used_id].end;
-    const advance = inline_end.border + inline_end.padding + margin;
+    const width = inline_end.border + inline_end.padding;
+    const advance = width + margin;
 
     const glyph_indeces = [2]hb.hb_codepoint_t{ InlineLevelUsedValues.Special.glyph_index, InlineLevelUsedValues.Special.encodeBoxEnd(used_id) };
     try values.glyph_indeces.appendSlice(values.allocator, &glyph_indeces);
-    const metrics = [2]InlineLevelUsedValues.Metrics{ .{ .offset = 0, .advance = advance, .width = advance }, undefined };
+    const metrics = [2]InlineLevelUsedValues.Metrics{ .{ .offset = 0, .advance = advance, .width = width }, undefined };
     try values.metrics.appendSlice(values.allocator, &metrics);
 }
 
