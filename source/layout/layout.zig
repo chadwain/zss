@@ -913,20 +913,18 @@ fn addText(values: *IntermediateInlineLevelUsedValues, latin1_text: computed.Lat
         const codepoint = latin1_text.text[run_end];
         switch (codepoint) {
             '\n' => {
-                try endTextRun(values, latin1_text, font, buffer, run_begin, run_end);
-                if (run_end + 1 != latin1_text.text.len) try addLineBreak(values);
+                try endTextRun(values, latin1_text, buffer, font, run_begin, run_end);
+                try addLineBreak(values);
                 run_begin = run_end + 1;
             },
             '\r' => {
-                try endTextRun(values, latin1_text, font, buffer, run_begin, run_end);
-                if (run_end + 1 < latin1_text.text.len) {
-                    try addLineBreak(values);
-                    run_end += @boolToInt(latin1_text.text[run_end + 1] == '\n');
-                }
+                try endTextRun(values, latin1_text, buffer, font, run_begin, run_end);
+                try addLineBreak(values);
+                run_end += @boolToInt(run_end + 1 < latin1_text.text.len and latin1_text.text[run_end + 1] == '\n');
                 run_begin = run_end + 1;
             },
             '\t' => {
-                try endTextRun(values, latin1_text, font, buffer, run_begin, run_end);
+                try endTextRun(values, latin1_text, buffer, font, run_begin, run_end);
                 run_begin = run_end + 1;
                 // TODO tab size should be determined by the 'tab-size' property
                 const tab_size = 8;
@@ -939,10 +937,10 @@ fn addText(values: *IntermediateInlineLevelUsedValues, latin1_text: computed.Lat
         }
     }
 
-    try endTextRun(values, latin1_text, font, buffer, run_begin, run_end);
+    try endTextRun(values, latin1_text, buffer, font, run_begin, run_end);
 }
 
-fn endTextRun(values: *IntermediateInlineLevelUsedValues, latin1_text: computed.Latin1Text, font: computed.Font, buffer: *hb.hb_buffer_t, run_begin: usize, run_end: usize) !void {
+fn endTextRun(values: *IntermediateInlineLevelUsedValues, latin1_text: computed.Latin1Text, buffer: *hb.hb_buffer_t, font: computed.Font, run_begin: usize, run_end: usize) !void {
     if (run_end > run_begin) {
         hb.hb_buffer_add_latin1(buffer, latin1_text.text.ptr, @intCast(c_int, latin1_text.text.len), @intCast(c_uint, run_begin), @intCast(c_int, run_end - run_begin));
         if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
@@ -1107,7 +1105,7 @@ fn splitIntoLineBoxes(values: *IntermediateInlineLevelUsedValues, font: *hb.hb_f
         const gi = values.glyph_indeces.items[i];
         const metrics = values.metrics.items[i];
 
-        if (cursor > 0 and metrics.width > 0 and cursor + metrics.offset + metrics.width > containing_block_inline_size and line_box.elements[1] - line_box.elements[0] > 0) {
+        if (cursor > 0 and metrics.width > 0 and cursor + metrics.offset + metrics.width > containing_block_inline_size and line_box.elements[1] > line_box.elements[0]) {
             try values.line_boxes.append(values.allocator, line_box);
             cursor = 0;
             line_box = .{ .baseline = line_box.baseline + line_spacing, .elements = [2]usize{ line_box.elements[1], line_box.elements[1] } };
@@ -1131,8 +1129,15 @@ fn splitIntoLineBoxes(values: *IntermediateInlineLevelUsedValues, font: *hb.hb_f
         }
     }
 
-    try values.line_boxes.append(values.allocator, line_box);
-    return line_box.baseline - descender;
+    if (line_box.elements[1] > line_box.elements[0]) {
+        try values.line_boxes.append(values.allocator, line_box);
+    }
+
+    if (values.line_boxes.items.len > 0) {
+        return values.line_boxes.items[values.line_boxes.items.len - 1].baseline - descender;
+    } else {
+        return 0;
+    }
 }
 
 test "inline used values" {

@@ -25,12 +25,24 @@ pub fn main() !u8 {
         return 1;
     }
     const filename = args[1];
-    const bytes = blk: {
+    const file_bytes = blk: {
         const file = try fs.cwd().openFile(filename, .{});
         defer file.close();
         break :blk try file.readToEndAlloc(allocator, std.math.maxInt(c_int));
     };
-    defer allocator.free(bytes);
+    defer allocator.free(file_bytes);
+    const text = blk: {
+        // Exclude a trailing newline.
+        if (file_bytes.len == 0) break :blk file_bytes;
+        switch (file_bytes[file_bytes.len - 1]) {
+            '\n' => if (file_bytes.len > 1 and file_bytes[file_bytes.len - 2] == '\r')
+                break :blk file_bytes[0 .. file_bytes.len - 2]
+            else
+                break :blk file_bytes[0 .. file_bytes.len - 1],
+            '\r' => break :blk file_bytes[0 .. file_bytes.len - 1],
+            else => break :blk file_bytes,
+        }
+    };
 
     assert(sdl.SDL_Init(sdl.SDL_INIT_VIDEO) == 0);
     defer sdl.SDL_Quit();
@@ -68,7 +80,7 @@ pub fn main() !u8 {
     const font_height_pt = 12;
     assert(hb.FT_Set_Char_Size(face, 0, font_height_pt * 64, dpi.horizontal, dpi.vertical) == hb.FT_Err_Ok);
 
-    try createBoxTree(window, face, allocator, filename, bytes);
+    try createBoxTree(window, face, allocator, filename, text);
     return 0;
 }
 
