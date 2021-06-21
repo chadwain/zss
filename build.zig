@@ -23,69 +23,78 @@ const pkgs = struct {
     };
 };
 
-pub const graphical_tests = blk: {
-    const Test = struct {
-        name: []const u8,
-        root: []const u8,
-    };
-
-    break :blk [_]Test{
-        Test{ .name = "block_format", .root = "test/block_formatting.zig" },
-        Test{ .name = "inline_format", .root = "test/inline_formatting.zig" },
-    };
-};
-
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
     const target = b.standardTargetOptions(.{});
 
-    const lib = b.addStaticLibrary("zss", "zss.zig");
-    lib.setBuildMode(mode);
-    lib.setTarget(target);
-    lib.install();
+    const zss_lib = b.addStaticLibrary("zss", "zss.zig");
+    zss_lib.setBuildMode(mode);
+    zss_lib.setTarget(target);
+    zss_lib.install();
 
-    var main_tests = b.addTest("zss.zig");
-    main_tests.setBuildMode(mode);
-    main_tests.setTarget(target);
-    main_tests.addPackage(pkgs.harfbuzz);
-    main_tests.linkLibC();
-    main_tests.linkSystemLibrary("harfbuzz");
+    var lib_tests = b.addTest("zss.zig");
+    lib_tests.setBuildMode(mode);
+    lib_tests.setTarget(target);
+    lib_tests.addPackage(pkgs.harfbuzz);
+    lib_tests.linkLibC();
+    lib_tests.linkSystemLibrary("harfbuzz");
 
-    const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&main_tests.step);
+    const lib_tests_step = b.step("test", "Run the library tests");
+    lib_tests_step.dependOn(&lib_tests.step);
 
-    const graphical_test_step = b.step("graphical-test", "Build graphical tests");
-    inline for (graphical_tests) |t| {
-        var test_exec = b.addExecutable(t.name, t.root);
-        test_exec.setBuildMode(mode);
-        test_exec.setTarget(target);
-        test_exec.addPackage(pkgs.harfbuzz);
-        test_exec.addPackage(pkgs.freetype);
-        test_exec.addPackage(pkgs.SDL2);
-        test_exec.addPackage(pkgs.zss);
-        test_exec.linkLibC();
-        test_exec.linkSystemLibrary("harfbuzz");
-        test_exec.linkSystemLibrary("freetype");
-        test_exec.linkSystemLibrary("SDL2");
-        test_exec.linkSystemLibrary("SDL2_image");
-        test_exec.install();
+    addDemo(b, mode, target);
+    addRenderTests(b, mode, target);
+}
 
-        graphical_test_step.dependOn(&test_exec.step);
+fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {
+    var demo_exe = b.addExecutable("demo", "demo/demo1.zig");
+    linkSdl2Freetype(demo_exe);
+    demo_exe.setBuildMode(mode);
+    demo_exe.setTarget(target);
+
+    var demo_cmd = demo_exe.run();
+    if (b.args) |args| demo_cmd.addArgs(args);
+    demo_cmd.step.dependOn(&demo_exe.step);
+
+    const demo_step = b.step("demo", "Run the demo");
+    demo_step.dependOn(&demo_cmd.step);
+}
+
+fn addRenderTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {
+    const render_tests = blk: {
+        const Test = struct {
+            name: []const u8,
+            root: []const u8,
+        };
+
+        break :blk [_]Test{
+            Test{ .name = "block", .root = "test/block_formatting.zig" },
+            Test{ .name = "inline", .root = "test/inline_formatting.zig" },
+        };
+    };
+
+    inline for (render_tests) |rt| {
+        const exe = b.addExecutable(rt.name, rt.root);
+        linkSdl2Freetype(exe);
+        exe.setBuildMode(mode);
+        exe.setTarget(target);
+
+        const cmd = exe.run();
+        cmd.step.dependOn(&exe.step);
+
+        const step = b.step("render:" ++ rt.name, "Run the render test for " ++ rt.root);
+        step.dependOn(&cmd.step);
     }
+}
 
-    const demo_step = b.step("demo", "Build the demo");
-    var demo_exec = b.addExecutable("demo", "demo/demo1.zig");
-    demo_exec.setBuildMode(mode);
-    demo_exec.setTarget(target);
-    demo_exec.addPackage(pkgs.harfbuzz);
-    demo_exec.addPackage(pkgs.freetype);
-    demo_exec.addPackage(pkgs.SDL2);
-    demo_exec.addPackage(pkgs.zss);
-    demo_exec.linkLibC();
-    demo_exec.linkSystemLibrary("harfbuzz");
-    demo_exec.linkSystemLibrary("freetype");
-    demo_exec.linkSystemLibrary("SDL2");
-    demo_exec.linkSystemLibrary("SDL2_image");
-    demo_exec.install();
-    demo_step.dependOn(&demo_exec.step);
+fn linkSdl2Freetype(exe: *std.build.LibExeObjStep) void {
+    exe.addPackage(pkgs.harfbuzz);
+    exe.addPackage(pkgs.freetype);
+    exe.addPackage(pkgs.SDL2);
+    exe.addPackage(pkgs.zss);
+    exe.linkLibC();
+    exe.linkSystemLibrary("harfbuzz");
+    exe.linkSystemLibrary("freetype");
+    exe.linkSystemLibrary("SDL2");
+    exe.linkSystemLibrary("SDL2_image");
 }

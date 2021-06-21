@@ -21,7 +21,7 @@ pub fn main() !u8 {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
     if (args.len != 2) {
-        std.debug.print("error: Expected 2 arguments", .{});
+        std.debug.print("error: Expected 2 arguments\n", .{});
         return 1;
     }
     const filename = args[1];

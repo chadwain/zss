@@ -205,7 +205,7 @@ pub fn createBlockLevelUsedValues(context: *BlockLevelLayoutContext, values_allo
 
     var values = IntermediateBlockLevelUsedValues{ .allocator = values_allocator };
     errdefer values.deinit();
-    try values.ensureCapacity(root_subtree_size);
+    values.ensureCapacity(root_subtree_size) catch {};
 
     try blockLevelElementPush(context, &values, &root_interval);
 
@@ -820,7 +820,7 @@ pub fn createInlineLevelUsedValues(context: *InlineLevelLayoutContext, values_al
 
     var values = IntermediateInlineLevelUsedValues{ .allocator = values_allocator };
     errdefer values.deinit();
-    try values.ensureCapacity(root_interval.end - root_interval.begin + 1);
+    values.ensureCapacity(root_interval.end - root_interval.begin + 1) catch {};
 
     try inlineLevelRootElementPush(context, &values, root_interval);
 
@@ -1183,7 +1183,7 @@ test "inline used values" {
         .background = &background,
     };
 
-    var context = InlineLevelLayoutContext.init(&tree, al, Interval{ .parent = 0, .begin = 1, .end = pdfs_flat_tree[0] }, 50);
+    var context = InlineLevelLayoutContext.init(&tree, al, .{ .parent = 0, .begin = 1, .end = pdfs_flat_tree[0] }, 50);
     defer context.deinit();
     var values = try createInlineLevelUsedValues(&context, al);
     defer values.deinit(al);
