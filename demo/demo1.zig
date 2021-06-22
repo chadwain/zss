@@ -11,22 +11,17 @@ const sdl = @import("SDL2");
 const ft = @import("freetype");
 const hb = @import("harfbuzz");
 
-const page_background_color = 0xeeeeeeff;
-
 pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(!gpa.deinit());
     var allocator = &gpa.allocator;
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-    if (args.len != 2) {
-        std.debug.print("error: Expected 2 arguments\n", .{});
-        return 1;
-    }
-    const filename = args[1];
+    const program_args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, program_args);
+    const args = parseArgs(program_args[1..]);
+
     const file_bytes = blk: {
-        const file = try fs.cwd().openFile(filename, .{});
+        const file = try fs.cwd().openFile(args.filename, .{});
         defer file.close();
         break :blk try file.readToEndAlloc(allocator, std.math.maxInt(c_int));
     };
@@ -74,17 +69,85 @@ pub fn main() !u8 {
     defer assert(hb.FT_Done_FreeType(library) == hb.FT_Err_Ok);
 
     var face: hb.FT_Face = undefined;
-    assert(hb.FT_New_Face(library, "test/fonts/NotoSans-Regular.ttf", 0, &face) == hb.FT_Err_Ok);
+    assert(hb.FT_New_Face(library, args.font_filename, 0, &face) == hb.FT_Err_Ok);
     defer assert(hb.FT_Done_Face(face) == hb.FT_Err_Ok);
 
-    const font_height_pt = 12;
-    assert(hb.FT_Set_Char_Size(face, 0, font_height_pt * 64, dpi.horizontal, dpi.vertical) == hb.FT_Err_Ok);
+    assert(hb.FT_Set_Char_Size(face, 0, args.font_size * 64, dpi.horizontal, dpi.vertical) == hb.FT_Err_Ok);
 
-    try createBoxTree(window, face, allocator, filename, text);
+    try createBoxTree(&args, window, face, allocator, text);
     return 0;
 }
 
-fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator, filename: []const u8, bytes: []const u8) !void {
+const ProgramArguments = struct {
+    filename: [:0]const u8,
+    font_filename: [:0]const u8,
+    font_size: u32,
+    text_color: u24,
+    bg_color: u24,
+};
+
+fn parseArgs(args: []const [:0]const u8) ProgramArguments {
+    var filename: ?[:0]const u8 = null;
+    var font_filename: ?[:0]const u8 = null;
+    var font_size: ?std.fmt.ParseIntError!u32 = null;
+    var text_color: ?std.fmt.ParseIntError!u24 = null;
+    var bg_color: ?std.fmt.ParseIntError!u24 = null;
+
+    var i: usize = 0;
+    while (i < args.len) {
+        const arg = args[i];
+        if (!std.mem.startsWith(u8, arg, "--")) {
+            if (i == args.len - 1) {
+                filename = arg;
+                break;
+            } else {
+                std.log.err("Argument syntax error", .{});
+                std.os.exit(1);
+            }
+        } else if (i + 1 < args.len) {
+            defer i += 2;
+            if (std.mem.eql(u8, arg, "--font")) {
+                font_filename = args[i + 1];
+            } else if (std.mem.eql(u8, arg, "--font-size")) {
+                font_size = std.fmt.parseUnsigned(u32, args[i + 1], 10);
+            } else if (std.mem.eql(u8, arg, "--color")) {
+                const text_color_str = if (std.mem.startsWith(u8, args[i + 1], "0x")) args[i + 1][2..] else args[i + 1];
+                text_color = std.fmt.parseUnsigned(u24, text_color_str, 16);
+            } else if (std.mem.eql(u8, arg, "--bg-color")) {
+                const bg_color_str = if (std.mem.startsWith(u8, args[i + 1], "0x")) args[i + 1][2..] else args[i + 1];
+                bg_color = std.fmt.parseUnsigned(u24, bg_color_str, 16);
+            } else {
+                std.log.err("Unrecognized option: {s}", .{arg});
+                std.os.exit(1);
+            }
+        }
+    }
+
+    return ProgramArguments{
+        .filename = filename orelse {
+            std.log.err("Input file not specified", .{});
+            std.os.exit(1);
+        },
+        .font_filename = font_filename orelse {
+            std.log.err("Font file not specified", .{});
+            std.os.exit(1);
+        },
+        .font_size = font_size orelse @as(std.fmt.ParseIntError!u32, 12) catch |e| {
+            std.log.err("Unable to parse font size: {s}", .{@errorName(e)});
+            std.os.exit(1);
+        },
+        .text_color = text_color orelse @as(std.fmt.ParseIntError!u24, 0x101010) catch |e| {
+            std.log.err("Unable to parse text color: {s}", .{@errorName(e)});
+            std.os.exit(1);
+        },
+        .bg_color = bg_color orelse @as(std.fmt.ParseIntError!u24, 0xeeeeee) catch |e| {
+            std.log.err("Unable to parse background color: {s}", .{@errorName(e)});
+            std.os.exit(1);
+        },
+    };
+}
+
+fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator, bytes: []const u8) !void {
     const font = hb.hb_ft_font_create_referenced(face) orelse unreachable;
     defer hb.hb_font_destroy(font);
     hb.hb_ft_font_set_funcs(font);
@@ -112,7 +175,7 @@ fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocato
         .{},
     };
     var display = [len]box_tree.Display{ .{ .block_flow = {} }, .{ .block_flow = {} }, .{ .inline_flow = {} }, .{ .text = {} }, .{ .block_flow = {} }, .{ .inline_flow = {} }, .{ .text = {} } };
-    var latin1_text = [len]box_tree.Latin1Text{ .{}, .{}, .{}, .{ .text = filename }, .{}, .{}, .{ .text = bytes } };
+    var latin1_text = [len]box_tree.Latin1Text{ .{}, .{}, .{}, .{ .text = args.filename }, .{}, .{}, .{ .text = bytes } };
     const root_border_color = zss.box_tree.Border.Color{ .rgba = 0xaf2233ff };
     var border = [len]box_tree.Border{
         .{ .inline_start_color = root_border_color, .inline_end_color = root_border_color, .block_start_color = root_border_color, .block_end_color = root_border_color },
@@ -140,10 +203,10 @@ fn createBoxTree(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocato
         .latin1_text = &latin1_text,
         .border = &border,
         .background = &background,
-        .font = .{ .font = font, .color = .{ .rgba = 0x101010ff } },
+        .font = .{ .font = font, .color = .{ .rgba = (@as(u32, args.text_color) << 8) | 0xff } },
     };
 
-    try sdlMainLoop(window, face, allocator, &tree);
+    try sdlMainLoop(args, window, face, allocator, &tree);
 }
 
 const ProgramState = struct {
@@ -191,7 +254,7 @@ const ProgramState = struct {
     }
 };
 
-fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator, tree: *box_tree.BoxTree) !void {
+fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator, tree: *box_tree.BoxTree) !void {
     const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
 
@@ -269,7 +332,7 @@ fn sdlMainLoop(window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator,
             .x = 0,
             .y = -ps.scroll_y,
         };
-        zss.sdl_freetype.drawBackgroundColor(renderer, pixel_format, viewport_rect, page_background_color);
+        zss.sdl_freetype.drawBackgroundColor(renderer, pixel_format, viewport_rect, (@as(u32, args.bg_color) << 8) | 0xff);
         try zss.sdl_freetype.renderDocument(&ps.document, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
         sdl.SDL_RenderPresent(renderer);
 
