@@ -9,40 +9,6 @@ pub fn Ratio(comptime T: type) type {
     return struct { num: T, den: T };
 }
 
-pub const ThreeBoxes = struct {
-    border: ZssRect,
-    padding: ZssRect,
-    content: ZssRect,
-};
-
-pub fn getThreeBoxes(translation: used_values.ZssVector, box_offsets: used_values.BoxOffsets, borders: used_values.Borders) ThreeBoxes {
-    const border_x = translation.x + box_offsets.border_top_left.x;
-    const border_y = translation.y + box_offsets.border_top_left.y;
-    const border_w = box_offsets.border_bottom_right.x - box_offsets.border_top_left.x;
-    const border_h = box_offsets.border_bottom_right.y - box_offsets.border_top_left.y;
-
-    return ThreeBoxes{
-        .border = ZssRect{
-            .x = border_x,
-            .y = border_y,
-            .w = border_w,
-            .h = border_h,
-        },
-        .padding = ZssRect{
-            .x = border_x + borders.left,
-            .y = border_y + borders.top,
-            .w = border_w - borders.left - borders.right,
-            .h = border_h - borders.top - borders.bottom,
-        },
-        .content = ZssRect{
-            .x = translation.x + box_offsets.content_top_left.x,
-            .y = translation.y + box_offsets.content_top_left.y,
-            .w = box_offsets.content_bottom_right.x - box_offsets.content_top_left.x,
-            .h = box_offsets.content_bottom_right.y - box_offsets.content_top_left.y,
-        },
-    };
-}
-
 pub fn divCeil(a: anytype, b: anytype) @TypeOf(a, b) {
     return @divFloor(a, b) + @boolToInt(@mod(a, b) != 0);
 }

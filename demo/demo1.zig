@@ -283,7 +283,7 @@ const ProgramState = struct {
     }
 
     fn updateMaxScroll(self: *Self) void {
-        self.max_scroll_y = std.math.max(0, zss.sdl_freetype.zssUnitToPixel(self.document.block_values.box_offsets[0].border_bottom_right.y) - self.height);
+        self.max_scroll_y = std.math.max(0, zss.sdl_freetype.zssUnitToPixel(self.document.block_values.box_offsets[0].border_end.block_dir) - self.height);
         self.scroll_y = std.math.clamp(self.scroll_y, 0, self.max_scroll_y);
     }
 };

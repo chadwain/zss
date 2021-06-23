@@ -47,7 +47,7 @@ pub fn renderDocument(
         var cumulative_translation = translation_zss;
         var it = zss.util.PdfsArrayIterator.init(block_values.structure, inline_values.id_of_containing_block);
         while (it.next()) |id| {
-            cumulative_translation = cumulative_translation.add(block_values.box_offsets[id].content_top_left);
+            cumulative_translation = cumulative_translation.add(util.zssFlowRelativeVectorToZssVector(block_values.box_offsets[id].content_start));
         }
         try drawInlineValues(inline_values.values, cumulative_translation, allocator, renderer, pixel_format, glyph_atlas);
     }

@@ -24,6 +24,11 @@ pub const ZssVector = struct {
     }
 };
 
+pub const ZssFlowRelativeVector = struct {
+    inline_dir: ZssUnit,
+    block_dir: ZssUnit,
+};
+
 pub const ZssSize = struct {
     w: ZssUnit,
     h: ZssUnit,
@@ -56,31 +61,33 @@ pub const ZssRect = struct {
     }
 };
 
-/// The offsets of various points of a block box, taken from the top-left
-/// corner of the content box of its parent.
+/// The offsets of various points of a block box, taken from the
+/// inline-start/block-start corner of the content box of its parent.
 pub const BoxOffsets = struct {
-    border_top_left: ZssVector,
-    border_bottom_right: ZssVector,
-    content_top_left: ZssVector,
-    content_bottom_right: ZssVector,
+    border_start: ZssFlowRelativeVector,
+    border_end: ZssFlowRelativeVector,
+    content_start: ZssFlowRelativeVector,
+    content_end: ZssFlowRelativeVector,
 };
 
-/// Contains the used values of the properties 'border-top-width',
-/// 'border-right-width', 'border-bottom-width', and 'border-left-width'.
+/// Contains the used values of the properties
+/// 'border-block-start-width', 'border-inline-end-width',
+/// 'border-block-end-width', and 'border-inline-start-width'.
 pub const Borders = struct {
-    top: ZssUnit = 0,
-    right: ZssUnit = 0,
-    bottom: ZssUnit = 0,
-    left: ZssUnit = 0,
+    inline_start: ZssUnit = 0,
+    inline_end: ZssUnit = 0,
+    block_start: ZssUnit = 0,
+    block_end: ZssUnit = 0,
 };
 
-/// Contains the used values of the properties 'border-top-color',
-/// 'border-right-color', 'border-bottom-color', and 'border-left-color'.
+/// Contains the used values of the properties
+/// 'border-block-start-color', 'border-inline-end-color',
+/// 'border-block-end-color', and 'border-inline-start-color'.
 pub const BorderColor = struct {
-    top_rgba: u32 = 0,
-    right_rgba: u32 = 0,
-    bottom_rgba: u32 = 0,
-    left_rgba: u32 = 0,
+    inline_start_rgba: u32 = 0,
+    inline_end_rgba: u32 = 0,
+    block_start_rgba: u32 = 0,
+    block_end_rgba: u32 = 0,
 };
 
 /// Contains the used values of the properties

@@ -5,6 +5,7 @@ const zss = @import("../../../zss.zig");
 const UsedId = zss.used_values.UsedId;
 const ZssUnit = zss.used_values.ZssUnit;
 const ZssVector = zss.used_values.ZssVector;
+const ZssFlowRelativeVector = zss.used_values.ZssFlowRelativeVector;
 const ZssRect = zss.used_values.ZssRect;
 const BlockLevelUsedValues = zss.used_values.BlockLevelUsedValues;
 const InlineLevelUsedValues = zss.used_values.InlineLevelUsedValues;
@@ -41,6 +42,51 @@ pub fn zssRectToSdlRect(rect: ZssRect) sdl.SDL_Rect {
         .y = zssUnitToPixel(rect.y),
         .w = zssUnitToPixel(rect.w),
         .h = zssUnitToPixel(rect.h),
+    };
+}
+
+// The only supported writing mode is horizontal-tb, so this function
+// lets us ignore the logical coords and move into physical coords.
+pub fn zssFlowRelativeVectorToZssVector(flow_vector: ZssFlowRelativeVector) ZssVector {
+    return ZssVector{
+        .x = flow_vector.inline_dir,
+        .y = flow_vector.block_dir,
+    };
+}
+
+const ThreeBoxes = struct {
+    border: ZssRect,
+    padding: ZssRect,
+    content: ZssRect,
+};
+
+// The only supported writing mode is horizontal-tb, so this function
+// lets us ignore the logical coords and move into physical coords.
+fn getThreeBoxes(translation: ZssVector, box_offsets: zss.used_values.BoxOffsets, borders: zss.used_values.Borders) ThreeBoxes {
+    const border_x = translation.x + box_offsets.border_start.inline_dir;
+    const border_y = translation.y + box_offsets.border_start.block_dir;
+    const border_w = box_offsets.border_end.inline_dir - box_offsets.border_start.inline_dir;
+    const border_h = box_offsets.border_end.block_dir - box_offsets.border_start.block_dir;
+
+    return ThreeBoxes{
+        .border = ZssRect{
+            .x = border_x,
+            .y = border_y,
+            .w = border_w,
+            .h = border_h,
+        },
+        .padding = ZssRect{
+            .x = border_x + borders.inline_start,
+            .y = border_y + borders.block_start,
+            .w = border_w - borders.inline_start - borders.inline_end,
+            .h = border_h - borders.block_start - borders.block_end,
+        },
+        .content = ZssRect{
+            .x = translation.x + box_offsets.content_start.inline_dir,
+            .y = translation.y + box_offsets.content_start.block_dir,
+            .w = box_offsets.content_end.inline_dir - box_offsets.content_start.inline_dir,
+            .h = box_offsets.content_end.block_dir - box_offsets.content_start.block_dir,
+        },
     };
 }
 
@@ -92,7 +138,7 @@ pub fn drawBlockValuesRoot(
     const border_colors = values.border_colors[0];
     const box_offsets = values.box_offsets[0];
 
-    const boxes = zss.util.getThreeBoxes(translation, box_offsets, borders);
+    const boxes = getThreeBoxes(translation, box_offsets, borders);
     drawBlockContainer(&boxes, borders, background1, background2, border_colors, clip_rect, renderer, pixel_format);
 }
 
@@ -149,7 +195,7 @@ pub fn drawBlockValuesChildren(
 
         try stack.append(StackItem{
             .interval = Interval{ .begin = 1, .end = values.structure[0] },
-            .translation = translation.add(box_offsets.content_top_left),
+            .translation = translation.add(zssFlowRelativeVectorToZssVector(box_offsets.content_start)),
         });
     }
 
@@ -168,7 +214,7 @@ pub fn drawBlockValuesChildren(
             const background1 = values.background1[used_id];
             const background2 = values.background2[used_id];
             //const visual_effect = values.visual_effect[used_id];
-            const boxes = zss.util.getThreeBoxes(stack_item.translation, box_offsets, borders);
+            const boxes = getThreeBoxes(stack_item.translation, box_offsets, borders);
 
             //if (visual_effect.visibility == .Visible) {
             drawBlockContainer(&boxes, borders, background1, background2, border_colors, initial_clip_rect, renderer, pixel_format);
@@ -194,7 +240,7 @@ pub fn drawBlockValuesChildren(
 
                 try stack.append(StackItem{
                     .interval = Interval{ .begin = used_id + 1, .end = used_id + subtree_size },
-                    .translation = stack_item.translation.add(box_offsets.content_top_left),
+                    .translation = stack_item.translation.add(zssFlowRelativeVectorToZssVector(box_offsets.content_start)),
                 });
             }
         }
@@ -218,7 +264,7 @@ pub const BorderColor = struct {
 };
 
 pub fn drawBlockContainer(
-    boxes: *const zss.util.ThreeBoxes,
+    boxes: *const ThreeBoxes,
     borders: zss.used_values.Borders,
     background1: zss.used_values.Background1,
     background2: zss.used_values.Background2,
@@ -272,16 +318,16 @@ pub fn drawBlockContainer(
         pixel_format,
         &zssRectToSdlRect(boxes.border),
         &BorderWidths{
-            .top = zssUnitToPixel(borders.top),
-            .right = zssUnitToPixel(borders.right),
-            .bottom = zssUnitToPixel(borders.bottom),
-            .left = zssUnitToPixel(borders.left),
+            .top = zssUnitToPixel(borders.block_start),
+            .right = zssUnitToPixel(borders.inline_end),
+            .bottom = zssUnitToPixel(borders.block_end),
+            .left = zssUnitToPixel(borders.inline_start),
         },
         &BorderColor{
-            .top_rgba = border_colors.top_rgba,
-            .right_rgba = border_colors.right_rgba,
-            .bottom_rgba = border_colors.bottom_rgba,
-            .left_rgba = border_colors.left_rgba,
+            .top_rgba = border_colors.block_start_rgba,
+            .right_rgba = border_colors.inline_end_rgba,
+            .bottom_rgba = border_colors.block_end_rgba,
+            .left_rgba = border_colors.inline_start_rgba,
         },
     );
 }

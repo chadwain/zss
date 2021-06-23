@@ -19,6 +19,7 @@ const Document = used_values.Document;
 const hb = @import("harfbuzz");
 
 pub const Error = error{
+    InvalidValue,
     OutOfMemory,
     Overflow,
 };
@@ -181,7 +182,6 @@ const IntermediateBlockLevelUsedValues = struct {
         try self.background1.ensureCapacity(self.allocator, capacity);
         try self.background2.ensureCapacity(self.allocator, capacity);
         //try self.visual_effect.ensureCapacity(self.allocator, capacity);
-        try self.inline_values.ensureCapacity(self.allocator, capacity);
     }
 
     fn toBlockLevelUsedValues(self: *Self) BlockLevelUsedValues {
@@ -220,10 +220,10 @@ fn createBlockLevelUsedValues(context: *BlockLevelLayoutContext, values_allocato
 
     { // Finish layout for the root element.
         var box_offsets = used_values.BoxOffsets{
-            .border_top_left = .{ .x = 0, .y = 0 },
-            .border_bottom_right = .{ .x = 0, .y = 0 },
-            .content_top_left = .{ .x = 0, .y = 0 },
-            .content_bottom_right = .{ .x = 0, .y = 0 },
+            .border_start = .{ .inline_dir = 0, .block_dir = 0 },
+            .border_end = .{ .inline_dir = 0, .block_dir = 0 },
+            .content_start = .{ .inline_dir = 0, .block_dir = 0 },
+            .content_end = .{ .inline_dir = 0, .block_dir = 0 },
         };
         var parent_auto_block_size = @as(ZssUnit, 0);
         blockContainerFinishLayout(context, &values, &box_offsets, &parent_auto_block_size);
@@ -286,8 +286,8 @@ fn blockContainerSolveSizeAndPositionPart1(context: *BlockLevelLayoutContext, va
     const structure_ptr = try values.structure.addOne(values.allocator);
     const box_offsets_ptr = try values.box_offsets.addOne(values.allocator);
     const borders_ptr = try values.borders.addOne(values.allocator);
-    const inline_size = blockContainerSolveInlineSizesAndOffsets(context, box_id, box_offsets_ptr, borders_ptr);
-    const used_block_sizes = blockContainerSolveBlockSizesAndOffsets(context, box_id, box_offsets_ptr, borders_ptr);
+    const inline_size = try blockContainerSolveInlineSizesAndOffsets(context, box_id, box_offsets_ptr, borders_ptr);
+    const used_block_sizes = try blockContainerSolveBlockSizesAndOffsets(context, box_id, box_offsets_ptr, borders_ptr);
 
     _ = try values.border_colors.addOne(values.allocator);
     _ = try values.background1.addOne(values.allocator);
@@ -297,15 +297,12 @@ fn blockContainerSolveSizeAndPositionPart1(context: *BlockLevelLayoutContext, va
     if (subtree_size != 1) {
         try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
         try context.static_containing_block_used_inline_size.append(context.allocator, inline_size);
-        // TODO don't add elements to this stack unconditionally
         try context.static_containing_block_auto_block_size.append(context.allocator, 0);
-        // TODO don't add elements to this stack unconditionally
         try context.static_containing_block_used_block_sizes.append(context.allocator, used_block_sizes);
         try context.used_id_and_subtree_size.append(context.allocator, UsedIdAndSubtreeSize{
             .used_id = used_id,
             .used_subtree_size = 1,
         });
-        // TODO don't add elements to this stack unconditionally
         //try context.in_flow_positioning_data_count.append(context.allocator, 0);
     } else {
         // Optimized path for elements that have no children.
@@ -326,11 +323,11 @@ fn blockContainerFinishLayout(context: *BlockLevelLayoutContext, values: *Interm
 
 fn blockContainerSolveSizeAndPositionPart2(box_offsets: *used_values.BoxOffsets, used_block_sizes: UsedBlockSizes, auto_block_size: ZssUnit, parent_auto_block_size: *ZssUnit) void {
     const used_block_size = zss.util.clamp(used_block_sizes.size orelse auto_block_size, used_block_sizes.min_size, used_block_sizes.max_size);
-    box_offsets.border_top_left.y = parent_auto_block_size.* + used_block_sizes.margin_start;
-    box_offsets.content_top_left.y += box_offsets.border_top_left.y;
-    box_offsets.content_bottom_right.y = box_offsets.content_top_left.y + used_block_size;
-    box_offsets.border_bottom_right.y += box_offsets.content_bottom_right.y;
-    parent_auto_block_size.* = box_offsets.border_bottom_right.y + used_block_sizes.margin_end;
+    box_offsets.border_start.block_dir = parent_auto_block_size.* + used_block_sizes.margin_start;
+    box_offsets.content_start.block_dir += box_offsets.border_start.block_dir;
+    box_offsets.content_end.block_dir = box_offsets.content_start.block_dir + used_block_size;
+    box_offsets.border_end.block_dir += box_offsets.content_end.block_dir;
+    parent_auto_block_size.* = box_offsets.border_end.block_dir + used_block_sizes.margin_end;
 }
 
 fn blockContainerSolveOtherProperties(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, box_id: BoxId, used_id: UsedId) void {
@@ -408,7 +405,8 @@ fn blockContainerSolveOtherProperties(context: *BlockLevelLayoutContext, values:
 //    };
 //}
 
-fn blockContainerSolveInlineSizesAndOffsets(context: *const BlockLevelLayoutContext, box_id: BoxId, box_offsets: *used_values.BoxOffsets, borders: *used_values.Borders) ZssUnit {
+/// This is an implementation of CSS2§10.2 and CSS2§10.3.3.
+fn blockContainerSolveInlineSizesAndOffsets(context: *const BlockLevelLayoutContext, box_id: BoxId, box_offsets: *used_values.BoxOffsets, borders: *used_values.Borders) !ZssUnit {
     const max = std.math.max;
     const inline_size = context.box_tree.inline_size[box_id];
     const containing_block_inline_size = context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1];
@@ -468,53 +466,55 @@ fn blockContainerSolveInlineSizesAndOffsets(context: *const BlockLevelLayoutCont
         },
     };
 
-    // All of these must be positive.
-    // TODO return an error instead
-    assert(border_start >= 0);
-    assert(border_end >= 0);
-    assert(padding_start >= 0);
-    assert(padding_end >= 0);
-    assert(size >= 0);
-    assert(min_size >= 0);
-    assert(max_size >= 0);
+    if (border_start < 0) return error.InvalidValue;
+    if (border_end < 0) return error.InvalidValue;
+    if (padding_start < 0) return error.InvalidValue;
+    if (padding_end < 0) return error.InvalidValue;
+    if (size < 0) return error.InvalidValue;
+    if (min_size < 0) return error.InvalidValue;
+    if (max_size < 0) return error.InvalidValue;
 
     const content_margin_space = containing_block_inline_size - (border_start + border_end + padding_start + padding_end);
     if (auto_bitfield == 0) {
-        // TODO(§10.3.3): which margin gets set is affected by the 'direction' property
+        // None of the values were auto, so one of the margins must be set according to the other values.
+        // TODO the margin that gets set is determined by the 'direction' property
         size = zss.util.clamp(size, min_size, max_size);
         margin_end = content_margin_space - size - margin_start;
     } else if (auto_bitfield & size_bit == 0) {
+        // 'width' is not auto, but at least one of 'margin-start' and 'margin-end' is.
+        // If there is only one "auto", then that value gets the remaining margin space.
+        // Else, there are 2 "auto"s, and both values get half the remaining margin space.
         const start = auto_bitfield & margin_start_bit;
         const end = auto_bitfield & margin_end_bit;
         const shr_amount = @boolToInt(start | end == margin_start_bit | margin_end_bit);
         size = zss.util.clamp(size, min_size, max_size);
         const leftover_margin = max(0, content_margin_space - (size + margin_start + margin_end));
-        // NOTE: which margin gets the extra 1 unit shall be affected by the 'direction' property
+        // TODO the margin that gets the extra 1 unit shall be determined by the 'direction' property
         if (start == 0) margin_start = leftover_margin >> shr_amount;
         if (end == 0) margin_end = (leftover_margin >> shr_amount) + @mod(leftover_margin, 2);
     } else {
+        // 'width' is auto, so it is set according to the other values.
+        // The margin values don't need to change.
         size = zss.util.clamp(content_margin_space - margin_start - margin_end, min_size, max_size);
     }
 
-    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
-    box_offsets.border_top_left.x = margin_start;
-    box_offsets.content_top_left.x = box_offsets.border_top_left.x + border_start + padding_start;
-    box_offsets.content_bottom_right.x = box_offsets.content_top_left.x + size;
-    box_offsets.border_bottom_right.x = box_offsets.content_bottom_right.x + padding_end + border_end;
+    box_offsets.border_start.inline_dir = margin_start;
+    box_offsets.content_start.inline_dir = box_offsets.border_start.inline_dir + border_start + padding_start;
+    box_offsets.content_end.inline_dir = box_offsets.content_start.inline_dir + size;
+    box_offsets.border_end.inline_dir = box_offsets.content_end.inline_dir + padding_end + border_end;
 
-    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
-    borders.left = border_start;
-    borders.right = border_end;
+    borders.inline_start = border_start;
+    borders.inline_end = border_end;
 
     return size;
 }
 
-fn blockContainerSolveBlockSizesAndOffsets(context: *const BlockLevelLayoutContext, box_id: BoxId, box_offsets: *used_values.BoxOffsets, borders: *used_values.Borders) UsedBlockSizes {
+/// This is an implementation of CSS2§10.5 and CSS2§10.6.3.
+fn blockContainerSolveBlockSizesAndOffsets(context: *const BlockLevelLayoutContext, box_id: BoxId, box_offsets: *used_values.BoxOffsets, borders: *used_values.Borders) !UsedBlockSizes {
     const block_size = context.box_tree.block_size[box_id];
     const containing_block_inline_size = context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1];
     const containing_block_block_size = context.static_containing_block_used_block_sizes.items[context.static_containing_block_used_block_sizes.items.len - 1].size;
 
-    // This implements CSS2§10.6.3
     const size = switch (block_size.size) {
         .px => |value| length(.px, value),
         .percentage => |value| if (containing_block_block_size) |s|
@@ -564,23 +564,22 @@ fn blockContainerSolveBlockSizesAndOffsets(context: *const BlockLevelLayoutConte
         .none => std.math.maxInt(ZssUnit),
     };
 
-    // All of these must be positive.
-    // TODO return an error instead
-    assert(border_start >= 0);
-    assert(border_end >= 0);
-    assert(padding_start >= 0);
-    assert(padding_end >= 0);
-    if (size) |s| assert(s >= 0);
-    assert(min_size >= 0);
-    assert(max_size >= 0);
+    if (border_start < 0) return error.InvalidValue;
+    if (border_end < 0) return error.InvalidValue;
+    if (padding_start < 0) return error.InvalidValue;
+    if (padding_end < 0) return error.InvalidValue;
+    if (size) |s| if (s < 0) return error.InvalidValue;
+    if (min_size < 0) return error.InvalidValue;
+    if (max_size < 0) return error.InvalidValue;
 
-    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
-    box_offsets.content_top_left.y = border_start + padding_start;
-    box_offsets.border_bottom_right.y = padding_end + border_end;
+    // NOTE These are not the actual offsets, just some values that can be
+    // determined without knowing 'size'. The offsets are properly filled in
+    // in 'blockContainerSolveSizeAndPositionPart2'.
+    box_offsets.content_start.block_dir = border_start + padding_start;
+    box_offsets.border_end.block_dir = padding_end + border_end;
 
-    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
-    borders.top = border_start;
-    borders.bottom = border_end;
+    borders.block_start = border_start;
+    borders.block_end = border_end;
 
     return UsedBlockSizes{
         .size = size,
@@ -602,31 +601,28 @@ fn blockLevelAddInlineData(context: *BlockLevelLayoutContext, values: *Intermedi
     );
     defer inline_context.deinit();
 
-    { // A new scope is needed for good error handling.
-        const inline_values_ptr = try values.allocator.create(InlineLevelUsedValues);
-        errdefer values.allocator.destroy(inline_values_ptr);
-        inline_values_ptr.* = try createInlineLevelUsedValues(&inline_context, values.allocator);
-        errdefer inline_values_ptr.deinit(values.allocator);
-        try values.inline_values.append(values.allocator, .{
-            .id_of_containing_block = used_id,
-            .values = inline_values_ptr,
-        });
-    }
+    const inline_values_ptr = try values.allocator.create(InlineLevelUsedValues);
+    errdefer values.allocator.destroy(inline_values_ptr);
+    inline_values_ptr.* = try createInlineLevelUsedValues(&inline_context, values.allocator);
+    errdefer inline_values_ptr.deinit(values.allocator);
 
     if (inline_context.next_box_id != interval.begin + context.box_tree.structure[interval.begin]) {
         @panic("TODO A group of inline-level elements cannot be interrupted by a block-level element");
     }
     interval.begin = inline_context.next_box_id;
+    try values.inline_values.append(values.allocator, .{
+        .id_of_containing_block = used_id,
+        .values = inline_values_ptr,
+    });
 
     context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1].used_subtree_size += 1;
     const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
     try values.structure.append(values.allocator, 1);
-    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
     try values.box_offsets.append(values.allocator, .{
-        .border_top_left = .{ .x = 0, .y = parent_auto_block_size.* },
-        .border_bottom_right = .{ .x = 0, .y = parent_auto_block_size.* },
-        .content_top_left = .{ .x = 0, .y = parent_auto_block_size.* },
-        .content_bottom_right = .{ .x = 0, .y = parent_auto_block_size.* },
+        .border_start = .{ .inline_dir = 0, .block_dir = parent_auto_block_size.* },
+        .border_end = .{ .inline_dir = 0, .block_dir = parent_auto_block_size.* },
+        .content_start = .{ .inline_dir = 0, .block_dir = parent_auto_block_size.* },
+        .content_end = .{ .inline_dir = 0, .block_dir = parent_auto_block_size.* },
     });
     try values.borders.append(values.allocator, .{});
     try values.border_colors.append(values.allocator, .{});
@@ -1066,24 +1062,21 @@ fn addInlineElementData(box_tree: *const BoxTree, values: *IntermediateInlineLev
         .percentage => |value| percentage(value, containing_block_inline_size),
     };
 
-    // All of these must be positive.
-    // TODO return an error instead
-    assert(border_inline_start >= 0);
-    assert(border_inline_end >= 0);
-    assert(border_block_start >= 0);
-    assert(border_block_end >= 0);
-    assert(padding_inline_start >= 0);
-    assert(padding_inline_end >= 0);
-    assert(padding_block_start >= 0);
-    assert(padding_block_end >= 0);
+    if (border_inline_start < 0) return error.InvalidValue;
+    if (border_inline_end < 0) return error.InvalidValue;
+    if (border_block_start < 0) return error.InvalidValue;
+    if (border_block_end < 0) return error.InvalidValue;
+    if (padding_inline_start < 0) return error.InvalidValue;
+    if (padding_inline_end < 0) return error.InvalidValue;
+    if (padding_block_start < 0) return error.InvalidValue;
+    if (padding_block_end < 0) return error.InvalidValue;
 
     const border_colors = solveBorderColors(box_tree.border[box_id]);
 
-    // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
-    try values.inline_start.append(values.allocator, .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = border_colors.left_rgba });
-    try values.inline_end.append(values.allocator, .{ .border = border_inline_end, .padding = padding_inline_end, .border_color_rgba = border_colors.right_rgba });
-    try values.block_start.append(values.allocator, .{ .border = border_block_start, .padding = padding_block_start, .border_color_rgba = border_colors.top_rgba });
-    try values.block_end.append(values.allocator, .{ .border = border_block_end, .padding = padding_block_end, .border_color_rgba = border_colors.bottom_rgba });
+    try values.inline_start.append(values.allocator, .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = border_colors.inline_start_rgba });
+    try values.inline_end.append(values.allocator, .{ .border = border_inline_end, .padding = padding_inline_end, .border_color_rgba = border_colors.inline_end_rgba });
+    try values.block_start.append(values.allocator, .{ .border = border_block_start, .padding = padding_block_start, .border_color_rgba = border_colors.block_start_rgba });
+    try values.block_end.append(values.allocator, .{ .border = border_block_end, .padding = padding_block_end, .border_color_rgba = border_colors.block_end_rgba });
     try values.margins.append(values.allocator, .{ .start = margin_inline_start, .end = margin_inline_end });
     try values.background1.append(values.allocator, solveBackground1(box_tree.background[box_id]));
     return std.math.cast(UsedId, values.inline_start.items.len - 1);
@@ -1147,7 +1140,7 @@ test "inline used values" {
     defer assert(!gpa.deinit());
     const al = &gpa.allocator;
 
-    const blob = hb.hb_blob_create_from_file("test/fonts/NotoSans-Regular.ttf");
+    const blob = hb.hb_blob_create_from_file("demo/NotoSans-Regular.ttf");
     defer hb.hb_blob_destroy(blob);
     if (blob == hb.hb_blob_get_empty()) return error.HarfBuzzError;
 
@@ -1201,10 +1194,10 @@ fn solveBorderColors(border: computed.Border) used_values.BorderColor {
     }.f;
 
     return used_values.BorderColor{
-        .left_rgba = solveOneBorderColor(border.inline_start_color),
-        .right_rgba = solveOneBorderColor(border.inline_end_color),
-        .top_rgba = solveOneBorderColor(border.block_start_color),
-        .bottom_rgba = solveOneBorderColor(border.block_end_color),
+        .inline_start_rgba = solveOneBorderColor(border.inline_start_color),
+        .inline_end_rgba = solveOneBorderColor(border.inline_end_color),
+        .block_start_rgba = solveOneBorderColor(border.block_start_color),
+        .block_end_rgba = solveOneBorderColor(border.block_end_color),
     };
 }
 
@@ -1227,12 +1220,12 @@ fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.Box
         .none => return .{},
     };
 
-    const border_width = box_offsets.border_bottom_right.x - box_offsets.border_top_left.x;
-    const border_height = box_offsets.border_bottom_right.y - box_offsets.border_top_left.y;
-    const padding_width = border_width - borders.left - borders.right;
-    const padding_height = border_height - borders.top - borders.bottom;
-    const content_width = box_offsets.content_bottom_right.x - box_offsets.content_top_left.x;
-    const content_height = box_offsets.content_bottom_right.y - box_offsets.content_top_left.y;
+    const border_width = box_offsets.border_end.inline_dir - box_offsets.border_start.inline_dir;
+    const border_height = box_offsets.border_end.block_dir - box_offsets.border_start.block_dir;
+    const padding_width = border_width - borders.inline_start - borders.inline_end;
+    const padding_height = border_height - borders.block_start - borders.block_end;
+    const content_width = box_offsets.content_end.inline_dir - box_offsets.content_start.inline_dir;
+    const content_height = box_offsets.content_end.block_dir - box_offsets.content_start.block_dir;
     const positioning_area: struct { origin: used_values.Background2.Origin, width: ZssUnit, height: ZssUnit } = switch (bg.origin) {
         .border_box => .{ .origin = .Border, .width = border_width, .height = border_height },
         .padding_box => .{ .origin = .Padding, .width = padding_width, .height = padding_height },
