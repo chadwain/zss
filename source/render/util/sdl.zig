@@ -93,7 +93,7 @@ pub fn drawBlockValuesRoot(
     const box_offsets = values.box_offsets[0];
 
     const boxes = zss.util.getThreeBoxes(translation, box_offsets, borders);
-    drawBackgroundAndBorders(&boxes, borders, background1, background2, border_colors, clip_rect, renderer, pixel_format);
+    drawBlockContainer(&boxes, borders, background1, background2, border_colors, clip_rect, renderer, pixel_format);
 }
 
 /// Draws the background color, background image, and borders of all of the
@@ -120,7 +120,7 @@ pub fn drawBlockValuesChildren(
     var stack = std.ArrayList(StackItem).init(allocator);
     defer stack.deinit();
 
-    if (values.pdfs_flat_tree[0] != 1) {
+    if (values.structure[0] != 1) {
         const box_offsets = values.box_offsets[0];
         //const borders = values.borders[0];
         //const clip_rect = switch (values.visual_effect[0].overflow) {
@@ -140,7 +140,7 @@ pub fn drawBlockValuesChildren(
         //// No need to draw children if the clip rect is empty.
         //if (!clip_rect.isEmpty()) {
         //    try stack.append(StackItem{
-        //        .interval = Interval{ .begin = 1, .end = values.pdfs_flat_tree[0] },
+        //        .interval = Interval{ .begin = 1, .end = values.structure[0] },
         //        .translation = translation.add(box_offsets.content_top_left),
         //        .clip_rect = clip_rect,
         //    });
@@ -148,7 +148,7 @@ pub fn drawBlockValuesChildren(
         //}
 
         try stack.append(StackItem{
-            .interval = Interval{ .begin = 1, .end = values.pdfs_flat_tree[0] },
+            .interval = Interval{ .begin = 1, .end = values.structure[0] },
             .translation = translation.add(box_offsets.content_top_left),
         });
     }
@@ -159,7 +159,7 @@ pub fn drawBlockValuesChildren(
 
         while (interval.begin != interval.end) {
             const used_id = interval.begin;
-            const subtree_size = values.pdfs_flat_tree[used_id];
+            const subtree_size = values.structure[used_id];
             defer interval.begin += subtree_size;
 
             const box_offsets = values.box_offsets[used_id];
@@ -171,7 +171,7 @@ pub fn drawBlockValuesChildren(
             const boxes = zss.util.getThreeBoxes(stack_item.translation, box_offsets, borders);
 
             //if (visual_effect.visibility == .Visible) {
-            drawBackgroundAndBorders(&boxes, borders, background1, background2, border_colors, initial_clip_rect, renderer, pixel_format);
+            drawBlockContainer(&boxes, borders, background1, background2, border_colors, initial_clip_rect, renderer, pixel_format);
             //}
 
             if (subtree_size != 1) {
@@ -217,7 +217,7 @@ pub const BorderColor = struct {
     left_rgba: c_uint,
 };
 
-pub fn drawBackgroundAndBorders(
+pub fn drawBlockContainer(
     boxes: *const zss.util.ThreeBoxes,
     borders: zss.used_values.Borders,
     background1: zss.used_values.Background1,
@@ -258,8 +258,8 @@ pub fn drawBackgroundAndBorders(
             origin_rect,
             bg_clip_rect,
             sdl.SDL_Point{
-                .x = origin_rect.x + zssUnitToPixel(background2.position.horizontal),
-                .y = origin_rect.y + zssUnitToPixel(background2.position.vertical),
+                .x = origin_rect.x + zssUnitToPixel(background2.position.x),
+                .y = origin_rect.y + zssUnitToPixel(background2.position.y),
             },
             size,
             background2.repeat,

@@ -16,11 +16,6 @@ const pkgs = struct {
         .name = "SDL2",
         .path = "dependencies/SDL2.zig",
     };
-    const zss = Pkg{
-        .name = "zss",
-        .path = "zss.zig",
-        .dependencies = &[_]Pkg{ harfbuzz, SDL2, freetype },
-    };
 };
 
 pub fn build(b: *Builder) void {
@@ -43,7 +38,6 @@ pub fn build(b: *Builder) void {
     lib_tests_step.dependOn(&lib_tests.step);
 
     addDemo(b, mode, target);
-    addRenderTests(b, mode, target);
 }
 
 fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {
@@ -60,38 +54,15 @@ fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) voi
     demo_step.dependOn(&demo_cmd.step);
 }
 
-fn addRenderTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {
-    const render_tests = blk: {
-        const Test = struct {
-            name: []const u8,
-            root: []const u8,
-        };
-
-        break :blk [_]Test{
-            Test{ .name = "block", .root = "test/block_formatting.zig" },
-            Test{ .name = "inline", .root = "test/inline_formatting.zig" },
-        };
-    };
-
-    inline for (render_tests) |rt| {
-        const exe = b.addExecutable(rt.name, rt.root);
-        linkSdl2Freetype(exe);
-        exe.setBuildMode(mode);
-        exe.setTarget(target);
-
-        const cmd = exe.run();
-        cmd.step.dependOn(&exe.step);
-
-        const step = b.step("render:" ++ rt.name, "Run the render test for " ++ rt.root);
-        step.dependOn(&cmd.step);
-    }
-}
-
 fn linkSdl2Freetype(exe: *std.build.LibExeObjStep) void {
     exe.addPackage(pkgs.harfbuzz);
     exe.addPackage(pkgs.freetype);
     exe.addPackage(pkgs.SDL2);
-    exe.addPackage(pkgs.zss);
+    exe.addPackage(Pkg{
+        .name = "zss",
+        .path = "zss.zig",
+        .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2, pkgs.freetype },
+    });
     exe.linkLibC();
     exe.linkSystemLibrary("harfbuzz");
     exe.linkSystemLibrary("freetype");

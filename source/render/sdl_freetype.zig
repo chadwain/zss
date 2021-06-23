@@ -45,7 +45,7 @@ pub fn renderDocument(
 
     for (block_values.inline_values) |inline_values| {
         var cumulative_translation = translation_zss;
-        var it = zss.util.PdfsFlatTreeIterator.init(block_values.pdfs_flat_tree, inline_values.id_of_containing_block);
+        var it = zss.util.PdfsArrayIterator.init(block_values.structure, inline_values.id_of_containing_block);
         while (it.next()) |id| {
             cumulative_translation = cumulative_translation.add(block_values.box_offsets[id].content_top_left);
         }

@@ -1,7 +1,7 @@
 /// Defines the structure of the document, and also contains the
 /// computed values of every property for each box in the document.
 pub const BoxTree = struct {
-    pdfs_flat_tree: []BoxId,
+    structure: []BoxId,
     display: []Display,
     inline_size: []LogicalSize,
     block_size: []LogicalSize,
@@ -53,8 +53,8 @@ pub const LogicalSize = struct {
     size: Size = .{ .auto = {} },
     min_size: Min = .{ .px = 0 },
     max_size: Max = .{ .none = {} },
-    border_start_width: BorderWidth = .{ .px = 0 },
-    border_end_width: BorderWidth = .{ .px = 0 },
+    border_start: BorderWidth = .{ .px = 0 },
+    border_end: BorderWidth = .{ .px = 0 },
     padding_start: Padding = .{ .px = 0 },
     padding_end: Padding = .{ .px = 0 },
     margin_start: Margin = .{ .px = 0 },
@@ -148,11 +148,11 @@ pub const Background = struct {
         };
 
         position: struct {
-            horizontal: struct {
+            x: struct {
                 side: enum { left, right },
                 offset: Offset,
             },
-            vertical: struct {
+            y: struct {
                 side: enum { top, bottom },
                 offset: Offset,
             },
@@ -162,8 +162,8 @@ pub const Background = struct {
         pub const Style = enum { repeat, space, round, no_repeat };
 
         repeat: struct {
-            horizontal: Style,
-            vertical: Style,
+            x: Style,
+            y: Style,
         },
     };
 
@@ -176,12 +176,12 @@ pub const Background = struct {
         .height = .{ .auto = {} },
     } },
     position: Position = .{ .position = .{
-        .horizontal = .{ .side = .left, .offset = .{ .percentage = 0 } },
-        .vertical = .{ .side = .top, .offset = .{ .percentage = 0 } },
+        .x = .{ .side = .left, .offset = .{ .percentage = 0 } },
+        .y = .{ .side = .top, .offset = .{ .percentage = 0 } },
     } },
     repeat: Repeat = .{ .repeat = .{
-        .horizontal = .repeat,
-        .vertical = .repeat,
+        .x = .repeat,
+        .y = .repeat,
     } },
 };
 

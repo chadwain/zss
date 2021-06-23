@@ -95,7 +95,7 @@ pub const Background1 = struct {
 /// and 'background-repeat'.
 pub const Background2 = struct {
     pub const Origin = enum { Padding, Border, Content };
-    pub const Position = struct { horizontal: ZssUnit = 0, vertical: ZssUnit = 0 };
+    pub const Position = struct { x: ZssUnit = 0, y: ZssUnit = 0 };
     pub const Size = struct { width: ZssUnit = 0, height: ZssUnit = 0 };
     pub const Repeat = struct {
         pub const Style = enum { None, Repeat, Space, Round };
@@ -124,7 +124,7 @@ pub const BlockLevelUsedValues = struct {
         id_of_containing_block: UsedId,
     };
 
-    pdfs_flat_tree: []UsedId,
+    structure: []UsedId,
     box_offsets: []BoxOffsets,
     borders: []Borders,
     border_colors: []BorderColor,
@@ -134,7 +134,7 @@ pub const BlockLevelUsedValues = struct {
     inline_values: []InlineValues,
 
     pub fn deinit(self: *@This(), allocator: *Allocator) void {
-        allocator.free(self.pdfs_flat_tree);
+        allocator.free(self.structure);
         allocator.free(self.box_offsets);
         allocator.free(self.borders);
         allocator.free(self.border_colors);
@@ -235,37 +235,6 @@ pub const InlineLevelUsedValues = struct {
         allocator.free(self.block_start);
         allocator.free(self.block_end);
         allocator.free(self.background1);
-    }
-
-    pub fn dump(self: *const @This()) void {
-        const p = std.debug.print;
-        p("\n", .{});
-        p("glyphs\n", .{});
-        var i: usize = 0;
-        while (i < self.glyph_indeces.len) : (i += 1) {
-            const gi = self.glyph_indeces[i];
-            if (gi == Special.glyph_index) {
-                i += 1;
-                p("{}\n", .{Special.decode(self.glyph_indeces[i])});
-            } else {
-                p("{x}\n", .{gi});
-            }
-        }
-        p("\n", .{});
-        p("metrics\n", .{});
-        i = 0;
-        while (i < self.metrics.len) : (i += 1) {
-            const metrics = self.metrics[i];
-            p("{}\n", .{metrics});
-            if (self.glyph_indeces[i] == Special.glyph_index) {
-                i += 1;
-            }
-        }
-        p("\n", .{});
-        p("line boxes\n", .{});
-        for (self.line_boxes) |l| {
-            p("{}\n", .{l});
-        }
     }
 };
 

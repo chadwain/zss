@@ -42,6 +42,9 @@ pub fn main() !u8 {
     assert(sdl.SDL_Init(sdl.SDL_INIT_VIDEO) == 0);
     defer sdl.SDL_Quit();
 
+    _ = sdl.IMG_Init(sdl.IMG_INIT_PNG | sdl.IMG_INIT_JPG);
+    defer sdl.IMG_Quit();
+
     const width = 800;
     const height = 600;
     const window = sdl.SDL_CreateWindow(
@@ -53,6 +56,14 @@ pub fn main() !u8 {
         sdl.SDL_WINDOW_SHOWN | sdl.SDL_WINDOW_RESIZABLE,
     ) orelse unreachable;
     defer sdl.SDL_DestroyWindow(window);
+
+    const renderer = sdl.SDL_CreateRenderer(
+        window,
+        -1,
+        sdl.SDL_RENDERER_ACCELERATED | sdl.SDL_RENDERER_PRESENTVSYNC,
+    ) orelse unreachable;
+    defer sdl.SDL_DestroyRenderer(renderer);
+    assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BlendMode.SDL_BLENDMODE_BLEND) == 0);
 
     const dpi = blk: {
         var horizontal: f32 = 0;
@@ -74,7 +85,7 @@ pub fn main() !u8 {
 
     assert(hb.FT_Set_Char_Size(face, 0, args.font_size * 64, dpi.horizontal, dpi.vertical) == hb.FT_Err_Ok);
 
-    try createBoxTree(&args, window, face, allocator, text);
+    try createBoxTree(&args, window, renderer, face, allocator, text);
     return 0;
 }
 
@@ -128,10 +139,7 @@ fn parseArgs(args: []const [:0]const u8) ProgramArguments {
             std.log.err("Input file not specified", .{});
             std.os.exit(1);
         },
-        .font_filename = font_filename orelse {
-            std.log.err("Font file not specified", .{});
-            std.os.exit(1);
-        },
+        .font_filename = font_filename orelse "demo/NotoSans-Regular.ttf",
         .font_size = font_size orelse @as(std.fmt.ParseIntError!u32, 12) catch |e| {
             std.log.err("Unable to parse font size: {s}", .{@errorName(e)});
             std.os.exit(1);
@@ -147,56 +155,82 @@ fn parseArgs(args: []const [:0]const u8) ProgramArguments {
     };
 }
 
-fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator, bytes: []const u8) !void {
+fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: ft.FT_Face, allocator: *Allocator, bytes: []const u8) !void {
     const font = hb.hb_ft_font_create_referenced(face) orelse unreachable;
     defer hb.hb_font_destroy(font);
     hb.hb_ft_font_set_funcs(font);
 
-    const len = 7;
-    var pdfs_flat_tree = [len]zss.box_tree.BoxId{ 7, 3, 2, 1, 3, 2, 1 };
-    const root_border_width = zss.box_tree.LogicalSize.BorderWidth{ .px = 10 };
+    const smile = sdl.IMG_LoadTexture(renderer, "demo/smile.png") orelse unreachable;
+    defer sdl.SDL_DestroyTexture(smile);
+
+    const zig_png = sdl.IMG_LoadTexture(renderer, "demo/zig.png") orelse unreachable;
+    defer sdl.SDL_DestroyTexture(zig_png);
+
+    const root_border = zss.box_tree.LogicalSize.BorderWidth{ .px = 10 };
     const root_padding = zss.box_tree.LogicalSize.Padding{ .px = 30 };
+    const root_border_color = zss.box_tree.Border.Color{ .rgba = 0xaf2233ff };
+
+    const len = 8;
+    var structure = [len]zss.box_tree.BoxId{ 8, 3, 2, 1, 3, 2, 1, 1 };
     var inline_size = [len]box_tree.LogicalSize{
-        .{ .min_size = .{ .px = 200 }, .padding_start = root_padding, .padding_end = root_padding, .border_start_width = root_border_width, .border_end_width = root_border_width },
+        .{ .min_size = .{ .px = 200 }, .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border },
         .{},
-        .{ .border_start_width = .{ .px = 10 }, .border_end_width = .{ .px = 10 }, .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } },
+        .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } },
+        .{},
         .{},
         .{},
         .{},
         .{},
     };
     var block_size = [len]box_tree.LogicalSize{
-        .{ .padding_start = root_padding, .padding_end = root_padding, .border_start_width = root_border_width, .border_end_width = root_border_width },
-        .{ .border_end_width = .{ .px = 2 }, .margin_end = .{ .px = 24 } },
-        .{ .border_start_width = .{ .px = 10 }, .border_end_width = .{ .px = 3 }, .padding_end = .{ .px = 5 } },
+        .{ .padding_start = root_padding, .padding_end = .{ .px = 12 }, .border_start = root_border, .border_end = root_border },
+        .{ .border_end = .{ .px = 2 }, .margin_end = .{ .px = 24 } },
+        .{ .padding_end = .{ .px = 5 } },
         .{},
         .{},
-        .{ .border_end_width = .{ .px = 2 } },
         .{},
+        .{},
+        .{ .size = .{ .px = 50 }, .margin_start = .{ .px = 10 } },
     };
-    var display = [len]box_tree.Display{ .{ .block_flow = {} }, .{ .block_flow = {} }, .{ .inline_flow = {} }, .{ .text = {} }, .{ .block_flow = {} }, .{ .inline_flow = {} }, .{ .text = {} } };
-    var latin1_text = [len]box_tree.Latin1Text{ .{}, .{}, .{}, .{ .text = args.filename }, .{}, .{}, .{ .text = bytes } };
-    const root_border_color = zss.box_tree.Border.Color{ .rgba = 0xaf2233ff };
+    var display = [len]box_tree.Display{ .{ .block_flow = {} }, .{ .block_flow = {} }, .{ .inline_flow = {} }, .{ .text = {} }, .{ .block_flow = {} }, .{ .inline_flow = {} }, .{ .text = {} }, .{ .block_flow = {} } };
+    var latin1_text = [len]box_tree.Latin1Text{ .{}, .{}, .{}, .{ .text = args.filename }, .{}, .{}, .{ .text = bytes }, .{} };
     var border = [len]box_tree.Border{
         .{ .inline_start_color = root_border_color, .inline_end_color = root_border_color, .block_start_color = root_border_color, .block_end_color = root_border_color },
         .{ .block_end_color = .{ .rgba = 0x202020ff } },
-        .{ .inline_start_color = .{ .rgba = 0x40a830ff }, .inline_end_color = .{ .rgba = 0x3040a0ff }, .block_start_color = root_border_color, .block_end_color = root_border_color },
         .{},
         .{},
-        .{ .block_end_color = .{ .rgba = 0xca40caff } },
+        .{},
+        .{},
+        .{},
         .{},
     };
     var background = [len]box_tree.Background{
+        .{
+            .image = .{ .object = zss.sdl_freetype.textureAsBackgroundImageObject(smile) },
+            .position = .{ .position = .{
+                .x = .{ .side = .right, .offset = .{ .percentage = 0 } },
+                .y = .{ .side = .top, .offset = .{ .px = 10 } },
+            } },
+            .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
+        },
+        .{},
+        .{ .color = .{ .rgba = 0xfa58007f }, .clip = .{ .padding_box = {} } },
         .{},
         .{},
-        .{ .color = .{ .rgba = 0x3030707f }, .clip = .{ .padding_box = {} } },
         .{},
         .{},
-        .{},
-        .{},
+        .{
+            .image = .{ .object = zss.sdl_freetype.textureAsBackgroundImageObject(zig_png) },
+            .position = .{ .position = .{
+                .x = .{ .side = .left, .offset = .{ .percentage = 0.5 } },
+                .y = .{ .side = .top, .offset = .{ .percentage = 0.5 } },
+            } },
+            .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
+            .size = .{ .contain = {} },
+        },
     };
     var tree = box_tree.BoxTree{
-        .pdfs_flat_tree = &pdfs_flat_tree,
+        .structure = &structure,
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
@@ -206,7 +240,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, face: f
         .font = .{ .font = font, .color = .{ .rgba = (@as(u32, args.text_color) << 8) | 0xff } },
     };
 
-    try sdlMainLoop(args, window, face, allocator, &tree);
+    try sdlMainLoop(args, window, renderer, face, allocator, &tree);
 }
 
 const ProgramState = struct {
@@ -254,17 +288,9 @@ const ProgramState = struct {
     }
 };
 
-fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, face: ft.FT_Face, allocator: *Allocator, tree: *box_tree.BoxTree) !void {
+fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: ft.FT_Face, allocator: *Allocator, tree: *box_tree.BoxTree) !void {
     const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
-
-    const renderer = sdl.SDL_CreateRenderer(
-        window,
-        -1,
-        sdl.SDL_RENDERER_ACCELERATED | sdl.SDL_RENDERER_PRESENTVSYNC,
-    ) orelse unreachable;
-    defer sdl.SDL_DestroyRenderer(renderer);
-    assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BlendMode.SDL_BLENDMODE_BLEND) == 0);
 
     var ps = try ProgramState.init(tree, window, renderer, pixel_format, face, allocator);
     defer ps.deinit(allocator);
@@ -299,6 +325,14 @@ fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, face: ft.
                         },
                         sdl.SDLK_DOWN => {
                             ps.scroll_y += scroll_speed;
+                            if (ps.scroll_y > ps.max_scroll_y) ps.scroll_y = ps.max_scroll_y;
+                        },
+                        sdl.SDLK_PAGEUP => {
+                            ps.scroll_y -= ps.height;
+                            if (ps.scroll_y < 0) ps.scroll_y = 0;
+                        },
+                        sdl.SDLK_PAGEDOWN => {
+                            ps.scroll_y += ps.height;
                             if (ps.scroll_y > ps.max_scroll_y) ps.scroll_y = ps.max_scroll_y;
                         },
                         sdl.SDLK_HOME => {
