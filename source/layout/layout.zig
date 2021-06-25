@@ -676,7 +676,7 @@ test "block used values" {
     //    .{},
     //};
     var latin1_text = [_]computed.Latin1Text{.{ .text = "" }} ** len;
-    var font = computed.Font{ .font = null };
+    var font = computed.Font{ .font = hb.hb_font_get_empty().? };
     var border = [_]computed.Border{.{}} ** len;
     var background = [_]computed.Background{.{}} ** len;
     var context = try BlockLevelLayoutContext.init(
@@ -830,7 +830,7 @@ fn createInlineLevelUsedValues(context: *InlineLevelLayoutContext, values_alloca
         }
     }
 
-    values.font = context.box_tree.font.font.?;
+    values.font = context.box_tree.font.font;
     values.font_color_rgba = switch (context.box_tree.font.color) {
         .rgba => |rgba| rgba,
     };
@@ -909,34 +909,34 @@ fn addText(values: *IntermediateInlineLevelUsedValues, latin1_text: computed.Lat
         const codepoint = latin1_text.text[run_end];
         switch (codepoint) {
             '\n' => {
-                try endTextRun(values, latin1_text, buffer, font, run_begin, run_end);
+                try endTextRun(values, latin1_text, buffer, font.font, run_begin, run_end);
                 try addLineBreak(values);
                 run_begin = run_end + 1;
             },
             '\r' => {
-                try endTextRun(values, latin1_text, buffer, font, run_begin, run_end);
+                try endTextRun(values, latin1_text, buffer, font.font, run_begin, run_end);
                 try addLineBreak(values);
                 run_end += @boolToInt(run_end + 1 < latin1_text.text.len and latin1_text.text[run_end + 1] == '\n');
                 run_begin = run_end + 1;
             },
             '\t' => {
-                try endTextRun(values, latin1_text, buffer, font, run_begin, run_end);
+                try endTextRun(values, latin1_text, buffer, font.font, run_begin, run_end);
                 run_begin = run_end + 1;
                 // TODO tab size should be determined by the 'tab-size' property
                 const tab_size = 8;
                 hb.hb_buffer_add_latin1(buffer, " " ** tab_size, tab_size, 0, tab_size);
                 if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
-                try addTextRun(values, buffer, font);
+                try addTextRun(values, buffer, font.font);
                 assert(hb.hb_buffer_set_length(buffer, 0) != 0);
             },
             else => {},
         }
     }
 
-    try endTextRun(values, latin1_text, buffer, font, run_begin, run_end);
+    try endTextRun(values, latin1_text, buffer, font.font, run_begin, run_end);
 }
 
-fn endTextRun(values: *IntermediateInlineLevelUsedValues, latin1_text: computed.Latin1Text, buffer: *hb.hb_buffer_t, font: computed.Font, run_begin: usize, run_end: usize) !void {
+fn endTextRun(values: *IntermediateInlineLevelUsedValues, latin1_text: computed.Latin1Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
     if (run_end > run_begin) {
         hb.hb_buffer_add_latin1(buffer, latin1_text.text.ptr, @intCast(c_int, latin1_text.text.len), @intCast(c_uint, run_begin), @intCast(c_int, run_end - run_begin));
         if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
@@ -945,8 +945,8 @@ fn endTextRun(values: *IntermediateInlineLevelUsedValues, latin1_text: computed.
     }
 }
 
-fn addTextRun(values: *IntermediateInlineLevelUsedValues, buffer: *hb.hb_buffer_t, font: computed.Font) !void {
-    hb.hb_shape(font.font.?, buffer, 0, 0);
+fn addTextRun(values: *IntermediateInlineLevelUsedValues, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t) !void {
+    hb.hb_shape(font, buffer, 0, 0);
     const glyph_infos = blk: {
         var n: c_uint = 0;
         const p = hb.hb_buffer_get_glyph_infos(buffer, &n);
@@ -966,7 +966,7 @@ fn addTextRun(values: *IntermediateInlineLevelUsedValues, buffer: *hb.hb_buffer_
 
     for (glyph_infos) |info, i| {
         const pos = glyph_positions[i];
-        const extents_result = hb.hb_font_get_glyph_extents(font.font.?, info.codepoint, &extents);
+        const extents_result = hb.hb_font_get_glyph_extents(font, info.codepoint, &extents);
         const width = if (extents_result != 0) extents.width else 0;
         values.glyph_indeces.appendAssumeCapacity(info.codepoint);
         values.metrics.appendAssumeCapacity(.{ .offset = @divFloor(pos.x_offset * unitsPerPixel, 64), .advance = @divFloor(pos.x_advance * unitsPerPixel, 64), .width = @divFloor(width * unitsPerPixel, 64) });
@@ -1162,7 +1162,7 @@ test "inline used values" {
         .{ .text = {} },
     };
     var latin1_text = [len]computed.Latin1Text{ .{}, .{ .text = "hello world" } };
-    var font = computed.Font{ .font = hb_font };
+    var font = computed.Font{ .font = hb_font.? };
     var border = [_]computed.Border{.{}} ** len;
     var background = [_]computed.Background{.{}} ** len;
     const tree = BoxTree{

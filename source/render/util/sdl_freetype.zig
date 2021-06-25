@@ -76,7 +76,7 @@ pub const GlyphAtlas = struct {
         } else {
             if (self.next_slot >= 256) return error.OutOfGlyphSlots;
 
-            assert(ft.FT_Load_Glyph(self.face, glyph_index, ft.FT_LOAD_DEFAULT | ft.FT_LOAD_NO_HINTING) == ft.FT_Err_Ok);
+            assert(ft.FT_Load_Glyph(self.face, glyph_index, ft.FT_LOAD_DEFAULT) == ft.FT_Err_Ok);
             assert(ft.FT_Render_Glyph(self.face.*.glyph, ft.FT_Render_Mode.FT_RENDER_MODE_NORMAL) == ft.FT_Err_Ok);
             const bitmap = self.face.*.glyph.*.bitmap;
             assert(bitmap.width <= self.max_glyph_width and bitmap.rows <= self.max_glyph_height);

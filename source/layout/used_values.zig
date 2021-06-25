@@ -8,7 +8,7 @@ const zss = @import("../../zss.zig");
 pub const ZssUnit = i32;
 
 ///The number of ZssUnits contained wthin 1 screen pixel.
-pub const unitsPerPixel = 4;
+pub const unitsPerPixel = 1;
 
 /// A floating point number usually between 0 and 1, but it can
 /// exceed these values.
@@ -179,8 +179,28 @@ pub const InlineLevelUsedValues = struct {
     // NOTE Not making this an extern struct keeps crashing compiler
     pub const Special = extern struct {
         pub const glyph_index = 0;
-        pub const Meaning = extern enum(u16) { LiteralGlyphIndex, BoxStart, BoxEnd, _ };
-        pub const LayoutInternalMeaning = extern enum(u16) { LiteralGlyphIndex, BoxStart, BoxEnd, LineBreak };
+        pub const Meaning = extern enum(u16) {
+            /// Represents a glyph index of `glyph_index`.
+            /// data has no meaning.
+            LiteralGlyphIndex,
+            /// Represents an inline box's start fragment.
+            /// data is the used id of the box.
+            BoxStart,
+            /// Represents an inline box's end fragment.
+            /// data is the used id of the box.
+            BoxEnd,
+            _,
+        };
+
+        pub const LayoutInternalMeaning = extern enum(u16) {
+            // The explanations for some of these are above.
+            LiteralGlyphIndex,
+            BoxStart,
+            BoxEnd,
+            /// Represents a mandatory line break in the text.
+            /// data has no meaning.
+            LineBreak,
+        };
 
         comptime {
             for (std.meta.fields(Meaning)) |f| {
@@ -213,7 +233,6 @@ pub const InlineLevelUsedValues = struct {
     };
 
     pub const Metrics = struct {
-        // NOTE It seems that offset is 0 almost all the time, maybe no need to record it.
         offset: ZssUnit,
         advance: ZssUnit,
         width: ZssUnit,
@@ -222,16 +241,17 @@ pub const InlineLevelUsedValues = struct {
     glyph_indeces: []hb.hb_codepoint_t,
     metrics: []Metrics,
     line_boxes: []LineBox,
+
     font: *hb.hb_font_t,
     font_color_rgba: u32,
+    ascender: ZssUnit,
+    descender: ZssUnit,
 
     inline_start: []BoxProperties,
     inline_end: []BoxProperties,
     block_start: []BoxProperties,
     block_end: []BoxProperties,
     background1: []Background1,
-    ascender: ZssUnit,
-    descender: ZssUnit,
 
     pub fn deinit(self: *@This(), allocator: *Allocator) void {
         allocator.free(self.glyph_indeces);
@@ -245,6 +265,7 @@ pub const InlineLevelUsedValues = struct {
     }
 };
 
+/// The final result of layout.
 pub const Document = struct {
     block_values: BlockLevelUsedValues,
 

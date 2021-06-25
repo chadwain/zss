@@ -1,16 +1,31 @@
 /// Defines the structure of the document, and also contains the
 /// computed values of every property for each box in the document.
 pub const BoxTree = struct {
+    // To use BoxTree, you must know how your document would be laid out as a tree data structure.
+    // The "structure" field represents that tree as a flat array.
+    // It can be generated in the following way.
+    //
+    // 1. Start with an empty array.
+    // 2. Perform a pre-order depth first iteration of your document tree.
+    // 3. For each node, append S to the array, where S is the size of that node's subtree.
+    //    (A node's subtree includes itself, so S should always be at least 1.)
+    //    The index into the array in which you inserted S becomes this node's "box id".
+    //
+    // Now, for each element, you must fill in its CSS properties using the other arrays
+    // in this struct, and using the "box id" as the index into those arrays.
+    // Note that because this struct uses just slices instead of maps/sets at the moment,
+    // *every single property* of *every single element* must be filled in (even if you
+    // just use the defaults).
+
     structure: []BoxId,
     display: []Display,
     inline_size: []LogicalSize,
     block_size: []LogicalSize,
     latin1_text: []Latin1Text,
-    // Only 1 font at a time can be set.
-    font: Font,
     border: []Border,
     background: []Background,
-    //position_inset: []PositionInset,
+    // zss is currently limited to just 1 font per document.
+    font: Font,
 };
 
 pub const BoxId = u16;
@@ -90,8 +105,8 @@ pub const Font = struct {
         rgba: u32,
     };
 
-    font: ?*hb.hb_font_t,
-    color: Color = .{ .rgba = 0xffffffff },
+    font: *hb.hb_font_t,
+    color: Color = .{ .rgba = 0x000000ff },
 };
 
 pub const Background = struct {
@@ -135,8 +150,8 @@ pub const Background = struct {
         };
 
         size: struct {
-            width: SizeType,
-            height: SizeType,
+            width: SizeType = .{ .auto = {} },
+            height: SizeType = .{ .auto = {} },
         },
         contain,
         cover,
@@ -146,24 +161,26 @@ pub const Background = struct {
             px: f32,
             percentage: f32,
         };
+        pub const SideX = enum { left, right };
+        pub const SideY = enum { top, bottom };
 
         position: struct {
             x: struct {
-                side: enum { left, right },
-                offset: Offset,
-            },
+                side: SideX = .left,
+                offset: Offset = .{ .percentage = 0 },
+            } = .{},
             y: struct {
-                side: enum { top, bottom },
-                offset: Offset,
-            },
+                side: SideY = .top,
+                offset: Offset = .{ .percentage = 0 },
+            } = .{},
         },
     };
     pub const Repeat = union(enum) {
-        pub const Style = enum { repeat, space, round, no_repeat };
+        pub const Style = enum { repeat, no_repeat, space, round };
 
         repeat: struct {
-            x: Style,
-            y: Style,
+            x: Style = .repeat,
+            y: Style = .repeat,
         },
     };
 
@@ -171,18 +188,9 @@ pub const Background = struct {
     color: Color = .{ .rgba = 0 },
     clip: Clip = .{ .border_box = {} },
     origin: Origin = .{ .padding_box = {} },
-    size: Size = .{ .size = .{
-        .width = .{ .auto = {} },
-        .height = .{ .auto = {} },
-    } },
-    position: Position = .{ .position = .{
-        .x = .{ .side = .left, .offset = .{ .percentage = 0 } },
-        .y = .{ .side = .top, .offset = .{ .percentage = 0 } },
-    } },
-    repeat: Repeat = .{ .repeat = .{
-        .x = .repeat,
-        .y = .repeat,
-    } },
+    size: Size = .{ .size = .{} },
+    position: Position = .{ .position = .{} },
+    repeat: Repeat = .{ .repeat = .{} },
 };
 
 pub const Border = struct {

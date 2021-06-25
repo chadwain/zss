@@ -1,3 +1,10 @@
+//! This demo program shows how one might use zss.
+//! This program takes as input the name of some text file on your computer,
+//! and displays the contents of that file in a graphical window.
+//! The window can be resized, and you can use the Up, Down, PageUp, PageDown
+//! Home, and End keys to navigate.
+//!
+//! To see a roughly equivalent HTML document, see demo.html.
 const std = @import("std");
 const fs = std.fs;
 const assert = std.debug.assert;
@@ -65,25 +72,18 @@ pub fn main() !u8 {
     defer sdl.SDL_DestroyRenderer(renderer);
     assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BlendMode.SDL_BLENDMODE_BLEND) == 0);
 
-    const dpi = blk: {
-        var horizontal: f32 = 0;
-        var vertical: f32 = 0;
-        if (sdl.SDL_GetDisplayDPI(0, null, &horizontal, &vertical) != 0) {
-            horizontal = 96;
-            vertical = 96;
-        }
-        break :blk .{ .horizontal = @floatToInt(hb.FT_UInt, horizontal), .vertical = @floatToInt(hb.FT_UInt, vertical) };
-    };
-
     var library: hb.FT_Library = undefined;
     assert(hb.FT_Init_FreeType(&library) == hb.FT_Err_Ok);
     defer assert(hb.FT_Done_FreeType(library) == hb.FT_Err_Ok);
 
     var face: hb.FT_Face = undefined;
-    assert(hb.FT_New_Face(library, args.font_filename, 0, &face) == hb.FT_Err_Ok);
+    if (hb.FT_New_Face(library, args.font_filename, 0, &face) != hb.FT_Err_Ok) {
+        std.log.err("Error loading font file: {s}", .{args.font_filename});
+        return 1;
+    }
     defer assert(hb.FT_Done_Face(face) == hb.FT_Err_Ok);
 
-    assert(hb.FT_Set_Char_Size(face, 0, args.font_size * 64, dpi.horizontal, dpi.vertical) == hb.FT_Err_Ok);
+    assert(hb.FT_Set_Char_Size(face, 0, args.font_size * 64, 96, 96) == hb.FT_Err_Ok);
 
     try createBoxTree(&args, window, renderer, face, allocator, text);
     return 0;
@@ -93,8 +93,8 @@ const ProgramArguments = struct {
     filename: [:0]const u8,
     font_filename: [:0]const u8,
     font_size: u32,
-    text_color: u24,
-    bg_color: u24,
+    text_color: u32,
+    bg_color: u32,
 };
 
 fn parseArgs(args: []const [:0]const u8) ProgramArguments {
@@ -140,18 +140,18 @@ fn parseArgs(args: []const [:0]const u8) ProgramArguments {
             std.os.exit(1);
         },
         .font_filename = font_filename orelse "demo/NotoSans-Regular.ttf",
-        .font_size = font_size orelse @as(std.fmt.ParseIntError!u32, 12) catch |e| {
+        .font_size = font_size orelse @as(std.fmt.ParseIntError!u32, 14) catch |e| {
             std.log.err("Unable to parse font size: {s}", .{@errorName(e)});
             std.os.exit(1);
         },
-        .text_color = text_color orelse @as(std.fmt.ParseIntError!u24, 0x101010) catch |e| {
+        .text_color = @as(u32, text_color orelse @as(std.fmt.ParseIntError!u24, 0x101010) catch |e| {
             std.log.err("Unable to parse text color: {s}", .{@errorName(e)});
             std.os.exit(1);
-        },
-        .bg_color = bg_color orelse @as(std.fmt.ParseIntError!u24, 0xeeeeee) catch |e| {
+        }) << 8 | 0xff,
+        .bg_color = @as(u32, bg_color orelse @as(std.fmt.ParseIntError!u24, 0xeeeeee) catch |e| {
             std.log.err("Unable to parse background color: {s}", .{@errorName(e)});
             std.os.exit(1);
-        },
+        }) << 8 | 0xff,
     };
 }
 
@@ -160,10 +160,10 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     defer hb.hb_font_destroy(font);
     hb.hb_ft_font_set_funcs(font);
 
-    const smile = sdl.IMG_LoadTexture(renderer, "demo/smile.png") orelse unreachable;
+    const smile = sdl.IMG_LoadTexture(renderer, "demo/smile.png") orelse return error.ResourceNotFound;
     defer sdl.SDL_DestroyTexture(smile);
 
-    const zig_png = sdl.IMG_LoadTexture(renderer, "demo/zig.png") orelse unreachable;
+    const zig_png = sdl.IMG_LoadTexture(renderer, "demo/zig.png") orelse return error.ResourceNotFound;
     defer sdl.SDL_DestroyTexture(zig_png);
 
     const root_border = zss.box_tree.LogicalSize.BorderWidth{ .px = 10 };
@@ -192,8 +192,26 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .{},
         .{ .size = .{ .px = 50 }, .margin_start = .{ .px = 10 } },
     };
-    var display = [len]box_tree.Display{ .{ .block_flow = {} }, .{ .block_flow = {} }, .{ .inline_flow = {} }, .{ .text = {} }, .{ .block_flow = {} }, .{ .inline_flow = {} }, .{ .text = {} }, .{ .block_flow = {} } };
-    var latin1_text = [len]box_tree.Latin1Text{ .{}, .{}, .{}, .{ .text = args.filename }, .{}, .{}, .{ .text = bytes }, .{} };
+    var display = [len]box_tree.Display{
+        .{ .block_flow = {} },
+        .{ .block_flow = {} },
+        .{ .inline_flow = {} },
+        .{ .text = {} },
+        .{ .block_flow = {} },
+        .{ .inline_flow = {} },
+        .{ .text = {} },
+        .{ .block_flow = {} },
+    };
+    var latin1_text = [len]box_tree.Latin1Text{
+        .{},
+        .{},
+        .{},
+        .{ .text = args.filename },
+        .{},
+        .{},
+        .{ .text = bytes },
+        .{},
+    };
     var border = [len]box_tree.Border{
         .{ .inline_start_color = root_border_color, .inline_end_color = root_border_color, .block_start_color = root_border_color, .block_end_color = root_border_color },
         .{ .block_end_color = .{ .rgba = 0x202020ff } },
@@ -208,13 +226,17 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .{
             .image = .{ .object = zss.sdl_freetype.textureAsBackgroundImageObject(smile) },
             .position = .{ .position = .{
-                .x = .{ .side = .right, .offset = .{ .percentage = 0 } },
-                .y = .{ .side = .top, .offset = .{ .px = 10 } },
+                .x = .{ .side = .right },
+                .y = .{ .offset = .{ .px = 10 } },
             } },
             .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
+            // Instead of giving the root element a background color (which would
+            // constrain the color to its box), its background color is later drawn manually
+            // over the entire window.
+            //.color = .{ .rgba = args.bg_color },
         },
         .{},
-        .{ .color = .{ .rgba = 0xfa58007f }, .clip = .{ .padding_box = {} } },
+        .{ .color = .{ .rgba = 0xfa58007f } },
         .{},
         .{},
         .{},
@@ -222,8 +244,8 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .{
             .image = .{ .object = zss.sdl_freetype.textureAsBackgroundImageObject(zig_png) },
             .position = .{ .position = .{
-                .x = .{ .side = .left, .offset = .{ .percentage = 0.5 } },
-                .y = .{ .side = .top, .offset = .{ .percentage = 0.5 } },
+                .x = .{ .offset = .{ .percentage = 0.5 } },
+                .y = .{ .offset = .{ .percentage = 0.5 } },
             } },
             .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
             .size = .{ .contain = {} },
@@ -237,7 +259,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .latin1_text = &latin1_text,
         .border = &border,
         .background = &background,
-        .font = .{ .font = font, .color = .{ .rgba = (@as(u32, args.text_color) << 8) | 0xff } },
+        .font = .{ .font = font, .color = .{ .rgba = args.text_color } },
     };
 
     try sdlMainLoop(args, window, renderer, face, allocator, &tree);
@@ -366,7 +388,7 @@ fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer:
             .x = 0,
             .y = -ps.scroll_y,
         };
-        zss.sdl_freetype.drawBackgroundColor(renderer, pixel_format, viewport_rect, (@as(u32, args.bg_color) << 8) | 0xff);
+        zss.sdl_freetype.drawBackgroundColor(renderer, pixel_format, viewport_rect, args.bg_color);
         try zss.sdl_freetype.renderDocument(&ps.document, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
         sdl.SDL_RenderPresent(renderer);
 
