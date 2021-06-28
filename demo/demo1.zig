@@ -11,8 +11,9 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const zss = @import("zss");
-const box_tree = zss.box_tree;
-const pixelToZssUnit = zss.sdl_freetype.pixelToZssUnit;
+const BoxTree = zss.BoxTree;
+const sdlft = zss.render.sdl_freetype;
+const pixelToZssUnit = sdlft.pixelToZssUnit;
 
 const sdl = @import("SDL2");
 const ft = @import("freetype");
@@ -166,13 +167,13 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     const zig_png = sdl.IMG_LoadTexture(renderer, "demo/zig.png") orelse return error.ResourceNotFound;
     defer sdl.SDL_DestroyTexture(zig_png);
 
-    const root_border = zss.box_tree.LogicalSize.BorderWidth{ .px = 10 };
-    const root_padding = zss.box_tree.LogicalSize.Padding{ .px = 30 };
-    const root_border_color = zss.box_tree.Border.Color{ .rgba = 0xaf2233ff };
+    const root_border = BoxTree.LogicalSize.BorderWidth{ .px = 10 };
+    const root_padding = BoxTree.LogicalSize.Padding{ .px = 30 };
+    const root_border_color = BoxTree.Border.Color{ .rgba = 0xaf2233ff };
 
     const len = 8;
-    var structure = [len]zss.box_tree.BoxId{ 8, 3, 2, 1, 3, 2, 1, 1 };
-    var inline_size = [len]box_tree.LogicalSize{
+    var structure = [len]BoxTree.BoxId{ 8, 3, 2, 1, 3, 2, 1, 1 };
+    var inline_size = [len]BoxTree.LogicalSize{
         .{ .min_size = .{ .px = 200 }, .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border },
         .{},
         .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } },
@@ -182,7 +183,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .{},
         .{},
     };
-    var block_size = [len]box_tree.LogicalSize{
+    var block_size = [len]BoxTree.LogicalSize{
         .{ .padding_start = root_padding, .padding_end = .{ .px = 12 }, .border_start = root_border, .border_end = root_border },
         .{ .border_end = .{ .px = 2 }, .margin_end = .{ .px = 24 } },
         .{ .padding_end = .{ .px = 5 } },
@@ -192,7 +193,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .{},
         .{ .size = .{ .px = 50 }, .margin_start = .{ .px = 10 } },
     };
-    var display = [len]box_tree.Display{
+    var display = [len]BoxTree.Display{
         .{ .block_flow = {} },
         .{ .block_flow = {} },
         .{ .inline_flow = {} },
@@ -202,7 +203,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .{ .text = {} },
         .{ .block_flow = {} },
     };
-    var latin1_text = [len]box_tree.Latin1Text{
+    var latin1_text = [len]BoxTree.Latin1Text{
         .{},
         .{},
         .{},
@@ -212,7 +213,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .{ .text = bytes },
         .{},
     };
-    var border = [len]box_tree.Border{
+    var border = [len]BoxTree.Border{
         .{ .inline_start_color = root_border_color, .inline_end_color = root_border_color, .block_start_color = root_border_color, .block_end_color = root_border_color },
         .{ .block_end_color = .{ .rgba = 0x202020ff } },
         .{},
@@ -222,9 +223,9 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .{},
         .{},
     };
-    var background = [len]box_tree.Background{
+    var background = [len]BoxTree.Background{
         .{
-            .image = .{ .object = zss.sdl_freetype.textureAsBackgroundImageObject(smile) },
+            .image = .{ .object = sdlft.textureAsBackgroundImageObject(smile) },
             .position = .{ .position = .{
                 .x = .{ .side = .right },
                 .y = .{ .offset = .{ .px = 10 } },
@@ -242,7 +243,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .{},
         .{},
         .{
-            .image = .{ .object = zss.sdl_freetype.textureAsBackgroundImageObject(zig_png) },
+            .image = .{ .object = sdlft.textureAsBackgroundImageObject(zig_png) },
             .position = .{ .position = .{
                 .x = .{ .offset = .{ .percentage = 0.5 } },
                 .y = .{ .offset = .{ .percentage = 0.5 } },
@@ -251,7 +252,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
             .size = .{ .contain = {} },
         },
     };
-    var tree = box_tree.BoxTree{
+    var tree = BoxTree{
         .structure = &structure,
         .inline_size = &inline_size,
         .block_size = &block_size,
@@ -266,9 +267,9 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
 }
 
 const ProgramState = struct {
-    tree: *const box_tree.BoxTree,
+    tree: *const BoxTree,
     document: zss.used_values.Document,
-    atlas: zss.sdl_freetype.GlyphAtlas,
+    atlas: sdlft.GlyphAtlas,
     width: c_int,
     height: c_int,
     scroll_y: c_int,
@@ -276,7 +277,7 @@ const ProgramState = struct {
 
     const Self = @This();
 
-    fn init(tree: *const box_tree.BoxTree, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, face: hb.FT_Face, allocator: *Allocator) !Self {
+    fn init(tree: *const BoxTree, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, face: hb.FT_Face, allocator: *Allocator) !Self {
         var result = @as(Self, undefined);
 
         result.tree = tree;
@@ -285,7 +286,7 @@ const ProgramState = struct {
         result.document = try zss.layout.doLayout(tree, allocator, allocator, pixelToZssUnit(result.width), pixelToZssUnit(result.height));
         errdefer result.document.deinit(allocator);
 
-        result.atlas = try zss.sdl_freetype.GlyphAtlas.init(face, renderer, pixel_format, allocator);
+        result.atlas = try sdlft.GlyphAtlas.init(face, renderer, pixel_format, allocator);
         errdefer result.atlas.deinit(allocator);
 
         result.updateMaxScroll();
@@ -305,12 +306,12 @@ const ProgramState = struct {
     }
 
     fn updateMaxScroll(self: *Self) void {
-        self.max_scroll_y = std.math.max(0, zss.sdl_freetype.zssUnitToPixel(self.document.block_values.box_offsets[0].border_end.block_dir) - self.height);
+        self.max_scroll_y = std.math.max(0, sdlft.zssUnitToPixel(self.document.block_values.box_offsets[0].border_end.block_dir) - self.height);
         self.scroll_y = std.math.clamp(self.scroll_y, 0, self.max_scroll_y);
     }
 };
 
-fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: ft.FT_Face, allocator: *Allocator, tree: *box_tree.BoxTree) !void {
+fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: ft.FT_Face, allocator: *Allocator, tree: *BoxTree) !void {
     const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
 
@@ -388,8 +389,8 @@ fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer:
             .x = 0,
             .y = -ps.scroll_y,
         };
-        zss.sdl_freetype.drawBackgroundColor(renderer, pixel_format, viewport_rect, args.bg_color);
-        try zss.sdl_freetype.renderDocument(&ps.document, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
+        sdlft.drawBackgroundColor(renderer, pixel_format, viewport_rect, args.bg_color);
+        try sdlft.renderDocument(&ps.document, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
         sdl.SDL_RenderPresent(renderer);
 
         const frame_time = timer.lap();

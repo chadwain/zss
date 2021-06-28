@@ -105,7 +105,7 @@ pub fn rgbaMap(pixel_format: *sdl.SDL_PixelFormat, color: u32) [4]u8 {
 }
 
 const bg_image_fns = struct {
-    fn getNaturalSize(data: *zss.box_tree.Background.Image.Object.Data) zss.box_tree.Background.Image.Object.Dimensions {
+    fn getNaturalSize(data: *zss.BoxTree.Background.Image.Object.Data) zss.BoxTree.Background.Image.Object.Dimensions {
         const texture = @ptrCast(*sdl.SDL_Texture, data);
         var width: c_int = undefined;
         var height: c_int = undefined;
@@ -114,9 +114,9 @@ const bg_image_fns = struct {
     }
 };
 
-pub fn textureAsBackgroundImageObject(texture: *sdl.SDL_Texture) zss.box_tree.Background.Image.Object {
+pub fn textureAsBackgroundImageObject(texture: *sdl.SDL_Texture) zss.BoxTree.Background.Image.Object {
     return .{
-        .data = @ptrCast(*zss.box_tree.Background.Image.Object.Data, texture),
+        .data = @ptrCast(*zss.BoxTree.Background.Image.Object.Data, texture),
         .getNaturalSizeFn = bg_image_fns.getNaturalSize,
     };
 }

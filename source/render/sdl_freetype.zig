@@ -90,11 +90,11 @@ pub fn drawInlineValues(
             const metrics = values.metrics[i];
             defer cursor += metrics.advance;
 
-            if (glyph_index == InlineLevelUsedValues.Special.glyph_index) blk: {
+            if (glyph_index == 0) blk: {
                 i += 1;
                 const special = InlineLevelUsedValues.Special.decode(values.glyph_indeces[i]);
-                switch (special.meaning) {
-                    .LiteralGlyphIndex => break :blk,
+                switch (special.kind) {
+                    .ZeroGlyphIndex => break :blk,
                     .BoxStart => {
                         const match_info = findMatchingBoxEnd(values.glyph_indeces[i + 1 .. line_box.elements[1]], values.metrics[i + 1 .. line_box.elements[1]], special.data);
                         util.drawInlineBox(
@@ -149,10 +149,10 @@ fn findMatchingBoxEnd(glyph_indeces: []const hb.hb_codepoint_t, metrics: []const
         const glyph_index = glyph_indeces[i];
         const metric = metrics[i];
 
-        if (glyph_index == InlineLevelUsedValues.Special.glyph_index) {
+        if (glyph_index == 0) {
             i += 1;
             const special = InlineLevelUsedValues.Special.decode(glyph_indeces[i]);
-            if (special.meaning == .BoxEnd and special.data == used_id) {
+            if (special.kind == .BoxEnd and special.data == used_id) {
                 found = true;
                 break;
             }

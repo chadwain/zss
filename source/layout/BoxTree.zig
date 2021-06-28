@@ -1,32 +1,31 @@
-/// Defines the structure of the document, and also contains the
-/// computed values of every property for each box in the document.
-pub const BoxTree = struct {
-    // To use BoxTree, you must know how your document would be laid out as a tree data structure.
-    // The "structure" field represents that tree as a flat array.
-    // It can be generated in the following way.
-    //
-    // 1. Start with an empty array.
-    // 2. Perform a pre-order depth first iteration of your document tree.
-    // 3. For each node, append S to the array, where S is the size of that node's subtree.
-    //    (A node's subtree includes itself, so S should always be at least 1.)
-    //    The index into the array in which you inserted S becomes this node's "box id".
-    //
-    // Now, for each element, you must fill in its CSS properties using the other arrays
-    // in this struct, and using the "box id" as the index into those arrays.
-    // Note that because this struct uses just slices instead of maps/sets at the moment,
-    // *every single property* of *every single element* must be filled in (even if you
-    // just use the defaults).
+//! Defines the structure of the document, and also contains the
+//! computed values of every property for each box in the document.
+//!
+//! To use BoxTree, you must know how your document would be laid out as a tree data structure.
+//! The "structure" field represents that tree as a flat array.
+//! It can be generated in the following way.
+//!
+//! 1. Start with an empty array.
+//! 2. Perform a pre-order depth first iteration of your document tree.
+//! 3. For each node, append S to the array, where S is the size of that node's subtree.
+//!    (A node's subtree includes itself, so S should always be at least 1.)
+//!    The index into the array in which you inserted S becomes this node's "box id".
+//!
+//! Now, for each element, you must fill in its CSS properties using the other arrays
+//! in this struct, and using the "box id" as the index into those arrays.
+//! Note that because this struct uses just slices instead of maps/sets at the moment,
+//! *every single property* of *every single element* must be filled in (even if you
+//! just use the defaults).
 
-    structure: []BoxId,
-    display: []Display,
-    inline_size: []LogicalSize,
-    block_size: []LogicalSize,
-    latin1_text: []Latin1Text,
-    border: []Border,
-    background: []Background,
-    // zss is currently limited to just 1 font per document.
-    font: Font,
-};
+structure: []BoxId,
+display: []Display,
+inline_size: []LogicalSize,
+block_size: []LogicalSize,
+latin1_text: []Latin1Text,
+border: []Border,
+background: []Background,
+// zss is currently limited to just 1 font per document.
+font: Font,
 
 pub const BoxId = u16;
 

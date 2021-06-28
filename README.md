@@ -11,6 +11,23 @@ This library is distributed in the hope that it will be useful, but WITHOUT ANY 
 
 You should have received a copy of the GNU General Public License along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
+## Project structure
+Right now zss is organized into components, which correspond to folders in the source/ directory. There are currently 2 components.
+- layout (source/layout)
+Does all the heavy lifting of CSS document layout. Create a `BoxTree` data structure, and then call `doLayout`. All or most future components will probably depend on this one.
+- render (source/render)
+Allows one to draw a document to graphical window, using the (at the moment) single rendering backend. Depends on the layout component.
+
+## Building zss
+To only use the layout code, there is only 1 dependency:
+1. harfbuzz
+
+To use the SDL-Freetype rendering backend, you must also have:
+1. sdl2
+2. freetype
+
+You can then just run `zig build`.
+
 ## How to use zss
 The basic workflow is as follows:
 1. Fill in a `BoxTree` structure

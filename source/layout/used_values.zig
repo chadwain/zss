@@ -7,7 +7,7 @@ const zss = @import("../../zss.zig");
 /// The fundamental unit of space used for all CSS layout computations in zss.
 pub const ZssUnit = i32;
 
-///The number of ZssUnits contained wthin 1 screen pixel.
+/// The number of ZssUnits contained wthin 1 screen pixel.
 pub const unitsPerPixel = 1;
 
 /// A floating point number usually between 0 and 1, but it can
@@ -110,35 +110,36 @@ pub const Background2 = struct {
         y: Style = .None,
     };
 
-    image: ?*zss.box_tree.Background.Image.Object.Data = null,
+    image: ?*zss.BoxTree.Background.Image.Object.Data = null,
     position: Position = .{},
     size: Size = .{},
     repeat: Repeat = .{},
     origin: Origin = .Padding,
 };
 
-///// Contains the used value of the properties 'overflow' and 'visibility'.
-//pub const VisualEffect = struct {
-//    overflow: enum { Visible, Hidden } = .Visible,
-//    visibility: enum { Visible, Hidden } = .Visible,
-//};
-
 pub const UsedId = u16;
 
+/// Contains information about a set of block boxes.
+/// Block boxes form a hierarchy, and therefore a tree structure, which is represented here.
 pub const BlockLevelUsedValues = struct {
-    pub const InlineValues = struct {
-        values: *InlineLevelUsedValues,
-        id_of_containing_block: UsedId,
-    };
-
+    // A "used id" is an index into the following arrays.
+    // To know how to use the "structure" field and the group of fields following it,
+    // see the explanation in BoxTree. It works in exactly the same way.
     structure: []UsedId,
     box_offsets: []BoxOffsets,
     borders: []Borders,
     border_colors: []BorderColor,
     background1: []Background1,
     background2: []Background2,
-    //visual_effect: []VisualEffect,
+    // End of the "used id" indexed arrays.
+
+    /// Inline data that is the contents of a block box.
     inline_values: []InlineValues,
+
+    pub const InlineValues = struct {
+        values: *InlineLevelUsedValues,
+        id_of_containing_block: UsedId,
+    };
 
     pub fn deinit(self: *@This(), allocator: *Allocator) void {
         allocator.free(self.structure);
@@ -147,7 +148,6 @@ pub const BlockLevelUsedValues = struct {
         allocator.free(self.border_colors);
         allocator.free(self.background1);
         allocator.free(self.background2);
-        //allocator.free(self.visual_effect);
         for (self.inline_values) |*inl| {
             inl.values.deinit(allocator);
             allocator.destroy(inl.values);
@@ -156,7 +156,37 @@ pub const BlockLevelUsedValues = struct {
     }
 };
 
+/// Contains information about an inline formatting context.
+/// Each glyph and its corresponding metrics are placed into arrays. (glyph_indeces and metrics)
+/// Then, each element in line_boxes tells you which glyphs to include and the baseline position.
+///
+/// To represent things that are not glyphs (e.g. inline boxes), the glyph index 0 is reserved for special use.
+/// When a glyph index of 0 is found, it does not actually correspond to that glyph index. Instead it tells you
+/// that the next glyph index (which is guaranteed to exist) contains "special data." Use the Special.decode
+/// function to recover and interpret that data. Note that this data still has metrics associated with it.
+/// That metrics data is found in the same array index as that of the first glyph index (the one that was 0).
 pub const InlineLevelUsedValues = struct {
+    glyph_indeces: []hb.hb_codepoint_t,
+    metrics: []Metrics,
+
+    line_boxes: []LineBox,
+
+    // zss is currently limited with what it can do with text. As a result,
+    // font and font color will be the same for all glyphs, and
+    // ascender and descender will be the same for all line boxes.
+    font: *hb.hb_font_t,
+    font_color_rgba: u32,
+    ascender: ZssUnit,
+    descender: ZssUnit,
+
+    // A "used id" is an index into the following arrays.
+    inline_start: []BoxProperties,
+    inline_end: []BoxProperties,
+    block_start: []BoxProperties,
+    block_end: []BoxProperties,
+    background1: []Background1,
+    // End of the "used id" indexed arrays.
+
     const hb = @import("harfbuzz");
 
     pub const BoxProperties = struct {
@@ -165,36 +195,52 @@ pub const InlineLevelUsedValues = struct {
         border_color_rgba: u32 = 0,
     };
 
-    //pub const Heights = struct {
-    //    ascender: ZssUnit,
-    //    descender: ZssUnit,
-    //};
+    pub const Metrics = struct {
+        offset: ZssUnit,
+        advance: ZssUnit,
+        width: ZssUnit,
+    };
 
     pub const LineBox = struct {
+        /// The vertical distance from the top of the containing block to this line box's baseline.
         baseline: ZssUnit,
+        /// The interval of glyph indeces to take from the glyph_indeces array.
+        /// It is a half-open interval of the form [a, b).
         elements: [2]usize,
     };
 
-    // NOTE may need to make sure this is never a valid glyph index when bitcasted
+    /// Structure that represents things other than glyphs. It is guaranteed to never have a
+    /// bit representation of 0.
     // NOTE Not making this an extern struct keeps crashing compiler
     pub const Special = extern struct {
-        pub const glyph_index = 0;
-        pub const Meaning = extern enum(u16) {
-            /// Represents a glyph index of `glyph_index`.
+        kind: Kind,
+        data: u16,
+
+        // This must start at 1 to make the Special struct never have a bit representation of 0.
+        pub const Kind = extern enum(u16) {
+            /// Represents a glyph index of 0.
             /// data has no meaning.
-            LiteralGlyphIndex,
+            ZeroGlyphIndex = 1,
             /// Represents an inline box's start fragment.
             /// data is the used id of the box.
             BoxStart,
             /// Represents an inline box's end fragment.
             /// data is the used id of the box.
             BoxEnd,
+            /// Any other value of this enum should never appear in an end user's code.
             _,
         };
 
-        pub const LayoutInternalMeaning = extern enum(u16) {
+        /// Recovers the data contained within a glyph index.
+        pub fn decode(encoded_glyph_index: hb.hb_codepoint_t) Special {
+            return @bitCast(Special, encoded_glyph_index);
+        }
+
+        // End users should not concern themselves with anything below this comment.
+
+        pub const LayoutInternalKind = extern enum(u16) {
             // The explanations for some of these are above.
-            LiteralGlyphIndex,
+            ZeroGlyphIndex = 1,
             BoxStart,
             BoxEnd,
             /// Represents a mandatory line break in the text.
@@ -203,55 +249,27 @@ pub const InlineLevelUsedValues = struct {
         };
 
         comptime {
-            for (std.meta.fields(Meaning)) |f| {
-                std.debug.assert(std.mem.eql(u8, f.name, @tagName(@intToEnum(LayoutInternalMeaning, f.value))));
+            for (std.meta.fields(Kind)) |f| {
+                std.debug.assert(std.mem.eql(u8, f.name, @tagName(@intToEnum(LayoutInternalKind, f.value))));
             }
         }
 
-        meaning: Meaning,
-        data: u16,
-
-        pub fn decode(encoded_glyph_index: hb.hb_codepoint_t) Special {
-            return @bitCast(Special, encoded_glyph_index);
-        }
-
         pub fn encodeBoxStart(used_id: UsedId) hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .BoxStart, .data = used_id });
+            return @bitCast(hb.hb_codepoint_t, Special{ .kind = .BoxStart, .data = used_id });
         }
 
         pub fn encodeBoxEnd(used_id: UsedId) hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .BoxEnd, .data = used_id });
+            return @bitCast(hb.hb_codepoint_t, Special{ .kind = .BoxEnd, .data = used_id });
         }
 
-        pub fn encodeLiteralGlyphIndex() hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = .LiteralGlyphIndex, .data = undefined });
+        pub fn encodeZeroGlyphIndex() hb.hb_codepoint_t {
+            return @bitCast(hb.hb_codepoint_t, Special{ .kind = .ZeroGlyphIndex, .data = undefined });
         }
 
         pub fn encodeLineBreak() hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .meaning = @intToEnum(Meaning, @enumToInt(LayoutInternalMeaning.LineBreak)), .data = undefined });
+            return @bitCast(hb.hb_codepoint_t, Special{ .kind = @intToEnum(Kind, @enumToInt(LayoutInternalKind.LineBreak)), .data = undefined });
         }
     };
-
-    pub const Metrics = struct {
-        offset: ZssUnit,
-        advance: ZssUnit,
-        width: ZssUnit,
-    };
-
-    glyph_indeces: []hb.hb_codepoint_t,
-    metrics: []Metrics,
-    line_boxes: []LineBox,
-
-    font: *hb.hb_font_t,
-    font_color_rgba: u32,
-    ascender: ZssUnit,
-    descender: ZssUnit,
-
-    inline_start: []BoxProperties,
-    inline_end: []BoxProperties,
-    block_start: []BoxProperties,
-    block_end: []BoxProperties,
-    background1: []Background1,
 
     pub fn deinit(self: *@This(), allocator: *Allocator) void {
         allocator.free(self.glyph_indeces);

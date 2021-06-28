@@ -4,9 +4,8 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const assert = std.debug.assert;
 
 const zss = @import("../../zss.zig");
-const computed = zss.box_tree;
-const BoxId = computed.BoxId;
-const BoxTree = computed.BoxTree;
+const BoxTree = zss.BoxTree;
+const BoxId = BoxTree.BoxId;
 
 const used_values = @import("./used_values.zig");
 const ZssUnit = used_values.ZssUnit;
@@ -370,7 +369,7 @@ fn blockContainerSolveOtherProperties(context: *BlockLevelLayoutContext, values:
 //    }
 //}
 //
-//fn resolveRelativePositionInset(context: *BlockLevelLayoutContext, position_inset: *computed.PositionInset) InFlowInsets {
+//fn resolveRelativePositionInset(context: *BlockLevelLayoutContext, position_inset: *BoxTree.PositionInset) InFlowInsets {
 //    const containing_block_inline_size = context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1];
 //    const containing_block_block_size = context.static_containing_block_used_block_sizes.items[context.static_containing_block_used_block_sizes.items.len - 1].size;
 //    const inline_start = switch (position_inset.inline_start) {
@@ -639,46 +638,46 @@ test "block used values" {
 
     const len = 4;
     var structure = [len]BoxId{ 4, 2, 1, 1 };
-    const inline_size_1 = computed.LogicalSize{
+    const inline_size_1 = BoxTree.LogicalSize{
         .size = .{ .percentage = 0.7 },
         .margin_start = .{ .px = 20 },
         .margin_end = .{ .px = 20 },
         .border_start = .{ .px = 5 },
         .border_end = .{ .px = 5 },
     };
-    const inline_size_2 = computed.LogicalSize{
+    const inline_size_2 = BoxTree.LogicalSize{
         .margin_start = .{ .px = 20 },
         .border_start = .{ .px = 5 },
         .border_end = .{ .px = 5 },
     };
-    const block_size_1 = computed.LogicalSize{
+    const block_size_1 = BoxTree.LogicalSize{
         .size = .{ .percentage = 0.9 },
         .border_start = .{ .px = 5 },
         .border_end = .{ .px = 5 },
     };
-    const block_size_2 = computed.LogicalSize{
+    const block_size_2 = BoxTree.LogicalSize{
         .border_start = .{ .px = 5 },
         .border_end = .{ .px = 5 },
     };
 
-    var inline_size = [len]computed.LogicalSize{ inline_size_1, inline_size_2, inline_size_1, inline_size_1 };
-    var block_size = [len]computed.LogicalSize{ block_size_1, block_size_2, block_size_1, block_size_1 };
-    var display = [len]computed.Display{
+    var inline_size = [len]BoxTree.LogicalSize{ inline_size_1, inline_size_2, inline_size_1, inline_size_1 };
+    var block_size = [len]BoxTree.LogicalSize{ block_size_1, block_size_2, block_size_1, block_size_1 };
+    var display = [len]BoxTree.Display{
         .{ .block_flow = {} },
         .{ .block_flow = {} },
         .{ .block_flow = {} },
         .{ .block_flow = {} },
     };
-    //var position_inset = [len]computed.PositionInset{
+    //var position_inset = [len]BoxTree.PositionInset{
     //    .{ .position = .{ .relative = {} }, .inline_start = .{ .px = 100 } },
     //    .{},
     //    .{},
     //    .{},
     //};
-    var latin1_text = [_]computed.Latin1Text{.{ .text = "" }} ** len;
-    var font = computed.Font{ .font = hb.hb_font_get_empty().? };
-    var border = [_]computed.Border{.{}} ** len;
-    var background = [_]computed.Background{.{}} ** len;
+    var latin1_text = [_]BoxTree.Latin1Text{.{ .text = "" }} ** len;
+    var font = BoxTree.Font{ .font = hb.hb_font_get_empty().? };
+    var border = [_]BoxTree.Border{.{}} ** len;
+    var background = [_]BoxTree.Background{.{}} ** len;
     var context = try BlockLevelLayoutContext.init(
         &BoxTree{
             .structure = &structure,
@@ -894,7 +893,7 @@ fn inlineLevelElementPop(context: *InlineLevelLayoutContext, values: *Intermedia
     _ = context.used_ids.pop();
 }
 
-fn addText(values: *IntermediateInlineLevelUsedValues, latin1_text: computed.Latin1Text, font: computed.Font) !void {
+fn addText(values: *IntermediateInlineLevelUsedValues, latin1_text: BoxTree.Latin1Text, font: BoxTree.Font) !void {
     const buffer = hb.hb_buffer_create() orelse unreachable;
     defer hb.hb_buffer_destroy(buffer);
     _ = hb.hb_buffer_pre_allocate(buffer, @intCast(c_uint, latin1_text.text.len));
@@ -936,7 +935,7 @@ fn addText(values: *IntermediateInlineLevelUsedValues, latin1_text: computed.Lat
     try endTextRun(values, latin1_text, buffer, font.font, run_begin, run_end);
 }
 
-fn endTextRun(values: *IntermediateInlineLevelUsedValues, latin1_text: computed.Latin1Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
+fn endTextRun(values: *IntermediateInlineLevelUsedValues, latin1_text: BoxTree.Latin1Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
     if (run_end > run_begin) {
         hb.hb_buffer_add_latin1(buffer, latin1_text.text.ptr, @intCast(c_int, latin1_text.text.len), @intCast(c_uint, run_begin), @intCast(c_int, run_end - run_begin));
         if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
@@ -971,15 +970,15 @@ fn addTextRun(values: *IntermediateInlineLevelUsedValues, buffer: *hb.hb_buffer_
         values.glyph_indeces.appendAssumeCapacity(info.codepoint);
         values.metrics.appendAssumeCapacity(.{ .offset = @divFloor(pos.x_offset * unitsPerPixel, 64), .advance = @divFloor(pos.x_advance * unitsPerPixel, 64), .width = @divFloor(width * unitsPerPixel, 64) });
 
-        if (info.codepoint == InlineLevelUsedValues.Special.glyph_index) {
-            values.glyph_indeces.appendAssumeCapacity(InlineLevelUsedValues.Special.encodeLiteralGlyphIndex());
+        if (info.codepoint == 0) {
+            values.glyph_indeces.appendAssumeCapacity(InlineLevelUsedValues.Special.encodeZeroGlyphIndex());
             values.metrics.appendAssumeCapacity(undefined);
         }
     }
 }
 
 fn addLineBreak(values: *IntermediateInlineLevelUsedValues) !void {
-    try values.glyph_indeces.appendSlice(values.allocator, &.{ InlineLevelUsedValues.Special.glyph_index, InlineLevelUsedValues.Special.encodeLineBreak() });
+    try values.glyph_indeces.appendSlice(values.allocator, &.{ 0, InlineLevelUsedValues.Special.encodeLineBreak() });
     try values.metrics.appendSlice(values.allocator, &.{ .{ .offset = 0, .advance = 0, .width = 0 }, undefined });
 }
 
@@ -989,7 +988,7 @@ fn addBoxStart(values: *IntermediateInlineLevelUsedValues, used_id: UsedId) !voi
     const width = inline_start.border + inline_start.padding;
     const advance = width + margin;
 
-    const glyph_indeces = [2]hb.hb_codepoint_t{ InlineLevelUsedValues.Special.glyph_index, InlineLevelUsedValues.Special.encodeBoxStart(used_id) };
+    const glyph_indeces = [2]hb.hb_codepoint_t{ 0, InlineLevelUsedValues.Special.encodeBoxStart(used_id) };
     try values.glyph_indeces.appendSlice(values.allocator, &glyph_indeces);
     const metrics = [2]InlineLevelUsedValues.Metrics{ .{ .offset = margin, .advance = advance, .width = width }, undefined };
     try values.metrics.appendSlice(values.allocator, &metrics);
@@ -1001,7 +1000,7 @@ fn addBoxEnd(values: *IntermediateInlineLevelUsedValues, used_id: UsedId) !void 
     const width = inline_end.border + inline_end.padding;
     const advance = width + margin;
 
-    const glyph_indeces = [2]hb.hb_codepoint_t{ InlineLevelUsedValues.Special.glyph_index, InlineLevelUsedValues.Special.encodeBoxEnd(used_id) };
+    const glyph_indeces = [2]hb.hb_codepoint_t{ 0, InlineLevelUsedValues.Special.encodeBoxEnd(used_id) };
     try values.glyph_indeces.appendSlice(values.allocator, &glyph_indeces);
     const metrics = [2]InlineLevelUsedValues.Metrics{ .{ .offset = 0, .advance = advance, .width = width }, undefined };
     try values.metrics.appendSlice(values.allocator, &metrics);
@@ -1109,9 +1108,10 @@ fn splitIntoLineBoxes(values: *IntermediateInlineLevelUsedValues, font: *hb.hb_f
         cursor += metrics.advance;
 
         switch (gi) {
-            InlineLevelUsedValues.Special.glyph_index => {
+            0 => {
                 i += 1;
-                switch (@intToEnum(InlineLevelUsedValues.Special.LayoutInternalMeaning, @enumToInt(InlineLevelUsedValues.Special.decode(values.glyph_indeces.items[i]).meaning))) {
+                const special = InlineLevelUsedValues.Special.decode(values.glyph_indeces.items[i]);
+                switch (@intToEnum(InlineLevelUsedValues.Special.LayoutInternalKind, @enumToInt(special.kind))) {
                     .LineBreak => {
                         try values.line_boxes.append(values.allocator, line_box);
                         cursor = 0;
@@ -1155,16 +1155,16 @@ test "inline used values" {
 
     const len = 2;
     var structure = [len]BoxId{ 2, 1 };
-    var inline_size = [_]computed.LogicalSize{.{}} ** len;
-    var block_size = [_]computed.LogicalSize{.{}} ** len;
-    var display = [len]computed.Display{
+    var inline_size = [_]BoxTree.LogicalSize{.{}} ** len;
+    var block_size = [_]BoxTree.LogicalSize{.{}} ** len;
+    var display = [len]BoxTree.Display{
         .{ .block_flow = {} },
         .{ .text = {} },
     };
-    var latin1_text = [len]computed.Latin1Text{ .{}, .{ .text = "hello world" } };
-    var font = computed.Font{ .font = hb_font.? };
-    var border = [_]computed.Border{.{}} ** len;
-    var background = [_]computed.Background{.{}} ** len;
+    var latin1_text = [len]BoxTree.Latin1Text{ .{}, .{ .text = "hello world" } };
+    var font = BoxTree.Font{ .font = hb_font.? };
+    var border = [_]BoxTree.Border{.{}} ** len;
+    var background = [_]BoxTree.Background{.{}} ** len;
     const tree = BoxTree{
         .structure = &structure,
         .inline_size = &inline_size,
@@ -1184,9 +1184,9 @@ test "inline used values" {
     try std.testing.expect(context.next_box_id == 2);
 }
 
-fn solveBorderColors(border: computed.Border) used_values.BorderColor {
+fn solveBorderColors(border: BoxTree.Border) used_values.BorderColor {
     const solveOneBorderColor = struct {
-        fn f(color: computed.Border.Color) u32 {
+        fn f(color: BoxTree.Border.Color) u32 {
             return switch (color) {
                 .rgba => |rgba| rgba,
             };
@@ -1201,7 +1201,7 @@ fn solveBorderColors(border: computed.Border) used_values.BorderColor {
     };
 }
 
-fn solveBackground1(bg: computed.Background) used_values.Background1 {
+fn solveBackground1(bg: BoxTree.Background) used_values.Background1 {
     return used_values.Background1{
         .color_rgba = switch (bg.color) {
             .rgba => |rgba| rgba,
@@ -1214,7 +1214,7 @@ fn solveBackground1(bg: computed.Background) used_values.Background1 {
     };
 }
 
-fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.BoxOffsets, borders: *const used_values.Borders) used_values.Background2 {
+fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxOffsets, borders: *const used_values.Borders) used_values.Background2 {
     var object = switch (bg.image) {
         .object => |object| object,
         .none => return .{},
@@ -1237,7 +1237,7 @@ fn solveBackground2(bg: computed.Background, box_offsets: *const used_values.Box
         height: ZssUnit,
         has_aspect_ratio: bool,
 
-        fn init(obj: *zss.box_tree.Background.Image.Object) @This() {
+        fn init(obj: *BoxTree.Background.Image.Object) @This() {
             const n = obj.getNaturalSize();
             assert(n.width >= 0);
             assert(n.height >= 0);
