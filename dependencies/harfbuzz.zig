@@ -1,5 +1,5 @@
 pub usingnamespace @cImport({
-    @cInclude("hb.h");
-    @cInclude("hb-ft.h");
-    @cInclude("freetype/ftglyph.h");
+    @cInclude("harfbuzz/hb.h");
+    @cInclude("harfbuzz/hb-ft.h");
+    @cInclude("freetype2/freetype/ftglyph.h");
 });

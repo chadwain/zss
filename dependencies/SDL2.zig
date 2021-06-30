@@ -1,4 +1,4 @@
 pub usingnamespace @cImport({
-    @cInclude("SDL.h");
-    @cInclude("SDL_image.h");
+    @cInclude("SDL2/SDL.h");
+    @cInclude("SDL2/SDL_image.h");
 });
