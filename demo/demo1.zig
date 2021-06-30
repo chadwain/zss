@@ -2,7 +2,8 @@
 //! This program takes as input the name of some text file on your computer,
 //! and displays the contents of that file in a graphical window.
 //! The window can be resized, and you can use the Up, Down, PageUp, PageDown
-//! Home, and End keys to navigate.
+//! Home, and End keys to navigate. The font, font size, text color, and
+//! background color can be changed using commandline options.
 //!
 //! To see a roughly equivalent HTML document, see demo.html.
 const std = @import("std");
@@ -18,6 +19,8 @@ const pixelToZssUnit = sdlft.pixelToZssUnit;
 const sdl = @import("SDL2");
 const ft = @import("freetype");
 const hb = @import("harfbuzz");
+
+const usage = "Usage: demo [--font <file>] [--font-size <integer>] [--color <hex color>] [--bg-color <hex color>] <file>";
 
 pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -84,7 +87,7 @@ pub fn main() !u8 {
     }
     defer assert(hb.FT_Done_Face(face) == hb.FT_Err_Ok);
 
-    assert(hb.FT_Set_Char_Size(face, 0, args.font_size * 64, 96, 96) == hb.FT_Err_Ok);
+    assert(hb.FT_Set_Char_Size(face, 0, @intCast(c_long, args.font_size) * 64, 96, 96) == hb.FT_Err_Ok);
 
     try createBoxTree(&args, window, renderer, face, allocator, text);
     return 0;
@@ -114,6 +117,7 @@ fn parseArgs(args: []const [:0]const u8) ProgramArguments {
                 break;
             } else {
                 std.log.err("Argument syntax error", .{});
+                std.log.info("{s}", .{usage});
                 std.os.exit(1);
             }
         } else if (i + 1 < args.len) {
@@ -130,6 +134,7 @@ fn parseArgs(args: []const [:0]const u8) ProgramArguments {
                 bg_color = std.fmt.parseUnsigned(u24, bg_color_str, 16);
             } else {
                 std.log.err("Unrecognized option: {s}", .{arg});
+                std.log.info("{s}", .{usage});
                 std.os.exit(1);
             }
         }
@@ -138,6 +143,7 @@ fn parseArgs(args: []const [:0]const u8) ProgramArguments {
     return ProgramArguments{
         .filename = filename orelse {
             std.log.err("Input file not specified", .{});
+            std.log.info("{s}", .{usage});
             std.os.exit(1);
         },
         .font_filename = font_filename orelse "demo/NotoSans-Regular.ttf",
@@ -161,10 +167,10 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     defer hb.hb_font_destroy(font);
     hb.hb_ft_font_set_funcs(font);
 
-    const smile = sdl.IMG_LoadTexture(renderer, "demo/smile.png") orelse return error.ResourceNotFound;
+    const smile = sdl.IMG_LoadTexture(renderer, "demo/smile.png") orelse return error.ResourceLoadFail;
     defer sdl.SDL_DestroyTexture(smile);
 
-    const zig_png = sdl.IMG_LoadTexture(renderer, "demo/zig.png") orelse return error.ResourceNotFound;
+    const zig_png = sdl.IMG_LoadTexture(renderer, "demo/zig.png") orelse return error.ResourceLoadFail;
     defer sdl.SDL_DestroyTexture(zig_png);
 
     const root_border = BoxTree.LogicalSize.BorderWidth{ .px = 10 };
