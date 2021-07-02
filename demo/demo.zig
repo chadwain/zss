@@ -177,10 +177,11 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     const root_padding = BoxTree.LogicalSize.Padding{ .px = 30 };
     const root_border_color = BoxTree.Border.Color{ .rgba = 0xaf2233ff };
 
-    const len = 8;
-    var structure = [len]BoxTree.BoxId{ 8, 3, 2, 1, 3, 2, 1, 1 };
+    const len = 9;
+    var structure = [len]BoxTree.BoxId{ 9, 1, 3, 2, 1, 3, 2, 1, 1 };
     var inline_size = [len]BoxTree.LogicalSize{
         .{ .min_size = .{ .px = 200 }, .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border },
+        .{ .size = .{ .px = 10000 } },
         .{},
         .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } },
         .{},
@@ -191,6 +192,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     };
     var block_size = [len]BoxTree.LogicalSize{
         .{ .padding_start = root_padding, .padding_end = .{ .px = 12 }, .border_start = root_border, .border_end = root_border },
+        .{ .size = .{ .px = 10000 } },
         .{ .border_end = .{ .px = 2 }, .margin_end = .{ .px = 24 } },
         .{ .padding_end = .{ .px = 5 } },
         .{},
@@ -201,6 +203,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     };
     var display = [len]BoxTree.Display{
         .{ .block_flow = {} },
+        .{ .none = {} },
         .{ .block_flow = {} },
         .{ .inline_flow = {} },
         .{ .text = {} },
@@ -213,6 +216,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .{},
         .{},
         .{},
+        .{},
         .{ .text = args.filename },
         .{},
         .{},
@@ -221,6 +225,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     };
     var border = [len]BoxTree.Border{
         .{ .inline_start_color = root_border_color, .inline_end_color = root_border_color, .block_start_color = root_border_color, .block_end_color = root_border_color },
+        .{},
         .{ .block_end_color = .{ .rgba = 0x202020ff } },
         .{},
         .{},
@@ -243,6 +248,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
             //.color = .{ .rgba = args.bg_color },
         },
         .{},
+        .{},
         .{ .color = .{ .rgba = 0xfa58007f } },
         .{},
         .{},
@@ -258,7 +264,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
             .size = .{ .contain = {} },
         },
     };
-    var tree = BoxTree{
+    const tree = BoxTree{
         .structure = &structure,
         .inline_size = &inline_size,
         .block_size = &block_size,
@@ -317,7 +323,7 @@ const ProgramState = struct {
     }
 };
 
-fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: ft.FT_Face, allocator: *Allocator, tree: *BoxTree) !void {
+fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: ft.FT_Face, allocator: *Allocator, tree: *const BoxTree) !void {
     const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
 
@@ -405,6 +411,7 @@ fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer:
         frame_time_slot.* = frame_time;
         sum_of_frame_times += frame_time;
         frame_time_index +%= 1;
-        std.debug.print("\rAverage frame time: {}us", .{sum_of_frame_times / (frame_times.len * 1000)});
+        const average_frame_time = sum_of_frame_times / (frame_times.len * 1000);
+        std.debug.print("\rAverage frame time: {}.{}ms", .{ average_frame_time / 1000, average_frame_time % 1000 });
     }
 }

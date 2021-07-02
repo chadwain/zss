@@ -42,7 +42,7 @@ pub fn build(b: *Builder) void {
 }
 
 fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {
-    var demo_exe = b.addExecutable("demo", "demo/demo1.zig");
+    var demo_exe = b.addExecutable("demo", "demo/demo.zig");
     linkSdl2Freetype(demo_exe);
     demo_exe.setBuildMode(mode);
     demo_exe.setTarget(target);

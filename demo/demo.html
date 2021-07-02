@@ -2,6 +2,7 @@
     <head>
         <style>
             body {
+                display: block;
                 margin: 0px;
                 background-color: #eeeeee;
             }
@@ -17,7 +18,6 @@
                 border: 10px solid #af2233;
                 padding: 30px;
                 padding-bottom: 12px;
-                margin: 0px;
                 background-image: url("smile.png");
                 background-position: right top 10px;
                 background-repeat: no-repeat;
@@ -34,18 +34,23 @@
                 display: inline;
             }
 
-            #header-p {
+            #not-shown {
+                display: none;
+                width: 10000px;
+                height: 10000px;
+            }
+
+            #title {
                 border-bottom: 2px solid #202020;
                 margin-bottom: 24px;
             }
 
-            #header-span {
+            #title span {
                 padding: 0px 10px 5px 10px;
                 background-color: #fa58007f;
             }
 
-            #footer-p {
-                display: block;
+            #footer {
                 height: 50px;
                 margin-top: 10px;
                 background-image: url("zig.png");
@@ -57,8 +62,10 @@
     </head>
     <body>
         <div>
-            <p id="header-p">
-                <span id="header-span">
+            <p id="not-shown">
+            </p>
+            <p id="title">
+                <span>
                     THE NAME OF THE FILE
                 </span>
             </p>
@@ -67,7 +74,7 @@
                     THE CONTENTS OF THE FILE
                 </span>
             </p>
-            <p id="footer-p">
+            <p id="footer">
             </p>
         </div>
     </body>

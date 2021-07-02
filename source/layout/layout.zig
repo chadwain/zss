@@ -235,7 +235,7 @@ fn blockLevelElementPush(context: *BlockLevelLayoutContext, values: *Intermediat
     switch (context.box_tree.display[interval.begin]) {
         .block_flow => return blockContainerSolveSizeAndPositionPart1(context, values, interval),
         .inline_flow, .text => return blockLevelAddInlineData(context, values, interval),
-        .none => return,
+        .none => return blockLevelAddNone(context, interval),
     }
 }
 
@@ -298,13 +298,10 @@ fn blockContainerSolveSizeAndPositionPart1(context: *BlockLevelLayoutContext, va
         try context.static_containing_block_used_inline_size.append(context.allocator, inline_size);
         try context.static_containing_block_auto_block_size.append(context.allocator, 0);
         try context.static_containing_block_used_block_sizes.append(context.allocator, used_block_sizes);
-        try context.used_id_and_subtree_size.append(context.allocator, UsedIdAndSubtreeSize{
-            .used_id = used_id,
-            .used_subtree_size = 1,
-        });
+        try context.used_id_and_subtree_size.append(context.allocator, UsedIdAndSubtreeSize{ .used_id = used_id, .used_subtree_size = 1 });
         //try context.in_flow_positioning_data_count.append(context.allocator, 0);
     } else {
-        // Optimized path for elements that have no children.
+        // Optimized path for elements that have no children. It is like a shorter version of blockLevelElementPop.
         structure_ptr.* = 1;
         context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1].used_subtree_size += 1;
         const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
@@ -616,6 +613,9 @@ fn blockLevelAddInlineData(context: *BlockLevelLayoutContext, values: *Intermedi
 
     context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1].used_subtree_size += 1;
     const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
+    defer parent_auto_block_size.* += inline_context.total_block_size;
+
+    // Create an "anonymous block box" to contain this inline formatting context.
     try values.structure.append(values.allocator, 1);
     try values.box_offsets.append(values.allocator, .{
         .border_start = .{ .inline_dir = 0, .block_dir = parent_auto_block_size.* },
@@ -628,7 +628,12 @@ fn blockLevelAddInlineData(context: *BlockLevelLayoutContext, values: *Intermedi
     try values.background1.append(values.allocator, .{});
     try values.background2.append(values.allocator, .{});
     //try values.visual_effect.append(allocator, .{});
-    parent_auto_block_size.* += inline_context.total_block_size;
+
+}
+
+fn blockLevelAddNone(context: *BlockLevelLayoutContext, interval: *BlockLevelLayoutContext.Interval) void {
+    const box_id = interval.begin;
+    interval.begin += context.box_tree.structure[box_id];
 }
 
 test "block used values" {
@@ -870,6 +875,7 @@ fn inlineLevelElementPush(context: *InlineLevelLayoutContext, values: *Intermedi
                 try context.intervals.append(context.allocator, .{ .begin = box_id + 1, .end = box_id + subtree_size });
                 try context.used_ids.append(context.allocator, used_id);
             } else {
+                // Optimized path for elements that have no children. It is like a shorter version of inlineLevelElementPop.
                 try addBoxEnd(values, used_id);
             }
         },
