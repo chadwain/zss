@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License along with thi
 - [source/layout](source/layout)
   - The main file here is [layout.zig](source/layout/layout.zig). It does all the heavy lifting of CSS document layout. Create a `BoxTree` data structure, and then call `doLayout`.
 - [source/render](source/render)
-  - Allows one to draw a document to graphical window via a rendering backend. At the moment, the only provided backend is [SDL-Freetype](source/render/sdl_freetype.zig).
+  - Allows one to draw a document to graphical window via a rendering backend. At the moment, the only provided backend is [SDL2](source/render/sdl.zig).
 
 # Building zss
 To do layout or run tests, you will need:
@@ -43,9 +43,9 @@ const zss = @import("zss");
 ...then the basic workflow is as follows:
 1. Fill in a `zss.BoxTree` structure.
 2. Call `zss.layout.doLayout`.
-3. Draw the resulting document using the SDL-Freetype rendering backend. Call `zss.render.sdl_freetype.renderDocument`.
+3. Draw the resulting document using the SDL2 rendering backend. Call `zss.render.sdl_freetype.renderDocument`.
 
-[See the demo program](demo/demo.zig) for an actual example.
+[A demo program](demo/demo.zig) is provided as an actual example. It must be run from the project root directory.
 
 ## Using `BoxTree`
 The box tree is the main interface into zss. It is where you specify the CSS properties for the elements of your document. It's much like writing a `.css` file. Here are a few short guides for using it properly.
@@ -87,7 +87,7 @@ box_tree.latin1_text[1] = .{ .text = "Hello!" };
 zss does not specify the format of background images. Therefore background images are specified using abstract "background image objects" (see `BoxTree.Background.Image`).
 These objects are specific to the rendering backend being used and don't need to be created manually.
 
-For example, if you're using the SDL-Freetype backend, you can call `zss.render.sdl_freetype.textureAsBackgroundImageObject` to create an object.
+For example, using the SDL2 backend, you can call `zss.render.sdl.textureAsBackgroundImageObject` to create an object.
 ```zig
 const texture = SDL_CreateTexture(...);
 const bg_img_object = textureAsBackgroundImageObject(texture);

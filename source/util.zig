@@ -34,7 +34,7 @@ pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, u
     return std.math.max(lower, std.math.min(val, upper));
 }
 
-pub const PdfsArrayIterator = struct {
+pub const StructureArrayIterator = struct {
     items: []const u16,
     current: u16,
     index: u16,

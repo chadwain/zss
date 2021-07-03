@@ -13,8 +13,7 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("zss");
 const BoxTree = zss.BoxTree;
-const sdlft = zss.render.sdl_freetype;
-const pixelToZssUnit = sdlft.pixelToZssUnit;
+const pixelToZssUnit = zss.render.sdl.util.pixelToZssUnit;
 
 const sdl = @import("SDL2");
 const ft = @import("freetype");
@@ -236,7 +235,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     };
     var background = [len]BoxTree.Background{
         .{
-            .image = .{ .object = sdlft.textureAsBackgroundImageObject(smile) },
+            .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(smile) },
             .position = .{ .position = .{
                 .x = .{ .side = .right },
                 .y = .{ .offset = .{ .px = 10 } },
@@ -255,7 +254,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .{},
         .{},
         .{
-            .image = .{ .object = sdlft.textureAsBackgroundImageObject(zig_png) },
+            .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(zig_png) },
             .position = .{ .position = .{
                 .x = .{ .offset = .{ .percentage = 0.5 } },
                 .y = .{ .offset = .{ .percentage = 0.5 } },
@@ -281,7 +280,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
 const ProgramState = struct {
     tree: *const BoxTree,
     document: zss.used_values.Document,
-    atlas: sdlft.GlyphAtlas,
+    atlas: zss.render.sdl.GlyphAtlas,
     width: c_int,
     height: c_int,
     scroll_y: c_int,
@@ -298,7 +297,7 @@ const ProgramState = struct {
         result.document = try zss.layout.doLayout(tree, allocator, allocator, pixelToZssUnit(result.width), pixelToZssUnit(result.height));
         errdefer result.document.deinit(allocator);
 
-        result.atlas = try sdlft.GlyphAtlas.init(face, renderer, pixel_format, allocator);
+        result.atlas = try zss.render.sdl.GlyphAtlas.init(face, renderer, pixel_format, allocator);
         errdefer result.atlas.deinit(allocator);
 
         result.updateMaxScroll();
@@ -318,7 +317,7 @@ const ProgramState = struct {
     }
 
     fn updateMaxScroll(self: *Self) void {
-        self.max_scroll_y = std.math.max(0, sdlft.zssUnitToPixel(self.document.block_values.box_offsets[0].border_end.block_dir) - self.height);
+        self.max_scroll_y = std.math.max(0, zss.render.sdl.util.zssUnitToPixel(self.document.block_values.box_offsets[0].border_end.block_dir) - self.height);
         self.scroll_y = std.math.clamp(self.scroll_y, 0, self.max_scroll_y);
     }
 };
@@ -401,8 +400,8 @@ fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer:
             .x = 0,
             .y = -ps.scroll_y,
         };
-        sdlft.drawBackgroundColor(renderer, pixel_format, viewport_rect, args.bg_color);
-        try sdlft.renderDocument(&ps.document, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
+        zss.render.sdl.util.drawBackgroundColor(renderer, pixel_format, viewport_rect, args.bg_color);
+        try zss.render.sdl.renderDocument(&ps.document, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
         sdl.SDL_RenderPresent(renderer);
 
         const frame_time = timer.lap();
