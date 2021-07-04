@@ -951,30 +951,43 @@ fn endTextRun(values: *IntermediateInlineLevelUsedValues, latin1_text: BoxTree.L
 }
 
 fn addTextRun(values: *IntermediateInlineLevelUsedValues, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t) !void {
-    hb.hb_shape(font, buffer, 0, 0);
+    hb.hb_shape(font, buffer, null, 0);
     const glyph_infos = blk: {
         var n: c_uint = 0;
         const p = hb.hb_buffer_get_glyph_infos(buffer, &n);
         break :blk p[0..n];
     };
-    const glyph_positions = blk: {
-        var n: c_uint = 0;
-        const p = hb.hb_buffer_get_glyph_positions(buffer, &n);
-        break :blk p[0..n];
-    };
-    var extents: hb.hb_glyph_extents_t = undefined;
+
+    // TODO Find out why HarfBuzz glyph positions are so inaccurate.
+
+    //const glyph_positions = blk: {
+    //    var n: c_uint = 0;
+    //    const p = hb.hb_buffer_get_glyph_positions(buffer, &n);
+    //    break :blk p[0..n];
+    //};
+    //var extents: hb.hb_glyph_extents_t = undefined;
 
     const old_len = values.glyph_indeces.items.len;
     // Allocate twice as much so that special glyph indeces always have space
     try values.glyph_indeces.ensureCapacity(values.allocator, old_len + 2 * glyph_infos.len);
     try values.metrics.ensureCapacity(values.allocator, old_len + 2 * glyph_infos.len);
 
+    const face = hb.hb_ft_font_get_face(font);
     for (glyph_infos) |info, i| {
-        const pos = glyph_positions[i];
-        const extents_result = hb.hb_font_get_glyph_extents(font, info.codepoint, &extents);
-        const width = if (extents_result != 0) extents.width else 0;
+        //const pos = glyph_positions[i];
+        //const extents_result = hb.hb_font_get_glyph_extents(font, info.codepoint, &extents);
+        //const width = if (extents_result != 0) extents.width else 0;
+
+        assert(hb.FT_Load_Glyph(face, info.codepoint, 0) == 0);
+        const metrics = face.*.glyph.*.metrics;
+
         values.glyph_indeces.appendAssumeCapacity(info.codepoint);
-        values.metrics.appendAssumeCapacity(.{ .offset = @divFloor(pos.x_offset * unitsPerPixel, 64), .advance = @divFloor(pos.x_advance * unitsPerPixel, 64), .width = @divFloor(width * unitsPerPixel, 64) });
+        //values.metrics.appendAssumeCapacity(.{ .offset = @divFloor(pos.x_offset * unitsPerPixel, 64), .advance = @divFloor(pos.x_advance * unitsPerPixel, 64), .width = @divFloor(width * unitsPerPixel, 64) });
+        values.metrics.appendAssumeCapacity(.{
+            .offset = @intCast(i32, @divFloor(metrics.horiBearingX * unitsPerPixel, 64)),
+            .advance = @intCast(i32, @divFloor(metrics.horiAdvance * unitsPerPixel, 64)),
+            .width = @intCast(i32, @divFloor(metrics.width * unitsPerPixel, 64)),
+        });
 
         if (info.codepoint == 0) {
             values.glyph_indeces.appendAssumeCapacity(InlineLevelUsedValues.Special.encodeZeroGlyphIndex());
