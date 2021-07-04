@@ -958,35 +958,34 @@ fn addTextRun(values: *IntermediateInlineLevelUsedValues, buffer: *hb.hb_buffer_
         break :blk p[0..n];
     };
 
-    // TODO Find out why HarfBuzz glyph positions are so inaccurate.
+    // TODO Find out why the values in glyph_positions lead to poorly placed glyphs.
 
     //const glyph_positions = blk: {
     //    var n: c_uint = 0;
     //    const p = hb.hb_buffer_get_glyph_positions(buffer, &n);
     //    break :blk p[0..n];
     //};
-    //var extents: hb.hb_glyph_extents_t = undefined;
+    var extents: hb.hb_glyph_extents_t = undefined;
 
     const old_len = values.glyph_indeces.items.len;
     // Allocate twice as much so that special glyph indeces always have space
     try values.glyph_indeces.ensureCapacity(values.allocator, old_len + 2 * glyph_infos.len);
     try values.metrics.ensureCapacity(values.allocator, old_len + 2 * glyph_infos.len);
 
-    const face = hb.hb_ft_font_get_face(font);
     for (glyph_infos) |info, i| {
         //const pos = glyph_positions[i];
-        //const extents_result = hb.hb_font_get_glyph_extents(font, info.codepoint, &extents);
-        //const width = if (extents_result != 0) extents.width else 0;
-
-        assert(hb.FT_Load_Glyph(face, info.codepoint, 0) == 0);
-        const metrics = face.*.glyph.*.metrics;
+        const extents_result = hb.hb_font_get_glyph_extents(font, info.codepoint, &extents);
+        if (extents_result == 0) {
+            extents.width = 0;
+            extents.x_bearing = 0;
+        }
 
         values.glyph_indeces.appendAssumeCapacity(info.codepoint);
         //values.metrics.appendAssumeCapacity(.{ .offset = @divFloor(pos.x_offset * unitsPerPixel, 64), .advance = @divFloor(pos.x_advance * unitsPerPixel, 64), .width = @divFloor(width * unitsPerPixel, 64) });
         values.metrics.appendAssumeCapacity(.{
-            .offset = @intCast(i32, @divFloor(metrics.horiBearingX * unitsPerPixel, 64)),
-            .advance = @intCast(i32, @divFloor(metrics.horiAdvance * unitsPerPixel, 64)),
-            .width = @intCast(i32, @divFloor(metrics.width * unitsPerPixel, 64)),
+            .offset = @divFloor(extents.x_bearing * unitsPerPixel, 64),
+            .advance = @divFloor(hb.hb_font_get_glyph_h_advance(font, info.codepoint) * unitsPerPixel, 64),
+            .width = @divFloor(extents.width * unitsPerPixel, 64),
         });
 
         if (info.codepoint == 0) {
