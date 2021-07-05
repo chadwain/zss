@@ -18,6 +18,8 @@ You should have received a copy of the GNU General Public License along with thi
   - Allows one to draw a document to graphical window via a rendering backend. At the moment, the only provided backend is [SDL2](source/render/sdl.zig).
 
 # Building zss
+zss is built using Zig 0.8.0, not master.
+
 To do layout or run tests, you will need:
 - harfbuzz
 - freetype
@@ -43,7 +45,7 @@ const zss = @import("zss");
 ...then the basic workflow is as follows:
 1. Fill in a `zss.BoxTree` structure.
 2. Call `zss.layout.doLayout`.
-3. Draw the resulting document using the SDL2 rendering backend. Call `zss.render.sdl_freetype.renderDocument`.
+3. Draw the resulting document using the SDL2 rendering backend. Call `zss.render.sdl.renderDocument`.
 
 [A demo program](demo/demo.zig) is provided as an actual example. It must be run from the project root directory.
 

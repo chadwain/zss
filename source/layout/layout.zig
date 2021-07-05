@@ -703,13 +703,6 @@ test "block used values" {
     defer context.deinit();
     var values = try createBlockLevelUsedValues(&context, al);
     defer values.deinit(al);
-
-    for (values.box_offsets) |box_offset| {
-        std.debug.print("{}\n", .{box_offset});
-    }
-    for (values.borders) |b| {
-        std.debug.print("{}\n", .{b});
-    }
 }
 
 const IntermediateInlineLevelUsedValues = struct {
