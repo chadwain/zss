@@ -30,8 +30,8 @@ font: Font,
 pub const BoxId = u16;
 
 pub const Display = union(enum) {
-    block_flow,
-    inline_flow,
+    block,
+    inline_,
     text,
     none,
 };

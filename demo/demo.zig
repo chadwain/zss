@@ -199,15 +199,15 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .{ .size = .{ .px = 50 }, .margin_start = .{ .px = 10 } },
     };
     var display = [len]BoxTree.Display{
-        .{ .block_flow = {} },
+        .{ .block = {} },
         .{ .none = {} },
-        .{ .block_flow = {} },
-        .{ .inline_flow = {} },
+        .{ .block = {} },
+        .{ .inline_ = {} },
         .{ .text = {} },
-        .{ .block_flow = {} },
-        .{ .inline_flow = {} },
+        .{ .block = {} },
+        .{ .inline_ = {} },
         .{ .text = {} },
-        .{ .block_flow = {} },
+        .{ .block = {} },
     };
     var latin1_text = [len]BoxTree.Latin1Text{
         .{},

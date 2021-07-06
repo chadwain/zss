@@ -233,8 +233,8 @@ fn createBlockLevelUsedValues(context: *BlockLevelLayoutContext, values_allocato
 
 fn blockLevelElementPush(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, interval: *BlockLevelLayoutContext.Interval) !void {
     switch (context.box_tree.display[interval.begin]) {
-        .block_flow => return blockContainerSolveSizeAndPositionPart1(context, values, interval),
-        .inline_flow, .text => return blockLevelAddInlineData(context, values, interval),
+        .block => return blockContainerSolveSizeAndPositionPart1(context, values, interval),
+        .inline_, .text => return blockLevelAddInlineData(context, values, interval),
         .none => return blockLevelAddNone(context, interval),
     }
 }
@@ -668,10 +668,10 @@ test "block used values" {
     var inline_size = [len]BoxTree.LogicalSize{ inline_size_1, inline_size_2, inline_size_1, inline_size_1 };
     var block_size = [len]BoxTree.LogicalSize{ block_size_1, block_size_2, block_size_1, block_size_1 };
     var display = [len]BoxTree.Display{
-        .{ .block_flow = {} },
-        .{ .block_flow = {} },
-        .{ .block_flow = {} },
-        .{ .block_flow = {} },
+        .{ .block = {} },
+        .{ .block = {} },
+        .{ .block = {} },
+        .{ .block = {} },
     };
     //var position_inset = [len]BoxTree.PositionInset{
     //    .{ .position = .{ .relative = {} }, .inline_start = .{ .px = 100 } },
@@ -860,7 +860,7 @@ fn inlineLevelElementPush(context: *InlineLevelLayoutContext, values: *Intermedi
     interval.begin += subtree_size;
 
     switch (context.box_tree.display[box_id]) {
-        .inline_flow => {
+        .inline_ => {
             const used_id = try addInlineElementData(context.box_tree, values, box_id, context.containing_block_inline_size);
             try addBoxStart(values, used_id);
 
@@ -873,7 +873,7 @@ fn inlineLevelElementPush(context: *InlineLevelLayoutContext, values: *Intermedi
             }
         },
         .text => try addText(values, context.box_tree.latin1_text[box_id], context.box_tree.font),
-        .block_flow => {
+        .block => {
             // Immediately finish off this inline layout context.
             context.next_box_id = box_id;
             return true;
@@ -1169,7 +1169,7 @@ test "inline used values" {
     var inline_size = [_]BoxTree.LogicalSize{.{}} ** len;
     var block_size = [_]BoxTree.LogicalSize{.{}} ** len;
     var display = [len]BoxTree.Display{
-        .{ .block_flow = {} },
+        .{ .block = {} },
         .{ .text = {} },
     };
     var latin1_text = [len]BoxTree.Latin1Text{ .{}, .{ .text = "hello world" } };
