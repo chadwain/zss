@@ -52,6 +52,7 @@ fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) voi
     demo_exe.linkSystemLibrary("SDL2_image");
     demo_exe.setBuildMode(mode);
     demo_exe.setTarget(target);
+    demo_exe.install();
 
     var demo_cmd = demo_exe.run();
     if (b.args) |args| demo_cmd.addArgs(args);

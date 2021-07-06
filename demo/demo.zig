@@ -21,13 +21,15 @@ const hb = @import("harfbuzz");
 const usage = "Usage: demo [--font <file>] [--font-size <integer>] [--color <hex color>] [--bg-color <hex color>] <file>";
 
 pub fn main() !u8 {
+    const stderr = std.io.getStdErr().writer();
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(!gpa.deinit());
     var allocator = &gpa.allocator;
 
     const program_args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, program_args);
-    const args = parseArgs(program_args[1..]);
+    const args = parseArgs(program_args[1..], stderr);
 
     const file_bytes = blk: {
         const file = try fs.cwd().openFile(args.filename, .{});
@@ -80,7 +82,7 @@ pub fn main() !u8 {
 
     var face: hb.FT_Face = undefined;
     if (hb.FT_New_Face(library, args.font_filename, 0, &face) != hb.FT_Err_Ok) {
-        std.log.err("Error loading font file: {s}", .{args.font_filename});
+        stderr.print("Error loading font file: {s}\n", .{args.font_filename}) catch {};
         return 1;
     }
     defer assert(hb.FT_Done_Face(face) == hb.FT_Err_Ok);
@@ -99,7 +101,7 @@ const ProgramArguments = struct {
     bg_color: u32,
 };
 
-fn parseArgs(args: []const [:0]const u8) ProgramArguments {
+fn parseArgs(args: []const [:0]const u8, stderr: std.fs.File.Writer) ProgramArguments {
     var filename: ?[:0]const u8 = null;
     var font_filename: ?[:0]const u8 = null;
     var font_size: ?std.fmt.ParseIntError!u32 = null;
@@ -114,8 +116,7 @@ fn parseArgs(args: []const [:0]const u8) ProgramArguments {
                 filename = arg;
                 break;
             } else {
-                std.log.err("Argument syntax error", .{});
-                std.log.info("{s}", .{usage});
+                stderr.print("Argument syntax error\n{s}\n", .{usage}) catch {};
                 std.os.exit(1);
             }
         } else if (i + 1 < args.len) {
@@ -131,8 +132,7 @@ fn parseArgs(args: []const [:0]const u8) ProgramArguments {
                 const bg_color_str = if (std.mem.startsWith(u8, args[i + 1], "0x")) args[i + 1][2..] else args[i + 1];
                 bg_color = std.fmt.parseUnsigned(u24, bg_color_str, 16);
             } else {
-                std.log.err("Unrecognized option: {s}", .{arg});
-                std.log.info("{s}", .{usage});
+                stderr.print("Unrecognized option: {s}\n{s}\n", .{ arg, usage }) catch {};
                 std.os.exit(1);
             }
         }
@@ -140,21 +140,20 @@ fn parseArgs(args: []const [:0]const u8) ProgramArguments {
 
     return ProgramArguments{
         .filename = filename orelse {
-            std.log.err("Input file not specified", .{});
-            std.log.info("{s}", .{usage});
+            stderr.print("Input file not specified\n{s}\n", .{usage}) catch {};
             std.os.exit(1);
         },
         .font_filename = font_filename orelse "demo/NotoSans-Regular.ttf",
         .font_size = font_size orelse @as(std.fmt.ParseIntError!u32, 14) catch |e| {
-            std.log.err("Unable to parse font size: {s}", .{@errorName(e)});
+            stderr.print("Unable to parse font size: {s}", .{@errorName(e)}) catch {};
             std.os.exit(1);
         },
         .text_color = @as(u32, text_color orelse @as(std.fmt.ParseIntError!u24, 0x101010) catch |e| {
-            std.log.err("Unable to parse text color: {s}", .{@errorName(e)});
+            stderr.print("Unable to parse text color: {s}", .{@errorName(e)}) catch {};
             std.os.exit(1);
         }) << 8 | 0xff,
         .bg_color = @as(u32, bg_color orelse @as(std.fmt.ParseIntError!u24, 0xeeeeee) catch |e| {
-            std.log.err("Unable to parse background color: {s}", .{@errorName(e)});
+            stderr.print("Unable to parse background color: {s}", .{@errorName(e)}) catch {};
             std.os.exit(1);
         }) << 8 | 0xff,
     };
@@ -335,7 +334,8 @@ fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer:
     var ps = try ProgramState.init(tree, window, renderer, pixel_format, face, allocator);
     defer ps.deinit(allocator);
 
-    std.debug.print("You can scroll using the Up, Down, PageUp, PageDown, Home, and End keys.\n", .{});
+    const stderr = std.io.getStdErr().writer();
+    try stderr.print("You can scroll using the Up, Down, PageUp, PageDown, Home, and End keys.\n", .{});
 
     const scroll_speed = 15;
 
@@ -420,6 +420,6 @@ fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer:
         frame_time_index +%= 1;
         const average_frame_time = sum_of_frame_times / (frame_times.len * 1000);
         const last_layout_time_ms = ps.last_layout_time / 1000;
-        std.debug.print("\rLast layout time: {}.{}ms     Average frame time: {}.{}ms", .{ last_layout_time_ms / 1000, last_layout_time_ms % 1000, average_frame_time / 1000, average_frame_time % 1000 });
+        try stderr.print("\rLast layout time: {}.{}ms     Average frame time: {}.{}ms", .{ last_layout_time_ms / 1000, last_layout_time_ms % 1000, average_frame_time / 1000, average_frame_time % 1000 });
     }
 }
