@@ -16,7 +16,6 @@ const BoxTree = zss.BoxTree;
 const pixelToZssUnit = zss.render.sdl.util.pixelToZssUnit;
 
 const sdl = @import("SDL2");
-const ft = @import("freetype");
 const hb = @import("harfbuzz");
 
 const usage = "Usage: demo [--font <file>] [--font-size <integer>] [--color <hex color>] [--bg-color <hex color>] <file>";
@@ -161,7 +160,7 @@ fn parseArgs(args: []const [:0]const u8) ProgramArguments {
     };
 }
 
-fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: ft.FT_Face, allocator: *Allocator, bytes: []const u8) !void {
+fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: hb.FT_Face, allocator: *Allocator, bytes: []const u8) !void {
     const font = hb.hb_ft_font_create_referenced(face) orelse unreachable;
     defer hb.hb_font_destroy(font);
     hb.hb_ft_font_set_funcs(font);
@@ -285,6 +284,8 @@ const ProgramState = struct {
     height: c_int,
     scroll_y: c_int,
     max_scroll_y: c_int,
+    timer: std.time.Timer,
+    last_layout_time: u64,
 
     const Self = @This();
 
@@ -293,9 +294,12 @@ const ProgramState = struct {
 
         result.tree = tree;
         sdl.SDL_GetWindowSize(window, &result.width, &result.height);
+        result.timer = try std.time.Timer.start();
 
-        result.document = try zss.layout.doLayout(tree, allocator, allocator, pixelToZssUnit(result.width), pixelToZssUnit(result.height));
+        result.document = try zss.layout.doLayout(tree, allocator, pixelToZssUnit(result.width), pixelToZssUnit(result.height));
         errdefer result.document.deinit(allocator);
+
+        result.last_layout_time = result.timer.read();
 
         result.atlas = try zss.render.sdl.GlyphAtlas.init(face, renderer, pixel_format, allocator);
         errdefer result.atlas.deinit(allocator);
@@ -310,7 +314,9 @@ const ProgramState = struct {
     }
 
     fn updateDocument(self: *Self, allocator: *Allocator) !void {
-        var new_document = try zss.layout.doLayout(self.tree, allocator, allocator, pixelToZssUnit(self.width), pixelToZssUnit(self.height));
+        self.timer.reset();
+        var new_document = try zss.layout.doLayout(self.tree, allocator, pixelToZssUnit(self.width), pixelToZssUnit(self.height));
+        self.last_layout_time = self.timer.read();
         self.document.deinit(allocator);
         self.document = new_document;
         self.updateMaxScroll();
@@ -322,12 +328,14 @@ const ProgramState = struct {
     }
 };
 
-fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: ft.FT_Face, allocator: *Allocator, tree: *const BoxTree) !void {
+fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: hb.FT_Face, allocator: *Allocator, tree: *const BoxTree) !void {
     const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
 
     var ps = try ProgramState.init(tree, window, renderer, pixel_format, face, allocator);
     defer ps.deinit(allocator);
+
+    std.debug.print("You can scroll using the Up, Down, PageUp, PageDown, Home, and End keys.\n", .{});
 
     const scroll_speed = 15;
 
@@ -411,6 +419,7 @@ fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer:
         sum_of_frame_times += frame_time;
         frame_time_index +%= 1;
         const average_frame_time = sum_of_frame_times / (frame_times.len * 1000);
-        std.debug.print("\rAverage frame time: {}.{}ms", .{ average_frame_time / 1000, average_frame_time % 1000 });
+        const last_layout_time_ms = ps.last_layout_time / 1000;
+        std.debug.print("\rLast layout time: {}.{}ms     Average frame time: {}.{}ms", .{ last_layout_time_ms / 1000, last_layout_time_ms % 1000, average_frame_time / 1000, average_frame_time % 1000 });
     }
 }

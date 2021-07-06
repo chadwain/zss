@@ -23,10 +23,10 @@ pub const Error = error{
     Overflow,
 };
 
-pub fn doLayout(box_tree: *const BoxTree, context_allocator: *Allocator, document_allocator: *Allocator, document_width: ZssUnit, document_height: ZssUnit) Error!Document {
-    var context = try BlockLevelLayoutContext.init(box_tree, context_allocator, 0, document_width, document_height);
+pub fn doLayout(box_tree: *const BoxTree, allocator: *Allocator, document_width: ZssUnit, document_height: ZssUnit) Error!Document {
+    var context = try BlockLevelLayoutContext.init(box_tree, allocator, 0, document_width, document_height);
     defer context.deinit();
-    return Document{ .block_values = try createBlockLevelUsedValues(&context, document_allocator) };
+    return Document{ .block_values = try createBlockLevelUsedValues(&context, allocator) };
 }
 
 const LengthUnit = enum { px };

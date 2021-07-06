@@ -18,7 +18,7 @@ You should have received a copy of the GNU General Public License along with thi
   - Allows one to draw a document to graphical window via a rendering backend. At the moment, the only provided backend is [SDL2](source/render/sdl.zig).
 
 # Building zss
-zss is built using Zig 0.8.0, not master.
+zss is built using Zig 0.8.0, not master. It has only been tested on Linux.
 
 To do layout or run tests, you will need:
 - harfbuzz
@@ -33,8 +33,6 @@ So on Debian, for example, you can do
 sudo apt install libharfbuzz-dev libfreetype6-dev libsdl2-dev libsdl2-image-dev
 ```
 
-Windows users currently must provide their own builds of these libraries.
-
 After you've installed the dependencies, you can then run `zig build --help`.
 
 # How to use zss
@@ -47,7 +45,7 @@ const zss = @import("zss");
 2. Call `zss.layout.doLayout`.
 3. Draw the resulting document using the SDL2 rendering backend. Call `zss.render.sdl.renderDocument`.
 
-[A demo program](demo/demo.zig) is provided as an actual example. It must be run from the project root directory.
+[A demo program](demo/demo.zig) is provided as an actual example. Run `zig build` then `zig-out/bin/demo`. It must be run from the project root directory.
 
 ## Using `BoxTree`
 The box tree is the main interface into zss. It is where you specify the CSS properties for the elements of your document. It's much like writing a `.css` file. Here are a few short guides for using it properly.
@@ -87,7 +85,7 @@ box_tree.latin1_text[1] = .{ .text = "Hello!" };
 
 ### Adding background images
 zss does not specify the format of background images. Therefore background images are specified using abstract "background image objects" (see `BoxTree.Background.Image`).
-These objects are specific to the rendering backend being used and don't need to be created manually.
+These objects are specific to the rendering backend being used.
 
 For example, using the SDL2 backend, you can call `zss.render.sdl.textureAsBackgroundImageObject` to create an object.
 ```zig

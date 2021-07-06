@@ -7,11 +7,6 @@ const pkgs = struct {
         .name = "harfbuzz",
         .path = "dependencies/harfbuzz.zig",
     };
-    const freetype2 = Pkg{
-        .name = "freetype",
-        .path = "dependencies/freetype2.zig",
-        .dependencies = &[_]Pkg{harfbuzz},
-    };
     const SDL2 = Pkg{
         .name = "SDL2",
         .path = "dependencies/SDL2.zig",
@@ -43,10 +38,20 @@ pub fn build(b: *Builder) void {
 
 fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {
     var demo_exe = b.addExecutable("demo", "demo/demo.zig");
-    linkSdl2Freetype(demo_exe);
+    demo_exe.addPackage(pkgs.harfbuzz);
+    demo_exe.addPackage(pkgs.SDL2);
+    demo_exe.addPackage(Pkg{
+        .name = "zss",
+        .path = "zss.zig",
+        .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2 },
+    });
+    demo_exe.linkLibC();
+    demo_exe.linkSystemLibrary("harfbuzz");
+    demo_exe.linkSystemLibrary("freetype2");
+    demo_exe.linkSystemLibrary("SDL2");
+    demo_exe.linkSystemLibrary("SDL2_image");
     demo_exe.setBuildMode(mode);
     demo_exe.setTarget(target);
-    demo_exe.install();
 
     var demo_cmd = demo_exe.run();
     if (b.args) |args| demo_cmd.addArgs(args);
@@ -54,20 +59,4 @@ fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) voi
 
     const demo_step = b.step("demo", "Run the demo");
     demo_step.dependOn(&demo_cmd.step);
-}
-
-fn linkSdl2Freetype(exe: *std.build.LibExeObjStep) void {
-    exe.addPackage(pkgs.harfbuzz);
-    exe.addPackage(pkgs.freetype2);
-    exe.addPackage(pkgs.SDL2);
-    exe.addPackage(Pkg{
-        .name = "zss",
-        .path = "zss.zig",
-        .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2, pkgs.freetype2 },
-    });
-    exe.linkLibC();
-    exe.linkSystemLibrary("harfbuzz");
-    exe.linkSystemLibrary("freetype2");
-    exe.linkSystemLibrary("SDL2");
-    exe.linkSystemLibrary("SDL2_image");
 }
