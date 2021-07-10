@@ -209,7 +209,28 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .{ .text = {} },
         .{ .block = {} },
     };
-    var position = [_]BoxTree.Positioning{.{}} ** len;
+    var position = [len]BoxTree.Positioning{
+        .{},
+        .{},
+        .{},
+        .{},
+        .{},
+        .{},
+        .{},
+        .{},
+        .{},
+    };
+    var insets = [len]BoxTree.Insets{
+        .{},
+        .{},
+        .{},
+        .{},
+        .{},
+        .{},
+        .{},
+        .{},
+        .{},
+    };
     var latin1_text = [len]BoxTree.Latin1Text{
         .{},
         .{},
@@ -268,6 +289,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .block_size = &block_size,
         .display = &display,
         .position = &position,
+        .insets = &insets,
         .latin1_text = &latin1_text,
         .border = &border,
         .background = &background,

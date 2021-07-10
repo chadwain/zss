@@ -54,22 +54,6 @@ const UsedBlockSizes = struct {
     margin_end: ZssUnit,
 };
 
-//const InFlowInsets = struct {
-//    const BlockInset = union(enum) {
-//        /// A used length value.
-//        length: ZssUnit,
-//        /// A computed percentage value.
-//        percentage: f32,
-//    };
-//    inline_axis: ZssUnit,
-//    block_axis: BlockInset,
-//};
-//
-//const InFlowPositioningData = struct {
-//    insets: InFlowInsets,
-//    used_id: UsedId,
-//};
-
 const BlockLevelLayoutContext = struct {
     const Self = @This();
 
@@ -85,17 +69,15 @@ const BlockLevelLayoutContext = struct {
     intervals: ArrayListUnmanaged(Interval),
     used_id_and_subtree_size: ArrayListUnmanaged(UsedIdAndSubtreeSize),
     stacking_context_index: ArrayListUnmanaged(u16),
+
     static_containing_block_used_inline_size: ArrayListUnmanaged(ZssUnit),
     static_containing_block_auto_block_size: ArrayListUnmanaged(ZssUnit),
     static_containing_block_used_block_sizes: ArrayListUnmanaged(UsedBlockSizes),
-    //in_flow_positioning_data: ArrayListUnmanaged(InFlowPositioningData),
-    //in_flow_positioning_data_count: ArrayListUnmanaged(UsedId),
+
+    relative_positioned_descendants_ids: ArrayListUnmanaged(struct { box_id: BoxId, used_id: UsedId }),
+    relative_positioned_descendants_count: ArrayListUnmanaged(UsedId),
 
     fn init(box_tree: *const BoxTree, allocator: *Allocator, root_box_id: BoxId, containing_block_inline_size: ZssUnit, containing_block_block_size: ?ZssUnit) !Self {
-        //var in_flow_positioning_data_count = ArrayListUnmanaged(UsedId){};
-        //errdefer in_flow_positioning_data_count.deinit(allocator);
-        //try in_flow_positioning_data_count.append(allocator, 0);
-
         var used_id_and_subtree_size = ArrayListUnmanaged(UsedIdAndSubtreeSize){};
         errdefer used_id_and_subtree_size.deinit(allocator);
         try used_id_and_subtree_size.append(allocator, UsedIdAndSubtreeSize{
@@ -125,6 +107,10 @@ const BlockLevelLayoutContext = struct {
             .margin_end = 0,
         });
 
+        var relative_positioned_descendants_count = ArrayListUnmanaged(UsedId){};
+        errdefer relative_positioned_descendants_count.deinit(allocator);
+        try relative_positioned_descendants_count.append(allocator, 0);
+
         return Self{
             .box_tree = box_tree,
             .root_box_id = root_box_id,
@@ -135,8 +121,8 @@ const BlockLevelLayoutContext = struct {
             .static_containing_block_used_inline_size = static_containing_block_used_inline_size,
             .static_containing_block_auto_block_size = static_containing_block_auto_block_size,
             .static_containing_block_used_block_sizes = static_containing_block_used_block_sizes,
-            //.in_flow_positioning_data = .{},
-            //.in_flow_positioning_data_count = in_flow_positioning_data_count,
+            .relative_positioned_descendants_ids = .{},
+            .relative_positioned_descendants_count = relative_positioned_descendants_count,
         };
     }
 
@@ -147,8 +133,8 @@ const BlockLevelLayoutContext = struct {
         self.static_containing_block_used_inline_size.deinit(self.allocator);
         self.static_containing_block_auto_block_size.deinit(self.allocator);
         self.static_containing_block_used_block_sizes.deinit(self.allocator);
-        //self.in_flow_positioning_data.deinit(self.allocator);
-        //self.in_flow_positioning_data_count.deinit(self.allocator);
+        self.relative_positioned_descendants_ids.deinit(self.allocator);
+        self.relative_positioned_descendants_count.deinit(self.allocator);
     }
 };
 
@@ -281,8 +267,8 @@ fn blockLevelElementPop(context: *BlockLevelLayoutContext, values: *Intermediate
     if (values.properties.items[used_id].creates_stacking_context) {
         _ = context.stacking_context_index.pop();
     }
-    //const in_flow_positioning_data_count = context.in_flow_positioning_data_count.pop();
-    //context.in_flow_positioning_data.shrinkRetainingCapacity(context.in_flow_positioning_data.items.len - in_flow_positioning_data_count);
+    const relative_positioned_descendants_count = context.relative_positioned_descendants_count.pop();
+    context.relative_positioned_descendants_ids.shrinkRetainingCapacity(context.relative_positioned_descendants_ids.items.len - relative_positioned_descendants_count);
 }
 
 fn createStackingContext(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, z_index: i32, used_id: UsedId) !u16 {
@@ -312,17 +298,19 @@ fn blockContainerSolveSizeAndPositionPart1(context: *BlockLevelLayoutContext, va
     const position = context.box_tree.position[box_id];
     const stacking_context_index = switch (position.style) {
         .static => null,
-        else => blk: {
+        .relative => blk: {
             if (box_id == interval.parent) {
                 // This is the root element. Position must be 'static'.
                 return error.InvalidValue;
             }
 
+            properties_ptr.creates_stacking_context = true;
+            context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1] += 1;
+            try context.relative_positioned_descendants_ids.append(context.allocator, .{ .box_id = box_id, .used_id = used_id });
             const z_index = switch (position.z_index) {
                 .value => |z_index| z_index,
                 .auto => 0,
             };
-            properties_ptr.creates_stacking_context = true;
             break :blk try createStackingContext(context, values, z_index, used_id);
         },
     };
@@ -343,6 +331,7 @@ fn blockContainerSolveSizeAndPositionPart1(context: *BlockLevelLayoutContext, va
         try context.static_containing_block_auto_block_size.append(context.allocator, 0);
         try context.static_containing_block_used_block_sizes.append(context.allocator, used_block_sizes);
         try context.used_id_and_subtree_size.append(context.allocator, UsedIdAndSubtreeSize{ .used_id = used_id, .used_subtree_size = 1 });
+        try context.relative_positioned_descendants_count.append(context.allocator, 0);
         if (stacking_context_index) |index| {
             try context.stacking_context_index.append(context.allocator, index);
         }
@@ -351,7 +340,7 @@ fn blockContainerSolveSizeAndPositionPart1(context: *BlockLevelLayoutContext, va
         structure_ptr.* = 1;
         context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1].used_subtree_size += 1;
         const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
-        blockContainerSolveSizeAndPositionPart2(box_offsets_ptr, used_block_sizes, 0, parent_auto_block_size);
+        _ = blockContainerSolveSizeAndPositionPart2(box_offsets_ptr, used_block_sizes, 0, parent_auto_block_size);
         blockContainerSolveOtherProperties(context, values, box_id, used_id);
     }
 }
@@ -359,17 +348,19 @@ fn blockContainerSolveSizeAndPositionPart1(context: *BlockLevelLayoutContext, va
 fn blockContainerFinishLayout(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, box_offsets: *used_values.BoxOffsets, parent_auto_block_size: *ZssUnit) void {
     const used_block_sizes = context.static_containing_block_used_block_sizes.items[context.static_containing_block_used_block_sizes.items.len - 1];
     const auto_block_size = context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
-    blockContainerSolveSizeAndPositionPart2(box_offsets, used_block_sizes, auto_block_size, parent_auto_block_size);
-    //applyInFlowPositioningToChildren(context, values.box_offsets.items, sizes.used_block_size);
+    const used_inline_size = context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1];
+    const used_block_size = blockContainerSolveSizeAndPositionPart2(box_offsets, used_block_sizes, auto_block_size, parent_auto_block_size);
+    applyRelativePositioningToChildren(context, values, used_inline_size, used_block_size);
 }
 
-fn blockContainerSolveSizeAndPositionPart2(box_offsets: *used_values.BoxOffsets, used_block_sizes: UsedBlockSizes, auto_block_size: ZssUnit, parent_auto_block_size: *ZssUnit) void {
+fn blockContainerSolveSizeAndPositionPart2(box_offsets: *used_values.BoxOffsets, used_block_sizes: UsedBlockSizes, auto_block_size: ZssUnit, parent_auto_block_size: *ZssUnit) ZssUnit {
     const used_block_size = zss.util.clamp(used_block_sizes.size orelse auto_block_size, used_block_sizes.min_size, used_block_sizes.max_size);
     box_offsets.border_start.block_dir = parent_auto_block_size.* + used_block_sizes.margin_start;
     box_offsets.content_start.block_dir += box_offsets.border_start.block_dir;
     box_offsets.content_end.block_dir = box_offsets.content_start.block_dir + used_block_size;
     box_offsets.border_end.block_dir += box_offsets.content_end.block_dir;
     parent_auto_block_size.* = box_offsets.border_end.block_dir + used_block_sizes.margin_end;
+    return used_block_size;
 }
 
 fn blockContainerSolveOtherProperties(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, box_id: BoxId, used_id: UsedId) void {
@@ -390,62 +381,46 @@ fn blockContainerSolveOtherProperties(context: *BlockLevelLayoutContext, values:
     //visual_effect_ptr.* = .{};
 }
 
-//fn applyInFlowPositioningToChildren(context: *const BlockLevelLayoutContext, box_offsets: []used_values.BoxOffsets, containing_block_block_size: ZssUnit) void {
-//    const count = context.in_flow_positioning_data_count.items[context.in_flow_positioning_data_count.items.len - 1];
-//    var i: UsedId = 0;
-//    while (i < count) : (i += 1) {
-//        const positioning_data = context.in_flow_positioning_data.items[context.in_flow_positioning_data.items.len - 1 - i];
-//        const positioning_offset = zss.types.ZssVector{
-//            // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
-//            .x = positioning_data.insets.inline_axis,
-//            // TODO assuming a 'horizontal-tb' value for the 'writing-mode' property
-//            .y = switch (positioning_data.insets.block_axis) {
-//                .length => |l| l,
-//                .percentage => |value| percentage(value, containing_block_block_size),
-//            },
-//        };
-//        const box_offset = &box_offsets[positioning_data.used_id];
-//        inline for (std.meta.fields(used_values.BoxOffsets)) |field| {
-//            const offset = &@field(box_offset, field.name);
-//            offset.* = offset.add(positioning_offset);
-//        }
-//    }
-//}
-//
-//fn resolveRelativePositionInset(context: *BlockLevelLayoutContext, position_inset: *BoxTree.PositionInset) InFlowInsets {
-//    const containing_block_inline_size = context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1];
-//    const containing_block_block_size = context.static_containing_block_used_block_sizes.items[context.static_containing_block_used_block_sizes.items.len - 1].size;
-//    const inline_start = switch (position_inset.inline_start) {
-//        .px => |value| length(.px, value),
-//        .percentage => |value| percentage(value, containing_block_inline_size),
-//        .auto => null,
-//    };
-//    const inline_end = switch (position_inset.inline_end) {
-//        .px => |value| -length(.px, value),
-//        .percentage => |value| -percentage(value, containing_block_inline_size),
-//        .auto => null,
-//    };
-//    const block_start: ?InFlowInsets.BlockInset = switch (position_inset.block_start) {
-//        .px => |value| InFlowInsets.BlockInset{ .length = length(.px, value) },
-//        .percentage => |value| if (containing_block_block_size) |s|
-//            InFlowInsets.BlockInset{ .length = percentage(value, s) }
-//        else
-//            InFlowInsets.BlockInset{ .percentage = value },
-//        .auto => null,
-//    };
-//    const block_end: ?InFlowInsets.BlockInset = switch (position_inset.block_end) {
-//        .px => |value| InFlowInsets.BlockInset{ .length = -length(.px, value) },
-//        .percentage => |value| if (containing_block_block_size) |s|
-//            InFlowInsets.BlockInset{ .length = -percentage(value, s) }
-//        else
-//            InFlowInsets.BlockInset{ .percentage = -value },
-//        .auto => null,
-//    };
-//    return InFlowInsets{
-//        .inline_axis = inline_start orelse inline_end orelse 0,
-//        .block_axis = block_start orelse block_end orelse InFlowInsets.BlockInset{ .length = 0 },
-//    };
-//}
+fn applyRelativePositioningToChildren(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, containing_block_inline_size: ZssUnit, containing_block_block_size: ZssUnit) void {
+    const count = context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1];
+    var i: UsedId = 0;
+    while (i < count) : (i += 1) {
+        const ids = context.relative_positioned_descendants_ids.items[context.relative_positioned_descendants_ids.items.len - 1 - i];
+        const insets = context.box_tree.insets[ids.box_id];
+        const box_offsets = &values.box_offsets.items[ids.used_id];
+
+        const inline_start = switch (insets.inline_start) {
+            .px => |value| length(.px, value),
+            .percentage => |value| percentage(value, containing_block_inline_size),
+            .auto => null,
+        };
+        const inline_end = switch (insets.inline_end) {
+            .px => |value| -length(.px, value),
+            .percentage => |value| -percentage(value, containing_block_inline_size),
+            .auto => null,
+        };
+        const block_start = switch (insets.block_start) {
+            .px => |value| length(.px, value),
+            .percentage => |value| percentage(value, containing_block_block_size),
+            .auto => null,
+        };
+        const block_end = switch (insets.block_end) {
+            .px => |value| -length(.px, value),
+            .percentage => |value| -percentage(value, containing_block_block_size),
+            .auto => null,
+        };
+
+        // TODO the value of the 'direction' property matters here
+        const translation_inline = inline_start orelse inline_end orelse 0;
+        const translation_block = block_start orelse block_end orelse 0;
+
+        inline for (std.meta.fields(used_values.BoxOffsets)) |field| {
+            const offset = &@field(box_offsets, field.name);
+            offset.inline_dir += translation_inline;
+            offset.block_dir += translation_block;
+        }
+    }
+}
 
 /// This is an implementation of CSS2§10.2 and CSS2§10.3.3.
 fn blockContainerSolveInlineSizesAndOffsets(context: *const BlockLevelLayoutContext, box_id: BoxId, box_offsets: *used_values.BoxOffsets, borders: *used_values.Borders) !ZssUnit {
@@ -720,6 +695,7 @@ test "block used values" {
         .{ .block = {} },
     };
     var position = [_]BoxTree.Positioning{.{}} ** len;
+    var insets = [_]BoxTree.Insets{.{}} ** len;
     var latin1_text = [_]BoxTree.Latin1Text{.{ .text = "" }} ** len;
     var font = BoxTree.Font{ .font = hb.hb_font_get_empty().? };
     var border = [_]BoxTree.Border{.{}} ** len;
@@ -731,6 +707,7 @@ test "block used values" {
             .block_size = &block_size,
             .display = &display,
             .position = &position,
+            .insets = &insets,
             .latin1_text = &latin1_text,
             .font = font,
             .border = &border,
@@ -1214,6 +1191,7 @@ test "inline used values" {
         .{ .text = {} },
     };
     var position = [_]BoxTree.Positioning{.{}} ** len;
+    var insets = [_]BoxTree.Insets{.{}} ** len;
     var latin1_text = [len]BoxTree.Latin1Text{ .{}, .{ .text = "hello world" } };
     var font = BoxTree.Font{ .font = hb_font.? };
     var border = [_]BoxTree.Border{.{}} ** len;
@@ -1224,6 +1202,7 @@ test "inline used values" {
         .block_size = &block_size,
         .display = &display,
         .position = &position,
+        .insets = &insets,
         .latin1_text = &latin1_text,
         .font = font,
         .border = &border,

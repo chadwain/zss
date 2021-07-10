@@ -22,6 +22,7 @@ display: []Display,
 position: []Positioning,
 inline_size: []LogicalSize,
 block_size: []LogicalSize,
+insets: []Insets,
 latin1_text: []Latin1Text,
 border: []Border,
 background: []Background,
@@ -38,10 +39,7 @@ pub const Display = union(enum) {
 };
 
 pub const Positioning = struct {
-    pub const Style = union(enum) {
-        static,
-        relative,
-    };
+    pub const Style = union(enum) { static, relative };
 
     pub const ZIndex = union(enum) {
         value: i32,
@@ -89,6 +87,19 @@ pub const LogicalSize = struct {
     padding_end: Padding = .{ .px = 0 },
     margin_start: Margin = .{ .px = 0 },
     margin_end: Margin = .{ .px = 0 },
+};
+
+pub const Insets = struct {
+    pub const Inset = union(enum) {
+        px: f32,
+        percentage: f32,
+        auto,
+    };
+
+    inline_start: Inset = .{ .auto = {} },
+    inline_end: Inset = .{ .auto = {} },
+    block_start: Inset = .{ .auto = {} },
+    block_end: Inset = .{ .auto = {} },
 };
 
 pub const Latin1Text = struct {
