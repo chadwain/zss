@@ -1,5 +1,5 @@
 # zss
-zss is a library written in [Zig](https://ziglang.org/) which implements CSS layout on a document. Said document can then be drawn to the screen.
+zss is a [CSS](https://www.w3.org/Style/CSS/) layout engine and document renderer, written in [Zig](https://ziglang.org/).
 
 # License
 ## GPL-3.0-only
@@ -18,13 +18,13 @@ You should have received a copy of the GNU General Public License along with thi
   - Allows one to draw a document to graphical window via a rendering backend. At the moment, the only provided backend is [SDL2](source/render/sdl.zig).
 
 # Building zss
-zss is built using Zig 0.8.0, not master. It has only been tested on Linux.
+zss is built using Zig 0.8.0, not master.
 
 To do layout or run tests, you will need:
 - harfbuzz
 - freetype
 
-To run the demo program, you must also have:
+To use the SDL2 rendering backend or run the demo program, you must also have:
 - sdl2
 - sdl2-image
 
@@ -32,6 +32,8 @@ So on Debian, for example, you can do
 ```
 sudo apt install libharfbuzz-dev libfreetype6-dev libsdl2-dev libsdl2-image-dev
 ```
+
+Windows users must provide their own builds of these libraries for now, until I can get them packaged via a package manager.
 
 After you've installed the dependencies, you can then run `zig build --help`.
 
