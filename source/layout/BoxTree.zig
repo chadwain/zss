@@ -19,6 +19,7 @@
 
 structure: []BoxId,
 display: []Display,
+position: []Positioning,
 inline_size: []LogicalSize,
 block_size: []LogicalSize,
 latin1_text: []Latin1Text,
@@ -34,6 +35,21 @@ pub const Display = union(enum) {
     inline_,
     text,
     none,
+};
+
+pub const Positioning = struct {
+    pub const Style = union(enum) {
+        static,
+        relative,
+    };
+
+    pub const ZIndex = union(enum) {
+        value: i32,
+        auto,
+    };
+
+    style: Style = .{ .static = {} },
+    z_index: ZIndex = .{ .auto = {} },
 };
 
 pub const LogicalSize = struct {
@@ -74,24 +90,6 @@ pub const LogicalSize = struct {
     margin_start: Margin = .{ .px = 0 },
     margin_end: Margin = .{ .px = 0 },
 };
-
-//pub const PositionInset = struct {
-//    pub const Position = union(enum) {
-//        static,
-//        relative,
-//    };
-//    pub const Inset = union(enum) {
-//        px: f32,
-//        percentage: f32,
-//        auto,
-//    };
-//
-//    position: Position = .{ .static = {} },
-//    block_start: Inset = .{ .auto = {} },
-//    block_end: Inset = .{ .auto = {} },
-//    inline_start: Inset = .{ .auto = {} },
-//    inline_end: Inset = .{ .auto = {} },
-//};
 
 pub const Latin1Text = struct {
     // TODO should this be nullable?

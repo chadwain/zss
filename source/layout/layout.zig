@@ -84,6 +84,7 @@ const BlockLevelLayoutContext = struct {
     allocator: *Allocator,
     intervals: ArrayListUnmanaged(Interval),
     used_id_and_subtree_size: ArrayListUnmanaged(UsedIdAndSubtreeSize),
+    stacking_context_index: ArrayListUnmanaged(u16),
     static_containing_block_used_inline_size: ArrayListUnmanaged(ZssUnit),
     static_containing_block_auto_block_size: ArrayListUnmanaged(ZssUnit),
     static_containing_block_used_block_sizes: ArrayListUnmanaged(UsedBlockSizes),
@@ -101,6 +102,10 @@ const BlockLevelLayoutContext = struct {
             .used_id = undefined,
             .used_subtree_size = 1,
         });
+
+        var stacking_context_index = ArrayListUnmanaged(u16){};
+        errdefer stacking_context_index.deinit(allocator);
+        try stacking_context_index.append(allocator, 0);
 
         var static_containing_block_used_inline_size = ArrayListUnmanaged(ZssUnit){};
         errdefer static_containing_block_used_inline_size.deinit(allocator);
@@ -125,6 +130,7 @@ const BlockLevelLayoutContext = struct {
             .root_box_id = root_box_id,
             .allocator = allocator,
             .intervals = .{},
+            .stacking_context_index = stacking_context_index,
             .used_id_and_subtree_size = used_id_and_subtree_size,
             .static_containing_block_used_inline_size = static_containing_block_used_inline_size,
             .static_containing_block_auto_block_size = static_containing_block_auto_block_size,
@@ -137,6 +143,7 @@ const BlockLevelLayoutContext = struct {
     fn deinit(self: *Self) void {
         self.intervals.deinit(self.allocator);
         self.used_id_and_subtree_size.deinit(self.allocator);
+        self.stacking_context_index.deinit(self.allocator);
         self.static_containing_block_used_inline_size.deinit(self.allocator);
         self.static_containing_block_auto_block_size.deinit(self.allocator);
         self.static_containing_block_used_block_sizes.deinit(self.allocator);
@@ -158,6 +165,10 @@ const IntermediateBlockLevelUsedValues = struct {
     //visual_effect: ArrayListUnmanaged(used_values.VisualEffect) = .{},
     inline_values: ArrayListUnmanaged(BlockLevelUsedValues.InlineValues) = .{},
 
+    properties: ArrayListUnmanaged(BlockLevelUsedValues.BoxProperties) = .{},
+    stacking_context_structure: ArrayListUnmanaged(u16) = .{},
+    stacking_contexts: ArrayListUnmanaged(BlockLevelUsedValues.StackingContext) = .{},
+
     fn deinit(self: *Self) void {
         self.structure.deinit(self.allocator);
         self.box_offsets.deinit(self.allocator);
@@ -171,6 +182,9 @@ const IntermediateBlockLevelUsedValues = struct {
             self.allocator.destroy(inl.values);
         }
         self.inline_values.deinit(self.allocator);
+        self.properties.deinit(self.allocator);
+        self.stacking_context_structure.deinit(self.allocator);
+        self.stacking_contexts.deinit(self.allocator);
     }
 
     fn ensureCapacity(self: *Self, capacity: usize) !void {
@@ -180,6 +194,7 @@ const IntermediateBlockLevelUsedValues = struct {
         try self.border_colors.ensureCapacity(self.allocator, capacity);
         try self.background1.ensureCapacity(self.allocator, capacity);
         try self.background2.ensureCapacity(self.allocator, capacity);
+        try self.properties.ensureCapacity(self.allocator, capacity);
         //try self.visual_effect.ensureCapacity(self.allocator, capacity);
     }
 
@@ -193,6 +208,9 @@ const IntermediateBlockLevelUsedValues = struct {
             .background2 = self.background2.toOwnedSlice(self.allocator),
             //.visual_effect = self.visual_effect.toOwnedSlice(self.allocator),
             .inline_values = self.inline_values.toOwnedSlice(self.allocator),
+            .properties = self.properties.toOwnedSlice(self.allocator),
+            .stacking_context_structure = self.stacking_context_structure.toOwnedSlice(self.allocator),
+            .stacking_contexts = self.stacking_contexts.toOwnedSlice(self.allocator),
         };
     }
 };
@@ -207,6 +225,10 @@ fn createBlockLevelUsedValues(context: *BlockLevelLayoutContext, values_allocato
     values.ensureCapacity(root_subtree_size) catch {};
 
     try blockLevelElementPush(context, &values, &root_interval);
+
+    try values.stacking_context_structure.append(values.allocator, 1);
+    try values.stacking_contexts.append(values.allocator, .{ .z_index = 0, .used_id = 0 });
+    values.properties.items[0].creates_stacking_context = true;
 
     while (context.intervals.items.len > 0) {
         const interval = &context.intervals.items[context.intervals.items.len - 1];
@@ -256,8 +278,25 @@ fn blockLevelElementPop(context: *BlockLevelLayoutContext, values: *Intermediate
     _ = context.static_containing_block_used_inline_size.pop();
     _ = context.static_containing_block_auto_block_size.pop();
     _ = context.static_containing_block_used_block_sizes.pop();
+    if (values.properties.items[used_id].creates_stacking_context) {
+        _ = context.stacking_context_index.pop();
+    }
     //const in_flow_positioning_data_count = context.in_flow_positioning_data_count.pop();
     //context.in_flow_positioning_data.shrinkRetainingCapacity(context.in_flow_positioning_data.items.len - in_flow_positioning_data_count);
+}
+
+fn createStackingContext(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, z_index: i32, used_id: UsedId) !u16 {
+    const parent_stacking_context_index = context.stacking_context_index.items[context.stacking_context_index.items.len - 1];
+    var current = parent_stacking_context_index + 1;
+    const end = parent_stacking_context_index + values.stacking_context_structure.items[parent_stacking_context_index];
+    while (current < end and z_index >= values.stacking_contexts.items[current].z_index) : (current += values.stacking_context_structure.items[current]) {}
+
+    for (context.stacking_context_index.items) |index| {
+        values.stacking_context_structure.items[index] += 1;
+    }
+    try values.stacking_context_structure.insert(values.allocator, current, 1);
+    try values.stacking_contexts.insert(values.allocator, current, .{ .z_index = z_index, .used_id = used_id });
+    return current;
 }
 
 fn blockContainerSolveSizeAndPositionPart1(context: *BlockLevelLayoutContext, values: *IntermediateBlockLevelUsedValues, interval: *BlockLevelLayoutContext.Interval) !void {
@@ -266,23 +305,28 @@ fn blockContainerSolveSizeAndPositionPart1(context: *BlockLevelLayoutContext, va
     interval.begin += subtree_size;
 
     const used_id = try std.math.cast(UsedId, values.structure.items.len);
-
-    //const position_inset = &context.box_tree.position_inset[box_id];
-    //switch (position_inset.position) {
-    //    .static => {},
-    //    .relative => {
-    //        const insets = resolveRelativePositionInset(context, position_inset);
-    //        // TODO Only need to do this if the block inset is a percentage value,
-    //        // otherwise we can just apply the positioning immediately
-    //        try context.in_flow_positioning_data.append(context.allocator, InFlowPositioningData{
-    //            .insets = insets,
-    //            .used_id = used_id,
-    //        });
-    //        context.in_flow_positioning_data_count.items[context.in_flow_positioning_data_count.items.len - 1] += 1;
-    //    },
-    //}
-
     const structure_ptr = try values.structure.addOne(values.allocator);
+    const properties_ptr = try values.properties.addOne(values.allocator);
+    properties_ptr.* = .{};
+
+    const position = context.box_tree.position[box_id];
+    const stacking_context_index = switch (position.style) {
+        .static => null,
+        else => blk: {
+            if (box_id == interval.parent) {
+                // This is the root element. Position must be 'static'.
+                return error.InvalidValue;
+            }
+
+            const z_index = switch (position.z_index) {
+                .value => |z_index| z_index,
+                .auto => 0,
+            };
+            properties_ptr.creates_stacking_context = true;
+            break :blk try createStackingContext(context, values, z_index, used_id);
+        },
+    };
+
     const box_offsets_ptr = try values.box_offsets.addOne(values.allocator);
     const borders_ptr = try values.borders.addOne(values.allocator);
     const inline_size = try blockContainerSolveInlineSizesAndOffsets(context, box_id, box_offsets_ptr, borders_ptr);
@@ -299,7 +343,9 @@ fn blockContainerSolveSizeAndPositionPart1(context: *BlockLevelLayoutContext, va
         try context.static_containing_block_auto_block_size.append(context.allocator, 0);
         try context.static_containing_block_used_block_sizes.append(context.allocator, used_block_sizes);
         try context.used_id_and_subtree_size.append(context.allocator, UsedIdAndSubtreeSize{ .used_id = used_id, .used_subtree_size = 1 });
-        //try context.in_flow_positioning_data_count.append(context.allocator, 0);
+        if (stacking_context_index) |index| {
+            try context.stacking_context_index.append(context.allocator, index);
+        }
     } else {
         // Optimized path for elements that have no children. It is like a shorter version of blockLevelElementPop.
         structure_ptr.* = 1;
@@ -628,7 +674,7 @@ fn blockLevelAddInlineData(context: *BlockLevelLayoutContext, values: *Intermedi
     try values.background1.append(values.allocator, .{});
     try values.background2.append(values.allocator, .{});
     //try values.visual_effect.append(allocator, .{});
-
+    try values.properties.append(values.allocator, .{});
 }
 
 fn blockLevelAddNone(context: *BlockLevelLayoutContext, interval: *BlockLevelLayoutContext.Interval) void {
@@ -673,12 +719,7 @@ test "block used values" {
         .{ .block = {} },
         .{ .block = {} },
     };
-    //var position_inset = [len]BoxTree.PositionInset{
-    //    .{ .position = .{ .relative = {} }, .inline_start = .{ .px = 100 } },
-    //    .{},
-    //    .{},
-    //    .{},
-    //};
+    var position = [_]BoxTree.Positioning{.{}} ** len;
     var latin1_text = [_]BoxTree.Latin1Text{.{ .text = "" }} ** len;
     var font = BoxTree.Font{ .font = hb.hb_font_get_empty().? };
     var border = [_]BoxTree.Border{.{}} ** len;
@@ -689,7 +730,7 @@ test "block used values" {
             .inline_size = &inline_size,
             .block_size = &block_size,
             .display = &display,
-            //.position_inset = &position_inset,
+            .position = &position,
             .latin1_text = &latin1_text,
             .font = font,
             .border = &border,
@@ -1172,6 +1213,7 @@ test "inline used values" {
         .{ .block = {} },
         .{ .text = {} },
     };
+    var position = [_]BoxTree.Positioning{.{}} ** len;
     var latin1_text = [len]BoxTree.Latin1Text{ .{}, .{ .text = "hello world" } };
     var font = BoxTree.Font{ .font = hb_font.? };
     var border = [_]BoxTree.Border{.{}} ** len;
@@ -1181,6 +1223,7 @@ test "inline used values" {
         .inline_size = &inline_size,
         .block_size = &block_size,
         .display = &display,
+        .position = &position,
         .latin1_text = &latin1_text,
         .font = font,
         .border = &border,

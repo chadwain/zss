@@ -131,10 +131,23 @@ pub const BlockLevelUsedValues = struct {
     border_colors: []BorderColor,
     background1: []Background1,
     background2: []Background2,
+    properties: []BoxProperties,
     // End of the "used id" indexed arrays.
+
+    stacking_context_structure: []u16,
+    stacking_contexts: []StackingContext,
 
     /// Inline data that is the contents of a block box.
     inline_values: []InlineValues,
+
+    pub const BoxProperties = struct {
+        creates_stacking_context: bool = false,
+    };
+
+    pub const StackingContext = struct {
+        z_index: i32,
+        used_id: UsedId,
+    };
 
     pub const InlineValues = struct {
         values: *InlineLevelUsedValues,
@@ -148,6 +161,11 @@ pub const BlockLevelUsedValues = struct {
         allocator.free(self.border_colors);
         allocator.free(self.background1);
         allocator.free(self.background2);
+        allocator.free(self.properties);
+
+        allocator.free(self.stacking_context_structure);
+        allocator.free(self.stacking_contexts);
+
         for (self.inline_values) |*inl| {
             inl.values.deinit(allocator);
             allocator.destroy(inl.values);
