@@ -1,6 +1,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
 
 const zss = @import("../../zss.zig");
@@ -18,8 +20,29 @@ const sdl = @import("SDL2");
 
 pub const util = @import("util/sdl.zig");
 
+const RenderState = struct {
+    inlines_list: ArrayListUnmanaged(struct { containing_block_used_id: UsedId, inline_index: usize }) = .{},
+    stacking_context_inlines_count: ArrayListUnmanaged(usize) = .{},
+
+    const Self = @This();
+
+    fn init(doc: *const Document, allocator: *Allocator) !Self {
+        var result = Self{};
+        try result.inlines_list.ensureCapacity(allocator, doc.inlines.items.len);
+        errdefer result.inlines_list.deinit(allocator);
+        try result.stacking_context_inlines_count.ensureCapacity(allocator, doc.blocks.stacking_contexts.items.len);
+        errdefer result.stacking_context_inlines_count.deinit(allocator);
+        return result;
+    }
+
+    fn deinit(self: *Self, allocator: *Allocator) void {
+        self.inlines_list.deinit(allocator);
+        self.stacking_context_inlines_count.deinit(allocator);
+    }
+};
+
 pub fn renderDocument(
-    document: *const Document,
+    doc: *const Document,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
     glyph_atlas: *GlyphAtlas,
@@ -27,20 +50,76 @@ pub fn renderDocument(
     clip_rect: sdl.SDL_Rect,
     translation: sdl.SDL_Point,
 ) !void {
-    const block_values = &document.block_values;
-    const translation_zss = util.sdlPointToZssVector(translation);
+    var s = try RenderState.init(doc, allocator);
+    defer s.deinit(allocator);
     const clip_rect_zss = util.sdlRectToZssRect(clip_rect);
 
-    drawBlockValuesRoot(block_values, translation_zss, clip_rect_zss, renderer, pixel_format);
-    try drawBlockValuesChildren(block_values, allocator, translation_zss, clip_rect_zss, renderer, pixel_format);
+    const StackItem = struct {
+        interval: struct { current: u16, end: u16 },
+        used_id: UsedId,
+        translation: ZssVector,
+        state: enum { DrawRoot, DrawChildren },
 
-    for (block_values.inline_values) |inline_values| {
-        var cumulative_translation = translation_zss;
-        var it = zss.util.StructureArrayIterator.init(block_values.structure, inline_values.id_of_containing_block);
-        while (it.next()) |id| {
-            cumulative_translation = cumulative_translation.add(util.zssFlowRelativeVectorToZssVector(block_values.box_offsets[id].content_start));
+        fn addToStack(stack: *ArrayList(@This()), top: @This(), index: usize, doc_: *const Document) !void {
+            const child_used_id = doc_.blocks.stacking_contexts.items[top.interval.current].used_id;
+            var it = zss.util.StructureArray(UsedId).iterator(doc_.blocks.structure.items, top.used_id, child_used_id);
+            var it_used_id = it.next().?;
+            var tr = top.translation;
+            while (it_used_id != child_used_id) : (it_used_id = it.next().?) {
+                tr = tr.add(util.zssFlowRelativeVectorToZssVector(doc_.blocks.box_offsets.items[it_used_id].content_start));
+            }
+            try stack.insert(index, .{
+                .interval = .{ .current = top.interval.current + 1, .end = top.interval.current + doc_.blocks.stacking_context_structure.items[top.interval.current] },
+                .used_id = child_used_id,
+                .translation = tr,
+                .state = .DrawRoot,
+            });
         }
-        try drawInlineValues(inline_values.values, cumulative_translation, allocator, renderer, pixel_format, glyph_atlas);
+    };
+    var stacking_context_stack = ArrayList(StackItem).init(allocator);
+    defer stacking_context_stack.deinit();
+    try stacking_context_stack.append(.{
+        .interval = .{ .current = 1, .end = doc.blocks.stacking_context_structure.items[0] },
+        .used_id = doc.blocks.stacking_contexts.items[0].used_id,
+        .translation = util.sdlPointToZssVector(translation),
+        .state = .DrawRoot,
+    });
+
+    while (stacking_context_stack.items.len > 0) {
+        const old_len = stacking_context_stack.items.len;
+        var top = stacking_context_stack.items[old_len - 1];
+        switch (top.state) {
+            .DrawRoot => {
+                top.state = .DrawChildren;
+                while (top.interval.current < top.interval.end and doc.blocks.stacking_contexts.items[top.interval.current].z_index < 0) {
+                    try StackItem.addToStack(&stacking_context_stack, top, old_len, doc);
+                    top.interval.current += doc.blocks.stacking_context_structure.items[top.interval.current];
+                }
+                stacking_context_stack.items[old_len - 1] = top;
+
+                s.stacking_context_inlines_count.appendAssumeCapacity(0);
+                drawBlockValuesRoot(&s, &doc.blocks, top.used_id, top.translation, clip_rect_zss, renderer, pixel_format);
+            },
+            .DrawChildren => {
+                _ = stacking_context_stack.pop();
+                while (top.interval.current < top.interval.end) {
+                    try StackItem.addToStack(&stacking_context_stack, top, old_len - 1, doc);
+                    top.interval.current += doc.blocks.stacking_context_structure.items[top.interval.current];
+                }
+                try drawBlockValuesChildren(&s, &doc.blocks, top.used_id, allocator, top.translation, clip_rect_zss, renderer, pixel_format);
+
+                const inlines_count = s.stacking_context_inlines_count.pop();
+                for (s.inlines_list.items[s.inlines_list.items.len - inlines_count ..]) |item| {
+                    var it = zss.util.StructureArray(UsedId).iterator(doc.blocks.structure.items, top.used_id, item.containing_block_used_id);
+                    var tr = top.translation;
+                    while (it.next()) |used_id| {
+                        tr = tr.add(util.zssFlowRelativeVectorToZssVector(doc.blocks.box_offsets.items[used_id].content_start));
+                    }
+                    try drawInlineValues(doc.inlines.items[item.inline_index], tr, allocator, renderer, pixel_format, glyph_atlas);
+                }
+                s.inlines_list.shrinkRetainingCapacity(s.inlines_list.items.len - inlines_count);
+            },
+        }
     }
 }
 
@@ -217,19 +296,26 @@ fn getThreeBoxes(translation: ZssVector, box_offsets: zss.used_values.BoxOffsets
 /// Draws the background color, background image, and borders of a
 /// block box. This implements §Appendix E.2 Step 2.
 pub fn drawBlockValuesRoot(
+    s: *RenderState,
     values: *const BlockLevelUsedValues,
+    used_id: UsedId,
     translation: ZssVector,
     clip_rect: ZssRect,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
 ) void {
+    const properties = values.properties.items[used_id];
+    if (properties.inline_context_index) |index| {
+        s.inlines_list.appendAssumeCapacity(.{ .containing_block_used_id = used_id, .inline_index = index });
+        s.stacking_context_inlines_count.items[s.stacking_context_inlines_count.items.len - 1] += 1;
+    }
     //const visual_effect = values.visual_effect[0];
     //if (visual_effect.visibility == .Hidden) return;
-    const borders = values.borders[0];
-    const background1 = values.background1[0];
-    const background2 = values.background2[0];
-    const border_colors = values.border_colors[0];
-    const box_offsets = values.box_offsets[0];
+    const borders = values.borders.items[used_id];
+    const background1 = values.background1.items[used_id];
+    const background2 = values.background2.items[used_id];
+    const border_colors = values.border_colors.items[used_id];
+    const box_offsets = values.box_offsets.items[used_id];
 
     const boxes = getThreeBoxes(translation, box_offsets, borders);
     drawBlockContainer(&boxes, borders, background1, background2, border_colors, clip_rect, renderer, pixel_format);
@@ -239,7 +325,9 @@ pub fn drawBlockValuesRoot(
 /// descendant boxes in a block context (i.e. excluding the top element).
 /// This implements §Appendix E.2 Step 4.
 pub fn drawBlockValuesChildren(
+    s: *RenderState,
     values: *const BlockLevelUsedValues,
+    root_used_id: UsedId,
     allocator: *std.mem.Allocator,
     translation: ZssVector,
     initial_clip_rect: ZssRect,
@@ -259,8 +347,8 @@ pub fn drawBlockValuesChildren(
     var stack = std.ArrayList(StackItem).init(allocator);
     defer stack.deinit();
 
-    if (values.structure[0] != 1) {
-        const box_offsets = values.box_offsets[0];
+    if (values.structure.items[root_used_id] != 1) {
+        const box_offsets = values.box_offsets.items[root_used_id];
         //const borders = values.borders[0];
         //const clip_rect = switch (values.visual_effect[0].overflow) {
         //    .Visible => initial_clip_rect,
@@ -287,26 +375,35 @@ pub fn drawBlockValuesChildren(
         //}
 
         try stack.append(StackItem{
-            .interval = Interval{ .begin = 1, .end = values.structure[0] },
+            .interval = Interval{ .begin = root_used_id + 1, .end = root_used_id + values.structure.items[root_used_id] },
             .translation = translation.add(util.zssFlowRelativeVectorToZssVector(box_offsets.content_start)),
         });
     }
 
-    while (stack.items.len > 0) {
+    stackLoop: while (stack.items.len > 0) {
         const stack_item = &stack.items[stack.items.len - 1];
         const interval = &stack_item.interval;
 
         while (interval.begin != interval.end) {
             const used_id = interval.begin;
-            const subtree_size = values.structure[used_id];
+            const subtree_size = values.structure.items[used_id];
             defer interval.begin += subtree_size;
 
-            const box_offsets = values.box_offsets[used_id];
-            const borders = values.borders[used_id];
-            const border_colors = values.border_colors[used_id];
-            const background1 = values.background1[used_id];
-            const background2 = values.background2[used_id];
-            //const visual_effect = values.visual_effect[used_id];
+            const properties = values.properties.items[used_id];
+            if (properties.creates_stacking_context) {
+                continue;
+            }
+            if (properties.inline_context_index) |index| {
+                s.inlines_list.appendAssumeCapacity(.{ .containing_block_used_id = used_id, .inline_index = index });
+                s.stacking_context_inlines_count.items[s.stacking_context_inlines_count.items.len - 1] += 1;
+            }
+
+            const box_offsets = values.box_offsets.items[used_id];
+            const borders = values.borders.items[used_id];
+            const border_colors = values.border_colors.items[used_id];
+            const background1 = values.background1.items[used_id];
+            const background2 = values.background2.items[used_id];
+            //const visual_effect = values.visual_effect.items[used_id];
             const boxes = getThreeBoxes(stack_item.translation, box_offsets, borders);
 
             //if (visual_effect.visibility == .Visible) {
@@ -335,6 +432,7 @@ pub fn drawBlockValuesChildren(
                     .interval = Interval{ .begin = used_id + 1, .end = used_id + subtree_size },
                     .translation = stack_item.translation.add(util.zssFlowRelativeVectorToZssVector(box_offsets.content_start)),
                 });
+                continue :stackLoop;
             }
         }
 
@@ -427,9 +525,9 @@ pub fn drawInlineValues(
     var inline_box_stack = std.ArrayList(UsedId).init(allocator);
     defer inline_box_stack.deinit();
 
-    for (values.line_boxes) |line_box| {
+    for (values.line_boxes.items) |line_box| {
         for (inline_box_stack.items) |used_id| {
-            const match_info = findMatchingBoxEnd(values.glyph_indeces[line_box.elements[0]..line_box.elements[1]], values.metrics[line_box.elements[0]..line_box.elements[1]], used_id);
+            const match_info = findMatchingBoxEnd(values.glyph_indeces.items[line_box.elements[0]..line_box.elements[1]], values.metrics.items[line_box.elements[0]..line_box.elements[1]], used_id);
             util.drawInlineBox(
                 renderer,
                 pixel_format,
@@ -445,17 +543,17 @@ pub fn drawInlineValues(
         var cursor: ZssUnit = 0;
         var i = line_box.elements[0];
         while (i < line_box.elements[1]) : (i += 1) {
-            const glyph_index = values.glyph_indeces[i];
-            const metrics = values.metrics[i];
+            const glyph_index = values.glyph_indeces.items[i];
+            const metrics = values.metrics.items[i];
             defer cursor += metrics.advance;
 
             if (glyph_index == 0) blk: {
                 i += 1;
-                const special = InlineLevelUsedValues.Special.decode(values.glyph_indeces[i]);
+                const special = InlineLevelUsedValues.Special.decode(values.glyph_indeces.items[i]);
                 switch (special.kind) {
                     .ZeroGlyphIndex => break :blk,
                     .BoxStart => {
-                        const match_info = findMatchingBoxEnd(values.glyph_indeces[i + 1 .. line_box.elements[1]], values.metrics[i + 1 .. line_box.elements[1]], special.data);
+                        const match_info = findMatchingBoxEnd(values.glyph_indeces.items[i + 1 .. line_box.elements[1]], values.metrics.items[i + 1 .. line_box.elements[1]], special.data);
                         util.drawInlineBox(
                             renderer,
                             pixel_format,

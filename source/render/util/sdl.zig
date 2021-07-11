@@ -361,8 +361,8 @@ pub fn drawInlineBox(
     draw_start: bool,
     draw_end: bool,
 ) void {
-    const block_start = values.block_start[used_id];
-    const block_end = values.block_end[used_id];
+    const block_start = values.block_start.items[used_id];
+    const block_end = values.block_end.items[used_id];
 
     const content_top_y = position.y - values.ascender;
     const padding_top_y = content_top_y - block_start.padding;
@@ -371,11 +371,11 @@ pub fn drawInlineBox(
     const padding_bottom_y = content_bottom_y + block_end.padding;
     const border_bottom_y = padding_bottom_y + block_end.border;
 
-    const inline_start = values.inline_start[used_id];
-    const inline_end = values.inline_end[used_id];
+    const inline_start = values.inline_start.items[used_id];
+    const inline_end = values.inline_end.items[used_id];
 
     {
-        const background1 = values.background1[used_id];
+        const background1 = values.background1.items[used_id];
         var background_clip_rect = ZssRect{
             .x = position.x,
             .y = undefined,

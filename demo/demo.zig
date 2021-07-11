@@ -212,10 +212,10 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     var position = [len]BoxTree.Positioning{
         .{},
         .{},
+        .{ .style = .{ .relative = {} }, .z_index = .{ .value = -1 } },
         .{},
         .{},
-        .{},
-        .{},
+        .{ .style = .{ .relative = {} } },
         .{},
         .{},
         .{},
@@ -261,10 +261,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
                 .y = .{ .offset = .{ .px = 10 } },
             } },
             .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
-            // Instead of giving the root element a background color (which would
-            // constrain the color to its box), its background color is later drawn manually
-            // over the entire window.
-            //.color = .{ .rgba = args.bg_color },
+            .color = .{ .rgba = args.bg_color },
         },
         .{},
         .{},
@@ -320,19 +317,19 @@ const ProgramState = struct {
         result.timer = try std.time.Timer.start();
 
         result.document = try zss.layout.doLayout(tree, allocator, pixelToZssUnit(result.width), pixelToZssUnit(result.height));
-        errdefer result.document.deinit(allocator);
+        errdefer result.document.deinit();
 
         result.last_layout_time = result.timer.read();
 
         result.atlas = try zss.render.sdl.GlyphAtlas.init(face, renderer, pixel_format, allocator);
-        errdefer result.atlas.deinit(allocator);
+        errdefer result.atlas.deinit();
 
         result.updateMaxScroll();
         return result;
     }
 
     fn deinit(self: *Self, allocator: *Allocator) void {
-        self.document.deinit(allocator);
+        self.document.deinit();
         self.atlas.deinit(allocator);
     }
 
@@ -340,13 +337,13 @@ const ProgramState = struct {
         self.timer.reset();
         var new_document = try zss.layout.doLayout(self.tree, allocator, pixelToZssUnit(self.width), pixelToZssUnit(self.height));
         self.last_layout_time = self.timer.read();
-        self.document.deinit(allocator);
+        self.document.deinit();
         self.document = new_document;
         self.updateMaxScroll();
     }
 
     fn updateMaxScroll(self: *Self) void {
-        self.max_scroll_y = std.math.max(0, zss.render.sdl.util.zssUnitToPixel(self.document.block_values.box_offsets[0].border_end.block_dir) - self.height);
+        self.max_scroll_y = std.math.max(0, zss.render.sdl.util.zssUnitToPixel(self.document.blocks.box_offsets.items[0].border_end.block_dir) - self.height);
         self.scroll_y = std.math.clamp(self.scroll_y, 0, self.max_scroll_y);
     }
 };
@@ -432,7 +429,8 @@ fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer:
             .x = 0,
             .y = -ps.scroll_y,
         };
-        zss.render.sdl.util.drawBackgroundColor(renderer, pixel_format, viewport_rect, args.bg_color);
+        assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255) == 0);
+        assert(sdl.SDL_RenderClear(renderer) == 0);
         try zss.render.sdl.renderDocument(&ps.document, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
         sdl.SDL_RenderPresent(renderer);
 

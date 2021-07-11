@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 
 const zss = @import("../zss.zig");
@@ -34,27 +35,30 @@ pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, u
     return std.math.max(lower, std.math.min(val, upper));
 }
 
-pub const StructureArrayIterator = struct {
-    items: []const u16,
-    current: u16,
-    index: u16,
+pub fn StructureArray(comptime T: type) type {
+    return struct {
+        pub const Iterator = struct {
+            items: []const T,
+            current: T,
+            target: T,
 
-    const Self = @This();
-
-    pub fn init(items: []const u16, index: u16) Self {
-        return Self{
-            .items = items,
-            .current = 0,
-            .index = index,
+            pub fn next(self: *@This()) ?T {
+                if (self.target < self.current) return null;
+                while (self.target >= self.current + self.items[self.current]) {
+                    self.current += self.items[self.current];
+                }
+                defer self.current += 1;
+                return self.current;
+            }
         };
-    }
 
-    pub fn next(self: *Self) ?u16 {
-        if (self.index < self.current) return null;
-        while (self.index >= self.current + self.items[self.current]) {
-            self.current += self.items[self.current];
+        pub fn iterator(items: []const T, parent: T, child: T) Iterator {
+            assert(child > parent and child < parent + items[parent]);
+            return Iterator{
+                .items = items,
+                .current = parent,
+                .target = child,
+            };
         }
-        defer self.current += 1;
-        return self.current;
-    }
-};
+    };
+}
