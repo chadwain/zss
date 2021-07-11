@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const Allocator = std.mem.Allocator;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
 
@@ -125,23 +126,23 @@ pub const BlockLevelUsedValues = struct {
     // A "used id" is an index into the following arrays.
     // To know how to use the "structure" field and the group of fields following it,
     // see the explanation in BoxTree. It works in exactly the same way.
-    structure: []UsedId,
-    box_offsets: []BoxOffsets,
-    borders: []Borders,
-    border_colors: []BorderColor,
-    background1: []Background1,
-    background2: []Background2,
-    properties: []BoxProperties,
+    structure: ArrayListUnmanaged(UsedId) = .{},
+    box_offsets: ArrayListUnmanaged(BoxOffsets) = .{},
+    borders: ArrayListUnmanaged(Borders) = .{},
+    border_colors: ArrayListUnmanaged(BorderColor) = .{},
+    background1: ArrayListUnmanaged(Background1) = .{},
+    background2: ArrayListUnmanaged(Background2) = .{},
+    properties: ArrayListUnmanaged(BoxProperties) = .{},
     // End of the "used id" indexed arrays.
 
-    stacking_context_structure: []u16,
-    stacking_contexts: []StackingContext,
+    stacking_context_structure: ArrayListUnmanaged(u16) = .{},
+    stacking_contexts: ArrayListUnmanaged(StackingContext) = .{},
 
-    /// Inline data that is the contents of a block box.
-    inline_values: []InlineValues,
+    const Self = @This();
 
     pub const BoxProperties = struct {
         creates_stacking_context: bool = false,
+        inline_context_index: ?usize = null,
     };
 
     pub const StackingContext = struct {
@@ -149,28 +150,27 @@ pub const BlockLevelUsedValues = struct {
         used_id: UsedId,
     };
 
-    pub const InlineValues = struct {
-        values: *InlineLevelUsedValues,
-        id_of_containing_block: UsedId,
-    };
+    pub fn deinit(self: *Self, allocator: *Allocator) void {
+        self.structure.deinit(allocator);
+        self.box_offsets.deinit(allocator);
+        self.borders.deinit(allocator);
+        self.border_colors.deinit(allocator);
+        self.background1.deinit(allocator);
+        self.background2.deinit(allocator);
+        self.properties.deinit(allocator);
 
-    pub fn deinit(self: *@This(), allocator: *Allocator) void {
-        allocator.free(self.structure);
-        allocator.free(self.box_offsets);
-        allocator.free(self.borders);
-        allocator.free(self.border_colors);
-        allocator.free(self.background1);
-        allocator.free(self.background2);
-        allocator.free(self.properties);
+        self.stacking_context_structure.deinit(allocator);
+        self.stacking_contexts.deinit(allocator);
+    }
 
-        allocator.free(self.stacking_context_structure);
-        allocator.free(self.stacking_contexts);
-
-        for (self.inline_values) |*inl| {
-            inl.values.deinit(allocator);
-            allocator.destroy(inl.values);
-        }
-        allocator.free(self.inline_values);
+    pub fn ensureCapacity(self: *Self, allocator: *Allocator, capacity: usize) !void {
+        try self.structure.ensureCapacity(allocator, capacity);
+        try self.box_offsets.ensureCapacity(allocator, capacity);
+        try self.borders.ensureCapacity(allocator, capacity);
+        try self.border_colors.ensureCapacity(allocator, capacity);
+        try self.background1.ensureCapacity(allocator, capacity);
+        try self.background2.ensureCapacity(allocator, capacity);
+        try self.properties.ensureCapacity(allocator, capacity);
     }
 };
 
@@ -184,28 +184,31 @@ pub const BlockLevelUsedValues = struct {
 /// function to recover and interpret that data. Note that this data still has metrics associated with it.
 /// That metrics data is found in the same array index as that of the first glyph index (the one that was 0).
 pub const InlineLevelUsedValues = struct {
-    glyph_indeces: []hb.hb_codepoint_t,
-    metrics: []Metrics,
+    glyph_indeces: ArrayListUnmanaged(hb.hb_codepoint_t) = .{},
+    metrics: ArrayListUnmanaged(Metrics) = .{},
 
-    line_boxes: []LineBox,
+    line_boxes: ArrayListUnmanaged(LineBox) = .{},
 
     // zss is currently limited with what it can do with text. As a result,
     // font and font color will be the same for all glyphs, and
     // ascender and descender will be the same for all line boxes.
-    font: *hb.hb_font_t,
-    font_color_rgba: u32,
-    ascender: ZssUnit,
-    descender: ZssUnit,
+    font: *hb.hb_font_t = undefined,
+    font_color_rgba: u32 = undefined,
+    ascender: ZssUnit = undefined,
+    descender: ZssUnit = undefined,
 
     // A "used id" is an index into the following arrays.
-    inline_start: []BoxProperties,
-    inline_end: []BoxProperties,
-    block_start: []BoxProperties,
-    block_end: []BoxProperties,
-    background1: []Background1,
+    inline_start: ArrayListUnmanaged(BoxProperties) = .{},
+    inline_end: ArrayListUnmanaged(BoxProperties) = .{},
+    block_start: ArrayListUnmanaged(BoxProperties) = .{},
+    block_end: ArrayListUnmanaged(BoxProperties) = .{},
+    background1: ArrayListUnmanaged(Background1) = .{},
+    margins: ArrayListUnmanaged(Margins) = .{},
     // End of the "used id" indexed arrays.
 
     const hb = @import("harfbuzz");
+
+    const Self = @This();
 
     pub const BoxProperties = struct {
         border: ZssUnit = 0,
@@ -217,6 +220,11 @@ pub const InlineLevelUsedValues = struct {
         offset: ZssUnit,
         advance: ZssUnit,
         width: ZssUnit,
+    };
+
+    pub const Margins = struct {
+        start: ZssUnit = 0,
+        end: ZssUnit = 0,
     };
 
     pub const LineBox = struct {
@@ -290,25 +298,45 @@ pub const InlineLevelUsedValues = struct {
     };
 
     pub fn deinit(self: *@This(), allocator: *Allocator) void {
-        allocator.free(self.glyph_indeces);
-        allocator.free(self.metrics);
-        allocator.free(self.line_boxes);
-        allocator.free(self.inline_start);
-        allocator.free(self.inline_end);
-        allocator.free(self.block_start);
-        allocator.free(self.block_end);
-        allocator.free(self.background1);
+        self.glyph_indeces.deinit(allocator);
+        self.metrics.deinit(allocator);
+        self.line_boxes.deinit(allocator);
+        self.inline_start.deinit(allocator);
+        self.inline_end.deinit(allocator);
+        self.block_start.deinit(allocator);
+        self.block_end.deinit(allocator);
+        self.background1.deinit(allocator);
+        self.margins.deinit(allocator);
+    }
+
+    pub fn ensureCapacity(self: *Self, allocator: *Allocator, count: usize) !void {
+        try self.line_boxes.ensureCapacity(allocator, count);
+        try self.glyph_indeces.ensureCapacity(allocator, count);
+        try self.metrics.ensureCapacity(allocator, count);
+        try self.inline_start.ensureCapacity(allocator, count);
+        try self.inline_end.ensureCapacity(allocator, count);
+        try self.block_start.ensureCapacity(allocator, count);
+        try self.block_end.ensureCapacity(allocator, count);
+        try self.background1.ensureCapacity(allocator, count);
+        try self.margins.ensureCapacity(allocator, count);
     }
 };
 
 /// The final result of layout.
 pub const Document = struct {
-    block_values: BlockLevelUsedValues,
+    blocks: BlockLevelUsedValues,
+    inlines: ArrayListUnmanaged(*InlineLevelUsedValues),
+    allocator: *Allocator,
 
     const Self = @This();
 
-    pub fn deinit(self: *Self, allocator: *Allocator) void {
-        self.block_values.deinit(allocator);
+    pub fn deinit(self: *Self) void {
+        self.blocks.deinit(self.allocator);
+        for (self.inlines.items) |inl| {
+            inl.deinit(self.allocator);
+            self.allocator.destroy(inl);
+        }
+        self.inlines.deinit(self.allocator);
     }
 };
 
