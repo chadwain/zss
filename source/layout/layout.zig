@@ -61,6 +61,10 @@ const UsedBlockSizes = struct {
     margin_end: ZssUnit,
 };
 
+const Metadata = struct {
+    is_stacking_context_parent: bool,
+};
+
 const BlockLevelLayoutContext = struct {
     const Self = @This();
 
@@ -75,6 +79,7 @@ const BlockLevelLayoutContext = struct {
     allocator: *Allocator,
     intervals: ArrayListUnmanaged(Interval),
     used_id_and_subtree_size: ArrayListUnmanaged(UsedIdAndSubtreeSize),
+    metadata: ArrayListUnmanaged(Metadata),
     stacking_context_index: ArrayListUnmanaged(u16),
 
     static_containing_block_used_inline_size: ArrayListUnmanaged(ZssUnit),
@@ -123,6 +128,7 @@ const BlockLevelLayoutContext = struct {
             .root_box_id = root_box_id,
             .allocator = allocator,
             .intervals = .{},
+            .metadata = .{},
             .stacking_context_index = stacking_context_index,
             .used_id_and_subtree_size = used_id_and_subtree_size,
             .static_containing_block_used_inline_size = static_containing_block_used_inline_size,
@@ -135,6 +141,7 @@ const BlockLevelLayoutContext = struct {
 
     fn deinit(self: *Self) void {
         self.intervals.deinit(self.allocator);
+        self.metadata.deinit(self.allocator);
         self.used_id_and_subtree_size.deinit(self.allocator);
         self.stacking_context_index.deinit(self.allocator);
         self.static_containing_block_used_inline_size.deinit(self.allocator);
@@ -201,10 +208,11 @@ fn blockLevelElementPop(doc: *Document, context: *BlockLevelLayoutContext, inter
 
     _ = context.intervals.pop();
     _ = context.used_id_and_subtree_size.pop();
+    const metadata = context.metadata.pop();
     _ = context.static_containing_block_used_inline_size.pop();
     _ = context.static_containing_block_auto_block_size.pop();
     _ = context.static_containing_block_used_block_sizes.pop();
-    if (doc.blocks.properties.items[used_id].creates_stacking_context) {
+    if (metadata.is_stacking_context_parent) {
         _ = context.stacking_context_index.pop();
     }
     const relative_positioned_descendants_count = context.relative_positioned_descendants_count.pop();
@@ -247,11 +255,13 @@ fn blockContainerSolveSizeAndPositionPart1(doc: *Document, context: *BlockLevelL
             properties_ptr.creates_stacking_context = true;
             context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1] += 1;
             try context.relative_positioned_descendants_ids.append(context.allocator, .{ .box_id = box_id, .used_id = used_id });
-            const z_index = switch (position.z_index) {
-                .value => |z_index| z_index,
-                .auto => 0,
-            };
-            break :blk try createStackingContext(context, values, z_index, used_id);
+            switch (position.z_index) {
+                .value => |z_index| break :blk try createStackingContext(doc, context, z_index, used_id),
+                .auto => {
+                    _ = try createStackingContext(doc, context, 0, used_id);
+                    break :blk null;
+                },
+            }
         },
     };
 
@@ -273,6 +283,9 @@ fn blockContainerSolveSizeAndPositionPart1(doc: *Document, context: *BlockLevelL
         try context.relative_positioned_descendants_count.append(context.allocator, 0);
         if (stacking_context_index) |index| {
             try context.stacking_context_index.append(context.allocator, index);
+            try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = true });
+        } else {
+            try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = false });
         }
     } else {
         // Optimized path for elements that have no children. It is like a shorter version of blockLevelElementPop.
