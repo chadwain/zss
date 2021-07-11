@@ -62,7 +62,7 @@ pub fn renderDocument(
 
         fn addToStack(stack: *ArrayList(@This()), top: @This(), index: usize, doc_: *const Document) !void {
             const child_used_id = doc_.blocks.stacking_contexts.items[top.interval.current].used_id;
-            var it = zss.util.StructureArray(UsedId).iterator(doc_.blocks.structure.items, top.used_id, child_used_id);
+            var it = zss.util.StructureArray(UsedId).treeIterator(doc_.blocks.structure.items, top.used_id, child_used_id);
             var it_used_id = it.next().?;
             var tr = top.translation;
             while (it_used_id != child_used_id) : (it_used_id = it.next().?) {
@@ -110,7 +110,7 @@ pub fn renderDocument(
 
                 const inlines_count = s.stacking_context_inlines_count.pop();
                 for (s.inlines_list.items[s.inlines_list.items.len - inlines_count ..]) |item| {
-                    var it = zss.util.StructureArray(UsedId).iterator(doc.blocks.structure.items, top.used_id, item.containing_block_used_id);
+                    var it = zss.util.StructureArray(UsedId).treeIterator(doc.blocks.structure.items, top.used_id, item.containing_block_used_id);
                     var tr = top.translation;
                     while (it.next()) |used_id| {
                         tr = tr.add(util.zssFlowRelativeVectorToZssVector(doc.blocks.box_offsets.items[used_id].content_start));

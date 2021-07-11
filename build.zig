@@ -22,16 +22,30 @@ pub fn build(b: *Builder) void {
     zss_lib.setTarget(target);
     zss_lib.install();
 
-    var lib_tests = b.addTest("zss.zig");
-    lib_tests.setBuildMode(mode);
-    lib_tests.setTarget(target);
-    lib_tests.addPackage(pkgs.harfbuzz);
-    lib_tests.linkLibC();
-    lib_tests.linkSystemLibrary("harfbuzz");
-    lib_tests.linkSystemLibrary("freetype2");
+    var main_tests = b.addTest("zss.zig");
+    main_tests.setBuildMode(mode);
+    main_tests.setTarget(target);
+    main_tests.addPackage(pkgs.harfbuzz);
+    main_tests.linkLibC();
+    main_tests.linkSystemLibrary("harfbuzz");
+    main_tests.linkSystemLibrary("freetype2");
 
-    const lib_tests_step = b.step("test", "Run the library tests");
-    lib_tests_step.dependOn(&lib_tests.step);
+    var layout_tests = b.addTest("test/layout.zig");
+    layout_tests.setBuildMode(mode);
+    layout_tests.setTarget(target);
+    layout_tests.linkLibC();
+    layout_tests.linkSystemLibrary("harfbuzz");
+    layout_tests.linkSystemLibrary("freetype2");
+    layout_tests.addPackage(pkgs.harfbuzz);
+    layout_tests.addPackage(Pkg{
+        .name = "zss",
+        .path = "zss.zig",
+        .dependencies = &[_]Pkg{pkgs.harfbuzz},
+    });
+
+    const tests_step = b.step("test", "Run all tests");
+    tests_step.dependOn(&main_tests.step);
+    tests_step.dependOn(&layout_tests.step);
 
     addDemo(b, mode, target);
 }

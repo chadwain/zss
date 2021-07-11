@@ -37,7 +37,7 @@ pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, u
 
 pub fn StructureArray(comptime T: type) type {
     return struct {
-        pub const Iterator = struct {
+        pub const TreeIterator = struct {
             items: []const T,
             current: T,
             target: T,
@@ -52,12 +52,32 @@ pub fn StructureArray(comptime T: type) type {
             }
         };
 
-        pub fn iterator(items: []const T, parent: T, child: T) Iterator {
+        pub fn treeIterator(items: []const T, parent: T, child: T) TreeIterator {
             assert(child > parent and child < parent + items[parent]);
-            return Iterator{
+            return TreeIterator{
                 .items = items,
                 .current = parent,
                 .target = child,
+            };
+        }
+
+        pub const ChildIterator = struct {
+            items: []const T,
+            current: T,
+            end: T,
+
+            pub fn next(self: *@This()) ?T {
+                if (self.current == self.end) return null;
+                defer self.current += self.items[self.current];
+                return self.current;
+            }
+        };
+
+        pub fn childIterator(items: []const T, parent: T) ChildIterator {
+            return ChildIterator{
+                .items = items,
+                .current = parent + 1,
+                .end = parent + items[parent],
             };
         }
     };
