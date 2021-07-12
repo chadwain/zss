@@ -119,6 +119,9 @@ pub const Background2 = struct {
 };
 
 pub const UsedId = u16;
+pub const StackingContextId = UsedId;
+pub const InlineId = UsedId;
+pub const ZIndex = i32;
 
 /// Contains information about a set of block boxes.
 /// Block boxes form a hierarchy, and therefore a tree structure, which is represented here.
@@ -135,18 +138,18 @@ pub const BlockLevelUsedValues = struct {
     properties: ArrayListUnmanaged(BoxProperties) = .{},
     // End of the "used id" indexed arrays.
 
-    stacking_context_structure: ArrayListUnmanaged(u16) = .{},
+    stacking_context_structure: ArrayListUnmanaged(StackingContextId) = .{},
     stacking_contexts: ArrayListUnmanaged(StackingContext) = .{},
 
     const Self = @This();
 
     pub const BoxProperties = struct {
         creates_stacking_context: bool = false,
-        inline_context_index: ?usize = null,
+        inline_context_index: ?InlineId = null,
     };
 
     pub const StackingContext = struct {
-        z_index: i32,
+        z_index: ZIndex,
         used_id: UsedId,
     };
 

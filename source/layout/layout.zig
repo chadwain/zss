@@ -11,6 +11,9 @@ const used_values = @import("./used_values.zig");
 const ZssUnit = used_values.ZssUnit;
 const unitsPerPixel = used_values.unitsPerPixel;
 const UsedId = used_values.UsedId;
+const StackingContextId = used_values.StackingContextId;
+const InlineId = used_values.InlineId;
+const ZIndex = used_values.ZIndex;
 const BlockLevelUsedValues = used_values.BlockLevelUsedValues;
 const InlineLevelUsedValues = used_values.InlineLevelUsedValues;
 const Document = used_values.Document;
@@ -80,7 +83,7 @@ const BlockLevelLayoutContext = struct {
     intervals: ArrayListUnmanaged(Interval),
     used_id_and_subtree_size: ArrayListUnmanaged(UsedIdAndSubtreeSize),
     metadata: ArrayListUnmanaged(Metadata),
-    stacking_context_index: ArrayListUnmanaged(u16),
+    stacking_context_id: ArrayListUnmanaged(StackingContextId),
 
     static_containing_block_used_inline_size: ArrayListUnmanaged(ZssUnit),
     static_containing_block_auto_block_size: ArrayListUnmanaged(ZssUnit),
@@ -97,9 +100,9 @@ const BlockLevelLayoutContext = struct {
             .used_subtree_size = 1,
         });
 
-        var stacking_context_index = ArrayListUnmanaged(u16){};
-        errdefer stacking_context_index.deinit(allocator);
-        try stacking_context_index.append(allocator, 0);
+        var stacking_context_id = ArrayListUnmanaged(StackingContextId){};
+        errdefer stacking_context_id.deinit(allocator);
+        try stacking_context_id.append(allocator, 0);
 
         var static_containing_block_used_inline_size = ArrayListUnmanaged(ZssUnit){};
         errdefer static_containing_block_used_inline_size.deinit(allocator);
@@ -129,7 +132,7 @@ const BlockLevelLayoutContext = struct {
             .allocator = allocator,
             .intervals = .{},
             .metadata = .{},
-            .stacking_context_index = stacking_context_index,
+            .stacking_context_id = stacking_context_id,
             .used_id_and_subtree_size = used_id_and_subtree_size,
             .static_containing_block_used_inline_size = static_containing_block_used_inline_size,
             .static_containing_block_auto_block_size = static_containing_block_auto_block_size,
@@ -143,7 +146,7 @@ const BlockLevelLayoutContext = struct {
         self.intervals.deinit(self.allocator);
         self.metadata.deinit(self.allocator);
         self.used_id_and_subtree_size.deinit(self.allocator);
-        self.stacking_context_index.deinit(self.allocator);
+        self.stacking_context_id.deinit(self.allocator);
         self.static_containing_block_used_inline_size.deinit(self.allocator);
         self.static_containing_block_auto_block_size.deinit(self.allocator);
         self.static_containing_block_used_block_sizes.deinit(self.allocator);
@@ -213,19 +216,19 @@ fn blockLevelElementPop(doc: *Document, context: *BlockLevelLayoutContext, inter
     _ = context.static_containing_block_auto_block_size.pop();
     _ = context.static_containing_block_used_block_sizes.pop();
     if (metadata.is_stacking_context_parent) {
-        _ = context.stacking_context_index.pop();
+        _ = context.stacking_context_id.pop();
     }
     const relative_positioned_descendants_count = context.relative_positioned_descendants_count.pop();
     context.relative_positioned_descendants_ids.shrinkRetainingCapacity(context.relative_positioned_descendants_ids.items.len - relative_positioned_descendants_count);
 }
 
-fn createStackingContext(doc: *Document, context: *BlockLevelLayoutContext, z_index: i32, used_id: UsedId) !u16 {
-    const parent_stacking_context_index = context.stacking_context_index.items[context.stacking_context_index.items.len - 1];
-    var current = parent_stacking_context_index + 1;
-    const end = parent_stacking_context_index + doc.blocks.stacking_context_structure.items[parent_stacking_context_index];
+fn createStackingContext(doc: *Document, context: *BlockLevelLayoutContext, z_index: ZIndex, used_id: UsedId) !StackingContextId {
+    const parent_stacking_context_id = context.stacking_context_id.items[context.stacking_context_id.items.len - 1];
+    var current = parent_stacking_context_id + 1;
+    const end = parent_stacking_context_id + doc.blocks.stacking_context_structure.items[parent_stacking_context_id];
     while (current < end and z_index >= doc.blocks.stacking_contexts.items[current].z_index) : (current += doc.blocks.stacking_context_structure.items[current]) {}
 
-    for (context.stacking_context_index.items) |index| {
+    for (context.stacking_context_id.items) |index| {
         doc.blocks.stacking_context_structure.items[index] += 1;
     }
     try doc.blocks.stacking_context_structure.insert(doc.allocator, current, 1);
@@ -244,7 +247,7 @@ fn blockContainerSolveSizeAndPositionPart1(doc: *Document, context: *BlockLevelL
     properties_ptr.* = .{};
 
     const position = context.box_tree.position[box_id];
-    const stacking_context_index = switch (position.style) {
+    const stacking_context_id = switch (position.style) {
         .static => null,
         .relative => blk: {
             if (box_id == interval.parent) {
@@ -281,8 +284,8 @@ fn blockContainerSolveSizeAndPositionPart1(doc: *Document, context: *BlockLevelL
         try context.static_containing_block_used_block_sizes.append(context.allocator, used_block_sizes);
         try context.used_id_and_subtree_size.append(context.allocator, UsedIdAndSubtreeSize{ .used_id = used_id, .used_subtree_size = 1 });
         try context.relative_positioned_descendants_count.append(context.allocator, 0);
-        if (stacking_context_index) |index| {
-            try context.stacking_context_index.append(context.allocator, index);
+        if (stacking_context_id) |id| {
+            try context.stacking_context_id.append(context.allocator, id);
             try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = true });
         } else {
             try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = false });
@@ -596,7 +599,7 @@ fn blockLevelAddInlineData(doc: *Document, context: *BlockLevelLayoutContext, in
     try doc.blocks.border_colors.append(doc.allocator, .{});
     try doc.blocks.background1.append(doc.allocator, .{});
     try doc.blocks.background2.append(doc.allocator, .{});
-    try doc.blocks.properties.append(doc.allocator, .{ .inline_context_index = doc.inlines.items.len - 1 });
+    try doc.blocks.properties.append(doc.allocator, .{ .inline_context_index = try std.math.cast(InlineId, doc.inlines.items.len - 1) });
 }
 
 fn blockLevelAddNone(context: *BlockLevelLayoutContext, interval: *BlockLevelLayoutContext.Interval) void {
