@@ -53,7 +53,7 @@ pub fn StructureArray(comptime T: type) type {
         };
 
         pub fn treeIterator(items: []const T, parent: T, child: T) TreeIterator {
-            assert(child > parent and child < parent + items[parent]);
+            assert(child >= parent and child < parent + items[parent]);
             return TreeIterator{
                 .items = items,
                 .current = parent,

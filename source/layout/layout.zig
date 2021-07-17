@@ -561,11 +561,12 @@ fn blockContainerSolveBlockSizesAndOffsets(context: *const BlockLevelLayoutConte
 fn blockLevelAddInlineData(doc: *Document, context: *BlockLevelLayoutContext, interval: *BlockLevelLayoutContext.Interval) !void {
     const used_id = try std.math.cast(UsedId, doc.blocks.structure.items.len);
 
+    const containing_block_inline_size = context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1];
     var inline_context = InlineLevelLayoutContext.init(
         context.box_tree,
         context.allocator,
         interval.*,
-        context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1],
+        containing_block_inline_size,
     );
     defer inline_context.deinit();
 
@@ -591,9 +592,9 @@ fn blockLevelAddInlineData(doc: *Document, context: *BlockLevelLayoutContext, in
     try doc.blocks.structure.append(doc.allocator, 1);
     try doc.blocks.box_offsets.append(doc.allocator, .{
         .border_start = .{ .inline_dir = 0, .block_dir = parent_auto_block_size.* },
-        .border_end = .{ .inline_dir = 0, .block_dir = parent_auto_block_size.* },
+        .border_end = .{ .inline_dir = containing_block_inline_size, .block_dir = parent_auto_block_size.* + inline_context.total_block_size },
         .content_start = .{ .inline_dir = 0, .block_dir = parent_auto_block_size.* },
-        .content_end = .{ .inline_dir = 0, .block_dir = parent_auto_block_size.* },
+        .content_end = .{ .inline_dir = containing_block_inline_size, .block_dir = parent_auto_block_size.* + inline_context.total_block_size },
     });
     try doc.blocks.borders.append(doc.allocator, .{});
     try doc.blocks.border_colors.append(doc.allocator, .{});
