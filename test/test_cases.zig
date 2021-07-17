@@ -1,12 +1,10 @@
 const zss = @import("zss");
-const used = zss.used_values;
-const ZssUnit = used.ZssUnit;
+const ZssUnit = zss.used_values.ZssUnit;
 const BoxTree = zss.BoxTree;
 usingnamespace BoxTree;
 
 const std = @import("std");
 const assert = std.debug.assert;
-const expect = std.testing.expect;
 const allocator = std.testing.allocator;
 
 const hb = @import("harfbuzz");
@@ -77,72 +75,6 @@ fn copy(comptime T: type, data: ?[]const T, tree_size: usize) []T {
         const arr = allocator.alloc(T, tree_size) catch unreachable;
         std.mem.set(T, arr, .{});
         return arr;
-    }
-}
-
-test "validate document" {
-    var library: hb.FT_Library = undefined;
-    assert(hb.FT_Init_FreeType(&library) == 0);
-    defer _ = hb.FT_Done_FreeType(library);
-
-    std.debug.print("\n", .{});
-    for (tree_data) |_, i| {
-        std.debug.print("validate document {}... ", .{i});
-        defer std.debug.print("\n", .{});
-
-        var test_case = get(i, library);
-        defer test_case.deinit();
-        var document = try zss.layout.doLayout(&test_case.tree, allocator, test_case.width, test_case.height);
-        defer document.deinit();
-
-        try validateStackingContexts(&document);
-        for (document.inlines.items) |inl| {
-            try validateInline(inl);
-        }
-
-        std.debug.print("success", .{});
-    }
-}
-
-fn validateInline(inl: *used.InlineLevelUsedValues) !void {
-    @setRuntimeSafety(true);
-    const UsedId = used.UsedId;
-
-    var stack = std.ArrayList(UsedId).init(allocator);
-    defer stack.deinit();
-    var i: usize = 0;
-    while (i < inl.glyph_indeces.items.len) : (i += 1) {
-        if (inl.glyph_indeces.items[i] == 0) {
-            i += 1;
-            const special = used.InlineLevelUsedValues.Special.decode(inl.glyph_indeces.items[i]);
-            switch (special.kind) {
-                .BoxStart => stack.append(special.data) catch unreachable,
-                .BoxEnd => _ = stack.pop(),
-                else => {},
-            }
-        }
-    }
-    try expect(stack.items.len == 0);
-}
-
-fn validateStackingContexts(document: *zss.used_values.Document) !void {
-    @setRuntimeSafety(true);
-    const StackingContextId = used.StackingContextId;
-    const ZIndex = used.ZIndex;
-
-    var stack = std.ArrayList(StackingContextId).init(allocator);
-    defer stack.deinit();
-    stack.append(0) catch unreachable;
-    while (stack.items.len > 0) {
-        const parent = stack.pop();
-        var it = zss.util.StructureArray(StackingContextId).childIterator(document.blocks.stacking_context_structure.items, parent);
-        var last: ZIndex = std.math.minInt(ZIndex);
-        while (it.next()) |child| {
-            const current = document.blocks.stacking_contexts.items[child].z_index;
-            try expect(last <= current);
-            last = current;
-            stack.append(child) catch unreachable;
-        }
     }
 }
 

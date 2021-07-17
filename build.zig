@@ -22,6 +22,14 @@ pub fn build(b: *Builder) void {
     zss_lib.setTarget(target);
     zss_lib.install();
 
+    addTests(b, mode, target);
+    addDemo(b, mode, target);
+}
+
+fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {
+    const test_validation_option = b.option(bool, "test-validation", "Also run validation tests") orelse true;
+    const test_sdl_option = b.option(bool, "test-sdl", "Also run SDL tests") orelse true;
+
     var main_tests = b.addTest("zss.zig");
     main_tests.setBuildMode(mode);
     main_tests.setTarget(target);
@@ -30,24 +38,38 @@ pub fn build(b: *Builder) void {
     main_tests.linkSystemLibrary("harfbuzz");
     main_tests.linkSystemLibrary("freetype2");
 
-    var layout_tests = b.addTest("test/layout.zig");
-    layout_tests.setBuildMode(mode);
-    layout_tests.setTarget(target);
-    layout_tests.linkLibC();
-    layout_tests.linkSystemLibrary("harfbuzz");
-    layout_tests.linkSystemLibrary("freetype2");
-    layout_tests.addPackage(pkgs.harfbuzz);
-    layout_tests.addPackage(Pkg{
+    var validation_tests = b.addTest("test/validation.zig");
+    validation_tests.setBuildMode(mode);
+    validation_tests.setTarget(target);
+    validation_tests.linkLibC();
+    validation_tests.linkSystemLibrary("harfbuzz");
+    validation_tests.linkSystemLibrary("freetype2");
+    validation_tests.addPackage(pkgs.harfbuzz);
+    validation_tests.addPackage(Pkg{
         .name = "zss",
         .path = "zss.zig",
         .dependencies = &[_]Pkg{pkgs.harfbuzz},
     });
 
-    const tests_step = b.step("test", "Run all tests");
-    tests_step.dependOn(&main_tests.step);
-    tests_step.dependOn(&layout_tests.step);
+    var sdl_tests = b.addTest("test/sdl.zig");
+    sdl_tests.setBuildMode(mode);
+    sdl_tests.setTarget(target);
+    sdl_tests.linkLibC();
+    sdl_tests.linkSystemLibrary("harfbuzz");
+    sdl_tests.linkSystemLibrary("freetype2");
+    sdl_tests.linkSystemLibrary("SDL2");
+    sdl_tests.addPackage(pkgs.harfbuzz);
+    sdl_tests.addPackage(pkgs.SDL2);
+    sdl_tests.addPackage(Pkg{
+        .name = "zss",
+        .path = "zss.zig",
+        .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2 },
+    });
 
-    addDemo(b, mode, target);
+    const tests_step = b.step("test", "Run tests");
+    tests_step.dependOn(&main_tests.step);
+    if (test_validation_option) tests_step.dependOn(&validation_tests.step);
+    if (test_sdl_option) tests_step.dependOn(&sdl_tests.step);
 }
 
 fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {
