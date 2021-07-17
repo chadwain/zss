@@ -15,8 +15,7 @@ pub const TestCase = struct {
     tree: BoxTree,
     width: ZssUnit,
     height: ZssUnit,
-    face: ?*hb.hb_face_t,
-    font: ?*hb.hb_font_t,
+    face: hb.FT_Face,
 
     pub fn deinit(self: *@This()) void {
         allocator.free(self.tree.structure);
@@ -28,29 +27,18 @@ pub const TestCase = struct {
         allocator.free(self.tree.latin1_text);
         allocator.free(self.tree.border);
         allocator.free(self.tree.background);
-        if (self.font) |f| hb.hb_font_destroy(f);
-        if (self.face) |f| hb.hb_face_destroy(f);
+        hb.hb_font_destroy(self.tree.font.font);
+        _ = hb.FT_Done_Face(self.face);
     }
 };
 
-pub fn get(index: usize) TestCase {
+pub fn get(index: usize, library: hb.FT_Library) TestCase {
     @setRuntimeSafety(true);
     const data = tree_data[index];
 
-    var face: ?*hb.hb_face_t = null;
-    var font: ?*hb.hb_font_t = null;
-    if (data.font) |font_file| {
-        const blob = hb.hb_blob_create_from_file(font_file);
-        defer hb.hb_blob_destroy(blob);
-        assert(blob != hb.hb_blob_get_empty());
-
-        face = hb.hb_face_create(blob, 0);
-        assert(face != hb.hb_face_get_empty());
-
-        font = hb.hb_font_create(face);
-        assert(font != hb.hb_font_get_empty());
-        hb.hb_font_set_scale(font, @intCast(c_int, data.font_size) * 64, @intCast(c_int, data.font_size) * 64);
-    }
+    var face: hb.FT_Face = undefined;
+    assert(hb.FT_New_Face(library, data.font, 0, &face) == 0);
+    assert(hb.FT_Set_Char_Size(face, 0, @intCast(c_int, data.font_size) * 64, 96, 96) == 0);
 
     const tree_size = data.structure.len;
     assert(data.display.len == data.structure.len);
@@ -65,12 +53,18 @@ pub fn get(index: usize) TestCase {
             .latin1_text = copy(Latin1Text, data.latin1_text, tree_size),
             .border = copy(Border, data.border, tree_size),
             .background = copy(Background, data.background, tree_size),
-            .font = .{ .font = font orelse hb.hb_font_get_empty().? },
+            .font = .{
+                .font = blk: {
+                    const hb_font = hb.hb_ft_font_create_referenced(face).?;
+                    hb.hb_ft_font_set_funcs(hb_font);
+                    break :blk hb_font;
+                },
+                .color = .{ .rgba = data.font_color },
+            },
         },
         .width = data.width,
         .height = data.height,
         .face = face,
-        .font = font,
     };
 }
 
@@ -86,13 +80,17 @@ fn copy(comptime T: type, data: ?[]const T, tree_size: usize) []T {
     }
 }
 
-test "layout" {
+test "validate document" {
+    var library: hb.FT_Library = undefined;
+    assert(hb.FT_Init_FreeType(&library) == 0);
+    defer _ = hb.FT_Done_FreeType(library);
+
     std.debug.print("\n", .{});
     for (tree_data) |_, i| {
-        std.debug.print("layout test {}... ", .{i});
+        std.debug.print("validate document {}... ", .{i});
         defer std.debug.print("\n", .{});
 
-        var test_case = get(i);
+        var test_case = get(i, library);
         defer test_case.deinit();
         var document = try zss.layout.doLayout(&test_case.tree, allocator, test_case.width, test_case.height);
         defer document.deinit();
@@ -160,8 +158,9 @@ pub const TreeData = struct {
     background: ?[]const Background = null,
     width: ZssUnit = 400,
     height: ZssUnit = 400,
-    font: ?[:0]const u8 = null,
+    font: [:0]const u8 = fonts[0],
     font_size: u32 = 12,
+    font_color: u32 = 0xffffffff,
 };
 
 pub const strings = [_][]const u8{
@@ -185,30 +184,26 @@ pub const tree_data = [_]TreeData{
     .{
         .structure = &.{ 2, 1 },
         .display = &.{ .{ .block = {} }, .{ .inline_ = {} } },
-        .font = fonts[0],
     },
     .{
         .structure = &.{1},
         .display = &.{.{ .inline_ = {} }},
-        .font = fonts[0],
     },
     .{
         .structure = &.{1},
         .display = &.{.{ .text = {} }},
         .latin1_text = &.{.{ .text = strings[0] }},
-        .font = fonts[0],
     },
     .{
         .structure = &.{ 2, 1 },
         .display = &.{ .{ .inline_ = {} }, .{ .text = {} } },
         .latin1_text = &.{ .{}, .{ .text = strings[0] } },
-        .font = fonts[0],
     },
     .{
         .structure = &.{ 3, 2, 1 },
         .display = &.{ .{ .block = {} }, .{ .inline_ = {} }, .{ .text = {} } },
         .latin1_text = &.{ .{}, .{}, .{ .text = strings[1] } },
-        .font = fonts[0],
+        .font_size = 18,
     },
     .{
         .structure = &.{ 5, 1, 1, 1, 1 },
