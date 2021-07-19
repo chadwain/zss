@@ -6,6 +6,8 @@ const assert = std.debug.assert;
 const zss = @import("../../zss.zig");
 const BoxTree = zss.BoxTree;
 const BoxId = BoxTree.BoxId;
+const root_box_id = BoxTree.root_box_id;
+const reserved_box_id = BoxTree.reserved_box_id;
 
 const used_values = @import("./used_values.zig");
 const ZssUnit = used_values.ZssUnit;
@@ -28,7 +30,8 @@ pub const Error = error{
 };
 
 pub fn doLayout(box_tree: *const BoxTree, allocator: *Allocator, document_width: ZssUnit, document_height: ZssUnit) Error!Document {
-    var context = try BlockLevelLayoutContext.init(box_tree, allocator, 0, document_width, document_height);
+    if (box_tree.structure[0] == reserved_box_id) @panic("Too many boxes");
+    var context = try BlockLevelLayoutContext.init(box_tree, allocator, document_width, document_height);
     defer context.deinit();
     var doc = Document{
         .blocks = BlockLevelUsedValues{},
@@ -79,21 +82,21 @@ const BlockLevelLayoutContext = struct {
     };
 
     box_tree: *const BoxTree,
-    root_box_id: BoxId,
     allocator: *Allocator,
     intervals: ArrayListUnmanaged(Interval),
     used_id_and_subtree_size: ArrayListUnmanaged(UsedIdAndSubtreeSize),
     metadata: ArrayListUnmanaged(Metadata),
     stacking_context_id: ArrayListUnmanaged(StackingContextId),
+    used_id_to_box_id: ArrayListUnmanaged(BoxId),
 
     static_containing_block_used_inline_size: ArrayListUnmanaged(ZssUnit),
     static_containing_block_auto_block_size: ArrayListUnmanaged(ZssUnit),
     static_containing_block_used_block_sizes: ArrayListUnmanaged(UsedBlockSizes),
 
-    relative_positioned_descendants_ids: ArrayListUnmanaged(struct { box_id: BoxId, used_id: UsedId }),
+    relative_positioned_descendants_ids: ArrayListUnmanaged(UsedId),
     relative_positioned_descendants_count: ArrayListUnmanaged(UsedBoxCount),
 
-    fn init(box_tree: *const BoxTree, allocator: *Allocator, root_box_id: BoxId, containing_block_inline_size: ZssUnit, containing_block_block_size: ?ZssUnit) !Self {
+    fn init(box_tree: *const BoxTree, allocator: *Allocator, containing_block_inline_size: ZssUnit, containing_block_block_size: ?ZssUnit) !Self {
         var used_id_and_subtree_size = ArrayListUnmanaged(UsedIdAndSubtreeSize){};
         errdefer used_id_and_subtree_size.deinit(allocator);
         try used_id_and_subtree_size.append(allocator, UsedIdAndSubtreeSize{
@@ -129,11 +132,11 @@ const BlockLevelLayoutContext = struct {
 
         return Self{
             .box_tree = box_tree,
-            .root_box_id = root_box_id,
             .allocator = allocator,
             .intervals = .{},
             .metadata = .{},
             .stacking_context_id = stacking_context_id,
+            .used_id_to_box_id = .{},
             .used_id_and_subtree_size = used_id_and_subtree_size,
             .static_containing_block_used_inline_size = static_containing_block_used_inline_size,
             .static_containing_block_auto_block_size = static_containing_block_auto_block_size,
@@ -148,6 +151,7 @@ const BlockLevelLayoutContext = struct {
         self.metadata.deinit(self.allocator);
         self.used_id_and_subtree_size.deinit(self.allocator);
         self.stacking_context_id.deinit(self.allocator);
+        self.used_id_to_box_id.deinit(self.allocator);
         self.static_containing_block_used_inline_size.deinit(self.allocator);
         self.static_containing_block_auto_block_size.deinit(self.allocator);
         self.static_containing_block_used_block_sizes.deinit(self.allocator);
@@ -157,7 +161,6 @@ const BlockLevelLayoutContext = struct {
 };
 
 fn createBlockLevelUsedValues(doc: *Document, context: *BlockLevelLayoutContext) Error!void {
-    const root_box_id = context.root_box_id;
     const root_subtree_size = context.box_tree.structure[root_box_id];
     var root_interval = BlockLevelLayoutContext.Interval{ .parent = root_box_id, .begin = root_box_id, .end = root_box_id + root_subtree_size };
 
@@ -188,6 +191,20 @@ fn createBlockLevelUsedValues(doc: *Document, context: *BlockLevelLayoutContext)
         var parent_auto_block_size = @as(ZssUnit, 0);
         blockContainerFinishLayout(doc, context, &box_offsets, &parent_auto_block_size);
     }
+
+    // Solve for all of the properties that don't affect layout.
+    const num_created_boxes = doc.blocks.structure.items[0];
+    assert(context.used_id_to_box_id.items.len == num_created_boxes);
+    try doc.blocks.border_colors.resize(doc.allocator, num_created_boxes);
+    try doc.blocks.background1.resize(doc.allocator, num_created_boxes);
+    try doc.blocks.background2.resize(doc.allocator, num_created_boxes);
+    for (context.used_id_to_box_id.items) |box_id, used_id| {
+        if (box_id != reserved_box_id) {
+            blockContainerSolveOtherProperties(doc, context.box_tree, box_id, @intCast(UsedId, used_id));
+        } else {
+            blockContainerFillWithDefaultProperties(doc, @intCast(UsedId, used_id));
+        }
+    }
 }
 
 fn blockLevelElementPush(doc: *Document, context: *BlockLevelLayoutContext, interval: *BlockLevelLayoutContext.Interval) !void {
@@ -208,7 +225,6 @@ fn blockLevelElementPop(doc: *Document, context: *BlockLevelLayoutContext, inter
     const box_offsets_ptr = &doc.blocks.box_offsets.items[used_id];
     const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 2];
     blockContainerFinishLayout(doc, context, box_offsets_ptr, parent_auto_block_size);
-    blockContainerSolveOtherProperties(doc, context, interval.parent, used_id);
 
     _ = context.intervals.pop();
     _ = context.used_id_and_subtree_size.pop();
@@ -243,6 +259,8 @@ fn blockContainerSolveSizeAndPositionPart1(doc: *Document, context: *BlockLevelL
     interval.begin += subtree_size;
 
     const used_id = try std.math.cast(UsedId, doc.blocks.structure.items.len);
+    try context.used_id_to_box_id.append(context.allocator, box_id);
+
     const structure_ptr = try doc.blocks.structure.addOne(doc.allocator);
     const properties_ptr = try doc.blocks.properties.addOne(doc.allocator);
     properties_ptr.* = .{};
@@ -251,14 +269,14 @@ fn blockContainerSolveSizeAndPositionPart1(doc: *Document, context: *BlockLevelL
     const stacking_context_id = switch (position.style) {
         .static => null,
         .relative => blk: {
-            if (box_id == interval.parent) {
+            if (box_id == root_box_id) {
                 // This is the root element. Position must be 'static'.
                 return error.InvalidValue;
             }
 
             properties_ptr.creates_stacking_context = true;
             context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1] += 1;
-            try context.relative_positioned_descendants_ids.append(context.allocator, .{ .box_id = box_id, .used_id = used_id });
+            try context.relative_positioned_descendants_ids.append(context.allocator, used_id);
             switch (position.z_index) {
                 .value => |z_index| break :blk try createStackingContext(doc, context, z_index, used_id),
                 .auto => {
@@ -273,10 +291,6 @@ fn blockContainerSolveSizeAndPositionPart1(doc: *Document, context: *BlockLevelL
     const borders_ptr = try doc.blocks.borders.addOne(doc.allocator);
     const inline_size = try blockContainerSolveInlineSizesAndOffsets(context, box_id, box_offsets_ptr, borders_ptr);
     const used_block_sizes = try blockContainerSolveBlockSizesAndOffsets(context, box_id, box_offsets_ptr, borders_ptr);
-
-    _ = try doc.blocks.border_colors.addOne(doc.allocator);
-    _ = try doc.blocks.background1.addOne(doc.allocator);
-    _ = try doc.blocks.background2.addOne(doc.allocator);
 
     if (subtree_size != 1) {
         try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
@@ -297,7 +311,6 @@ fn blockContainerSolveSizeAndPositionPart1(doc: *Document, context: *BlockLevelL
         context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1].used_subtree_size += 1;
         const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
         _ = blockContainerSolveSizeAndPositionPart2(box_offsets_ptr, used_block_sizes, 0, parent_auto_block_size);
-        blockContainerSolveOtherProperties(doc, context, box_id, used_id);
     }
 }
 
@@ -319,27 +332,34 @@ fn blockContainerSolveSizeAndPositionPart2(box_offsets: *used_values.BoxOffsets,
     return used_block_size;
 }
 
-fn blockContainerSolveOtherProperties(doc: *Document, context: *BlockLevelLayoutContext, box_id: BoxId, used_id: UsedId) void {
+fn blockContainerSolveOtherProperties(doc: *Document, box_tree: *const BoxTree, box_id: BoxId, used_id: UsedId) void {
     const box_offsets_ptr = &doc.blocks.box_offsets.items[used_id];
     const borders_ptr = &doc.blocks.borders.items[used_id];
 
     const border_colors_ptr = &doc.blocks.border_colors.items[used_id];
-    border_colors_ptr.* = solveBorderColors(context.box_tree.border[box_id]);
+    border_colors_ptr.* = solveBorderColors(box_tree.border[box_id]);
 
     const background1_ptr = &doc.blocks.background1.items[used_id];
     const background2_ptr = &doc.blocks.background2.items[used_id];
-    const background = context.box_tree.background[box_id];
+    const background = box_tree.background[box_id];
     background1_ptr.* = solveBackground1(background);
     background2_ptr.* = solveBackground2(background, box_offsets_ptr, borders_ptr);
+}
+
+fn blockContainerFillWithDefaultProperties(doc: *Document, used_id: UsedId) void {
+    doc.blocks.borders.items[used_id] = .{};
+    doc.blocks.background1.items[used_id] = .{};
+    doc.blocks.background2.items[used_id] = .{};
 }
 
 fn applyRelativePositioningToChildren(doc: *Document, context: *BlockLevelLayoutContext, containing_block_inline_size: ZssUnit, containing_block_block_size: ZssUnit) void {
     const count = context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1];
     var i: UsedBoxCount = 0;
     while (i < count) : (i += 1) {
-        const ids = context.relative_positioned_descendants_ids.items[context.relative_positioned_descendants_ids.items.len - 1 - i];
-        const insets = context.box_tree.insets[ids.box_id];
-        const box_offsets = &doc.blocks.box_offsets.items[ids.used_id];
+        const used_id = context.relative_positioned_descendants_ids.items[context.relative_positioned_descendants_ids.items.len - 1 - i];
+        const box_id = context.used_id_to_box_id.items[used_id];
+        const insets = context.box_tree.insets[box_id];
+        const box_offsets = &doc.blocks.box_offsets.items[used_id];
 
         const inline_start = switch (insets.inline_start) {
             .px => |value| length(.px, value),
@@ -561,6 +581,7 @@ fn blockContainerSolveBlockSizesAndOffsets(context: *const BlockLevelLayoutConte
 
 fn blockLevelAddInlineData(doc: *Document, context: *BlockLevelLayoutContext, interval: *BlockLevelLayoutContext.Interval) !void {
     const used_id = try std.math.cast(UsedId, doc.blocks.structure.items.len);
+    try context.used_id_to_box_id.append(context.allocator, reserved_box_id);
 
     const containing_block_inline_size = context.static_containing_block_used_inline_size.items[context.static_containing_block_used_inline_size.items.len - 1];
     var inline_context = InlineLevelLayoutContext.init(
@@ -597,9 +618,6 @@ fn blockLevelAddInlineData(doc: *Document, context: *BlockLevelLayoutContext, in
         .content_end = .{ .inline_dir = containing_block_inline_size, .block_dir = parent_auto_block_size.* },
     };
     try doc.blocks.borders.append(doc.allocator, .{});
-    try doc.blocks.border_colors.append(doc.allocator, .{});
-    try doc.blocks.background1.append(doc.allocator, .{});
-    try doc.blocks.background2.append(doc.allocator, .{});
     try doc.blocks.properties.append(doc.allocator, .{ .inline_context_index = try std.math.cast(InlineId, doc.inlines.items.len - 1) });
 
     if (inline_context.inline_blocks.items.len != 0) {
