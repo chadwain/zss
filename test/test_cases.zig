@@ -148,4 +148,11 @@ pub const tree_data = [_]TreeData{
             .{ .style = .{ .relative = {} }, .z_index = .{ .value = -5 } },
         },
     },
+    .{
+        .structure = &.{ 4, 1, 1, 1 },
+        .display = &.{ .{ .block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} } },
+        .inline_size = &.{ .{}, .{}, .{ .size = .{ .px = 300 } }, .{} },
+        .block_size = &.{ .{}, .{}, .{ .size = .{ .px = 20 } }, .{} },
+        .latin1_text = &.{ .{}, .{ .text = "before the inline block" }, .{}, .{ .text = "after the inline block" } },
+    },
 };

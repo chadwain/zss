@@ -297,7 +297,7 @@ pub const InlineLevelUsedValues = struct {
         }
 
         pub fn encodeInlineBlock(used_id: UsedId) hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .kind = InlineBlock, .data = used_id });
+            return @bitCast(hb.hb_codepoint_t, Special{ .kind = .InlineBlock, .data = used_id });
         }
 
         pub fn encodeZeroGlyphIndex() hb.hb_codepoint_t {
