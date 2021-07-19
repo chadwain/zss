@@ -34,6 +34,7 @@ pub const BoxId = u16;
 pub const Display = union(enum) {
     block,
     inline_,
+    inline_block,
     text,
     none,
 };

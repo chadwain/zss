@@ -119,6 +119,7 @@ pub const Background2 = struct {
 };
 
 pub const UsedId = u16;
+pub const UsedBoxCount = UsedId;
 pub const StackingContextId = UsedId;
 pub const InlineId = UsedId;
 pub const ZIndex = i32;
@@ -256,6 +257,9 @@ pub const InlineLevelUsedValues = struct {
             /// Represents an inline box's end fragment.
             /// data is the used id of the box.
             BoxEnd,
+            /// Represents an inline block
+            /// data is the (block) used id of the box.
+            InlineBlock,
             /// Any other value of this enum should never appear in an end user's code.
             _,
         };
@@ -272,6 +276,7 @@ pub const InlineLevelUsedValues = struct {
             ZeroGlyphIndex = 1,
             BoxStart,
             BoxEnd,
+            InlineBlock,
             /// Represents a mandatory line break in the text.
             /// data has no meaning.
             LineBreak,
@@ -289,6 +294,10 @@ pub const InlineLevelUsedValues = struct {
 
         pub fn encodeBoxEnd(used_id: UsedId) hb.hb_codepoint_t {
             return @bitCast(hb.hb_codepoint_t, Special{ .kind = .BoxEnd, .data = used_id });
+        }
+
+        pub fn encodeInlineBlock(used_id: UsedId) hb.hb_codepoint_t {
+            return @bitCast(hb.hb_codepoint_t, Special{ .kind = InlineBlock, .data = used_id });
         }
 
         pub fn encodeZeroGlyphIndex() hb.hb_codepoint_t {

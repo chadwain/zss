@@ -567,6 +567,7 @@ pub fn drawInlineValues(
                         try inline_box_stack.append(special.data);
                     },
                     .BoxEnd => assert(special.data == inline_box_stack.pop()),
+                    .InlineBlock => {},
                     _ => unreachable,
                 }
                 continue;

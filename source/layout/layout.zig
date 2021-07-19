@@ -11,6 +11,7 @@ const used_values = @import("./used_values.zig");
 const ZssUnit = used_values.ZssUnit;
 const unitsPerPixel = used_values.unitsPerPixel;
 const UsedId = used_values.UsedId;
+const UsedBoxCount = used_values.UsedBoxCount;
 const StackingContextId = used_values.StackingContextId;
 const InlineId = used_values.InlineId;
 const ZIndex = used_values.ZIndex;
@@ -90,7 +91,7 @@ const BlockLevelLayoutContext = struct {
     static_containing_block_used_block_sizes: ArrayListUnmanaged(UsedBlockSizes),
 
     relative_positioned_descendants_ids: ArrayListUnmanaged(struct { box_id: BoxId, used_id: UsedId }),
-    relative_positioned_descendants_count: ArrayListUnmanaged(UsedId),
+    relative_positioned_descendants_count: ArrayListUnmanaged(UsedBoxCount),
 
     fn init(box_tree: *const BoxTree, allocator: *Allocator, root_box_id: BoxId, containing_block_inline_size: ZssUnit, containing_block_block_size: ?ZssUnit) !Self {
         var used_id_and_subtree_size = ArrayListUnmanaged(UsedIdAndSubtreeSize){};
@@ -122,7 +123,7 @@ const BlockLevelLayoutContext = struct {
             .margin_end = 0,
         });
 
-        var relative_positioned_descendants_count = ArrayListUnmanaged(UsedId){};
+        var relative_positioned_descendants_count = ArrayListUnmanaged(UsedBoxCount){};
         errdefer relative_positioned_descendants_count.deinit(allocator);
         try relative_positioned_descendants_count.append(allocator, 0);
 
@@ -192,7 +193,7 @@ fn createBlockLevelUsedValues(doc: *Document, context: *BlockLevelLayoutContext)
 fn blockLevelElementPush(doc: *Document, context: *BlockLevelLayoutContext, interval: *BlockLevelLayoutContext.Interval) !void {
     switch (context.box_tree.display[interval.begin]) {
         .block => return blockContainerSolveSizeAndPositionPart1(doc, context, interval),
-        .inline_, .text => return blockLevelAddInlineData(doc, context, interval),
+        .inline_, .inline_block, .text => return blockLevelAddInlineData(doc, context, interval),
         .none => return blockLevelAddNone(context, interval),
     }
 }
@@ -334,7 +335,7 @@ fn blockContainerSolveOtherProperties(doc: *Document, context: *BlockLevelLayout
 
 fn applyRelativePositioningToChildren(doc: *Document, context: *BlockLevelLayoutContext, containing_block_inline_size: ZssUnit, containing_block_block_size: ZssUnit) void {
     const count = context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1];
-    var i: UsedId = 0;
+    var i: UsedBoxCount = 0;
     while (i < count) : (i += 1) {
         const ids = context.relative_positioned_descendants_ids.items[context.relative_positioned_descendants_ids.items.len - 1 - i];
         const insets = context.box_tree.insets[ids.box_id];
@@ -584,23 +585,42 @@ fn blockLevelAddInlineData(doc: *Document, context: *BlockLevelLayoutContext, in
     interval.begin = inline_context.next_box_id;
     try doc.inlines.append(doc.allocator, inline_values_ptr);
 
-    context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1].used_subtree_size += 1;
     const parent_auto_block_size = &context.static_containing_block_auto_block_size.items[context.static_containing_block_auto_block_size.items.len - 1];
-    defer parent_auto_block_size.* += inline_context.total_block_size;
 
     // Create an "anonymous block box" to contain this inline formatting context.
     try doc.blocks.structure.append(doc.allocator, 1);
-    try doc.blocks.box_offsets.append(doc.allocator, .{
+    const box_offsets_ptr = try doc.blocks.box_offsets.addOne(doc.allocator);
+    box_offsets_ptr.* = .{
         .border_start = .{ .inline_dir = 0, .block_dir = parent_auto_block_size.* },
-        .border_end = .{ .inline_dir = containing_block_inline_size, .block_dir = parent_auto_block_size.* + inline_context.total_block_size },
+        .border_end = .{ .inline_dir = containing_block_inline_size, .block_dir = parent_auto_block_size.* },
         .content_start = .{ .inline_dir = 0, .block_dir = parent_auto_block_size.* },
-        .content_end = .{ .inline_dir = containing_block_inline_size, .block_dir = parent_auto_block_size.* + inline_context.total_block_size },
-    });
+        .content_end = .{ .inline_dir = containing_block_inline_size, .block_dir = parent_auto_block_size.* },
+    };
     try doc.blocks.borders.append(doc.allocator, .{});
     try doc.blocks.border_colors.append(doc.allocator, .{});
     try doc.blocks.background1.append(doc.allocator, .{});
     try doc.blocks.background2.append(doc.allocator, .{});
     try doc.blocks.properties.append(doc.allocator, .{ .inline_context_index = try std.math.cast(InlineId, doc.inlines.items.len - 1) });
+
+    if (inline_context.inline_blocks.items.len != 0) {
+        @panic("TODO");
+    } else {
+        inline_values_ptr.font = context.box_tree.font.font;
+        inline_values_ptr.font_color_rgba = switch (context.box_tree.font.color) {
+            .rgba => |rgba| rgba,
+        };
+        var font_extents: hb.hb_font_extents_t = undefined;
+        // TODO assuming ltr direction
+        assert(hb.hb_font_get_h_extents(inline_values_ptr.font, &font_extents) != 0);
+        inline_values_ptr.ascender = @divFloor(font_extents.ascender * unitsPerPixel, 64);
+        inline_values_ptr.descender = -@divFloor(font_extents.descender * unitsPerPixel, 64);
+
+        const total_block_size = try splitIntoLineBoxes(doc, inline_values_ptr, inline_values_ptr.font, containing_block_inline_size);
+        box_offsets_ptr.content_end.block_dir += total_block_size;
+        box_offsets_ptr.border_end.block_dir += total_block_size;
+        parent_auto_block_size.* += total_block_size;
+        context.used_id_and_subtree_size.items[context.used_id_and_subtree_size.items.len - 1].used_subtree_size += 1;
+    }
 }
 
 fn blockLevelAddNone(context: *BlockLevelLayoutContext, interval: *BlockLevelLayoutContext.Interval) void {
@@ -679,6 +699,14 @@ const InlineLevelLayoutContext = struct {
         end: BoxId,
     };
 
+    const InlineBlock = struct {
+        /// The box id of the inline block.
+        box_id: BoxId,
+        /// The position within the glyph_indeces array of
+        /// the special glyph index that represents the inline block.
+        index: usize,
+    };
+
     box_tree: *const BoxTree,
     intervals: ArrayListUnmanaged(Interval),
     used_ids: ArrayListUnmanaged(UsedId),
@@ -686,7 +714,7 @@ const InlineLevelLayoutContext = struct {
     root_interval: Interval,
     containing_block_inline_size: ZssUnit,
 
-    total_block_size: ZssUnit = undefined,
+    inline_blocks: ArrayListUnmanaged(InlineBlock),
     next_box_id: BoxId,
 
     fn init(box_tree: *const BoxTree, allocator: *Allocator, block_container_interval: BlockLevelLayoutContext.Interval, containing_block_inline_size: ZssUnit) Self {
@@ -696,6 +724,7 @@ const InlineLevelLayoutContext = struct {
             .used_ids = .{},
             .allocator = allocator,
             .root_interval = Interval{ .begin = block_container_interval.begin, .end = block_container_interval.end },
+            .inline_blocks = .{},
             .containing_block_inline_size = containing_block_inline_size,
             .next_box_id = block_container_interval.end,
         };
@@ -704,6 +733,7 @@ const InlineLevelLayoutContext = struct {
     fn deinit(self: *Self) void {
         self.intervals.deinit(self.allocator);
         self.used_ids.deinit(self.allocator);
+        self.inline_blocks.deinit(self.allocator);
     }
 };
 
@@ -723,18 +753,6 @@ fn createInlineLevelUsedValues(doc: *Document, context: *InlineLevelLayoutContex
             try inlineLevelElementPop(doc, context, values);
         }
     }
-
-    values.font = context.box_tree.font.font;
-    values.font_color_rgba = switch (context.box_tree.font.color) {
-        .rgba => |rgba| rgba,
-    };
-    var font_extents: hb.hb_font_extents_t = undefined;
-    // TODO assuming ltr direction
-    assert(hb.hb_font_get_h_extents(values.font, &font_extents) != 0);
-    values.ascender = @divFloor(font_extents.ascender * unitsPerPixel, 64);
-    values.descender = -@divFloor(font_extents.descender * unitsPerPixel, 64);
-
-    context.total_block_size = try splitIntoLineBoxes(doc, values, values.font, context.containing_block_inline_size);
 }
 
 fn inlineLevelRootElementPush(doc: *Document, context: *InlineLevelLayoutContext, values: *InlineLevelUsedValues, root_interval: InlineLevelLayoutContext.Interval) !void {
@@ -766,6 +784,11 @@ fn inlineLevelElementPush(doc: *Document, context: *InlineLevelLayoutContext, va
                 // Optimized path for elements that have no children. It is like a shorter version of inlineLevelElementPop.
                 try addBoxEnd(doc, values, used_id);
             }
+        },
+        .inline_block => {
+            try values.glyph_indeces.appendSlice(doc.allocator, &.{ 0, undefined });
+            try values.glyph_indeces.appendSlice(doc.allocator, &.{ undefined, undefined });
+            try context.inline_blocks.append(context.allocator, .{ .box_id = box_id, .index = values.glyph_indeces.items.len - 2 });
         },
         .text => try addText(doc, values, context.box_tree.latin1_text[box_id], context.box_tree.font),
         .block => {
