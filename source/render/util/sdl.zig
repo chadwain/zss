@@ -1,59 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const Allocator = std.mem.Allocator;
-
-const zss = @import("../../../zss.zig");
-const UsedId = zss.used_values.UsedId;
-const ZssUnit = zss.used_values.ZssUnit;
-const ZssVector = zss.used_values.ZssVector;
-const ZssFlowRelativeVector = zss.used_values.ZssFlowRelativeVector;
-const ZssRect = zss.used_values.ZssRect;
-const BlockLevelUsedValues = zss.used_values.BlockLevelUsedValues;
-const InlineLevelUsedValues = zss.used_values.InlineLevelUsedValues;
-
 const sdl = @import("SDL2");
-
-pub fn zssUnitToPixel(unit: ZssUnit) i32 {
-    return @divFloor(unit, zss.used_values.unitsPerPixel);
-}
-
-pub fn pixelToZssUnit(pixels: c_int) ZssUnit {
-    return pixels * zss.used_values.unitsPerPixel;
-}
-
-pub fn sdlPointToZssVector(point: sdl.SDL_Point) ZssVector {
-    return ZssVector{
-        .x = pixelToZssUnit(point.x),
-        .y = pixelToZssUnit(point.y),
-    };
-}
-
-pub fn sdlRectToZssRect(rect: sdl.SDL_Rect) ZssRect {
-    return ZssRect{
-        .x = pixelToZssUnit(rect.x),
-        .y = pixelToZssUnit(rect.y),
-        .w = pixelToZssUnit(rect.w),
-        .h = pixelToZssUnit(rect.h),
-    };
-}
-
-pub fn zssRectToSdlRect(rect: ZssRect) sdl.SDL_Rect {
-    return sdl.SDL_Rect{
-        .x = zssUnitToPixel(rect.x),
-        .y = zssUnitToPixel(rect.y),
-        .w = zssUnitToPixel(rect.w),
-        .h = zssUnitToPixel(rect.h),
-    };
-}
-
-// The only supported writing mode is horizontal-tb, so this function
-// lets us ignore the logical coords and move into physical coords.
-pub fn zssFlowRelativeVectorToZssVector(flow_vector: ZssFlowRelativeVector) ZssVector {
-    return ZssVector{
-        .x = flow_vector.inline_dir,
-        .y = flow_vector.block_dir,
-    };
-}
+const util = @import("../../util.zig");
 
 pub fn rgbaMap(pixel_format: *sdl.SDL_PixelFormat, color: u32) [4]u8 {
     const color_le = std.mem.nativeToLittle(u32, color);
@@ -69,21 +17,44 @@ pub fn rgbaMap(pixel_format: *sdl.SDL_PixelFormat, color: u32) [4]u8 {
     return rgba;
 }
 
-pub const BorderWidths = struct {
+pub const Widths = struct {
     top: c_int,
     right: c_int,
     bottom: c_int,
     left: c_int,
 };
 
-pub const BorderColor = struct {
-    top_rgba: c_uint,
-    right_rgba: c_uint,
-    bottom_rgba: c_uint,
-    left_rgba: c_uint,
+pub const Colors = struct {
+    top_rgba: u32,
+    right_rgba: u32,
+    bottom_rgba: u32,
+    left_rgba: u32,
 };
 
-pub fn drawBordersSolid(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, border_rect: *const sdl.SDL_Rect, widths: *const BorderWidths, colors: *const BorderColor) void {
+pub const BackgroundClip = enum {
+    Border,
+    Padding,
+    Content,
+};
+
+pub const BackgroundRepeatStyle = enum {
+    None,
+    Repeat,
+    Space,
+    Round,
+};
+
+pub const BackgroundRepeat = struct {
+    x: BackgroundRepeatStyle,
+    y: BackgroundRepeatStyle,
+};
+
+pub const ImageSize = struct {
+    w: c_int,
+    h: c_int,
+};
+
+pub fn drawBordersSolid(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, border_rect: sdl.SDL_Rect, widths: Widths, colors: Colors) void {
     const outer_left = border_rect.x;
     const inner_left = border_rect.x + widths.left;
     const inner_right = border_rect.x + border_rect.w - widths.right;
@@ -210,11 +181,6 @@ pub fn drawBackgroundColor(
     assert(sdl.SDL_RenderFillRect(renderer, &painting_area) == 0);
 }
 
-pub const ImageSize = struct {
-    w: c_int,
-    h: c_int,
-};
-
 pub fn drawBackgroundImage(
     renderer: *sdl.SDL_Renderer,
     texture: *sdl.SDL_Texture,
@@ -222,7 +188,7 @@ pub fn drawBackgroundImage(
     painting_area: sdl.SDL_Rect,
     position: sdl.SDL_Point,
     size: ImageSize,
-    repeat: zss.used_values.Background2.Repeat,
+    repeat: BackgroundRepeat,
 ) void {
     if (size.w == 0 or size.h == 0) return;
     const unscaled_size = blk: {
@@ -285,13 +251,13 @@ const GetBackgroundImageRepeatInfoReturnType = struct {
     /// The number of images to draw. Always positive.
     count: c_int,
     /// The amount of space to leave between each image. Always positive.
-    space: zss.util.Ratio(c_int),
+    space: util.Ratio(c_int),
     /// The offset of the top/left of the image with index 0 from the top/left of the positioning area.
     offset: c_int,
 };
 
 fn getBackgroundImageRepeatInfo(
-    repeat: zss.used_values.Background2.Repeat.Style,
+    repeat: BackgroundRepeatStyle,
     /// Must be greater than or equal to 0.
     painting_area_size: c_int,
     /// The offset of the top/left of the positioning area from the top/left of the painting area.
@@ -307,16 +273,16 @@ fn getBackgroundImageRepeatInfo(
         .None => .{
             .start_index = 0,
             .count = 1,
-            .space = zss.util.Ratio(c_int){ .num = 0, .den = 1 },
+            .space = util.Ratio(c_int){ .num = 0, .den = 1 },
             .offset = image_offset,
         },
         .Repeat => blk: {
-            const before = zss.util.divCeil(image_offset + positioning_area_offset, image_size);
-            const after = zss.util.divCeil(painting_area_size - positioning_area_offset - image_offset - image_size, image_size);
+            const before = util.divCeil(image_offset + positioning_area_offset, image_size);
+            const after = util.divCeil(painting_area_size - positioning_area_offset - image_offset - image_size, image_size);
             break :blk .{
                 .start_index = -before,
                 .count = before + after + 1,
-                .space = zss.util.Ratio(c_int){ .num = 0, .den = 1 },
+                .space = util.Ratio(c_int){ .num = 0, .den = 1 },
                 .offset = image_offset,
             };
         },
@@ -326,23 +292,23 @@ fn getBackgroundImageRepeatInfo(
                 break :blk GetBackgroundImageRepeatInfoReturnType{
                     .start_index = 0,
                     .count = 1,
-                    .space = zss.util.Ratio(c_int){ .num = 0, .den = 1 },
+                    .space = util.Ratio(c_int){ .num = 0, .den = 1 },
                     .offset = image_offset,
                 };
             } else {
                 const space = @mod(positioning_area_size, image_size);
-                const before = zss.util.divCeil(
+                const before = util.divCeil(
                     (positioning_area_count - 1) * positioning_area_offset - space,
                     positioning_area_size - image_size,
                 );
-                const after = zss.util.divCeil(
+                const after = util.divCeil(
                     (positioning_area_count - 1) * (painting_area_size - positioning_area_size - positioning_area_offset) - space,
                     positioning_area_size - image_size,
                 );
                 break :blk GetBackgroundImageRepeatInfoReturnType{
                     .start_index = -before,
                     .count = before + after + positioning_area_count,
-                    .space = zss.util.Ratio(c_int){ .num = space, .den = positioning_area_count - 1 },
+                    .space = util.Ratio(c_int){ .num = space, .den = positioning_area_count - 1 },
                     .offset = 0,
                 };
             }
@@ -354,167 +320,166 @@ fn getBackgroundImageRepeatInfo(
 pub fn drawInlineBox(
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
-    values: *const InlineLevelUsedValues,
-    used_id: UsedId,
-    position: ZssVector,
-    middle_length: ZssUnit,
+    baseline_position: sdl.SDL_Point,
+    ascender: c_int,
+    descender: c_int,
+    border: Widths,
+    padding: Widths,
+    border_colors: Colors,
+    background_color_rgba: u32,
+    background_clip: BackgroundClip,
+    middle_length: c_int,
     draw_start: bool,
     draw_end: bool,
 ) void {
-    const block_start = values.block_start.items[used_id];
-    const block_end = values.block_end.items[used_id];
+    // NOTE The height of the content box is based on the ascender and descender.
+    const content_top_y = baseline_position.y - ascender;
+    const padding_top_y = content_top_y - padding.top;
+    const border_top_y = padding_top_y - border.top;
+    const content_bottom_y = baseline_position.y - descender;
+    const padding_bottom_y = content_bottom_y + padding.bottom;
+    const border_bottom_y = padding_bottom_y + border.bottom;
 
-    const content_top_y = position.y - values.ascender;
-    const padding_top_y = content_top_y - block_start.padding;
-    const border_top_y = padding_top_y - block_start.border;
-    const content_bottom_y = position.y + values.descender;
-    const padding_bottom_y = content_bottom_y + block_end.padding;
-    const border_bottom_y = padding_bottom_y + block_end.border;
-
-    const inline_start = values.inline_start.items[used_id];
-    const inline_end = values.inline_end.items[used_id];
-
-    {
-        const background1 = values.background1.items[used_id];
-        var background_clip_rect = ZssRect{
-            .x = position.x,
+    { // background color
+        var background_clip_rect = sdl.SDL_Rect{
+            .x = baseline_position.x,
             .y = undefined,
             .w = middle_length,
             .h = undefined,
         };
-        switch (background1.clip) {
+        switch (background_clip) {
             .Border => {
                 background_clip_rect.y = border_top_y;
                 background_clip_rect.h = border_bottom_y - border_top_y;
-                if (draw_start) background_clip_rect.w += inline_start.padding + inline_start.border;
-                if (draw_end) background_clip_rect.w += inline_end.padding + inline_end.border;
+                if (draw_start) background_clip_rect.w += padding.left + border.left;
+                if (draw_end) background_clip_rect.w += padding.right + border.right;
             },
             .Padding => {
                 background_clip_rect.y = padding_top_y;
                 background_clip_rect.h = padding_bottom_y - padding_top_y;
                 if (draw_start) {
-                    background_clip_rect.x += inline_start.border;
-                    background_clip_rect.w += inline_start.padding;
+                    background_clip_rect.x += border.left;
+                    background_clip_rect.w += padding.left;
                 }
-                if (draw_end) background_clip_rect.w += inline_end.padding;
+                if (draw_end) background_clip_rect.w += padding.right;
             },
             .Content => {
                 background_clip_rect.y = content_top_y;
                 background_clip_rect.h = content_bottom_y - content_top_y;
-                if (draw_start) background_clip_rect.x += inline_start.padding + inline_start.border;
+                if (draw_start) background_clip_rect.x += padding.left + border.left;
             },
         }
 
-        const color = rgbaMap(pixel_format, background1.color_rgba);
+        const color = rgbaMap(pixel_format, background_color_rgba);
         assert(sdl.SDL_SetRenderDrawColor(renderer, color[0], color[1], color[2], color[3]) == 0);
-        assert(sdl.SDL_RenderFillRect(renderer, &zssRectToSdlRect(background_clip_rect)) == 0);
+        assert(sdl.SDL_RenderFillRect(renderer, &background_clip_rect) == 0);
     }
 
-    const top_color = rgbaMap(pixel_format, block_start.border_color_rgba);
-    const bottom_color = rgbaMap(pixel_format, block_end.border_color_rgba);
-    var top_bottom_border_x = position.x;
+    const top_color = rgbaMap(pixel_format, border_colors.top_rgba);
+    const bottom_color = rgbaMap(pixel_format, border_colors.bottom_rgba);
+    var top_bottom_border_x = baseline_position.x;
     var top_bottom_border_w = middle_length;
-    var section_start_x = position.x;
+    var section_start_x = baseline_position.x;
 
     if (draw_start) {
         const rect = sdl.SDL_Rect{
-            .x = zssUnitToPixel(section_start_x),
-            .y = zssUnitToPixel(padding_top_y),
-            .w = zssUnitToPixel(inline_start.border),
-            .h = zssUnitToPixel(values.ascender + values.descender + block_start.padding + block_end.padding),
+            .x = section_start_x,
+            .y = padding_top_y,
+            .w = border.left,
+            .h = ascender + descender + padding.top + padding.bottom,
         };
-        const left_color = rgbaMap(pixel_format, inline_start.border_color_rgba);
+        const left_color = rgbaMap(pixel_format, border_colors.left_rgba);
 
-        // left
+        // left edge
         assert(sdl.SDL_SetRenderDrawColor(renderer, left_color[0], left_color[1], left_color[2], left_color[3]) == 0);
         assert(sdl.SDL_RenderFillRect(renderer, &rect) == 0);
 
-        // top left
+        // top left corner
         drawBordersSolidCorners(
             renderer,
-            zssUnitToPixel(section_start_x),
-            zssUnitToPixel(section_start_x + inline_start.border),
-            zssUnitToPixel(border_top_y),
-            zssUnitToPixel(padding_top_y),
+            section_start_x,
+            section_start_x + border.left,
+            border_top_y,
+            padding_top_y,
             left_color,
             top_color,
             true,
         );
-        // bottom left
+        // bottom left corner
         drawBordersSolidCorners(
             renderer,
-            zssUnitToPixel(section_start_x + inline_start.border),
-            zssUnitToPixel(section_start_x),
-            zssUnitToPixel(padding_bottom_y),
-            zssUnitToPixel(border_bottom_y),
+            section_start_x + border.left,
+            section_start_x,
+            padding_bottom_y,
+            border_bottom_y,
             bottom_color,
             left_color,
             false,
         );
 
-        top_bottom_border_x += inline_start.border;
-        top_bottom_border_w += inline_start.padding;
-        section_start_x += inline_start.border + inline_start.padding;
+        top_bottom_border_x += border.left;
+        top_bottom_border_w += padding.left;
+        section_start_x += border.left + padding.left;
     }
 
     section_start_x += middle_length;
 
     if (draw_end) {
         const rect = sdl.SDL_Rect{
-            .x = zssUnitToPixel(section_start_x + inline_end.padding),
-            .y = zssUnitToPixel(padding_top_y),
-            .w = zssUnitToPixel(inline_end.border),
-            .h = zssUnitToPixel(values.ascender + values.descender + block_start.padding + block_end.padding),
+            .x = section_start_x + padding.right,
+            .y = padding_top_y,
+            .w = border.right,
+            .h = ascender + descender + padding.top + padding.bottom,
         };
-        const right_color = rgbaMap(pixel_format, inline_end.border_color_rgba);
+        const right_color = rgbaMap(pixel_format, border_colors.right_rgba);
 
-        // right
+        // right edge
         assert(sdl.SDL_SetRenderDrawColor(renderer, right_color[0], right_color[1], right_color[2], right_color[3]) == 0);
         assert(sdl.SDL_RenderFillRect(renderer, &rect) == 0);
 
-        // top right
+        // top right corner
         drawBordersSolidCorners(
             renderer,
-            zssUnitToPixel(section_start_x + inline_end.padding + inline_end.border),
-            zssUnitToPixel(section_start_x + inline_end.padding),
-            zssUnitToPixel(border_top_y),
-            zssUnitToPixel(padding_top_y),
+            section_start_x + border.right + padding.right,
+            section_start_x + padding.right,
+            border_top_y,
+            padding_top_y,
             right_color,
             top_color,
             false,
         );
-        // bottom right
+        // bottom right corner
         drawBordersSolidCorners(
             renderer,
-            zssUnitToPixel(section_start_x + inline_end.padding),
-            zssUnitToPixel(section_start_x + inline_end.padding + inline_end.border),
-            zssUnitToPixel(padding_bottom_y),
-            zssUnitToPixel(border_bottom_y),
+            section_start_x + padding.right,
+            section_start_x + border.right + padding.right,
+            padding_bottom_y,
+            border_bottom_y,
             bottom_color,
             right_color,
             true,
         );
 
-        top_bottom_border_w += inline_end.padding;
+        top_bottom_border_w += padding.right;
     }
 
     section_start_x -= middle_length;
 
     {
         const rects = [2]sdl.SDL_Rect{
-            // top
+            // top edge
             sdl.SDL_Rect{
-                .x = zssUnitToPixel(top_bottom_border_x),
-                .y = zssUnitToPixel(border_top_y),
-                .w = zssUnitToPixel(top_bottom_border_w),
-                .h = zssUnitToPixel(block_start.border),
+                .x = top_bottom_border_x,
+                .y = border_top_y,
+                .w = top_bottom_border_w,
+                .h = border.top,
             },
-            // bottom
+            // bottom edge
             sdl.SDL_Rect{
-                .x = zssUnitToPixel(top_bottom_border_x),
-                .y = zssUnitToPixel(padding_bottom_y),
-                .w = zssUnitToPixel(top_bottom_border_w),
-                .h = zssUnitToPixel(block_end.border),
+                .x = top_bottom_border_x,
+                .y = padding_bottom_y,
+                .w = top_bottom_border_w,
+                .h = border.bottom,
             },
         };
 

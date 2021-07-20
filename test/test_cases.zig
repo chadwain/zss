@@ -152,7 +152,7 @@ pub const tree_data = [_]TreeData{
         .structure = &.{ 7, 2, 1, 1, 2, 1, 1 },
         .display = &.{ .{ .block = {} }, .{ .block = {} }, .{ .text = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .text = {} } },
         .inline_size = &.{ .{}, .{ .size = .{ .px = 400 } }, .{}, .{}, .{ .size = .{ .px = 100 } }, .{}, .{} },
-        .block_size = &.{ .{}, .{ .size = .{ .px = 30 } }, .{}, .{}, .{ .size = .{ .px = 40 } }, .{}, .{} },
+        .block_size = &.{ .{}, .{ .size = .{ .px = 30 } }, .{}, .{}, .{}, .{}, .{} },
         .latin1_text = &.{ .{}, .{}, .{ .text = "behind the inline block" }, .{ .text = "before the inline block... " }, .{}, .{ .text = "inside the inline block" }, .{ .text = " ...after the inline block" } },
         .background = &.{ .{}, .{ .color = .{ .rgba = 0x9f2034ff } }, .{}, .{}, .{ .color = .{ .rgba = 0x208420ff } }, .{}, .{} },
         .position = &.{ .{}, .{ .style = .{ .relative = {} } }, .{}, .{}, .{}, .{}, .{} },

@@ -52,7 +52,7 @@ pub fn renderDocument(
 ) !void {
     var s = try RenderState.init(doc, allocator);
     defer s.deinit(allocator);
-    const clip_rect_zss = util.sdlRectToZssRect(clip_rect);
+    const clip_rect_zss = sdlRectToZssRect(clip_rect);
 
     const StackItem = struct {
         interval: struct { current: u16, end: u16 },
@@ -66,7 +66,7 @@ pub fn renderDocument(
             var it_used_id = it.next().?;
             var tr = top.translation;
             while (it_used_id != child_used_id) : (it_used_id = it.next().?) {
-                tr = tr.add(util.zssFlowRelativeVectorToZssVector(doc_.blocks.box_offsets.items[it_used_id].content_start));
+                tr = tr.add(zssFlowRelativeVectorToZssVector(doc_.blocks.box_offsets.items[it_used_id].content_start));
             }
             try stack.insert(index, .{
                 .interval = .{ .current = top.interval.current + 1, .end = top.interval.current + doc_.blocks.stacking_context_structure.items[top.interval.current] },
@@ -81,7 +81,7 @@ pub fn renderDocument(
     try stacking_context_stack.append(.{
         .interval = .{ .current = 1, .end = doc.blocks.stacking_context_structure.items[0] },
         .used_id = doc.blocks.stacking_contexts.items[0].used_id,
-        .translation = util.sdlPointToZssVector(translation),
+        .translation = sdlPointToZssVector(translation),
         .state = .DrawRoot,
     });
 
@@ -113,7 +113,7 @@ pub fn renderDocument(
                     var it = zss.util.StructureArray(UsedId).treeIterator(doc.blocks.structure.items, top.used_id, item.containing_block_used_id);
                     var tr = top.translation;
                     while (it.next()) |used_id| {
-                        tr = tr.add(util.zssFlowRelativeVectorToZssVector(doc.blocks.box_offsets.items[used_id].content_start));
+                        tr = tr.add(zssFlowRelativeVectorToZssVector(doc.blocks.box_offsets.items[used_id].content_start));
                     }
                     try drawInlineValues(doc.inlines.items[item.inline_index], tr, allocator, renderer, pixel_format, glyph_atlas);
                 }
@@ -121,6 +121,55 @@ pub fn renderDocument(
             },
         }
     }
+}
+
+pub fn zssUnitToPixel(unit: ZssUnit) i32 {
+    return @divFloor(unit, zss.used_values.unitsPerPixel);
+}
+
+pub fn pixelToZssUnit(pixels: c_int) ZssUnit {
+    return pixels * zss.used_values.unitsPerPixel;
+}
+
+pub fn sdlPointToZssVector(point: sdl.SDL_Point) ZssVector {
+    return ZssVector{
+        .x = pixelToZssUnit(point.x),
+        .y = pixelToZssUnit(point.y),
+    };
+}
+
+pub fn zssVectorToSdlPoint(vector: ZssVector) sdl.SDL_Point {
+    return sdl.SDL_Point{
+        .x = zssUnitToPixel(vector.x),
+        .y = zssUnitToPixel(vector.y),
+    };
+}
+
+pub fn sdlRectToZssRect(rect: sdl.SDL_Rect) ZssRect {
+    return ZssRect{
+        .x = pixelToZssUnit(rect.x),
+        .y = pixelToZssUnit(rect.y),
+        .w = pixelToZssUnit(rect.w),
+        .h = pixelToZssUnit(rect.h),
+    };
+}
+
+pub fn zssRectToSdlRect(rect: ZssRect) sdl.SDL_Rect {
+    return sdl.SDL_Rect{
+        .x = zssUnitToPixel(rect.x),
+        .y = zssUnitToPixel(rect.y),
+        .w = zssUnitToPixel(rect.w),
+        .h = zssUnitToPixel(rect.h),
+    };
+}
+
+// The only supported writing mode is horizontal-tb, so this function
+// lets us ignore the logical coords and move into physical coords.
+pub fn zssFlowRelativeVectorToZssVector(flow_vector: ZssFlowRelativeVector) ZssVector {
+    return ZssVector{
+        .x = flow_vector.inline_dir,
+        .y = flow_vector.block_dir,
+    };
 }
 
 const bg_image_fns = struct {
@@ -376,7 +425,7 @@ pub fn drawBlockValuesChildren(
 
         try stack.append(StackItem{
             .interval = Interval{ .begin = root_used_id + 1, .end = root_used_id + values.structure.items[root_used_id] },
-            .translation = translation.add(util.zssFlowRelativeVectorToZssVector(box_offsets.content_start)),
+            .translation = translation.add(zssFlowRelativeVectorToZssVector(box_offsets.content_start)),
         });
     }
 
@@ -430,7 +479,7 @@ pub fn drawBlockValuesChildren(
 
                 try stack.append(StackItem{
                     .interval = Interval{ .begin = used_id + 1, .end = used_id + subtree_size },
-                    .translation = stack_item.translation.add(util.zssFlowRelativeVectorToZssVector(box_offsets.content_start)),
+                    .translation = stack_item.translation.add(zssFlowRelativeVectorToZssVector(box_offsets.content_start)),
                 });
                 continue :stackLoop;
             }
@@ -451,7 +500,7 @@ pub fn drawBlockContainer(
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
 ) void {
-    const bg_clip_rect = util.zssRectToSdlRect(switch (background1.clip) {
+    const bg_clip_rect = zssRectToSdlRect(switch (background1.clip) {
         .Border => boxes.border,
         .Padding => boxes.padding,
         .Content => boxes.content,
@@ -466,18 +515,33 @@ pub fn drawBlockContainer(
         var tw: c_int = undefined;
         var th: c_int = undefined;
         assert(sdl.SDL_QueryTexture(texture, null, null, &tw, &th) == 0);
-        const origin_rect = util.zssRectToSdlRect(switch (background2.origin) {
+        const origin_rect = zssRectToSdlRect(switch (background2.origin) {
             .Border => boxes.border,
             .Padding => boxes.padding,
             .Content => boxes.content,
         });
         const size = util.ImageSize{
-            .w = util.zssUnitToPixel(background2.size.width),
-            .h = util.zssUnitToPixel(background2.size.height),
+            .w = zssUnitToPixel(background2.size.width),
+            .h = zssUnitToPixel(background2.size.height),
         };
         const position = sdl.SDL_Point{
-            .x = origin_rect.x + util.zssUnitToPixel(background2.position.x),
-            .y = origin_rect.y + util.zssUnitToPixel(background2.position.y),
+            .x = origin_rect.x + zssUnitToPixel(background2.position.x),
+            .y = origin_rect.y + zssUnitToPixel(background2.position.y),
+        };
+
+        const convertRepeat = (struct {
+            fn f(style: zss.used_values.Background2.Repeat.Style) util.BackgroundRepeatStyle {
+                return switch (style) {
+                    .None => .None,
+                    .Repeat => .Repeat,
+                    .Space => .Space,
+                    .Round => .Round,
+                };
+            }
+        }).f;
+        const repeat = util.BackgroundRepeat{
+            .x = convertRepeat(background2.repeat.x),
+            .y = convertRepeat(background2.repeat.y),
         };
         util.drawBackgroundImage(
             renderer,
@@ -486,7 +550,7 @@ pub fn drawBlockContainer(
             bg_clip_rect,
             position,
             size,
-            background2.repeat,
+            repeat,
         );
     }
 
@@ -494,14 +558,14 @@ pub fn drawBlockContainer(
     util.drawBordersSolid(
         renderer,
         pixel_format,
-        &util.zssRectToSdlRect(boxes.border),
-        &util.BorderWidths{
-            .top = util.zssUnitToPixel(borders.block_start),
-            .right = util.zssUnitToPixel(borders.inline_end),
-            .bottom = util.zssUnitToPixel(borders.block_end),
-            .left = util.zssUnitToPixel(borders.inline_start),
+        zssRectToSdlRect(boxes.border),
+        util.Widths{
+            .top = zssUnitToPixel(borders.block_start),
+            .right = zssUnitToPixel(borders.inline_end),
+            .bottom = zssUnitToPixel(borders.block_end),
+            .left = zssUnitToPixel(borders.inline_start),
         },
-        &util.BorderColor{
+        util.Colors{
             .top_rgba = border_colors.block_start_rgba,
             .right_rgba = border_colors.inline_end_rgba,
             .bottom_rgba = border_colors.block_end_rgba,
@@ -528,7 +592,7 @@ pub fn drawInlineValues(
     for (values.line_boxes.items) |line_box| {
         for (inline_box_stack.items) |used_id| {
             const match_info = findMatchingBoxEnd(values.glyph_indeces.items[line_box.elements[0]..line_box.elements[1]], values.metrics.items[line_box.elements[0]..line_box.elements[1]], used_id);
-            util.drawInlineBox(
+            drawInlineBox(
                 renderer,
                 pixel_format,
                 values,
@@ -554,7 +618,7 @@ pub fn drawInlineValues(
                     .ZeroGlyphIndex => break :blk,
                     .BoxStart => {
                         const match_info = findMatchingBoxEnd(values.glyph_indeces.items[i + 1 .. line_box.elements[1]], values.metrics.items[i + 1 .. line_box.elements[1]], special.data);
-                        util.drawInlineBox(
+                        drawInlineBox(
                             renderer,
                             pixel_format,
                             values,
@@ -589,8 +653,8 @@ pub fn drawInlineValues(
                     .h = glyph_info.height,
                 },
                 &sdl.SDL_Rect{
-                    .x = util.zssUnitToPixel(translation.x + cursor + metrics.offset),
-                    .y = util.zssUnitToPixel(translation.y + line_box.baseline) - glyph_info.ascender_px,
+                    .x = zssUnitToPixel(translation.x + cursor + metrics.offset),
+                    .y = zssUnitToPixel(translation.y + line_box.baseline) - glyph_info.ascender_px,
                     .w = glyph_info.width,
                     .h = glyph_info.height,
                 },
@@ -620,4 +684,64 @@ fn findMatchingBoxEnd(glyph_indeces: []const hb.hb_codepoint_t, metrics: []const
     }
 
     return .{ .advance = advance, .found = found };
+}
+
+fn drawInlineBox(
+    renderer: *sdl.SDL_Renderer,
+    pixel_format: *sdl.SDL_PixelFormat,
+    values: *const InlineLevelUsedValues,
+    used_id: UsedId,
+    baseline_position: ZssVector,
+    middle_length: ZssUnit,
+    draw_start: bool,
+    draw_end: bool,
+) void {
+    const inline_start = values.inline_start.items[used_id];
+    const inline_end = values.inline_end.items[used_id];
+    const block_start = values.block_start.items[used_id];
+    const block_end = values.block_end.items[used_id];
+    const background1 = values.background1.items[used_id];
+
+    const border = util.Widths{
+        .top = zssUnitToPixel(block_start.border),
+        .right = zssUnitToPixel(inline_end.border),
+        .bottom = zssUnitToPixel(block_end.border),
+        .left = zssUnitToPixel(inline_start.border),
+    };
+
+    const padding = util.Widths{
+        .top = zssUnitToPixel(block_start.padding),
+        .right = zssUnitToPixel(inline_end.padding),
+        .bottom = zssUnitToPixel(block_end.padding),
+        .left = zssUnitToPixel(inline_start.padding),
+    };
+
+    const border_colors = util.Colors{
+        .top_rgba = block_start.border_color_rgba,
+        .right_rgba = inline_end.border_color_rgba,
+        .bottom_rgba = block_end.border_color_rgba,
+        .left_rgba = inline_start.border_color_rgba,
+    };
+
+    const background_clip: util.BackgroundClip = switch (background1.clip) {
+        .Border => .Border,
+        .Padding => .Padding,
+        .Content => .Content,
+    };
+
+    util.drawInlineBox(
+        renderer,
+        pixel_format,
+        zssVectorToSdlPoint(baseline_position),
+        zssUnitToPixel(values.ascender),
+        zssUnitToPixel(values.descender),
+        border,
+        padding,
+        border_colors,
+        background1.color_rgba,
+        background_clip,
+        zssUnitToPixel(middle_length),
+        draw_start,
+        draw_end,
+    );
 }

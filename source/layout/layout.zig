@@ -1033,7 +1033,7 @@ fn inlineValuesFinishLayout(doc: *Document, context: *BlockLevelLayoutContext, v
     // TODO assuming ltr direction
     assert(hb.hb_font_get_h_extents(values.font, &font_extents) != 0);
     values.ascender = @divFloor(font_extents.ascender * unitsPerPixel, 64);
-    values.descender = -@divFloor(font_extents.descender * unitsPerPixel, 64);
+    values.descender = @divFloor(font_extents.descender * unitsPerPixel, 64);
 
     const total_block_size = try splitIntoLineBoxes(doc, values, values.font, containing_block_inline_size);
     return total_block_size;
