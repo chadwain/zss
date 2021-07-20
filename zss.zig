@@ -6,6 +6,8 @@ pub const render = @import("source/render/render.zig");
 
 pub const util = @import("source/util.zig");
 
-test "" {
-    @import("std").testing.refAllDecls(@This());
+comptime {
+    if (@import("builtin").is_test) {
+        @import("std").testing.refAllDecls(@This());
+    }
 }

@@ -818,68 +818,6 @@ fn blockBoxApplyRelativePositioningToChildren(doc: *Document, context: *BlockLev
     }
 }
 
-test "block used values" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer assert(!gpa.deinit());
-    const al = &gpa.allocator;
-
-    const len = 4;
-    var structure = [len]BoxId{ 4, 2, 1, 1 };
-    const inline_size_1 = BoxTree.LogicalSize{
-        .size = .{ .percentage = 0.7 },
-        .margin_start = .{ .px = 20 },
-        .margin_end = .{ .px = 20 },
-        .border_start = .{ .px = 5 },
-        .border_end = .{ .px = 5 },
-    };
-    const inline_size_2 = BoxTree.LogicalSize{
-        .margin_start = .{ .px = 20 },
-        .border_start = .{ .px = 5 },
-        .border_end = .{ .px = 5 },
-    };
-    const block_size_1 = BoxTree.LogicalSize{
-        .size = .{ .percentage = 0.9 },
-        .border_start = .{ .px = 5 },
-        .border_end = .{ .px = 5 },
-    };
-    const block_size_2 = BoxTree.LogicalSize{
-        .border_start = .{ .px = 5 },
-        .border_end = .{ .px = 5 },
-    };
-
-    var inline_size = [len]BoxTree.LogicalSize{ inline_size_1, inline_size_2, inline_size_1, inline_size_1 };
-    var block_size = [len]BoxTree.LogicalSize{ block_size_1, block_size_2, block_size_1, block_size_1 };
-    var display = [len]BoxTree.Display{
-        .{ .block = {} },
-        .{ .block = {} },
-        .{ .block = {} },
-        .{ .block = {} },
-    };
-    var position = [_]BoxTree.Positioning{.{}} ** len;
-    var insets = [_]BoxTree.Insets{.{}} ** len;
-    var latin1_text = [_]BoxTree.Latin1Text{.{ .text = "" }} ** len;
-    var font = BoxTree.Font{ .font = hb.hb_font_get_empty().? };
-    var border = [_]BoxTree.Border{.{}} ** len;
-    var background = [_]BoxTree.Background{.{}} ** len;
-    var document = try doLayout(
-        &BoxTree{
-            .structure = &structure,
-            .inline_size = &inline_size,
-            .block_size = &block_size,
-            .display = &display,
-            .position = &position,
-            .insets = &insets,
-            .latin1_text = &latin1_text,
-            .font = font,
-            .border = &border,
-            .background = &background,
-        },
-        al,
-        400,
-        400,
-    );
-    defer document.deinit();
-}
 
 const InlineLevelLayoutContext = struct {
     const Self = @This();
@@ -1264,55 +1202,6 @@ fn splitIntoLineBoxes(doc: *Document, values: *InlineLevelUsedValues, font: *hb.
     } else {
         return 0;
     }
-}
-
-test "inline used values" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer assert(!gpa.deinit());
-    const al = &gpa.allocator;
-
-    const blob = hb.hb_blob_create_from_file("demo/NotoSans-Regular.ttf");
-    defer hb.hb_blob_destroy(blob);
-    if (blob == hb.hb_blob_get_empty()) return error.HarfBuzzError;
-
-    const face = hb.hb_face_create(blob, 0);
-    defer hb.hb_face_destroy(face);
-    if (face == hb.hb_face_get_empty()) return error.HarfBuzzError;
-
-    const hb_font = hb.hb_font_create(face);
-    defer hb.hb_font_destroy(hb_font);
-    if (hb_font == hb.hb_font_get_empty()) return error.HarfBuzzError;
-    hb.hb_font_set_scale(hb_font, 40 * 64, 40 * 64);
-
-    const len = 2;
-    var structure = [len]BoxId{ 2, 1 };
-    var inline_size = [_]BoxTree.LogicalSize{.{}} ** len;
-    var block_size = [_]BoxTree.LogicalSize{.{}} ** len;
-    var display = [len]BoxTree.Display{
-        .{ .block = {} },
-        .{ .text = {} },
-    };
-    var position = [_]BoxTree.Positioning{.{}} ** len;
-    var insets = [_]BoxTree.Insets{.{}} ** len;
-    var latin1_text = [len]BoxTree.Latin1Text{ .{}, .{ .text = "hello world" } };
-    var font = BoxTree.Font{ .font = hb_font.? };
-    var border = [_]BoxTree.Border{.{}} ** len;
-    var background = [_]BoxTree.Background{.{}} ** len;
-    const tree = BoxTree{
-        .structure = &structure,
-        .inline_size = &inline_size,
-        .block_size = &block_size,
-        .display = &display,
-        .position = &position,
-        .insets = &insets,
-        .latin1_text = &latin1_text,
-        .font = font,
-        .border = &border,
-        .background = &background,
-    };
-
-    var document = try doLayout(&tree, al, 50, 50);
-    defer document.deinit();
 }
 
 fn solveBorderColors(border: BoxTree.Border) used_values.BorderColor {
