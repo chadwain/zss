@@ -512,8 +512,8 @@ fn flowBlockSolveInlineSizesAndOffsets(context: *const BlockLevelLayoutContext, 
         size = zss.util.clamp(size, min_size, max_size);
         const leftover_margin = max(0, content_margin_space - (size + margin_start + margin_end));
         // TODO the margin that gets the extra 1 unit shall be determined by the 'direction' property
-        if (start == 0) margin_start = leftover_margin >> shr_amount;
-        if (end == 0) margin_end = (leftover_margin >> shr_amount) + @mod(leftover_margin, 2);
+        if (start != 0) margin_start = leftover_margin >> shr_amount;
+        if (end != 0) margin_end = (leftover_margin >> shr_amount) + @mod(leftover_margin, 2);
     } else {
         // 'width' is auto, so it is set according to the other values.
         // The margin values don't need to change.
