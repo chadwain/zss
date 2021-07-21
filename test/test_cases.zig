@@ -123,6 +123,11 @@ pub const tree_data = [_]TreeData{
     },
     .{
         .structure = &.{1},
+        .display = &.{.{ .inline_block = {} }},
+        .inline_size = &.{.{ .size = .{ .px = 50 } }},
+    },
+    .{
+        .structure = &.{1},
         .display = &.{.{ .text = {} }},
         .latin1_text = &.{.{ .text = strings[0] }},
     },
@@ -163,5 +168,13 @@ pub const tree_data = [_]TreeData{
         .latin1_text = &.{ .{}, .{}, .{ .text = "behind the inline block" }, .{ .text = "before the inline block... " }, .{}, .{ .text = "inside the inline block" }, .{ .text = " ...after the inline block" } },
         .background = &.{ .{}, .{ .color = .{ .rgba = 0x9f2034ff } }, .{}, .{}, .{ .color = .{ .rgba = 0x208420ff } }, .{}, .{} },
         .position = &.{ .{}, .{ .style = .{ .relative = {} } }, .{}, .{}, .{}, .{}, .{} },
+    },
+    .{
+        .structure = &.{ 9, 8, 1, 6, 1, 4, 1, 2, 1 },
+        .display = &.{ .{ .block = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} } },
+        .inline_size = &.{ .{}, .{ .size = .{ .px = 200 } }, .{}, .{ .size = .{ .px = 100 } }, .{}, .{ .size = .{ .px = 50 } }, .{}, .{ .size = .{ .px = 25 } }, .{} },
+        .block_size = &.{ .{ .size = .{ .px = 400 }, .padding_start = .{ .px = 400 } }, .{ .size = .{ .px = 200 } }, .{}, .{ .size = .{ .px = 100 } }, .{}, .{ .size = .{ .px = 50 } }, .{}, .{ .size = .{ .px = 25 } }, .{} },
+        .latin1_text = &.{ .{}, .{}, .{ .text = "1" }, .{}, .{ .text = "2" }, .{}, .{ .text = "3" }, .{}, .{ .text = "4" } },
+        .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{}, .{ .color = .{ .rgba = 0x805020ff } }, .{}, .{ .color = .{ .rgba = 0x802050ff } }, .{}, .{ .color = .{ .rgba = 0x208050ff } }, .{} },
     },
 };

@@ -92,6 +92,16 @@ pub const BorderColor = struct {
 };
 
 /// Contains the used values of the properties
+/// 'margin-inline-start', 'margin-inline-end',
+/// 'margin-block-start', and 'margin-block-end'.
+pub const Margins = struct {
+    inline_start: ZssUnit = 0,
+    inline_end: ZssUnit = 0,
+    block_start: ZssUnit = 0,
+    block_end: ZssUnit = 0,
+};
+
+/// Contains the used values of the properties
 /// 'background-color' and 'background-clip'.
 pub const Background1 = struct {
     color_rgba: u32 = 0,
@@ -119,6 +129,7 @@ pub const Background2 = struct {
 };
 
 pub const UsedId = u16;
+pub const UsedSubtreeSize = UsedId;
 pub const UsedBoxCount = UsedId;
 pub const StackingContextId = UsedId;
 pub const InlineId = UsedId;
@@ -133,6 +144,7 @@ pub const BlockLevelUsedValues = struct {
     structure: ArrayListUnmanaged(UsedId) = .{},
     box_offsets: ArrayListUnmanaged(BoxOffsets) = .{},
     borders: ArrayListUnmanaged(Borders) = .{},
+    margins: ArrayListUnmanaged(Margins) = .{},
     border_colors: ArrayListUnmanaged(BorderColor) = .{},
     background1: ArrayListUnmanaged(Background1) = .{},
     background2: ArrayListUnmanaged(Background2) = .{},
@@ -158,6 +170,7 @@ pub const BlockLevelUsedValues = struct {
         self.structure.deinit(allocator);
         self.box_offsets.deinit(allocator);
         self.borders.deinit(allocator);
+        self.margins.deinit(allocator);
         self.border_colors.deinit(allocator);
         self.background1.deinit(allocator);
         self.background2.deinit(allocator);
@@ -171,6 +184,7 @@ pub const BlockLevelUsedValues = struct {
         try self.structure.ensureCapacity(allocator, capacity);
         try self.box_offsets.ensureCapacity(allocator, capacity);
         try self.borders.ensureCapacity(allocator, capacity);
+        try self.margins.ensureCapacity(allocator, capacity);
         try self.border_colors.ensureCapacity(allocator, capacity);
         try self.background1.ensureCapacity(allocator, capacity);
         try self.background2.ensureCapacity(allocator, capacity);
@@ -207,7 +221,7 @@ pub const InlineLevelUsedValues = struct {
     block_start: ArrayListUnmanaged(BoxProperties) = .{},
     block_end: ArrayListUnmanaged(BoxProperties) = .{},
     background1: ArrayListUnmanaged(Background1) = .{},
-    margins: ArrayListUnmanaged(Margins) = .{},
+    margins: ArrayListUnmanaged(MarginsInline) = .{},
     // End of the "used id" indexed arrays.
 
     const hb = @import("harfbuzz");
@@ -226,7 +240,7 @@ pub const InlineLevelUsedValues = struct {
         width: ZssUnit,
     };
 
-    pub const Margins = struct {
+    pub const MarginsInline = struct {
         start: ZssUnit = 0,
         end: ZssUnit = 0,
     };

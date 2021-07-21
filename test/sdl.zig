@@ -88,7 +88,7 @@ test "sdl" {
         const root_height = r.zssUnitToPixel(root_sizes.border_end.block_dir - root_sizes.border_start.block_dir);
         const surface = try drawToSurface(&doc, root_width, root_height, sdl.SDL_Point{ .x = 0, .y = 0 }, renderer.?, pixel_format, &atlas);
         defer sdl.SDL_FreeSurface(surface);
-        const filename = try std.fmt.allocPrintZ(allocator, results_path ++ "/{}.bmp", .{i});
+        const filename = try std.fmt.allocPrintZ(allocator, results_path ++ "/{:0>2}.bmp", .{i});
         defer allocator.free(filename);
         if (sdl.SDL_SaveBMP(surface, filename) != 0) {
             std.log.err("sdl: couldn't save test {}, skipping", .{i});
