@@ -13,7 +13,7 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("zss");
 const BoxTree = zss.BoxTree;
-const pixelToZssUnit = zss.render.sdl.util.pixelToZssUnit;
+const pixelToZssUnit = zss.render.sdl.pixelToZssUnit;
 
 const sdl = @import("SDL2");
 const hb = @import("harfbuzz");
@@ -343,7 +343,7 @@ const ProgramState = struct {
     }
 
     fn updateMaxScroll(self: *Self) void {
-        self.max_scroll_y = std.math.max(0, zss.render.sdl.util.zssUnitToPixel(self.document.blocks.box_offsets.items[0].border_end.block_dir) - self.height);
+        self.max_scroll_y = std.math.max(0, zss.render.sdl.zssUnitToPixel(self.document.blocks.box_offsets.items[0].border_end.block_dir) - self.height);
         self.scroll_y = std.math.clamp(self.scroll_y, 0, self.max_scroll_y);
     }
 };
