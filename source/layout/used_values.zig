@@ -25,9 +25,9 @@ pub const ZssVector = struct {
     }
 };
 
-pub const ZssFlowRelativeVector = struct {
-    inline_dir: ZssUnit,
-    block_dir: ZssUnit,
+pub const ZssLogicalVector = struct {
+    x: ZssUnit,
+    y: ZssUnit,
 };
 
 pub const ZssSize = struct {
@@ -65,10 +65,10 @@ pub const ZssRect = struct {
 /// The offsets of various points of a block box, taken from the
 /// inline-start/block-start corner of the content box of its parent.
 pub const BoxOffsets = struct {
-    border_start: ZssFlowRelativeVector,
-    border_end: ZssFlowRelativeVector,
-    content_start: ZssFlowRelativeVector,
-    content_end: ZssFlowRelativeVector,
+    border_start: ZssLogicalVector,
+    border_end: ZssLogicalVector,
+    content_start: ZssLogicalVector,
+    content_end: ZssLogicalVector,
 };
 
 /// Contains the used values of the properties

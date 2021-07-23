@@ -9,7 +9,7 @@ const zss = @import("../../zss.zig");
 const ZssUnit = zss.used_values.ZssUnit;
 const ZssRect = zss.used_values.ZssRect;
 const ZssVector = zss.used_values.ZssVector;
-const ZssFlowRelativeVector = zss.used_values.ZssFlowRelativeVector;
+const ZssLogicalVector = zss.used_values.ZssLogicalVector;
 const UsedId = zss.used_values.UsedId;
 const BlockLevelUsedValues = zss.used_values.BlockLevelUsedValues;
 const InlineLevelUsedValues = zss.used_values.InlineLevelUsedValues;
@@ -66,7 +66,7 @@ pub fn renderDocument(
             var it_used_id = it.next().?;
             var tr = top.translation;
             while (it_used_id != child_used_id) : (it_used_id = it.next().?) {
-                tr = tr.add(zssFlowRelativeVectorToZssVector(doc_.blocks.box_offsets.items[it_used_id].content_start));
+                tr = tr.add(zssLogicalVectorToZssVector(doc_.blocks.box_offsets.items[it_used_id].content_start));
             }
             try stack.insert(index, .{
                 .interval = .{ .current = top.interval.current + 1, .end = top.interval.current + doc_.blocks.stacking_context_structure.items[top.interval.current] },
@@ -113,7 +113,7 @@ pub fn renderDocument(
                     var it = zss.util.StructureArray(UsedId).treeIterator(doc.blocks.structure.items, top.used_id, item.containing_block_used_id);
                     var tr = top.translation;
                     while (it.next()) |used_id| {
-                        tr = tr.add(zssFlowRelativeVectorToZssVector(doc.blocks.box_offsets.items[used_id].content_start));
+                        tr = tr.add(zssLogicalVectorToZssVector(doc.blocks.box_offsets.items[used_id].content_start));
                     }
                     try drawInlineValues(doc.inlines.items[item.inline_index], tr, allocator, renderer, pixel_format, glyph_atlas);
                 }
@@ -165,10 +165,10 @@ pub fn zssRectToSdlRect(rect: ZssRect) sdl.SDL_Rect {
 
 // The only supported writing mode is horizontal-tb, so this function
 // lets us ignore the logical coords and move into physical coords.
-pub fn zssFlowRelativeVectorToZssVector(flow_vector: ZssFlowRelativeVector) ZssVector {
+pub fn zssLogicalVectorToZssVector(flow_vector: ZssLogicalVector) ZssVector {
     return ZssVector{
-        .x = flow_vector.inline_dir,
-        .y = flow_vector.block_dir,
+        .x = flow_vector.x,
+        .y = flow_vector.y,
     };
 }
 
@@ -315,10 +315,10 @@ pub const ThreeBoxes = struct {
 // The only supported writing mode is horizontal-tb, so this function
 // lets us ignore the logical coords and move into physical coords.
 fn getThreeBoxes(translation: ZssVector, box_offsets: zss.used_values.BoxOffsets, borders: zss.used_values.Borders) ThreeBoxes {
-    const border_x = translation.x + box_offsets.border_start.inline_dir;
-    const border_y = translation.y + box_offsets.border_start.block_dir;
-    const border_w = box_offsets.border_end.inline_dir - box_offsets.border_start.inline_dir;
-    const border_h = box_offsets.border_end.block_dir - box_offsets.border_start.block_dir;
+    const border_x = translation.x + box_offsets.border_start.x;
+    const border_y = translation.y + box_offsets.border_start.y;
+    const border_w = box_offsets.border_end.x - box_offsets.border_start.x;
+    const border_h = box_offsets.border_end.y - box_offsets.border_start.y;
 
     return ThreeBoxes{
         .border = ZssRect{
@@ -334,10 +334,10 @@ fn getThreeBoxes(translation: ZssVector, box_offsets: zss.used_values.BoxOffsets
             .h = border_h - borders.block_start - borders.block_end,
         },
         .content = ZssRect{
-            .x = translation.x + box_offsets.content_start.inline_dir,
-            .y = translation.y + box_offsets.content_start.block_dir,
-            .w = box_offsets.content_end.inline_dir - box_offsets.content_start.inline_dir,
-            .h = box_offsets.content_end.block_dir - box_offsets.content_start.block_dir,
+            .x = translation.x + box_offsets.content_start.x,
+            .y = translation.y + box_offsets.content_start.y,
+            .w = box_offsets.content_end.x - box_offsets.content_start.x,
+            .h = box_offsets.content_end.y - box_offsets.content_start.y,
         },
     };
 }
@@ -425,7 +425,7 @@ pub fn drawBlockValuesChildren(
 
         try stack.append(StackItem{
             .interval = Interval{ .begin = root_used_id + 1, .end = root_used_id + values.structure.items[root_used_id] },
-            .translation = translation.add(zssFlowRelativeVectorToZssVector(box_offsets.content_start)),
+            .translation = translation.add(zssLogicalVectorToZssVector(box_offsets.content_start)),
         });
     }
 
@@ -479,7 +479,7 @@ pub fn drawBlockValuesChildren(
 
                 try stack.append(StackItem{
                     .interval = Interval{ .begin = used_id + 1, .end = used_id + subtree_size },
-                    .translation = stack_item.translation.add(zssFlowRelativeVectorToZssVector(box_offsets.content_start)),
+                    .translation = stack_item.translation.add(zssLogicalVectorToZssVector(box_offsets.content_start)),
                 });
                 continue :stackLoop;
             }

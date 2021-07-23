@@ -1,5 +1,6 @@
 const zss = @import("zss");
 const ZssUnit = zss.used_values.ZssUnit;
+const unitsPerPixel = zss.used_values.unitsPerPixel;
 const BoxTree = zss.BoxTree;
 usingnamespace BoxTree;
 
@@ -60,8 +61,8 @@ pub fn get(index: usize, library: hb.FT_Library) TestCase {
                 .color = .{ .rgba = data.font_color },
             },
         },
-        .width = data.width,
-        .height = data.height,
+        .width = @intCast(ZssUnit, data.width * unitsPerPixel),
+        .height = @intCast(ZssUnit, data.height * unitsPerPixel),
         .face = face,
     };
 }
@@ -88,8 +89,8 @@ pub const TreeData = struct {
     latin1_text: ?[]const Latin1Text = null,
     border: ?[]const Border = null,
     background: ?[]const Background = null,
-    width: ZssUnit = 400,
-    height: ZssUnit = 400,
+    width: u32 = 400,
+    height: u32 = 400,
     font: [:0]const u8 = fonts[0],
     font_size: u32 = 12,
     font_color: u32 = 0xffffffff,

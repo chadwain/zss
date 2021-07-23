@@ -84,8 +84,8 @@ test "sdl" {
         var doc = try zss.layout.doLayout(&case.tree, allocator, case.width, case.height);
         defer doc.deinit();
         const root_sizes = doc.blocks.box_offsets.items[0];
-        const root_width = r.zssUnitToPixel(root_sizes.border_end.inline_dir - root_sizes.border_start.inline_dir);
-        const root_height = r.zssUnitToPixel(root_sizes.border_end.block_dir - root_sizes.border_start.block_dir);
+        const root_width = r.zssUnitToPixel(root_sizes.border_end.x - root_sizes.border_start.x);
+        const root_height = r.zssUnitToPixel(root_sizes.border_end.y - root_sizes.border_start.y);
         const surface = try drawToSurface(&doc, root_width, root_height, sdl.SDL_Point{ .x = 0, .y = 0 }, renderer.?, pixel_format, &atlas);
         defer sdl.SDL_FreeSurface(surface);
         const filename = try std.fmt.allocPrintZ(allocator, results_path ++ "/{:0>2}.bmp", .{i});
