@@ -83,6 +83,10 @@ const InlineContainer = struct {
     values: *InlineLevelUsedValues,
     inline_blocks: []InlineBlock,
     next_inline_block: usize,
+
+    fn deinit(self: *@This(), allocator: *Allocator) void {
+        allocator.free(self.inline_blocks);
+    }
 };
 
 const LayoutContext = struct {
@@ -128,10 +132,6 @@ const LayoutContext = struct {
         errdefer used_subtree_size.deinit(allocator);
         try used_subtree_size.append(allocator, 1);
 
-        var stacking_context_id = ArrayListUnmanaged(StackingContextId){};
-        errdefer stacking_context_id.deinit(allocator);
-        try stacking_context_id.append(allocator, 0);
-
         var flow_block_used_inline_size = ArrayListUnmanaged(ZssUnit){};
         errdefer flow_block_used_inline_size.deinit(allocator);
         try flow_block_used_inline_size.append(allocator, containing_block_inline_size);
@@ -158,7 +158,7 @@ const LayoutContext = struct {
             .intervals = intervals,
             .layout_mode = layout_mode,
             .metadata = .{},
-            .stacking_context_id = stacking_context_id,
+            .stacking_context_id = .{},
             .used_id_to_box_id = .{},
             .used_id = .{},
             .used_subtree_size = used_subtree_size,
@@ -184,6 +184,9 @@ const LayoutContext = struct {
         self.flow_block_used_block_sizes.deinit(self.allocator);
         self.relative_positioned_descendants_ids.deinit(self.allocator);
         self.relative_positioned_descendants_count.deinit(self.allocator);
+        for (self.inline_container.items) |*container| {
+            container.deinit(self.allocator);
+        }
         self.inline_container.deinit(self.allocator);
     }
 };
@@ -202,6 +205,7 @@ fn createBlockLevelUsedValues(doc: *Document, context: *LayoutContext) Error!voi
     try doc.blocks.stacking_context_structure.append(doc.allocator, 1);
     try doc.blocks.stacking_contexts.append(doc.allocator, .{ .z_index = 0, .used_id = 0 });
     doc.blocks.properties.items[0].creates_stacking_context = true;
+    try context.stacking_context_id.append(context.allocator, 0);
 
     // Process all other elements.
     while (context.layout_mode.items.len > 1) {
@@ -216,7 +220,7 @@ fn createBlockLevelUsedValues(doc: *Document, context: *LayoutContext) Error!voi
     try doc.blocks.background2.resize(doc.allocator, num_created_boxes);
     for (context.used_id_to_box_id.items) |box_id, used_id| {
         if (box_id != reserved_box_id) {
-            blockBoxSolveOtherProperties(doc, context.box_tree, box_id, @intCast(UsedId, used_id));
+            try blockBoxSolveOtherProperties(doc, context.box_tree, box_id, @intCast(UsedId, used_id));
         } else {
             blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, used_id));
         }
@@ -286,13 +290,12 @@ fn pushFlowBlock(doc: *Document, context: *LayoutContext, interval: *LayoutConte
                 return error.InvalidValue;
             }
 
-            block.properties.creates_stacking_context = true;
             context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1] += 1;
             try context.relative_positioned_descendants_ids.append(context.allocator, block.used_id);
             switch (position.z_index) {
-                .value => |z_index| break :blk try createStackingContext(doc, context, z_index, block.used_id),
+                .value => |z_index| break :blk try createStackingContext(doc, context, block, z_index),
                 .auto => {
-                    _ = try createStackingContext(doc, context, 0, block.used_id);
+                    _ = try createStackingContext(doc, context, block, 0);
                     break :blk null;
                 },
             }
@@ -633,7 +636,6 @@ fn pushInlineContainer(doc: *Document, context: *LayoutContext, interval: *Layou
             .inline_blocks = inline_blocks.toOwnedSlice(context.allocator),
             .next_inline_block = 0,
         });
-        try context.flow_block_used_inline_size.append(context.allocator, containing_block_inline_size);
     } else {
         // Optimized path for containers that have no inline-blocks. It is a shorter version of popInlineContainer.
         block.structure.* = 1;
@@ -660,11 +662,11 @@ fn popInlineContainer(doc: *Document, context: *LayoutContext) !void {
     doc.blocks.structure.items[used_id] = used_subtree_size;
     context.used_subtree_size.items[context.used_subtree_size.items.len - 2] += used_subtree_size;
 
-    const container = context.inline_container.items[context.inline_container.items.len - 1];
+    const container = &context.inline_container.items[context.inline_container.items.len - 1];
     const containing_block_inline_size = context.flow_block_used_inline_size.items[context.flow_block_used_inline_size.items.len - 1];
     const total_block_size = try inlineValuesFinishLayout(doc, context, container.values, containing_block_inline_size);
 
-    inlineContainerPositionInlineBlocks(doc, container);
+    inlineContainerPositionInlineBlocks(doc, container.*);
 
     const box_offsets = &doc.blocks.box_offsets.items[used_id];
     box_offsets.content_end.block_dir = total_block_size;
@@ -683,9 +685,8 @@ fn popInlineContainer(doc: *Document, context: *LayoutContext) !void {
     _ = context.layout_mode.pop();
     _ = context.used_id.pop();
     _ = context.used_subtree_size.pop();
-    context.allocator.free(container.inline_blocks);
+    container.deinit(context.allocator);
     _ = context.inline_container.pop();
-    _ = context.flow_block_used_inline_size.pop();
 }
 
 fn inlineContainerPositionInlineBlocks(doc: *Document, container: InlineContainer) void {
@@ -732,9 +733,9 @@ fn pushInlineBlock(doc: *Document, context: *LayoutContext, inline_block: Inline
 
     const block = try createBlock(doc, context, box_id);
     block.structure.* = undefined;
-    block.properties.* = .{ .creates_stacking_context = true };
+    block.properties.* = .{};
 
-    _ = try createStackingContext(doc, context, 0, block.used_id);
+    _ = try createStackingContext(doc, context, block, 0);
 
     const containing_block_inline_size = context.flow_block_used_inline_size.items[context.flow_block_used_inline_size.items.len - 1];
     const sizes = try inlineBlockSolveSizesPart1(context, inline_block.box_id, block.box_offsets, block.borders, block.margins);
@@ -915,6 +916,7 @@ const Block = struct {
 };
 
 fn createBlock(doc: *Document, context: *LayoutContext, box_id: BoxId) !Block {
+    assert(doc.blocks.structure.items.len == context.used_id_to_box_id.items.len);
     const used_id = try std.math.cast(UsedId, doc.blocks.structure.items.len);
     try context.used_id_to_box_id.append(context.allocator, box_id);
     return Block{
@@ -927,7 +929,7 @@ fn createBlock(doc: *Document, context: *LayoutContext, box_id: BoxId) !Block {
     };
 }
 
-fn blockBoxSolveOtherProperties(doc: *Document, box_tree: *const BoxTree, box_id: BoxId, used_id: UsedId) void {
+fn blockBoxSolveOtherProperties(doc: *Document, box_tree: *const BoxTree, box_id: BoxId, used_id: UsedId) !void {
     const box_offsets_ptr = &doc.blocks.box_offsets.items[used_id];
     const borders_ptr = &doc.blocks.borders.items[used_id];
 
@@ -938,7 +940,7 @@ fn blockBoxSolveOtherProperties(doc: *Document, box_tree: *const BoxTree, box_id
     const background2_ptr = &doc.blocks.background2.items[used_id];
     const background = box_tree.background[box_id];
     background1_ptr.* = solveBackground1(background);
-    background2_ptr.* = solveBackground2(background, box_offsets_ptr, borders_ptr);
+    background2_ptr.* = try solveBackground2(background, box_offsets_ptr, borders_ptr);
 }
 
 fn blockBoxFillOtherPropertiesWithDefaults(doc: *Document, used_id: UsedId) void {
@@ -947,7 +949,7 @@ fn blockBoxFillOtherPropertiesWithDefaults(doc: *Document, used_id: UsedId) void
     doc.blocks.background2.items[used_id] = .{};
 }
 
-fn createStackingContext(doc: *Document, context: *LayoutContext, z_index: ZIndex, used_id: UsedId) !StackingContextId {
+fn createStackingContext(doc: *Document, context: *LayoutContext, block: Block, z_index: ZIndex) !StackingContextId {
     const parent_stacking_context_id = context.stacking_context_id.items[context.stacking_context_id.items.len - 1];
     var current = parent_stacking_context_id + 1;
     const end = parent_stacking_context_id + doc.blocks.stacking_context_structure.items[parent_stacking_context_id];
@@ -957,7 +959,8 @@ fn createStackingContext(doc: *Document, context: *LayoutContext, z_index: ZInde
         doc.blocks.stacking_context_structure.items[index] += 1;
     }
     try doc.blocks.stacking_context_structure.insert(doc.allocator, current, 1);
-    try doc.blocks.stacking_contexts.insert(doc.allocator, current, .{ .z_index = z_index, .used_id = used_id });
+    try doc.blocks.stacking_contexts.insert(doc.allocator, current, .{ .z_index = z_index, .used_id = block.used_id });
+    block.properties.creates_stacking_context = true;
     return current;
 }
 
@@ -1045,21 +1048,6 @@ const InlineLevelLayoutContext = struct {
         self.used_ids.deinit(self.allocator);
     }
 };
-
-fn inlineValuesFinishLayout(doc: *Document, context: *LayoutContext, values: *InlineLevelUsedValues, containing_block_inline_size: ZssUnit) !ZssUnit {
-    values.font = context.box_tree.font.font;
-    values.font_color_rgba = switch (context.box_tree.font.color) {
-        .rgba => |rgba| rgba,
-    };
-    var font_extents: hb.hb_font_extents_t = undefined;
-    // TODO assuming ltr direction
-    assert(hb.hb_font_get_h_extents(values.font, &font_extents) != 0);
-    values.ascender = @divFloor(font_extents.ascender * unitsPerPixel, 64);
-    values.descender = @divFloor(font_extents.descender * unitsPerPixel, 64);
-
-    const total_block_size = try splitIntoLineBoxes(doc, values, values.font, containing_block_inline_size);
-    return total_block_size;
-}
 
 fn createInlineLevelUsedValues(doc: *Document, context: *InlineLevelLayoutContext, values: *InlineLevelUsedValues) Error!void {
     const root_interval = context.root_interval;
@@ -1334,55 +1322,87 @@ fn addInlineElementData(doc: *Document, context: *InlineLevelLayoutContext, valu
     return std.math.cast(UsedId, values.inline_start.items.len - 1);
 }
 
-fn splitIntoLineBoxes(doc: *Document, values: *InlineLevelUsedValues, font: *hb.hb_font_t, containing_block_inline_size: ZssUnit) !ZssUnit {
+fn inlineValuesFinishLayout(doc: *Document, context: *LayoutContext, values: *InlineLevelUsedValues, containing_block_inline_size: ZssUnit) !ZssUnit {
+    values.font = context.box_tree.font.font;
+    values.font_color_rgba = switch (context.box_tree.font.color) {
+        .rgba => |rgba| rgba,
+    };
+
+    const total_block_size = try splitIntoLineBoxes(doc, values, containing_block_inline_size);
+    return total_block_size;
+}
+
+fn splitIntoLineBoxes(doc: *Document, values: *InlineLevelUsedValues, containing_block_inline_size: ZssUnit) !ZssUnit {
     var font_extents: hb.hb_font_extents_t = undefined;
     // TODO assuming ltr direction
-    assert(hb.hb_font_get_h_extents(font, &font_extents) != 0);
-    const ascender = @divFloor(font_extents.ascender * unitsPerPixel, 64);
-    const descender = @divFloor(font_extents.descender * unitsPerPixel, 64);
-    const line_gap = @divFloor(font_extents.line_gap * unitsPerPixel, 64);
-    const line_spacing = ascender - descender + line_gap;
+    assert(hb.hb_font_get_h_extents(values.font, &font_extents) != 0);
+    values.ascender = @divFloor(font_extents.ascender * unitsPerPixel, 64);
+    values.descender = @divFloor(font_extents.descender * unitsPerPixel, 64);
+    const top_height: ZssUnit = @divFloor((font_extents.ascender + @divFloor(font_extents.line_gap, 2) + @mod(font_extents.line_gap, 2)) * unitsPerPixel, 64);
+    const bottom_height: ZssUnit = @divFloor((-font_extents.descender + @divFloor(font_extents.line_gap, 2)) * unitsPerPixel, 64);
 
     var cursor: ZssUnit = 0;
-    var line_box = InlineLevelUsedValues.LineBox{ .baseline = ascender, .elements = [2]usize{ 0, 0 } };
+    var line_box = InlineLevelUsedValues.LineBox{ .baseline = 0, .elements = [2]usize{ 0, 0 } };
+    var max_top_height = top_height;
 
     var i: usize = 0;
     while (i < values.glyph_indeces.items.len) : (i += 1) {
         const gi = values.glyph_indeces.items[i];
         const metrics = values.metrics.items[i];
 
+        if (gi == 0) {
+            i += 1;
+            const special = InlineLevelUsedValues.Special.decode(values.glyph_indeces.items[i]);
+            switch (@intToEnum(InlineLevelUsedValues.Special.LayoutInternalKind, @enumToInt(special.kind))) {
+                .LineBreak => {
+                    line_box.baseline += max_top_height;
+                    try values.line_boxes.append(doc.allocator, line_box);
+                    cursor = 0;
+                    line_box = .{ .baseline = line_box.baseline + bottom_height, .elements = [2]usize{ line_box.elements[1] + 2, line_box.elements[1] + 2 } };
+                    max_top_height = top_height;
+                    continue;
+                },
+                else => {},
+            }
+        }
+
         // TODO A glyph with a width of zero but an advance that is non-zero may overflow the width of the containing block
         if (cursor > 0 and metrics.width > 0 and cursor + metrics.offset + metrics.width > containing_block_inline_size and line_box.elements[1] > line_box.elements[0]) {
+            line_box.baseline += max_top_height;
             try values.line_boxes.append(doc.allocator, line_box);
             cursor = 0;
-            line_box = .{ .baseline = line_box.baseline + line_spacing, .elements = [2]usize{ line_box.elements[1], line_box.elements[1] } };
+            line_box = .{ .baseline = line_box.baseline + bottom_height, .elements = [2]usize{ line_box.elements[1], line_box.elements[1] } };
+            max_top_height = top_height;
         }
 
         cursor += metrics.advance;
 
-        switch (gi) {
-            0 => {
-                i += 1;
-                const special = InlineLevelUsedValues.Special.decode(values.glyph_indeces.items[i]);
-                switch (@intToEnum(InlineLevelUsedValues.Special.LayoutInternalKind, @enumToInt(special.kind))) {
-                    .LineBreak => {
-                        try values.line_boxes.append(doc.allocator, line_box);
-                        cursor = 0;
-                        line_box = .{ .baseline = line_box.baseline + line_spacing, .elements = [2]usize{ line_box.elements[1] + 2, line_box.elements[1] + 2 } };
-                    },
-                    else => line_box.elements[1] += 2,
-                }
-            },
-            else => line_box.elements[1] += 1,
+        if (gi == 0) {
+            const special = InlineLevelUsedValues.Special.decode(values.glyph_indeces.items[i]);
+            switch (@intToEnum(InlineLevelUsedValues.Special.LayoutInternalKind, @enumToInt(special.kind))) {
+                .InlineBlock => {
+                    const used_id = @as(UsedId, special.data);
+                    const box_offsets = doc.blocks.box_offsets.items[used_id];
+                    const margins = doc.blocks.margins.items[used_id];
+                    const margin_box_height = box_offsets.border_end.block_dir - box_offsets.border_start.block_dir + margins.block_start + margins.block_end;
+                    max_top_height = std.math.max(max_top_height, margin_box_height);
+                },
+                .LineBreak => unreachable,
+                else => {},
+            }
+            line_box.elements[1] += 2;
+        } else {
+            line_box.elements[1] += 1;
         }
     }
 
     if (line_box.elements[1] > line_box.elements[0]) {
+        line_box.baseline += max_top_height;
         try values.line_boxes.append(doc.allocator, line_box);
     }
 
     if (values.line_boxes.items.len > 0) {
-        return values.line_boxes.items[values.line_boxes.items.len - 1].baseline - descender;
+        return values.line_boxes.items[values.line_boxes.items.len - 1].baseline + bottom_height;
     } else {
         return 0;
     }
@@ -1418,10 +1438,10 @@ fn solveBackground1(bg: BoxTree.Background) used_values.Background1 {
     };
 }
 
-fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxOffsets, borders: *const used_values.Borders) used_values.Background2 {
+fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxOffsets, borders: *const used_values.Borders) !used_values.Background2 {
     var object = switch (bg.image) {
         .object => |object| object,
-        .none => return .{},
+        .none => return used_values.Background2{},
     };
 
     const border_width = box_offsets.border_end.inline_dir - box_offsets.border_start.inline_dir;
@@ -1456,35 +1476,19 @@ fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxO
     var size: used_values.Background2.Size = switch (bg.size) {
         .size => |size| .{
             .width = switch (size.width) {
-                .px => |val| blk: {
-                    // Value must be positive
-                    assert(val >= 0);
-                    break :blk length(.px, val);
-                },
-                .percentage => |p| blk: {
-                    // Percentage must be positive
-                    assert(p >= 0);
-                    break :blk percentage(p, positioning_area.width);
-                },
+                .px => |val| length(.px, val),
+                .percentage => |p| percentage(p, positioning_area.width),
                 .auto => blk: {
                     width_was_auto = true;
-                    break :blk undefined;
+                    break :blk 0;
                 },
             },
             .height = switch (size.height) {
-                .px => |val| blk: {
-                    // Value must be positive
-                    assert(val >= 0);
-                    break :blk length(.px, val);
-                },
-                .percentage => |p| blk: {
-                    // Percentage must be positive
-                    assert(p >= 0);
-                    break :blk percentage(p, positioning_area.height);
-                },
+                .px => |val| length(.px, val),
+                .percentage => |p| percentage(p, positioning_area.height),
                 .auto => blk: {
                     height_was_auto = true;
-                    break :blk undefined;
+                    break :blk 0;
                 },
             },
         },
@@ -1502,6 +1506,9 @@ fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxO
             }
         },
     };
+    
+    if (size.width < 0) return error.InvalidValue;
+    if (size.height < 0) return error.InvalidValue;
 
     const repeat: used_values.Background2.Repeat = switch (bg.repeat) {
         .repeat => |repeat| .{
