@@ -65,10 +65,10 @@ pub const ZssRect = struct {
 /// The offsets of various points of a block box, taken from the
 /// inline-start/block-start corner of the content box of its parent.
 pub const BoxOffsets = struct {
-    border_start: ZssLogicalVector,
-    border_end: ZssLogicalVector,
-    content_start: ZssLogicalVector,
-    content_end: ZssLogicalVector,
+    border_start: ZssLogicalVector = .{ .x = 0, .y = 0 },
+    border_end: ZssLogicalVector = .{ .x = 0, .y = 0 },
+    content_start: ZssLogicalVector = .{ .x = 0, .y = 0 },
+    content_end: ZssLogicalVector = .{ .x = 0, .y = 0 },
 };
 
 /// Contains the used values of the properties

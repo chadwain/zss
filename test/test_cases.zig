@@ -179,4 +179,8 @@ pub const tree_data = [_]TreeData{
         .latin1_text = &.{ .{}, .{}, .{ .text = "nested inline blocks  1 " }, .{}, .{ .text = "2 " }, .{}, .{ .text = "3 " }, .{}, .{ .text = "4 " } },
         .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{}, .{ .color = .{ .rgba = 0x805020ff } }, .{}, .{ .color = .{ .rgba = 0x802050ff } }, .{}, .{ .color = .{ .rgba = 0x208050ff } }, .{} },
     },
+    .{
+        .structure = &.{1},
+        .display = &.{.{ .inline_block = {} }},
+    },
 };
