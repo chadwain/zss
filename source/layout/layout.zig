@@ -330,6 +330,7 @@ fn pushFlowBlock(doc: *Document, context: *LayoutContext, interval: *LayoutConte
         try context.used_subtree_size.append(context.allocator, 1);
         try context.flow_block_used_logical_width.append(context.allocator, logical_width);
         try context.flow_block_auto_logical_height.append(context.allocator, 0);
+        // TODO don't need used_logical_heights
         try context.flow_block_used_logical_heights.append(context.allocator, used_logical_heights);
         try context.relative_positioned_descendants_count.append(context.allocator, 0);
         if (stacking_context_id) |id| {
@@ -639,8 +640,19 @@ fn pushShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval
         try context.relative_positioned_descendants_count.append(context.allocator, 0);
         try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = false });
     } else {
-        // more shrink to fit
-        @panic("unimplemented");
+        // The allocations here must have corresponding deallocations in popShrinkToFit1stPassBlock.
+        try context.layout_mode.append(context.allocator, .ShrinkToFit1stPass);
+        try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
+        // TODO don't need auto_logical_heights for 1st pass
+        try context.flow_block_auto_logical_height.append(context.allocator, 0);
+        // TODO don't need used_logical_heights
+        try context.flow_block_used_logical_heights.append(context.allocator, used_logical_heights);
+        try context.shrink_to_fit_available_width.append(context.allocator, width_info.width);
+        try context.shrink_to_fit_auto_width.append(context.allocator, 0);
+        try context.used_id.append(context.allocator, block.used_id);
+        try context.used_subtree_size.append(context.allocator, 1);
+        try context.relative_positioned_descendants_count.append(context.allocator, 0);
+        try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = false });
     }
 }
 
@@ -671,7 +683,7 @@ fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) void {
         },
         .InlineContainer => {
             box_offsets.content_end.x = shrink_to_fit_width;
-            std.debug.print("shrink to fit 1st pass done\n", .{});
+            std.debug.print("shrink to fit 1st pass done: {}\n", .{shrink_to_fit_width});
             const container = &context.inline_container.items[context.inline_container.items.len - 1];
             addBlockToInlineContainer(container, used_id, box_offsets.*, margins.*);
         },
@@ -706,7 +718,7 @@ fn shrinkToFit1stPassGetWidth(
             var size = length(.px, value);
             switch (inline_size.min_size) {
                 .px => |min_value| size = std.math.max(size, length(.px, min_value)),
-                .percentage => {},
+                .percentage => size = std.math.max(size, 0),
             }
             switch (inline_size.max_size) {
                 .px => |max_value| size = std.math.min(size, length(.px, max_value)),
@@ -912,7 +924,7 @@ fn pushInlineBlock(doc: *Document, context: *LayoutContext, container: InlineCon
         try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = false });
     } else {
         const available_width = container.containing_block_logical_width - ((block.box_offsets.content_start.x - block.box_offsets.border_start.x) + (block.box_offsets.border_end.x - block.box_offsets.content_end.x) + block.margins.inline_start + block.margins.inline_end);
-        // The allocations here must have corresponding deallocations in popShrinkToFitBlock.
+        // The allocations here must have corresponding deallocations in popShrinkToFit1stPassBlock.
         try context.layout_mode.append(context.allocator, .ShrinkToFit1stPass);
         try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
         try context.flow_block_auto_logical_height.append(context.allocator, 0);

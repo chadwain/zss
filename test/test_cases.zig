@@ -180,7 +180,7 @@ pub const tree_data = [_]TreeData{
         .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{}, .{ .color = .{ .rgba = 0x805020ff } }, .{}, .{ .color = .{ .rgba = 0x802050ff } }, .{}, .{ .color = .{ .rgba = 0x208050ff } }, .{} },
     },
     .{
-        .structure = &.{1},
-        .display = &.{.{ .inline_block = {} }},
+        .structure = &.{ 2, 1 },
+        .display = &.{ .{ .inline_block = {} }, .{ .block = {} } },
     },
 };
