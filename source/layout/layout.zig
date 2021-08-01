@@ -52,8 +52,18 @@ fn length(comptime unit: LengthUnit, value: f32) ZssUnit {
     };
 }
 
+fn positiveLength(comptime unit: LengthUnit, value: f32) !ZssUnit {
+    if (value < 0) return error.InvalidValue;
+    return length(unit, value);
+}
+
 fn percentage(value: f32, unit: ZssUnit) ZssUnit {
     return @floatToInt(ZssUnit, @round(@intToFloat(f32, unit) * value));
+}
+
+fn positivePercentage(value: f32, unit: ZssUnit) !ZssUnit {
+    if (value < 0) return error.InvalidValue;
+    return percentage(value, unit);
 }
 
 const LayoutMode = enum {
@@ -409,29 +419,30 @@ fn flowBlockSolveInlineSizes(
     const max = std.math.max;
     const inline_size = context.box_tree.inline_size[box_id];
     const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
+    assert(containing_block_logical_width >= 0);
 
     const border_start = switch (inline_size.border_start) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
     };
     const border_end = switch (inline_size.border_end) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
     };
     const padding_start = switch (inline_size.padding_start) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
     };
     const padding_end = switch (inline_size.padding_end) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
     };
 
     const min_size = switch (inline_size.min_size) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, max(0, containing_block_logical_width)),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, max(0, containing_block_logical_width)),
     };
     const max_size = switch (inline_size.max_size) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, max(0, containing_block_logical_width)),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, max(0, containing_block_logical_width)),
         .none => std.math.maxInt(ZssUnit),
     };
 
@@ -441,8 +452,8 @@ fn flowBlockSolveInlineSizes(
     const margin_end_bit = 1;
 
     var size = switch (inline_size.size) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
         .auto => blk: {
             auto_bitfield |= size_bit;
             break :blk 0;
@@ -464,14 +475,6 @@ fn flowBlockSolveInlineSizes(
             break :blk 0;
         },
     };
-
-    if (border_start < 0) return error.InvalidValue;
-    if (border_end < 0) return error.InvalidValue;
-    if (padding_start < 0) return error.InvalidValue;
-    if (padding_end < 0) return error.InvalidValue;
-    if (size < 0) return error.InvalidValue;
-    if (min_size < 0) return error.InvalidValue;
-    if (max_size < 0) return error.InvalidValue;
 
     const content_margin_space = containing_block_logical_width - (border_start + border_end + padding_start + padding_end);
     if (auto_bitfield == 0) {
@@ -522,28 +525,30 @@ fn flowBlockSolveBlockSizesPart1(
     const block_size = context.box_tree.block_size[box_id];
     const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
     const containing_block_logical_height = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1].height;
+    assert(containing_block_logical_width >= 0);
+    if (containing_block_logical_height) |h| assert(h >= 0);
 
     const size = switch (block_size.size) {
-        .px => |value| length(.px, value),
-        .percentage => |value| if (containing_block_logical_height) |s|
-            percentage(value, s)
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| if (containing_block_logical_height) |h|
+            try positivePercentage(value, h)
         else
             null,
         .auto => null,
     };
     const border_start = switch (block_size.border_start) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
     };
     const border_end = switch (block_size.border_end) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
     };
     const padding_start = switch (block_size.padding_start) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
     };
     const padding_end = switch (block_size.padding_end) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
     };
     const margin_start = switch (block_size.margin_start) {
         .px => |value| length(.px, value),
@@ -557,28 +562,20 @@ fn flowBlockSolveBlockSizesPart1(
     };
 
     const min_size = switch (block_size.min_size) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
         .percentage => |value| if (containing_block_logical_height) |s|
-            percentage(value, s)
+            try positivePercentage(value, s)
         else
             0,
     };
     const max_size = switch (block_size.max_size) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
         .percentage => |value| if (containing_block_logical_height) |s|
-            percentage(value, s)
+            try positivePercentage(value, s)
         else
             std.math.maxInt(ZssUnit),
         .none => std.math.maxInt(ZssUnit),
     };
-
-    if (border_start < 0) return error.InvalidValue;
-    if (border_end < 0) return error.InvalidValue;
-    if (padding_start < 0) return error.InvalidValue;
-    if (padding_end < 0) return error.InvalidValue;
-    if (size) |s| if (s < 0) return error.InvalidValue;
-    if (min_size < 0) return error.InvalidValue;
-    if (max_size < 0) return error.InvalidValue;
 
     // NOTE These are not the actual offsets, just some values that can be
     // determined without knowing 'size'. The offsets are properly filled in
@@ -624,7 +621,7 @@ fn pushShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval
     block.structure.* = undefined;
     block.properties.* = .{};
 
-    const width_info = shrinkToFit1stPassGetWidth(context, box_id, block.box_offsets);
+    const width_info = try shrinkToFit1stPassGetWidth(context, box_id, block.box_offsets);
     // TODO temporary code
     const used_logical_heights = UsedLogicalHeights{ .height = 50, .min_height = 0, .max_height = std.math.maxInt(ZssUnit) };
 
@@ -710,40 +707,41 @@ fn shrinkToFit1stPassGetWidth(
     context: *const LayoutContext,
     box_id: BoxId,
     box_offsets: *used_values.BoxOffsets,
-) ShrinkToFit1stPassGetWidthResult {
+) !ShrinkToFit1stPassGetWidthResult {
     const inline_size = context.box_tree.inline_size[box_id];
 
     switch (inline_size.size) {
         .px => |value| {
-            var size = length(.px, value);
+            var size = try positiveLength(.px, value);
             switch (inline_size.min_size) {
-                .px => |min_value| size = std.math.max(size, length(.px, min_value)),
-                .percentage => size = std.math.max(size, 0),
+                .px => |min_value| size = std.math.max(size, try positiveLength(.px, min_value)),
+                .percentage => {},
             }
             switch (inline_size.max_size) {
-                .px => |max_value| size = std.math.min(size, length(.px, max_value)),
+                .px => |max_value| size = std.math.min(size, try positiveLength(.px, max_value)),
                 .percentage => {},
                 .none => {},
             }
-            return .{ .width = size, .fixed = true };
+            return ShrinkToFit1stPassGetWidthResult{ .width = size, .fixed = true };
         },
         .percentage => {},
         .auto => {},
     }
 
     var available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
+    assert(available_width >= 0);
     switch (inline_size.border_start) {
-        .px => |value| available_width -= length(.px, value),
+        .px => |value| available_width -= try positiveLength(.px, value),
     }
     switch (inline_size.border_end) {
-        .px => |value| available_width -= length(.px, value),
+        .px => |value| available_width -= try positiveLength(.px, value),
     }
     switch (inline_size.padding_start) {
-        .px => |value| available_width -= length(.px, value),
+        .px => |value| available_width -= try positiveLength(.px, value),
         .percentage => {},
     }
     switch (inline_size.padding_end) {
-        .px => |value| available_width -= length(.px, value),
+        .px => |value| available_width -= try positiveLength(.px, value),
         .percentage => {},
     }
     switch (inline_size.margin_start) {
@@ -757,7 +755,7 @@ fn shrinkToFit1stPassGetWidth(
         .auto => {},
     }
 
-    return .{ .width = std.math.max(0, available_width), .fixed = false };
+    return ShrinkToFit1stPassGetWidthResult{ .width = std.math.max(0, available_width), .fixed = false };
 }
 
 fn pushInlineContainer(doc: *Document, context: *LayoutContext, interval: *LayoutContext.Interval) !void {
@@ -954,20 +952,21 @@ fn inlineBlockSolveSizesPart1(
     const inline_sizes = context.box_tree.inline_size[box_id];
     const block_sizes = context.box_tree.block_size[box_id];
     const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
+    assert(containing_block_logical_width >= 0);
 
     const border_inline_start = switch (inline_sizes.border_start) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
     };
     const border_inline_end = switch (inline_sizes.border_end) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
     };
     const padding_inline_start = switch (inline_sizes.padding_start) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
     };
     const padding_inline_end = switch (inline_sizes.padding_end) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
     };
     const margin_inline_start = switch (inline_sizes.margin_start) {
         .px => |value| length(.px, value),
@@ -980,33 +979,33 @@ fn inlineBlockSolveSizesPart1(
         .auto => 0,
     };
     const min_inline_size = switch (inline_sizes.min_size) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, max(0, containing_block_logical_width)),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, max(0, containing_block_logical_width)),
     };
     const max_inline_size = switch (inline_sizes.max_size) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, max(0, containing_block_logical_width)),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, max(0, containing_block_logical_width)),
         .none => std.math.maxInt(ZssUnit),
     };
     const inline_size = switch (inline_sizes.size) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
         .auto => null,
     };
 
     const border_block_start = switch (block_sizes.border_start) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
     };
     const border_block_end = switch (block_sizes.border_end) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
     };
     const padding_block_start = switch (block_sizes.padding_start) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
     };
     const padding_block_end = switch (block_sizes.padding_end) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
     };
     const margin_block_start = switch (block_sizes.margin_start) {
         .px => |value| length(.px, value),
@@ -1019,35 +1018,19 @@ fn inlineBlockSolveSizesPart1(
         .auto => 0,
     };
     const min_block_size = switch (block_sizes.min_size) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, max(0, containing_block_logical_width)),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, max(0, containing_block_logical_width)),
     };
     const max_block_size = switch (block_sizes.max_size) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, max(0, containing_block_logical_width)),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, max(0, containing_block_logical_width)),
         .none => std.math.maxInt(ZssUnit),
     };
     const block_size = switch (block_sizes.size) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
         .auto => null,
     };
-
-    if (border_inline_start < 0) return error.InvalidValue;
-    if (border_inline_end < 0) return error.InvalidValue;
-    if (padding_inline_start < 0) return error.InvalidValue;
-    if (padding_inline_end < 0) return error.InvalidValue;
-    if (min_inline_size < 0) return error.InvalidValue;
-    if (max_inline_size < 0) return error.InvalidValue;
-    if (inline_size) |s| if (s < 0) return error.InvalidValue;
-
-    if (border_block_start < 0) return error.InvalidValue;
-    if (border_block_end < 0) return error.InvalidValue;
-    if (padding_block_start < 0) return error.InvalidValue;
-    if (padding_block_end < 0) return error.InvalidValue;
-    if (min_block_size < 0) return error.InvalidValue;
-    if (max_block_size < 0) return error.InvalidValue;
-    if (block_size) |s| if (s < 0) return error.InvalidValue;
 
     box_offsets.border_start = .{ .x = margin_inline_start, .y = margin_block_start };
     box_offsets.content_start = .{
@@ -1448,11 +1431,11 @@ fn addInlineElementData(doc: *Document, context: *InlineLayoutContext, values: *
         .auto => 0,
     };
     const border_inline_start = switch (inline_sizes.border_start) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
     };
     const padding_inline_start = switch (inline_sizes.padding_start) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
     };
     const margin_inline_end = switch (inline_sizes.margin_end) {
         .px => |value| length(.px, value),
@@ -1460,38 +1443,29 @@ fn addInlineElementData(doc: *Document, context: *InlineLayoutContext, values: *
         .auto => 0,
     };
     const border_inline_end = switch (inline_sizes.border_end) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
     };
     const padding_inline_end = switch (inline_sizes.padding_end) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
     };
 
     const block_sizes = context.box_tree.block_size[box_id];
 
     const border_block_start = switch (block_sizes.border_start) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
     };
     const padding_block_start = switch (block_sizes.padding_start) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
     };
     const border_block_end = switch (block_sizes.border_end) {
-        .px => |value| length(.px, value),
+        .px => |value| try positiveLength(.px, value),
     };
     const padding_block_end = switch (block_sizes.padding_end) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
     };
-
-    if (border_inline_start < 0) return error.InvalidValue;
-    if (border_inline_end < 0) return error.InvalidValue;
-    if (border_block_start < 0) return error.InvalidValue;
-    if (border_block_end < 0) return error.InvalidValue;
-    if (padding_inline_start < 0) return error.InvalidValue;
-    if (padding_inline_end < 0) return error.InvalidValue;
-    if (padding_block_start < 0) return error.InvalidValue;
-    if (padding_block_end < 0) return error.InvalidValue;
 
     const border_colors = solveBorderColors(context.box_tree.border[box_id]);
 
@@ -1658,16 +1632,16 @@ fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxO
     var size: used_values.Background2.Size = switch (bg.size) {
         .size => |size| .{
             .width = switch (size.width) {
-                .px => |val| length(.px, val),
-                .percentage => |p| percentage(p, positioning_area.width),
+                .px => |val| try positiveLength(.px, val),
+                .percentage => |p| try positivePercentage(p, positioning_area.width),
                 .auto => blk: {
                     width_was_auto = true;
                     break :blk 0;
                 },
             },
             .height = switch (size.height) {
-                .px => |val| length(.px, val),
-                .percentage => |p| percentage(p, positioning_area.height),
+                .px => |val| try positiveLength(.px, val),
+                .percentage => |p| try positivePercentage(p, positioning_area.height),
                 .auto => blk: {
                     height_was_auto = true;
                     break :blk 0;
@@ -1688,9 +1662,6 @@ fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxO
             }
         },
     };
-
-    if (size.width < 0) return error.InvalidValue;
-    if (size.height < 0) return error.InvalidValue;
 
     const repeat: used_values.Background2.Repeat = switch (bg.repeat) {
         .repeat => |repeat| .{
@@ -1738,23 +1709,23 @@ fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxO
         .position => |position| .{
             .x = switch (position.x.offset) {
                 .px => |val| length(.px, val),
-                .percentage => |p| percentage(
-                    switch (position.x.side) {
+                .percentage => |p| blk: {
+                    const actual_p = switch (position.x.side) {
                         .left => p,
                         .right => 1 - p,
-                    },
-                    positioning_area.width - size.width,
-                ),
+                    };
+                    break :blk percentage(actual_p, positioning_area.width - size.width);
+                },
             },
             .y = switch (position.y.offset) {
                 .px => |val| length(.px, val),
-                .percentage => |p| percentage(
-                    switch (position.y.side) {
+                .percentage => |p| blk: {
+                    const actual_p = switch (position.y.side) {
                         .top => p,
                         .bottom => 1 - p,
-                    },
-                    positioning_area.height - size.height,
-                ),
+                    };
+                    break :blk percentage(actual_p, positioning_area.height - size.height);
+                },
             },
         },
     };
