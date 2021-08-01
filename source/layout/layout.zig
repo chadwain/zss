@@ -70,7 +70,13 @@ fn positivePercentage(value: f32, unit: ZssUnit) !ZssUnit {
 const LayoutMode = enum {
     Flow,
     ShrinkToFit1stPass,
+    ShrinkToFit2ndPass,
     InlineContainer,
+};
+
+const UsedIdInterval = struct {
+    begin: UsedId,
+    end: UsedId,
 };
 
 const UsedLogicalHeights = struct {
@@ -132,6 +138,8 @@ const LayoutContext = struct {
 
     shrink_to_fit_available_width: ArrayListUnmanaged(ZssUnit),
     shrink_to_fit_auto_width: ArrayListUnmanaged(ZssUnit),
+    shrink_to_fit_base_width: ArrayListUnmanaged(ZssUnit),
+    used_id_intervals: ArrayListUnmanaged(UsedIdInterval),
 
     inline_container: ArrayListUnmanaged(InlineContainer),
 
@@ -185,6 +193,8 @@ const LayoutContext = struct {
             .relative_positioned_descendants_count = relative_positioned_descendants_count,
             .shrink_to_fit_available_width = .{},
             .shrink_to_fit_auto_width = .{},
+            .shrink_to_fit_base_width = .{},
+            .used_id_intervals = .{},
             .inline_container = .{},
         };
     }
@@ -204,6 +214,8 @@ const LayoutContext = struct {
         self.relative_positioned_descendants_count.deinit(self.allocator);
         self.shrink_to_fit_available_width.deinit(self.allocator);
         self.shrink_to_fit_auto_width.deinit(self.allocator);
+        self.shrink_to_fit_base_width.deinit(self.allocator);
+        self.used_id_intervals.deinit(self.allocator);
         for (self.inline_container.items) |*container| {
             container.deinit(self.allocator);
         }
@@ -269,10 +281,19 @@ fn processElement(doc: *Document, context: *LayoutContext) !void {
                 const display = context.box_tree.display[interval.begin];
                 return switch (display) {
                     .block => pushShrinkToFit1stPassBlock(doc, context, interval),
+                    .none => skipElement(context, interval),
                     else => @panic("unimplemented"),
                 };
             } else {
-                popShrinkToFit1stPassBlock(doc, context);
+                try popShrinkToFit1stPassBlock(doc, context);
+            }
+        },
+        .ShrinkToFit2ndPass => {
+            const used_id_interval = &context.used_id_intervals.items[context.used_id_intervals.items.len - 1];
+            if (used_id_interval.begin != used_id_interval.end) {
+                try pushShrinkToFit2ndPassBlock(doc, context, used_id_interval);
+            } else {
+                @panic("unimplemented");
             }
         },
         .InlineContainer => {
@@ -363,6 +384,7 @@ fn pushFlowBlock(doc: *Document, context: *LayoutContext, interval: *LayoutConte
                 addBlockToFlow(block.box_offsets, block.margins.block_end, parent_auto_logical_height);
             },
             .ShrinkToFit1stPass => @panic("unimplemented"),
+            .ShrinkToFit2ndPass => @panic("unimplemented"),
             // Valid as long as this function cannot be reached from processElement -> InlineContainer.
             .InlineContainer => unreachable,
         }
@@ -386,6 +408,7 @@ fn popFlowBlock(doc: *Document, context: *LayoutContext) void {
             addBlockToFlow(box_offsets, margins.block_end, parent_auto_logical_height);
         },
         .ShrinkToFit1stPass => @panic("unimplemented"),
+        .ShrinkToFit2ndPass => @panic("unimplemented"),
         .InlineContainer => {
             inlineBlockFinishLayout(doc, context, box_offsets);
             const container = &context.inline_container.items[context.inline_container.items.len - 1];
@@ -622,31 +645,33 @@ fn pushShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval
     block.structure.* = undefined;
     block.properties.* = .{};
 
-    const width_info = try shrinkToFit1stPassGetWidth(context, box_id, block.box_offsets);
+    const width_info = try shrinkToFit1stPassGetWidth(context, box_id);
     // TODO temporary code
     const used_logical_heights = UsedLogicalHeights{ .height = 50, .min_height = 0, .max_height = std.math.maxInt(ZssUnit) };
 
-    if (width_info.fixed) {
+    if (width_info.width) |width| {
+        block.box_offsets.content_end.y = 0;
+        const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
+        parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, width + width_info.base_width);
         // The allocations here must have corresponding deallocations in popFlowBlock.
         try context.layout_mode.append(context.allocator, .Flow);
         try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
         try context.used_id.append(context.allocator, block.used_id);
         try context.used_subtree_size.append(context.allocator, 1);
-        try context.flow_block_used_logical_width.append(context.allocator, width_info.width);
+        try context.flow_block_used_logical_width.append(context.allocator, width);
         try context.flow_block_auto_logical_height.append(context.allocator, 0);
         try context.flow_block_used_logical_heights.append(context.allocator, used_logical_heights);
         try context.relative_positioned_descendants_count.append(context.allocator, 0);
-        try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = false });
     } else {
+        block.box_offsets.content_end.y = 1;
+        const parent_available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
         // The allocations here must have corresponding deallocations in popShrinkToFit1stPassBlock.
         try context.layout_mode.append(context.allocator, .ShrinkToFit1stPass);
         try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
-        // TODO don't need auto_logical_heights for 1st pass
-        try context.flow_block_auto_logical_height.append(context.allocator, 0);
-        // TODO don't need used_logical_heights
-        try context.flow_block_used_logical_heights.append(context.allocator, used_logical_heights);
-        try context.shrink_to_fit_available_width.append(context.allocator, width_info.width);
+        try context.shrink_to_fit_available_width.append(context.allocator, std.math.max(0, parent_available_width - width_info.base_width));
         try context.shrink_to_fit_auto_width.append(context.allocator, 0);
+        try context.shrink_to_fit_base_width.append(context.allocator, width_info.base_width);
+        try context.flow_block_used_logical_heights.append(context.allocator, used_logical_heights);
         try context.used_id.append(context.allocator, block.used_id);
         try context.used_subtree_size.append(context.allocator, 1);
         try context.relative_positioned_descendants_count.append(context.allocator, 0);
@@ -654,7 +679,7 @@ fn pushShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval
     }
 }
 
-fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) void {
+fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) !void {
     const used_id = context.used_id.items[context.used_id.items.len - 1];
     const used_subtree_size = context.used_subtree_size.items[context.used_subtree_size.items.len - 1];
     doc.blocks.structure.items[used_id] = used_subtree_size;
@@ -662,14 +687,8 @@ fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) void {
 
     const shrink_to_fit_width = context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
     const box_offsets = &doc.blocks.box_offsets.items[used_id];
-    const borders = &doc.blocks.borders.items[used_id];
-    const margins = &doc.blocks.margins.items[used_id];
 
-    // TODO temporary code
-    box_offsets.* = .{};
-    borders.* = .{};
-    margins.* = .{};
-
+    var go_to_2nd_pass = false;
     const parent_layout_mode = context.layout_mode.items[context.layout_mode.items.len - 2];
     switch (parent_layout_mode) {
         // Valid as long as flow blocks cannot directly contain shrink-to-fit blocks.
@@ -677,43 +696,78 @@ fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) void {
         .ShrinkToFit1stPass => {
             box_offsets.content_end.x = shrink_to_fit_width;
             const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 2];
-            parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, shrink_to_fit_width);
+            const base_width = context.shrink_to_fit_base_width.pop();
+            parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, shrink_to_fit_width + base_width);
         },
+        .ShrinkToFit2ndPass => @panic("unimplemented"),
         .InlineContainer => {
             box_offsets.content_end.x = shrink_to_fit_width;
-            std.debug.print("shrink to fit 1st pass done: {}\n", .{shrink_to_fit_width});
-            const container = &context.inline_container.items[context.inline_container.items.len - 1];
-            addBlockToInlineContainer(container, used_id, box_offsets.*, margins.*);
+            box_offsets.content_end.y = 1;
+            go_to_2nd_pass = true;
         },
     }
 
     _ = context.layout_mode.pop();
     _ = context.intervals.pop();
-    _ = context.flow_block_auto_logical_height.pop();
-    _ = context.flow_block_used_logical_heights.pop();
     _ = context.shrink_to_fit_available_width.pop();
     _ = context.shrink_to_fit_auto_width.pop();
+    _ = context.flow_block_used_logical_heights.pop();
     _ = context.used_id.pop();
     _ = context.used_subtree_size.pop();
-    _ = context.relative_positioned_descendants_count.pop();
-    _ = context.metadata.pop();
+    const metadata = context.metadata.pop();
+    if (metadata.is_stacking_context_parent) {
+        _ = context.stacking_context_id.pop();
+    }
+    const relative_positioned_descendants_count = context.relative_positioned_descendants_count.pop();
+    context.relative_positioned_descendants_ids.shrinkRetainingCapacity(context.relative_positioned_descendants_ids.items.len - relative_positioned_descendants_count);
+
+    if (go_to_2nd_pass) {
+        try context.layout_mode.append(context.allocator, .ShrinkToFit2ndPass);
+        try context.used_id_intervals.append(context.allocator, .{ .begin = used_id, .end = used_id + doc.blocks.structure.items[used_id] });
+    }
 }
 
 const ShrinkToFit1stPassGetWidthResult = struct {
-    width: ZssUnit,
-    fixed: bool,
+    base_width: ZssUnit,
+    width: ?ZssUnit,
 };
 
 fn shrinkToFit1stPassGetWidth(
     context: *const LayoutContext,
     box_id: BoxId,
-    box_offsets: *used_values.BoxOffsets,
 ) !ShrinkToFit1stPassGetWidthResult {
     const inline_size = context.box_tree.inline_size[box_id];
+    var result = ShrinkToFit1stPassGetWidthResult{ .base_width = 0, .width = null };
+
+    switch (inline_size.border_start) {
+        .px => |value| result.base_width += try positiveLength(.px, value),
+    }
+    switch (inline_size.border_end) {
+        .px => |value| result.base_width += try positiveLength(.px, value),
+    }
+    switch (inline_size.padding_start) {
+        .px => |value| result.base_width += try positiveLength(.px, value),
+        .percentage => {},
+    }
+    switch (inline_size.padding_end) {
+        .px => |value| result.base_width += try positiveLength(.px, value),
+        .percentage => {},
+    }
+    switch (inline_size.margin_start) {
+        .px => |value| result.base_width += length(.px, value),
+        .percentage => {},
+        .auto => {},
+    }
+    switch (inline_size.margin_end) {
+        .px => |value| result.base_width += length(.px, value),
+        .percentage => {},
+        .auto => {},
+    }
 
     switch (inline_size.size) {
         .px => |value| {
             var size = try positiveLength(.px, value);
+            // TODO should min_size play a role regardless of the value of size?
             switch (inline_size.min_size) {
                 .px => |min_value| size = std.math.max(size, try positiveLength(.px, min_value)),
                 .percentage => {},
@@ -723,40 +777,42 @@ fn shrinkToFit1stPassGetWidth(
                 .percentage => {},
                 .none => {},
             }
-            return ShrinkToFit1stPassGetWidthResult{ .width = size, .fixed = true };
+            result.width = size;
         },
         .percentage => {},
         .auto => {},
     }
 
-    var available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
-    assert(available_width >= 0);
-    switch (inline_size.border_start) {
-        .px => |value| available_width -= try positiveLength(.px, value),
-    }
-    switch (inline_size.border_end) {
-        .px => |value| available_width -= try positiveLength(.px, value),
-    }
-    switch (inline_size.padding_start) {
-        .px => |value| available_width -= try positiveLength(.px, value),
-        .percentage => {},
-    }
-    switch (inline_size.padding_end) {
-        .px => |value| available_width -= try positiveLength(.px, value),
-        .percentage => {},
-    }
-    switch (inline_size.margin_start) {
-        .px => |value| available_width -= length(.px, value),
-        .percentage => {},
-        .auto => {},
-    }
-    switch (inline_size.margin_end) {
-        .px => |value| available_width -= length(.px, value),
-        .percentage => {},
-        .auto => {},
+    return result;
+}
+
+fn pushShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext, used_id_interval: *UsedIdInterval) !void {
+    const used_id = used_id_interval.begin;
+    const used_subtree_size = doc.blocks.structure.items[used_id_interval.begin];
+    used_id_interval.begin += used_subtree_size;
+
+    const properties = doc.blocks.properties.items[used_id];
+    if (properties.inline_context_index) |index| {
+        @panic("unimplemented");
     }
 
-    return ShrinkToFit1stPassGetWidthResult{ .width = std.math.max(0, available_width), .fixed = false };
+    const box_offsets = &doc.blocks.box_offsets.items[used_id];
+    switch (box_offsets.content_end.y) {
+        0 => @panic("TODO fixed width block in shrink-to-fit 2nd pass"),
+        1 => @panic("TODO auto width block in shrink-to-fit 2nd pass"),
+        else => unreachable,
+    }
+
+    const box_id = context.used_id_to_box_id.items[used_id];
+    // TODO temporary code
+    const borders = &doc.blocks.borders.items[used_id];
+    const margins = &doc.blocks.margins.items[used_id];
+    box_offsets.* = .{};
+    borders.* = .{};
+    margins.* = .{};
+
+    try context.layout_mode.append(context.allocator, .ShrinkToFit2ndPass);
+    try context.used_id_intervals.append(context.allocator, .{ .begin = used_id + 1, .end = used_id + used_subtree_size });
 }
 
 fn pushInlineContainer(doc: *Document, context: *LayoutContext, interval: *LayoutContext.Interval) !void {
@@ -820,6 +876,7 @@ fn pushInlineContainer(doc: *Document, context: *LayoutContext, interval: *Layou
                 addBlockToFlow(block.box_offsets, 0, parent_auto_logical_height);
             },
             .ShrinkToFit1stPass => @panic("unimplemented"),
+            .ShrinkToFit2ndPass => @panic("unimplemented"),
             .InlineContainer => unreachable,
         }
     }
@@ -848,6 +905,7 @@ fn popInlineContainer(doc: *Document, context: *LayoutContext) !void {
             addBlockToFlow(box_offsets, 0, parent_auto_logical_height);
         },
         .ShrinkToFit1stPass => @panic("unimplemented"),
+        .ShrinkToFit2ndPass => @panic("unimplemented"),
         .InlineContainer => unreachable,
     }
 
