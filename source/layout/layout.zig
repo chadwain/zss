@@ -8,6 +8,7 @@ const BoxTree = zss.BoxTree;
 const BoxId = BoxTree.BoxId;
 const root_box_id = BoxTree.root_box_id;
 const reserved_box_id = BoxTree.reserved_box_id;
+const maximum_box_id = BoxTree.maximum_box_id;
 
 const used_values = @import("./used_values.zig");
 const ZssUnit = used_values.ZssUnit;
@@ -31,7 +32,7 @@ pub const Error = error{
 };
 
 pub fn doLayout(box_tree: *const BoxTree, allocator: *Allocator, document_width: ZssUnit, document_height: ZssUnit) Error!Document {
-    if (box_tree.structure[0] == reserved_box_id) return error.Overflow;
+    if (box_tree.structure[0] > maximum_box_id) return error.Overflow;
     var context = try LayoutContext.init(box_tree, allocator, document_width, document_height);
     defer context.deinit();
     var doc = Document{

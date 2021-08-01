@@ -32,6 +32,7 @@ font: Font,
 pub const BoxId = u16;
 pub const root_box_id: BoxId = 0;
 pub const reserved_box_id: BoxId = @import("std").math.maxInt(BoxId);
+pub const maximum_box_id = reserved_box_id - 1;
 
 pub const Display = union(enum) {
     block,
