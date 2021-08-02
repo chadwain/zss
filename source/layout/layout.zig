@@ -354,40 +354,33 @@ fn pushFlowBlock(doc: *Document, context: *LayoutContext, interval: *LayoutConte
         },
     };
 
-    if (subtree_size != 1) {
-        // The allocations here must have corresponding deallocations in popFlowBlock.
-        try context.layout_mode.append(context.allocator, .Flow);
-        try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
-        try context.used_id.append(context.allocator, block.used_id);
-        try context.used_subtree_size.append(context.allocator, 1);
-        try context.flow_block_used_logical_width.append(context.allocator, logical_width);
-        try context.flow_block_auto_logical_height.append(context.allocator, 0);
-        // TODO don't need used_logical_heights
-        try context.flow_block_used_logical_heights.append(context.allocator, used_logical_heights);
-        try context.relative_positioned_descendants_count.append(context.allocator, 0);
-        if (stacking_context_id) |id| {
-            try context.stacking_context_id.append(context.allocator, id);
-            try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = true });
-        } else {
-            try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = false });
-        }
-    } else {
-        // Optimized path for elements that have no children. It is a shorter version of popFlowBlock.
-        block.structure.* = 1;
-        context.used_subtree_size.items[context.used_subtree_size.items.len - 1] += 1;
+    try changeToFlowLayout(context, box_id, block.used_id, logical_width, used_logical_heights, stacking_context_id);
+}
 
-        const parent_layout_mode = context.layout_mode.items[context.layout_mode.items.len - 1];
-        switch (parent_layout_mode) {
-            .Flow => {
-                _ = flowBlockSolveBlockSizesPart2(block.box_offsets, used_logical_heights, 0);
-                const parent_auto_logical_height = &context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 1];
-                addBlockToFlow(block.box_offsets, block.margins.block_end, parent_auto_logical_height);
-            },
-            .ShrinkToFit1stPass => @panic("unimplemented"),
-            .ShrinkToFit2ndPass => @panic("unimplemented"),
-            // Valid as long as this function cannot be reached from processElement -> InlineContainer.
-            .InlineContainer => unreachable,
-        }
+fn changeToFlowLayout(
+    context: *LayoutContext,
+    box_id: BoxId,
+    used_id: UsedId,
+    logical_width: ZssUnit,
+    logical_heights: UsedLogicalHeights,
+    stacking_context_id: ?StackingContextId,
+) !void {
+    const subtree_size = context.box_tree.structure[box_id];
+    // The allocations here must have corresponding deallocations in popFlowBlock.
+    try context.layout_mode.append(context.allocator, .Flow);
+    try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
+    try context.used_id.append(context.allocator, used_id);
+    try context.used_subtree_size.append(context.allocator, 1);
+    try context.flow_block_used_logical_width.append(context.allocator, logical_width);
+    try context.flow_block_auto_logical_height.append(context.allocator, 0);
+    // TODO don't need used_logical_heights
+    try context.flow_block_used_logical_heights.append(context.allocator, logical_heights);
+    try context.relative_positioned_descendants_count.append(context.allocator, 0);
+    if (stacking_context_id) |id| {
+        try context.stacking_context_id.append(context.allocator, id);
+        try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = true });
+    } else {
+        try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = false });
     }
 }
 
@@ -654,30 +647,33 @@ fn pushShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval
         block.box_offsets.content_end.x = 0;
         const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
         parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, width + width_info.base_width);
-        // The allocations here must have corresponding deallocations in popFlowBlock.
-        try context.layout_mode.append(context.allocator, .Flow);
-        try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
-        try context.used_id.append(context.allocator, block.used_id);
-        try context.used_subtree_size.append(context.allocator, 1);
-        try context.flow_block_used_logical_width.append(context.allocator, width);
-        try context.flow_block_auto_logical_height.append(context.allocator, 0);
-        try context.flow_block_used_logical_heights.append(context.allocator, used_logical_heights);
-        try context.relative_positioned_descendants_count.append(context.allocator, 0);
+        try changeToFlowLayout(context, box_id, block.used_id, width, used_logical_heights, null);
     } else {
         block.box_offsets.content_end.x = 1;
         const parent_available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
-        // The allocations here must have corresponding deallocations in popShrinkToFit1stPassBlock.
-        try context.layout_mode.append(context.allocator, .ShrinkToFit1stPass);
-        try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
-        try context.shrink_to_fit_available_width.append(context.allocator, std.math.max(0, parent_available_width - width_info.base_width));
-        try context.shrink_to_fit_auto_width.append(context.allocator, 0);
-        try context.shrink_to_fit_base_width.append(context.allocator, width_info.base_width);
-        try context.flow_block_used_logical_heights.append(context.allocator, used_logical_heights);
-        try context.used_id.append(context.allocator, block.used_id);
-        try context.used_subtree_size.append(context.allocator, 1);
-        try context.relative_positioned_descendants_count.append(context.allocator, 0);
-        try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = false });
+        const available_width = std.math.max(0, parent_available_width - width_info.base_width);
+        try changeToShrinkToFit1stPassLayout(context, box_id, block.used_id, available_width, width_info.base_width, used_logical_heights);
     }
+}
+
+fn changeToShrinkToFit1stPassLayout(
+    context: *LayoutContext,
+    box_id: BoxId,
+    used_id: UsedId,
+    available_width: ZssUnit,
+    base_width: ZssUnit,
+    logical_heights: UsedLogicalHeights,
+) !void {
+    const subtree_size = context.box_tree.structure[box_id];
+    // The allocations here must have corresponding deallocations in popShrinkToFit1stPassBlock.
+    try context.layout_mode.append(context.allocator, .ShrinkToFit1stPass);
+    try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
+    try context.used_id.append(context.allocator, used_id);
+    try context.used_subtree_size.append(context.allocator, 1);
+    try context.shrink_to_fit_available_width.append(context.allocator, available_width);
+    try context.shrink_to_fit_auto_width.append(context.allocator, 0);
+    try context.shrink_to_fit_base_width.append(context.allocator, base_width);
+    try context.flow_block_used_logical_heights.append(context.allocator, logical_heights);
 }
 
 fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) !void {
@@ -712,12 +708,6 @@ fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) !void {
     _ = context.flow_block_used_logical_heights.pop();
     _ = context.used_id.pop();
     _ = context.used_subtree_size.pop();
-    const metadata = context.metadata.pop();
-    if (metadata.is_stacking_context_parent) {
-        _ = context.stacking_context_id.pop();
-    }
-    const relative_positioned_descendants_count = context.relative_positioned_descendants_count.pop();
-    context.relative_positioned_descendants_ids.shrinkRetainingCapacity(context.relative_positioned_descendants_ids.items.len - relative_positioned_descendants_count);
 
     if (go_to_2nd_pass) {
         const box_id = context.used_id_to_box_id.items[used_id];
@@ -725,13 +715,8 @@ fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) !void {
         const borders = &doc.blocks.borders.items[used_id];
         const margins = &doc.blocks.margins.items[used_id];
         const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, box_id, box_offsets, borders, margins);
-
-        try context.layout_mode.append(context.allocator, .ShrinkToFit2ndPass);
-        try context.flow_block_used_logical_width.append(context.allocator, shrink_to_fit_width);
-        try context.flow_block_auto_logical_height.append(context.allocator, 0);
-        try context.flow_block_used_logical_heights.append(context.allocator, used_logical_heights);
-        try context.used_id.append(context.allocator, used_id);
-        try context.used_id_intervals.append(context.allocator, .{ .begin = used_id + 1, .end = used_id + doc.blocks.structure.items[used_id] });
+        const used_id_interval = UsedIdInterval{ .begin = used_id + 1, .end = used_id + doc.blocks.structure.items[used_id] };
+        try changeToShrinkToFit2ndPassLayout(context, used_id, used_id_interval, shrink_to_fit_width, used_logical_heights);
     }
 }
 
@@ -814,16 +799,27 @@ fn pushShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext, used_id_
         1 => {
             const logical_width = try flowBlockSolveInlineSizes(context, box_id, box_offsets, borders, margins);
             const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, box_id, box_offsets, borders, margins);
-
-            try context.layout_mode.append(context.allocator, .ShrinkToFit2ndPass);
-            try context.flow_block_used_logical_width.append(context.allocator, logical_width);
-            try context.flow_block_auto_logical_height.append(context.allocator, 0);
-            try context.flow_block_used_logical_heights.append(context.allocator, used_logical_heights);
-            try context.used_id.append(context.allocator, used_id);
-            try context.used_id_intervals.append(context.allocator, .{ .begin = used_id + 1, .end = used_id + used_subtree_size });
+            const new_interval = UsedIdInterval{ .begin = used_id + 1, .end = used_id + used_subtree_size };
+            try changeToShrinkToFit2ndPassLayout(context, used_id, new_interval, logical_width, used_logical_heights);
         },
         else => unreachable,
     }
+}
+
+fn changeToShrinkToFit2ndPassLayout(
+    context: *LayoutContext,
+    used_id: UsedId,
+    used_id_interval: UsedIdInterval,
+    logical_width: ZssUnit,
+    logical_heights: UsedLogicalHeights,
+) !void {
+    // The allocations here must correspond to deallocations in popShrinkToFit2ndPassBlock.
+    try context.layout_mode.append(context.allocator, .ShrinkToFit2ndPass);
+    try context.used_id.append(context.allocator, used_id);
+    try context.used_id_intervals.append(context.allocator, used_id_interval);
+    try context.flow_block_used_logical_width.append(context.allocator, logical_width);
+    try context.flow_block_auto_logical_height.append(context.allocator, 0);
+    try context.flow_block_used_logical_heights.append(context.allocator, logical_heights);
 }
 
 fn popShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext) void {
@@ -889,37 +885,26 @@ fn pushInlineContainer(doc: *Document, context: *LayoutContext, interval: *Layou
     block.margins.* = .{};
     block.properties.* = .{ .inline_context_index = try std.math.cast(InlineId, doc.inlines.items.len - 1) };
 
-    if (inline_blocks.items.len != 0) {
-        // The allocations here must have corresponding deallocations in popInlineContainer.
-        try context.layout_mode.append(context.allocator, .InlineContainer);
-        try context.used_id.append(context.allocator, block.used_id);
-        try context.used_subtree_size.append(context.allocator, 1);
-        try context.inline_container.append(context.allocator, .{
-            .values = inline_values_ptr,
-            .containing_block_logical_width = containing_block_logical_width,
-            .inline_blocks = inline_blocks.toOwnedSlice(context.allocator),
-            .next_inline_block = 0,
-        });
-    } else {
-        // Optimized path for containers that have no inline-blocks. It is a shorter version of popInlineContainer.
-        block.structure.* = 1;
-        context.used_subtree_size.items[context.used_subtree_size.items.len - 1] += 1;
+    try changeToInlineContainerLayout(context, inline_values_ptr, block.used_id, inline_blocks.toOwnedSlice(context.allocator), containing_block_logical_width);
+}
 
-        const total_logical_height = try inlineValuesFinishLayout(doc, context, inline_values_ptr, containing_block_logical_width);
-        block.box_offsets.content_end.y = total_logical_height;
-        block.box_offsets.border_end.y = total_logical_height;
-
-        const parent_layout_mode = context.layout_mode.items[context.layout_mode.items.len - 1];
-        switch (parent_layout_mode) {
-            .Flow => {
-                const parent_auto_logical_height = &context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 1];
-                addBlockToFlow(block.box_offsets, 0, parent_auto_logical_height);
-            },
-            .ShrinkToFit1stPass => @panic("unimplemented"),
-            .ShrinkToFit2ndPass => @panic("unimplemented"),
-            .InlineContainer => unreachable,
-        }
-    }
+fn changeToInlineContainerLayout(
+    context: *LayoutContext,
+    values: *InlineLevelUsedValues,
+    used_id: UsedId,
+    inline_blocks: []InlineBlock,
+    containing_block_logical_width: ZssUnit,
+) !void {
+    // The allocations here must have corresponding deallocations in popInlineContainer.
+    try context.layout_mode.append(context.allocator, .InlineContainer);
+    try context.used_id.append(context.allocator, used_id);
+    try context.used_subtree_size.append(context.allocator, 1);
+    try context.inline_container.append(context.allocator, .{
+        .values = values,
+        .containing_block_logical_width = containing_block_logical_width,
+        .inline_blocks = inline_blocks,
+        .next_inline_block = 0,
+    });
 }
 
 fn popInlineContainer(doc: *Document, context: *LayoutContext) !void {
@@ -1009,31 +994,11 @@ fn pushInlineBlock(doc: *Document, context: *LayoutContext, container: InlineCon
     const sizes = try inlineBlockSolveSizesPart1(context, inline_block.box_id, block.box_offsets, block.borders, block.margins);
 
     if (sizes.logical_width) |logical_width| {
-        // The allocations here must have corresponding deallocations in popFlowBlock.
-        try context.layout_mode.append(context.allocator, .Flow);
-        try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
-        try context.flow_block_used_logical_width.append(context.allocator, logical_width);
-        try context.flow_block_auto_logical_height.append(context.allocator, 0);
-        try context.flow_block_used_logical_heights.append(context.allocator, sizes.logical_heights);
-        try context.used_id.append(context.allocator, block.used_id);
-        try context.used_subtree_size.append(context.allocator, 1);
-        try context.relative_positioned_descendants_count.append(context.allocator, 0);
-        try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = false });
+        try changeToFlowLayout(context, box_id, block.used_id, logical_width, sizes.logical_heights, null);
     } else {
         const base_width = (block.box_offsets.content_start.x - block.box_offsets.border_start.x) + (block.box_offsets.border_end.x - block.box_offsets.content_end.x) + block.margins.inline_start + block.margins.inline_end;
-        const available_width = container.containing_block_logical_width - base_width;
-        // The allocations here must have corresponding deallocations in popShrinkToFit1stPassBlock.
-        try context.layout_mode.append(context.allocator, .ShrinkToFit1stPass);
-        try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
-        try context.flow_block_auto_logical_height.append(context.allocator, 0);
-        try context.flow_block_used_logical_heights.append(context.allocator, sizes.logical_heights);
-        try context.shrink_to_fit_available_width.append(context.allocator, std.math.max(0, available_width));
-        try context.shrink_to_fit_auto_width.append(context.allocator, 0);
-        try context.shrink_to_fit_base_width.append(context.allocator, base_width);
-        try context.used_id.append(context.allocator, block.used_id);
-        try context.used_subtree_size.append(context.allocator, 1);
-        try context.relative_positioned_descendants_count.append(context.allocator, 0);
-        try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = false });
+        const available_width = std.math.max(0, container.containing_block_logical_width - base_width);
+        try changeToShrinkToFit1stPassLayout(context, box_id, block.used_id, available_width, base_width, sizes.logical_heights);
     }
 }
 
