@@ -400,8 +400,10 @@ fn popFlowBlock(doc: *Document, context: *LayoutContext) void {
             const parent_auto_logical_height = &context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 2];
             addBlockToFlow(box_offsets, margins.block_end, parent_auto_logical_height);
         },
-        .ShrinkToFit1stPass => @panic("unimplemented"),
-        .ShrinkToFit2ndPass => @panic("unimplemented"),
+        .ShrinkToFit1stPass => {
+            flowBlockFinishLayout(doc, context, box_offsets);
+        },
+        .ShrinkToFit2ndPass => unreachable,
         .InlineContainer => {
             inlineBlockFinishLayout(doc, context, box_offsets);
             const container = &context.inline_container.items[context.inline_container.items.len - 1];
@@ -409,7 +411,7 @@ fn popFlowBlock(doc: *Document, context: *LayoutContext) void {
         },
     }
 
-    // The deallocations here must correspond to allocations in pushFlowBlock.
+    // The deallocations here must correspond to allocations in changeToFlowLayout.
     _ = context.layout_mode.pop();
     _ = context.intervals.pop();
     _ = context.used_id.pop();
@@ -639,20 +641,18 @@ fn pushShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval
     block.properties.* = .{};
 
     const width_info = try shrinkToFit1stPassGetWidth(context, box_id);
-    // TODO This should probably be removed.
-    // The heights of the block are solved in either the 2nd pass or in inlineBlockSolveSizesPart1.
-    const used_logical_heights = UsedLogicalHeights{ .height = null, .min_height = 0, .max_height = std.math.maxInt(ZssUnit) };
 
     if (width_info.width) |width| {
         block.box_offsets.content_end.x = 0;
         const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
         parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, width + width_info.base_width);
+        const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, box_id, block.box_offsets, block.borders, block.margins);
         try changeToFlowLayout(context, box_id, block.used_id, width, used_logical_heights, null);
     } else {
         block.box_offsets.content_end.x = 1;
         const parent_available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
         const available_width = std.math.max(0, parent_available_width - width_info.base_width);
-        try changeToShrinkToFit1stPassLayout(context, box_id, block.used_id, available_width, width_info.base_width, used_logical_heights);
+        try changeToShrinkToFit1stPassLayout(context, box_id, block.used_id, available_width, width_info.base_width);
     }
 }
 
@@ -662,7 +662,6 @@ fn changeToShrinkToFit1stPassLayout(
     used_id: UsedId,
     available_width: ZssUnit,
     base_width: ZssUnit,
-    logical_heights: UsedLogicalHeights,
 ) !void {
     const subtree_size = context.box_tree.structure[box_id];
     // The allocations here must have corresponding deallocations in popShrinkToFit1stPassBlock.
@@ -673,7 +672,6 @@ fn changeToShrinkToFit1stPassLayout(
     try context.shrink_to_fit_available_width.append(context.allocator, available_width);
     try context.shrink_to_fit_auto_width.append(context.allocator, 0);
     try context.shrink_to_fit_base_width.append(context.allocator, base_width);
-    try context.flow_block_used_logical_heights.append(context.allocator, logical_heights);
 }
 
 fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) !void {
@@ -688,13 +686,16 @@ fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) !void {
     const parent_layout_mode = context.layout_mode.items[context.layout_mode.items.len - 2];
     switch (parent_layout_mode) {
         // Valid as long as flow blocks cannot directly contain shrink-to-fit blocks.
+        // This might change when absolute blocks or floats are implemented.
         .Flow => unreachable,
         .ShrinkToFit1stPass => {
             const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 2];
             const base_width = context.shrink_to_fit_base_width.items[context.shrink_to_fit_base_width.items.len - 1];
             parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, shrink_to_fit_width + base_width);
         },
-        .ShrinkToFit2ndPass => @panic("unimplemented"),
+        // Valid as long as 2nd pass cannot switch to 1st pass.
+        // This might change as we adjust the shrink-to-fit algorithm.
+        .ShrinkToFit2ndPass => unreachable,
         .InlineContainer => {
             go_to_2nd_pass = true;
         },
@@ -705,7 +706,6 @@ fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) !void {
     _ = context.shrink_to_fit_available_width.pop();
     _ = context.shrink_to_fit_auto_width.pop();
     _ = context.shrink_to_fit_base_width.pop();
-    _ = context.flow_block_used_logical_heights.pop();
     _ = context.used_id.pop();
     _ = context.used_subtree_size.pop();
 
@@ -795,7 +795,11 @@ fn pushShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext, used_id_
     const borders = &doc.blocks.borders.items[used_id];
     const margins = &doc.blocks.margins.items[used_id];
     switch (box_offsets.content_end.x) {
-        0 => @panic("TODO fixed width block in shrink-to-fit 2nd pass"),
+        0 => {
+            _ = try flowBlockSolveInlineSizes(context, box_id, box_offsets, borders, margins);
+            const parent_auto_logical_height = &context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 1];
+            addBlockToFlow(box_offsets, margins.block_end, parent_auto_logical_height);
+        },
         1 => {
             const logical_width = try flowBlockSolveInlineSizes(context, box_id, box_offsets, borders, margins);
             const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, box_id, box_offsets, borders, margins);
@@ -885,16 +889,18 @@ fn pushInlineContainer(doc: *Document, context: *LayoutContext, interval: *Layou
     block.margins.* = .{};
     block.properties.* = .{ .inline_context_index = try std.math.cast(InlineId, doc.inlines.items.len - 1) };
 
-    try changeToInlineContainerLayout(context, inline_values_ptr, block.used_id, inline_blocks.toOwnedSlice(context.allocator), containing_block_logical_width);
+    try changeToInlineContainerLayout(context, inline_values_ptr, block.used_id, &inline_blocks, containing_block_logical_width);
 }
 
 fn changeToInlineContainerLayout(
     context: *LayoutContext,
     values: *InlineLevelUsedValues,
     used_id: UsedId,
-    inline_blocks: []InlineBlock,
+    inline_blocks_list: *ArrayListUnmanaged(InlineBlock),
     containing_block_logical_width: ZssUnit,
 ) !void {
+    const inline_blocks = inline_blocks_list.toOwnedSlice(context.allocator);
+    errdefer context.allocator.free(inline_blocks);
     // The allocations here must have corresponding deallocations in popInlineContainer.
     try context.layout_mode.append(context.allocator, .InlineContainer);
     try context.used_id.append(context.allocator, used_id);
@@ -934,7 +940,7 @@ fn popInlineContainer(doc: *Document, context: *LayoutContext) !void {
         .InlineContainer => unreachable,
     }
 
-    // The deallocations here must correspond to allocations in pushInlineContainer.
+    // The deallocations here must correspond to allocations in changeToInlineContainerLayout.
     _ = context.layout_mode.pop();
     _ = context.used_id.pop();
     _ = context.used_subtree_size.pop();
@@ -998,7 +1004,7 @@ fn pushInlineBlock(doc: *Document, context: *LayoutContext, container: InlineCon
     } else {
         const base_width = (block.box_offsets.content_start.x - block.box_offsets.border_start.x) + (block.box_offsets.border_end.x - block.box_offsets.content_end.x) + block.margins.inline_start + block.margins.inline_end;
         const available_width = std.math.max(0, container.containing_block_logical_width - base_width);
-        try changeToShrinkToFit1stPassLayout(context, box_id, block.used_id, available_width, base_width, sizes.logical_heights);
+        try changeToShrinkToFit1stPassLayout(context, box_id, block.used_id, available_width, base_width);
     }
 }
 

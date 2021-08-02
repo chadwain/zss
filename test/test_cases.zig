@@ -193,7 +193,7 @@ pub const tree_data = [_]TreeData{
     .{
         .structure = &.{ 6, 1, 3, 1, 1, 1 },
         .display = &.{ .{ .block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .block = {} }, .{ .block = {} }, .{ .text = {} } },
-        .inline_size = &.{ .{}, .{}, .{ .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .padding_end = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .padding_start = .{ .px = 100 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{} },
+        .inline_size = &.{ .{}, .{}, .{ .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .padding_end = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .size = .{ .px = 20 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{} },
         .block_size = &.{ .{ .size = .{ .px = 400 } }, .{}, .{ .padding_start = .{ .px = 20 }, .padding_end = .{ .px = 20 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .size = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .size = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{} },
         .latin1_text = &.{ .{}, .{ .text = "before" }, .{}, .{}, .{}, .{ .text = "after" } },
         .background = &.{ .{}, .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{ .color = .{ .rgba = 0x472658ff } }, .{ .color = .{ .rgba = 0xd74529ff } }, .{} },
