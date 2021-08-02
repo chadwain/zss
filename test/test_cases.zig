@@ -70,7 +70,7 @@ pub fn get(index: usize, library: hb.FT_Library) TestCase {
 fn copy(comptime T: type, data: ?[]const T, tree_size: usize) []T {
     @setRuntimeSafety(true);
     if (data) |arr| {
-        assert(arr.len == tree_size);
+        assert(arr.len >= tree_size);
         return allocator.dupe(T, arr) catch unreachable;
     } else {
         const arr = allocator.alloc(T, tree_size) catch unreachable;
@@ -103,6 +103,17 @@ pub const strings = [_][]const u8{
 
 pub const fonts = [_][:0]const u8{
     "demo/NotoSans-Regular.ttf",
+};
+
+pub const border_color_sets = [_][]const Border{
+    &.{
+        .{ .inline_start_color = .{ .rgba = 0x1e3c7bff }, .inline_end_color = .{ .rgba = 0xc5b6f7ff }, .block_start_color = .{ .rgba = 0x8e5085ff }, .block_end_color = .{ .rgba = 0xfdc409ff } },
+        .{ .inline_start_color = .{ .rgba = 0xe5bb0dff }, .inline_end_color = .{ .rgba = 0x46eefcff }, .block_start_color = .{ .rgba = 0xa4504bff }, .block_end_color = .{ .rgba = 0xb43430ff } },
+        .{ .inline_start_color = .{ .rgba = 0x8795c7ff }, .inline_end_color = .{ .rgba = 0x46bb4fff }, .block_start_color = .{ .rgba = 0xe0e0acff }, .block_end_color = .{ .rgba = 0x57d9cdff } },
+        .{ .inline_start_color = .{ .rgba = 0x9cd82fff }, .inline_end_color = .{ .rgba = 0x53d6bdff }, .block_start_color = .{ .rgba = 0x5469a9ff }, .block_end_color = .{ .rgba = 0x66cb11ff } },
+        .{ .inline_start_color = .{ .rgba = 0x1fb338ff }, .inline_end_color = .{ .rgba = 0xa1314aff }, .block_start_color = .{ .rgba = 0xca2c76ff }, .block_end_color = .{ .rgba = 0xc462e9ff } },
+        .{ .inline_start_color = .{ .rgba = 0xb0afb5ff }, .inline_end_color = .{ .rgba = 0x74b703ff }, .block_start_color = .{ .rgba = 0xab42d3ff }, .block_end_color = .{ .rgba = 0x753ed2ff } },
+    },
 };
 
 pub const tree_data = [_]TreeData{
@@ -180,7 +191,12 @@ pub const tree_data = [_]TreeData{
         .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{}, .{ .color = .{ .rgba = 0x805020ff } }, .{}, .{ .color = .{ .rgba = 0x802050ff } }, .{}, .{ .color = .{ .rgba = 0x208050ff } }, .{} },
     },
     .{
-        .structure = &.{ 2, 1 },
-        .display = &.{ .{ .inline_block = {} }, .{ .block = {} } },
+        .structure = &.{ 6, 1, 3, 1, 1, 1 },
+        .display = &.{ .{ .block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .block = {} }, .{ .block = {} }, .{ .text = {} } },
+        .inline_size = &.{ .{}, .{}, .{ .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .padding_end = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .padding_start = .{ .px = 100 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{} },
+        .block_size = &.{ .{ .size = .{ .px = 400 } }, .{}, .{ .padding_start = .{ .px = 20 }, .padding_end = .{ .px = 20 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .size = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .size = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{} },
+        .latin1_text = &.{ .{}, .{ .text = "before" }, .{}, .{}, .{}, .{ .text = "after" } },
+        .background = &.{ .{}, .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{ .color = .{ .rgba = 0x472658ff } }, .{ .color = .{ .rgba = 0xd74529ff } }, .{} },
+        .border = border_color_sets[0],
     },
 };
