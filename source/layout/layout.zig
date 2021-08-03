@@ -101,10 +101,12 @@ const InlineContainer = struct {
     values: *InlineLevelUsedValues,
     containing_block_logical_width: ZssUnit,
     inline_blocks: []InlineBlock,
+    used_id_to_box_id: []BoxId,
     next_inline_block: usize,
 
     fn deinit(self: *@This(), allocator: *Allocator) void {
         allocator.free(self.inline_blocks);
+        allocator.free(self.used_id_to_box_id);
     }
 };
 
@@ -407,7 +409,7 @@ fn popFlowBlock(doc: *Document, context: *LayoutContext) void {
         .InlineContainer => {
             inlineBlockFinishLayout(doc, context, box_offsets);
             const container = &context.inline_container.items[context.inline_container.items.len - 1];
-            addBlockToInlineContainer(container, used_id, box_offsets.*, margins);
+            addBlockToInlineContainer(container);
         },
     }
 
@@ -843,7 +845,7 @@ fn popShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext) void {
         .InlineContainer => {
             inlineBlockFinishLayout(doc, context, box_offsets);
             const container = &context.inline_container.items[context.inline_container.items.len - 1];
-            addBlockToInlineContainer(container, used_id, box_offsets.*, margins);
+            addBlockToInlineContainer(container);
         },
     }
 
@@ -859,8 +861,10 @@ fn pushInlineContainer(doc: *Document, context: *LayoutContext, interval: *Layou
     var inline_blocks = ArrayListUnmanaged(InlineBlock){};
     errdefer inline_blocks.deinit(context.allocator);
 
-    const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
-    var inline_context = InlineLayoutContext.init(context.box_tree, context.allocator, interval.*, containing_block_logical_width, &inline_blocks);
+    var used_id_to_box_id = ArrayListUnmanaged(BoxId){};
+    errdefer used_id_to_box_id.deinit(context.allocator);
+
+    var inline_context = InlineLayoutContext.init(context.box_tree, context.allocator, interval.*, &inline_blocks, &used_id_to_box_id);
     defer inline_context.deinit();
 
     const inline_values_ptr = try doc.allocator.create(InlineLevelUsedValues);
@@ -877,6 +881,7 @@ fn pushInlineContainer(doc: *Document, context: *LayoutContext, interval: *Layou
     try doc.inlines.append(doc.allocator, inline_values_ptr);
 
     // Create an "anonymous block box" to contain this inline formatting context.
+    const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
     const block = try createBlock(doc, context, reserved_box_id);
     block.structure.* = undefined;
     block.box_offsets.* = .{
@@ -889,7 +894,7 @@ fn pushInlineContainer(doc: *Document, context: *LayoutContext, interval: *Layou
     block.margins.* = .{};
     block.properties.* = .{ .inline_context_index = try std.math.cast(InlineId, doc.inlines.items.len - 1) };
 
-    try changeToInlineContainerLayout(context, inline_values_ptr, block.used_id, &inline_blocks, containing_block_logical_width);
+    try changeToInlineContainerLayout(context, inline_values_ptr, block.used_id, &inline_blocks, &used_id_to_box_id, containing_block_logical_width);
 }
 
 fn changeToInlineContainerLayout(
@@ -897,10 +902,15 @@ fn changeToInlineContainerLayout(
     values: *InlineLevelUsedValues,
     used_id: UsedId,
     inline_blocks_list: *ArrayListUnmanaged(InlineBlock),
+    used_id_to_box_id_list: *ArrayListUnmanaged(BoxId),
     containing_block_logical_width: ZssUnit,
 ) !void {
     const inline_blocks = inline_blocks_list.toOwnedSlice(context.allocator);
     errdefer context.allocator.free(inline_blocks);
+
+    const used_id_to_box_id = used_id_to_box_id_list.toOwnedSlice(context.allocator);
+    errdefer context.allocator.free(used_id_to_box_id);
+
     // The allocations here must have corresponding deallocations in popInlineContainer.
     try context.layout_mode.append(context.allocator, .InlineContainer);
     try context.used_id.append(context.allocator, used_id);
@@ -909,6 +919,7 @@ fn changeToInlineContainerLayout(
         .values = values,
         .containing_block_logical_width = containing_block_logical_width,
         .inline_blocks = inline_blocks,
+        .used_id_to_box_id = used_id_to_box_id,
         .next_inline_block = 0,
     });
 }
@@ -921,7 +932,7 @@ fn popInlineContainer(doc: *Document, context: *LayoutContext) !void {
 
     const container = &context.inline_container.items[context.inline_container.items.len - 1];
     const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
-    const total_logical_height = try inlineValuesFinishLayout(doc, context, container.values, containing_block_logical_width);
+    const total_logical_height = try inlineValuesFinishLayout(doc, context, container);
 
     inlineContainerPositionInlineBlocks(doc, container.*);
 
@@ -976,14 +987,8 @@ fn inlineContainerPositionInlineBlocks(doc: *Document, container: InlineContaine
     }
 }
 
-fn addBlockToInlineContainer(container: *InlineContainer, used_id: UsedId, box_offsets: used_values.BoxOffsets, margins: used_values.Margins) void {
-    const inline_block = container.inline_blocks[container.next_inline_block];
+fn addBlockToInlineContainer(container: *InlineContainer) void {
     container.next_inline_block += 1;
-
-    const fragment_width = box_offsets.border_end.x - box_offsets.border_start.x;
-    const fragment_advance = fragment_width + margins.inline_start + margins.inline_end;
-    container.values.glyph_indeces.items[inline_block.index + 1] = InlineLevelUsedValues.Special.encodeInlineBlock(used_id);
-    container.values.metrics.items[inline_block.index] = .{ .offset = margins.inline_start, .advance = fragment_advance, .width = fragment_width };
 }
 
 fn pushInlineBlock(doc: *Document, context: *LayoutContext, container: InlineContainer) !void {
@@ -996,6 +1001,7 @@ fn pushInlineBlock(doc: *Document, context: *LayoutContext, container: InlineCon
     block.properties.* = .{};
 
     _ = try createStackingContext(doc, context, block, 0);
+    container.values.glyph_indeces.items[inline_block.index + 1] = InlineLevelUsedValues.Special.encodeInlineBlock(block.used_id);
 
     const sizes = try inlineBlockSolveSizesPart1(context, inline_block.box_id, block.box_offsets, block.borders, block.margins);
 
@@ -1256,17 +1262,17 @@ const InlineLayoutContext = struct {
     used_ids: ArrayListUnmanaged(UsedId),
     allocator: *Allocator,
     root_interval: Interval,
-    containing_block_logical_width: ZssUnit,
 
     inline_blocks: *ArrayListUnmanaged(InlineBlock),
+    used_id_to_box_id: *ArrayListUnmanaged(BoxId),
     next_box_id: BoxId,
 
     fn init(
         box_tree: *const BoxTree,
         allocator: *Allocator,
         block_container_interval: LayoutContext.Interval,
-        containing_block_logical_width: ZssUnit,
         inline_blocks: *ArrayListUnmanaged(InlineBlock),
+        used_id_to_box_id: *ArrayListUnmanaged(BoxId),
     ) Self {
         return Self{
             .box_tree = box_tree,
@@ -1274,8 +1280,8 @@ const InlineLayoutContext = struct {
             .used_ids = .{},
             .allocator = allocator,
             .root_interval = Interval{ .begin = block_container_interval.begin, .end = block_container_interval.end },
-            .containing_block_logical_width = containing_block_logical_width,
             .inline_blocks = inline_blocks,
+            .used_id_to_box_id = used_id_to_box_id,
             .next_box_id = block_container_interval.end,
         };
     }
@@ -1305,7 +1311,8 @@ fn createInlineLevelUsedValues(doc: *Document, context: *InlineLayoutContext, va
 }
 
 fn inlineLevelRootElementPush(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues, root_interval: InlineLayoutContext.Interval) !void {
-    const root_used_id = try addRootInlineBoxData(doc, values);
+    const root_used_id = try std.math.cast(UsedId, context.used_id_to_box_id.items.len);
+    try context.used_id_to_box_id.append(context.allocator, reserved_box_id);
     try addBoxStart(doc, values, root_used_id);
 
     if (root_interval.begin != root_interval.end) {
@@ -1323,7 +1330,8 @@ fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values:
 
     switch (context.box_tree.display[box_id]) {
         .inline_ => {
-            const used_id = try addInlineElementData(doc, context, values, box_id, context.containing_block_logical_width);
+            const used_id = try std.math.cast(UsedId, context.used_id_to_box_id.items.len);
+            try context.used_id_to_box_id.append(context.allocator, box_id);
             try addBoxStart(doc, values, used_id);
 
             if (subtree_size != 1) {
@@ -1336,7 +1344,6 @@ fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values:
         },
         .inline_block => {
             try values.glyph_indeces.appendSlice(doc.allocator, &.{ 0, undefined });
-            try values.metrics.appendSlice(doc.allocator, &.{ undefined, undefined });
             try context.inline_blocks.append(context.allocator, .{ .box_id = box_id, .index = values.glyph_indeces.items.len - 2 });
         },
         .text => try addText(doc, values, context.box_tree.latin1_text[box_id], context.box_tree.font),
@@ -1357,6 +1364,21 @@ fn inlineLevelElementPop(doc: *Document, context: *InlineLayoutContext, values: 
 
     _ = context.intervals.pop();
     _ = context.used_ids.pop();
+}
+
+fn addBoxStart(doc: *Document, values: *InlineLevelUsedValues, used_id: UsedId) !void {
+    const codepoints = [2]hb.hb_codepoint_t{ 0, InlineLevelUsedValues.Special.encodeBoxStart(used_id) };
+    try values.glyph_indeces.appendSlice(doc.allocator, &codepoints);
+}
+
+fn addBoxEnd(doc: *Document, values: *InlineLevelUsedValues, used_id: UsedId) !void {
+    const codepoints = [2]hb.hb_codepoint_t{ 0, InlineLevelUsedValues.Special.encodeBoxEnd(used_id) };
+    try values.glyph_indeces.appendSlice(doc.allocator, &codepoints);
+}
+
+fn addLineBreak(doc: *Document, values: *InlineLevelUsedValues) !void {
+    const codepoints = [2]hb.hb_codepoint_t{ 0, InlineLevelUsedValues.Special.encodeLineBreak() };
+    try values.glyph_indeces.appendSlice(doc.allocator, &codepoints);
 }
 
 fn addText(doc: *Document, values: *InlineLevelUsedValues, latin1_text: BoxTree.Latin1Text, font: BoxTree.Font) !void {
@@ -1418,84 +1440,91 @@ fn addTextRun(doc: *Document, values: *InlineLevelUsedValues, buffer: *hb.hb_buf
         break :blk p[0..n];
     };
 
-    // TODO Find out why the values in glyph_positions lead to poorly placed glyphs.
-
-    //const glyph_positions = blk: {
-    //    var n: c_uint = 0;
-    //    const p = hb.hb_buffer_get_glyph_positions(buffer, &n);
-    //    break :blk p[0..n];
-    //};
-    var extents: hb.hb_glyph_extents_t = undefined;
-
-    const old_len = values.glyph_indeces.items.len;
     // Allocate twice as much so that special glyph indeces always have space
-    try values.glyph_indeces.ensureCapacity(doc.allocator, old_len + 2 * glyph_infos.len);
-    try values.metrics.ensureCapacity(doc.allocator, old_len + 2 * glyph_infos.len);
+    try values.glyph_indeces.ensureUnusedCapacity(doc.allocator, 2 * glyph_infos.len);
 
     for (glyph_infos) |info, i| {
-        //const pos = glyph_positions[i];
-        const extents_result = hb.hb_font_get_glyph_extents(font, info.codepoint, &extents);
-        if (extents_result == 0) {
-            extents.width = 0;
-            extents.x_bearing = 0;
-        }
-
         values.glyph_indeces.appendAssumeCapacity(info.codepoint);
-        //values.metrics.appendAssumeCapacity(.{ .offset = @divFloor(pos.x_offset * unitsPerPixel, 64), .advance = @divFloor(pos.x_advance * unitsPerPixel, 64), .width = @divFloor(width * unitsPerPixel, 64) });
-        values.metrics.appendAssumeCapacity(.{
-            .offset = @divFloor(extents.x_bearing * unitsPerPixel, 64),
-            .advance = @divFloor(hb.hb_font_get_glyph_h_advance(font, info.codepoint) * unitsPerPixel, 64),
-            .width = @divFloor(extents.width * unitsPerPixel, 64),
-        });
-
         if (info.codepoint == 0) {
             values.glyph_indeces.appendAssumeCapacity(InlineLevelUsedValues.Special.encodeZeroGlyphIndex());
-            values.metrics.appendAssumeCapacity(undefined);
         }
     }
 }
 
-fn addLineBreak(doc: *Document, values: *InlineLevelUsedValues) !void {
-    try values.glyph_indeces.appendSlice(doc.allocator, &.{ 0, InlineLevelUsedValues.Special.encodeLineBreak() });
-    try values.metrics.appendSlice(doc.allocator, &.{ .{ .offset = 0, .advance = 0, .width = 0 }, undefined });
+fn inlineValuesFinishLayout(doc: *Document, context: *LayoutContext, container: *InlineContainer) !ZssUnit {
+    const values = container.values;
+
+    const num_glyphs = values.glyph_indeces.items.len;
+    try values.metrics.resize(doc.allocator, num_glyphs);
+
+    const num_boxes = container.used_id_to_box_id.len;
+    try values.inline_start.resize(doc.allocator, num_boxes);
+    try values.inline_end.resize(doc.allocator, num_boxes);
+    try values.block_start.resize(doc.allocator, num_boxes);
+    try values.block_end.resize(doc.allocator, num_boxes);
+    try values.margins.resize(doc.allocator, num_boxes);
+    try values.background1.resize(doc.allocator, num_boxes);
+
+    values.font = context.box_tree.font.font;
+    values.font_color_rgba = switch (context.box_tree.font.color) {
+        .rgba => |rgba| rgba,
+    };
+
+    // Set the used values for all inline elements
+    assert(container.used_id_to_box_id[0] == reserved_box_id);
+    setRootInlineBoxUsedData(values, 0);
+    for (container.used_id_to_box_id[1..]) |box_id, used_id| {
+        try setInlineBoxUsedData(context, values, box_id, @intCast(UsedId, used_id + 1), container.containing_block_logical_width);
+    }
+
+    { // Set the metrics data for all glyphs
+        var i: usize = 0;
+        while (i < num_glyphs) : (i += 1) {
+            const glyph_index = values.glyph_indeces.items[i];
+            const metrics = &values.metrics.items[i];
+
+            if (glyph_index == 0) {
+                i += 1;
+                const special = InlineLevelUsedValues.Special.decode(values.glyph_indeces.items[i]);
+                const kind = @intToEnum(InlineLevelUsedValues.Special.LayoutInternalKind, @enumToInt(special.kind));
+                switch (kind) {
+                    .ZeroGlyphIndex => setMetricsGlyph(metrics, values.font, 0),
+                    .BoxStart => {
+                        const used_id = special.data;
+                        setMetricsBoxStart(metrics, values, used_id);
+                    },
+                    .BoxEnd => {
+                        const used_id = special.data;
+                        setMetricsBoxEnd(metrics, values, used_id);
+                    },
+                    .InlineBlock => {
+                        const used_id = special.data;
+                        setMetricsInlineBlock(metrics, doc, used_id);
+                    },
+                    .LineBreak => setMetricsLineBreak(metrics),
+                }
+            } else {
+                setMetricsGlyph(metrics, values.font, glyph_index);
+            }
+        }
+    }
+
+    const total_logical_height = try splitIntoLineBoxes(doc, values, container.containing_block_logical_width);
+    return total_logical_height;
 }
 
-fn addBoxStart(doc: *Document, values: *InlineLevelUsedValues, used_id: UsedId) !void {
-    const inline_start = values.inline_start.items[used_id];
-    const margin = values.margins.items[used_id].start;
-    const width = inline_start.border + inline_start.padding;
-    const advance = width + margin;
-
-    const glyph_indeces = [2]hb.hb_codepoint_t{ 0, InlineLevelUsedValues.Special.encodeBoxStart(used_id) };
-    try values.glyph_indeces.appendSlice(doc.allocator, &glyph_indeces);
-    const metrics = [2]InlineLevelUsedValues.Metrics{ .{ .offset = margin, .advance = advance, .width = width }, undefined };
-    try values.metrics.appendSlice(doc.allocator, &metrics);
+fn setRootInlineBoxUsedData(values: *InlineLevelUsedValues, used_id: UsedId) void {
+    values.inline_start.items[used_id] = .{ .border = 0, .padding = 0, .border_color_rgba = 0 };
+    values.inline_end.items[used_id] = .{ .border = 0, .padding = 0, .border_color_rgba = 0 };
+    values.block_start.items[used_id] = .{ .border = 0, .padding = 0, .border_color_rgba = 0 };
+    values.block_end.items[used_id] = .{ .border = 0, .padding = 0, .border_color_rgba = 0 };
+    values.margins.items[used_id] = .{ .start = 0, .end = 0 };
+    values.background1.items[used_id] = .{};
 }
 
-fn addBoxEnd(doc: *Document, values: *InlineLevelUsedValues, used_id: UsedId) !void {
-    const inline_end = values.inline_end.items[used_id];
-    const margin = values.margins.items[used_id].end;
-    const width = inline_end.border + inline_end.padding;
-    const advance = width + margin;
-
-    const glyph_indeces = [2]hb.hb_codepoint_t{ 0, InlineLevelUsedValues.Special.encodeBoxEnd(used_id) };
-    try values.glyph_indeces.appendSlice(doc.allocator, &glyph_indeces);
-    const metrics = [2]InlineLevelUsedValues.Metrics{ .{ .offset = 0, .advance = advance, .width = width }, undefined };
-    try values.metrics.appendSlice(doc.allocator, &metrics);
-}
-
-fn addRootInlineBoxData(doc: *Document, values: *InlineLevelUsedValues) !UsedId {
-    try values.inline_start.append(doc.allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
-    try values.inline_end.append(doc.allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
-    try values.block_start.append(doc.allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
-    try values.block_end.append(doc.allocator, .{ .border = 0, .padding = 0, .border_color_rgba = 0 });
-    try values.margins.append(doc.allocator, .{ .start = 0, .end = 0 });
-    try values.background1.append(doc.allocator, .{});
-    return 0;
-}
-
-fn addInlineElementData(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues, box_id: BoxId, containing_block_logical_width: ZssUnit) !UsedId {
+fn setInlineBoxUsedData(context: *LayoutContext, values: *InlineLevelUsedValues, box_id: BoxId, used_id: UsedId, containing_block_logical_width: ZssUnit) !void {
     const inline_sizes = context.box_tree.inline_size[box_id];
+    const block_sizes = context.box_tree.block_size[box_id];
 
     const margin_inline_start = switch (inline_sizes.margin_start) {
         .px => |value| length(.px, value),
@@ -1522,8 +1551,6 @@ fn addInlineElementData(doc: *Document, context: *InlineLayoutContext, values: *
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
     };
 
-    const block_sizes = context.box_tree.block_size[box_id];
-
     const border_block_start = switch (block_sizes.border_start) {
         .px => |value| try positiveLength(.px, value),
     };
@@ -1541,23 +1568,55 @@ fn addInlineElementData(doc: *Document, context: *InlineLayoutContext, values: *
 
     const border_colors = solveBorderColors(context.box_tree.border[box_id]);
 
-    try values.inline_start.append(doc.allocator, .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = border_colors.inline_start_rgba });
-    try values.inline_end.append(doc.allocator, .{ .border = border_inline_end, .padding = padding_inline_end, .border_color_rgba = border_colors.inline_end_rgba });
-    try values.block_start.append(doc.allocator, .{ .border = border_block_start, .padding = padding_block_start, .border_color_rgba = border_colors.block_start_rgba });
-    try values.block_end.append(doc.allocator, .{ .border = border_block_end, .padding = padding_block_end, .border_color_rgba = border_colors.block_end_rgba });
-    try values.margins.append(doc.allocator, .{ .start = margin_inline_start, .end = margin_inline_end });
-    try values.background1.append(doc.allocator, solveBackground1(context.box_tree.background[box_id]));
-    return std.math.cast(UsedId, values.inline_start.items.len - 1);
+    values.inline_start.items[used_id] = .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = border_colors.inline_start_rgba };
+    values.inline_end.items[used_id] = .{ .border = border_inline_end, .padding = padding_inline_end, .border_color_rgba = border_colors.inline_end_rgba };
+    values.block_start.items[used_id] = .{ .border = border_block_start, .padding = padding_block_start, .border_color_rgba = border_colors.block_start_rgba };
+    values.block_end.items[used_id] = .{ .border = border_block_end, .padding = padding_block_end, .border_color_rgba = border_colors.block_end_rgba };
+    values.margins.items[used_id] = .{ .start = margin_inline_start, .end = margin_inline_end };
+    values.background1.items[used_id] = solveBackground1(context.box_tree.background[box_id]);
 }
 
-fn inlineValuesFinishLayout(doc: *Document, context: *LayoutContext, values: *InlineLevelUsedValues, containing_block_logical_width: ZssUnit) !ZssUnit {
-    values.font = context.box_tree.font.font;
-    values.font_color_rgba = switch (context.box_tree.font.color) {
-        .rgba => |rgba| rgba,
+fn setMetricsGlyph(metrics: *InlineLevelUsedValues.Metrics, font: *hb.hb_font_t, glyph_index: hb.hb_codepoint_t) void {
+    var extents: hb.hb_glyph_extents_t = undefined;
+    const extents_result = hb.hb_font_get_glyph_extents(font, glyph_index, &extents);
+    if (extents_result == 0) {
+        extents.width = 0;
+        extents.x_bearing = 0;
+    }
+    metrics.* = .{
+        .offset = @divFloor(extents.x_bearing * unitsPerPixel, 64),
+        .advance = @divFloor(hb.hb_font_get_glyph_h_advance(font, glyph_index) * unitsPerPixel, 64),
+        .width = @divFloor(extents.width * unitsPerPixel, 64),
     };
+}
 
-    const total_logical_height = try splitIntoLineBoxes(doc, values, containing_block_logical_width);
-    return total_logical_height;
+fn setMetricsBoxStart(metrics: *InlineLevelUsedValues.Metrics, values: *InlineLevelUsedValues, used_id: UsedId) void {
+    const inline_start = values.inline_start.items[used_id];
+    const margin = values.margins.items[used_id].start;
+    const width = inline_start.border + inline_start.padding;
+    const advance = width + margin;
+    metrics.* = .{ .offset = margin, .advance = advance, .width = width };
+}
+
+fn setMetricsBoxEnd(metrics: *InlineLevelUsedValues.Metrics, values: *InlineLevelUsedValues, used_id: UsedId) void {
+    const inline_end = values.inline_end.items[used_id];
+    const margin = values.margins.items[used_id].end;
+    const width = inline_end.border + inline_end.padding;
+    const advance = width + margin;
+    metrics.* = .{ .offset = 0, .advance = advance, .width = width };
+}
+
+fn setMetricsLineBreak(metrics: *InlineLevelUsedValues.Metrics) void {
+    metrics.* = .{ .offset = 0, .advance = 0, .width = 0 };
+}
+
+fn setMetricsInlineBlock(metrics: *InlineLevelUsedValues.Metrics, doc: *Document, used_id: UsedId) void {
+    const box_offsets = doc.blocks.box_offsets.items[used_id];
+    const margins = doc.blocks.margins.items[used_id];
+
+    const width = box_offsets.border_end.x - box_offsets.border_start.x;
+    const advance = width + margins.inline_start + margins.inline_end;
+    metrics.* = .{ .offset = margins.inline_start, .advance = advance, .width = width };
 }
 
 fn splitIntoLineBoxes(doc: *Document, values: *InlineLevelUsedValues, containing_block_logical_width: ZssUnit) !ZssUnit {
