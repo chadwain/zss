@@ -113,6 +113,8 @@ pub const border_color_sets = [_][]const Border{
         .{ .inline_start_color = .{ .rgba = 0x9cd82fff }, .inline_end_color = .{ .rgba = 0x53d6bdff }, .block_start_color = .{ .rgba = 0x5469a9ff }, .block_end_color = .{ .rgba = 0x66cb11ff } },
         .{ .inline_start_color = .{ .rgba = 0x1fb338ff }, .inline_end_color = .{ .rgba = 0xa1314aff }, .block_start_color = .{ .rgba = 0xca2c76ff }, .block_end_color = .{ .rgba = 0xc462e9ff } },
         .{ .inline_start_color = .{ .rgba = 0xb0afb5ff }, .inline_end_color = .{ .rgba = 0x74b703ff }, .block_start_color = .{ .rgba = 0xab42d3ff }, .block_end_color = .{ .rgba = 0x753ed2ff } },
+        .{ .inline_start_color = .{ .rgba = 0xf4372cff }, .inline_end_color = .{ .rgba = 0xf1bc8dff }, .block_start_color = .{ .rgba = 0xb4c284ff }, .block_end_color = .{ .rgba = 0xb509b7ff } },
+        .{ .inline_start_color = .{ .rgba = 0xa7faeaff }, .inline_end_color = .{ .rgba = 0xe0931dff }, .block_start_color = .{ .rgba = 0x11cff8ff }, .block_end_color = .{ .rgba = 0x423d8fff } },
     },
 };
 
@@ -191,12 +193,26 @@ pub const tree_data = [_]TreeData{
         .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{}, .{ .color = .{ .rgba = 0x805020ff } }, .{}, .{ .color = .{ .rgba = 0x802050ff } }, .{}, .{ .color = .{ .rgba = 0x208050ff } }, .{} },
     },
     .{
-        .structure = &.{ 6, 1, 3, 1, 1, 1 },
-        .display = &.{ .{ .block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .block = {} }, .{ .block = {} }, .{ .text = {} } },
-        .inline_size = &.{ .{}, .{}, .{ .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .padding_end = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .size = .{ .px = 20 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{} },
-        .block_size = &.{ .{ .size = .{ .px = 400 } }, .{}, .{ .padding_start = .{ .px = 20 }, .padding_end = .{ .px = 20 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .size = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{ .size = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } }, .{} },
-        .latin1_text = &.{ .{}, .{ .text = "before" }, .{}, .{}, .{}, .{ .text = "after" } },
-        .background = &.{ .{}, .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{ .color = .{ .rgba = 0x472658ff } }, .{ .color = .{ .rgba = 0xd74529ff } }, .{} },
+        .structure = &.{ 6, 5, 1, 1, 2, 1 },
+        .display = &.{ .{ .block = {} }, .{ .inline_block = {} }, .{ .block = {} }, .{ .block = {} }, .{ .block = {} }, .{ .text = {} } },
+        .inline_size = &.{
+            .{},
+            .{ .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } },
+            .{ .padding_end = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } },
+            .{ .size = .{ .px = 20 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } },
+            .{ .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } },
+            .{},
+        },
+        .block_size = &.{
+            .{ .size = .{ .px = 400 } },
+            .{ .padding_start = .{ .px = 0 }, .padding_end = .{ .px = 0 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } },
+            .{ .size = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } },
+            .{ .size = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } },
+            .{ .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } },
+            .{},
+        },
+        .latin1_text = &.{ .{}, .{}, .{}, .{}, .{}, .{ .text = "the inline-block width fits this text" } },
+        .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{ .color = .{ .rgba = 0x472658ff } }, .{ .color = .{ .rgba = 0xd74529ff } }, .{ .color = .{ .rgba = 0xd5ad81ff } }, .{} },
         .border = border_color_sets[0],
     },
 };
