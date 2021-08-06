@@ -561,14 +561,6 @@ fn flowBlockSolveBlockSizesPart1(
     assert(containing_block_logical_width >= 0);
     if (containing_block_logical_height) |h| assert(h >= 0);
 
-    const size = switch (block_size.size) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| if (containing_block_logical_height) |h|
-            try positivePercentage(value, h)
-        else
-            null,
-        .auto => null,
-    };
     const border_start = switch (block_size.border_start) {
         .px => |value| try positiveLength(.px, value),
     };
@@ -609,6 +601,14 @@ fn flowBlockSolveBlockSizesPart1(
             std.math.maxInt(ZssUnit),
         .none => std.math.maxInt(ZssUnit),
     };
+    const size = switch (block_size.size) {
+        .px => |value| clampSize(try positiveLength(.px, value), min_size, max_size),
+        .percentage => |value| if (containing_block_logical_height) |h|
+            clampSize(try positivePercentage(value, h), min_size, max_size)
+        else
+            null,
+        .auto => null,
+    };
 
     // NOTE These are not the actual offsets, just some values that can be
     // determined without knowing 'size'. The offsets are properly filled in
@@ -631,7 +631,7 @@ fn flowBlockSolveBlockSizesPart1(
 }
 
 fn flowBlockSolveBlockSizesPart2(box_offsets: *used_values.BoxOffsets, used_logical_heights: UsedLogicalHeights, auto_logical_height: ZssUnit) ZssUnit {
-    const used_logical_height = clampSize(used_logical_heights.height orelse auto_logical_height, used_logical_heights.min_height, used_logical_heights.max_height);
+    const used_logical_height = used_logical_heights.height orelse clampSize(auto_logical_height, used_logical_heights.min_height, used_logical_heights.max_height);
     box_offsets.content_end.y = box_offsets.content_start.y + used_logical_height;
     box_offsets.border_end.y += box_offsets.content_end.y;
     return used_logical_height;
@@ -795,14 +795,6 @@ fn shrinkToFit1stPassGetHeights(context: *LayoutContext, box_id: BoxId) !UsedLog
     const containing_block_logical_height = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1].height;
     if (containing_block_logical_height) |h| assert(h >= 0);
 
-    const size = switch (block_size.size) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| if (containing_block_logical_height) |h|
-            try positivePercentage(value, h)
-        else
-            null,
-        .auto => null,
-    };
     const min_size = switch (block_size.min_size) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| if (containing_block_logical_height) |s|
@@ -817,6 +809,14 @@ fn shrinkToFit1stPassGetHeights(context: *LayoutContext, box_id: BoxId) !UsedLog
         else
             std.math.maxInt(ZssUnit),
         .none => std.math.maxInt(ZssUnit),
+    };
+    const size = switch (block_size.size) {
+        .px => |value| clampSize(try positiveLength(.px, value), min_size, max_size),
+        .percentage => |value| if (containing_block_logical_height) |h|
+            clampSize(try positivePercentage(value, h), min_size, max_size)
+        else
+            null,
+        .auto => null,
     };
 
     return UsedLogicalHeights{
@@ -1137,8 +1137,8 @@ fn inlineBlockSolveSizesPart1(
         .none => std.math.maxInt(ZssUnit),
     };
     const inline_size = switch (inline_sizes.size) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
+        .px => |value| clampSize(try positiveLength(.px, value), min_inline_size, max_inline_size),
+        .percentage => |value| clampSize(try positivePercentage(value, containing_block_logical_width), min_inline_size, max_inline_size),
         .auto => null,
     };
 
@@ -1176,8 +1176,8 @@ fn inlineBlockSolveSizesPart1(
         .none => std.math.maxInt(ZssUnit),
     };
     const block_size = switch (block_sizes.size) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
+        .px => |value| clampSize(try positiveLength(.px, value), min_block_size, max_block_size),
+        .percentage => |value| clampSize(try positivePercentage(value, containing_block_logical_width), min_block_size, max_block_size),
         .auto => null,
     };
 
@@ -1195,7 +1195,7 @@ fn inlineBlockSolveSizesPart1(
     margins.* = .{ .inline_start = margin_inline_start, .inline_end = margin_inline_end, .block_start = margin_block_start, .block_end = margin_block_end };
 
     return InlineBlockSolveSizesResult{
-        .logical_width = if (inline_size) |s| clampSize(s, min_inline_size, max_inline_size) else null,
+        .logical_width = inline_size,
         .logical_heights = UsedLogicalHeights{
             .height = block_size,
             .min_height = min_block_size,
@@ -1205,7 +1205,7 @@ fn inlineBlockSolveSizesPart1(
 }
 
 fn inlineBlockSolveSizesPart2(box_offsets: *used_values.BoxOffsets, used_logical_width: ZssUnit, used_logical_heights: UsedLogicalHeights, auto_logical_height: ZssUnit) ZssUnit {
-    const used_logical_height = clampSize(used_logical_heights.height orelse auto_logical_height, used_logical_heights.min_height, used_logical_heights.max_height);
+    const used_logical_height = used_logical_heights.height orelse clampSize(auto_logical_height, used_logical_heights.min_height, used_logical_heights.max_height);
     box_offsets.content_end.x += used_logical_width;
     box_offsets.content_end.y += used_logical_height;
     box_offsets.border_end.x += used_logical_width;
