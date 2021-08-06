@@ -1802,11 +1802,15 @@ fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxO
         height: ZssUnit,
         has_aspect_ratio: bool,
 
-        fn init(obj: *BoxTree.Background.Image.Object) @This() {
+        fn init(obj: *BoxTree.Background.Image.Object) !@This() {
             const n = obj.getNaturalSize();
-            assert(n.width >= 0);
-            assert(n.height >= 0);
-            return @This(){ .width = length(.px, n.width), .height = length(.px, n.height), .has_aspect_ratio = n.width != 0 and n.height != 0 };
+            const width = try positiveLength(.px, n.width);
+            const height = try positiveLength(.px, n.height);
+            return @This(){
+                .width = width,
+                .height = height,
+                .has_aspect_ratio = width != 0 and height != 0,
+            };
         }
     };
     // Initialize on first use.
@@ -1834,7 +1838,7 @@ fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxO
             },
         },
         .contain, .cover => blk: {
-            if (natural == null) natural = NaturalSize.init(&object);
+            if (natural == null) natural = try NaturalSize.init(&object);
             if (!natural.?.has_aspect_ratio) break :blk used_values.Background2.Size{ .width = natural.?.width, .height = natural.?.height };
 
             const positioning_area_is_wider_than_image = positioning_area.width * natural.?.height > positioning_area.height * natural.?.width;
@@ -1867,7 +1871,7 @@ fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxO
 
     if (width_was_auto or height_was_auto or repeat.x == .Round or repeat.y == .Round) {
         const divRound = zss.util.divRound;
-        if (natural == null) natural = NaturalSize.init(&object);
+        if (natural == null) natural = try NaturalSize.init(&object);
 
         if (width_was_auto and height_was_auto) {
             size.width = natural.?.width;
