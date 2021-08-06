@@ -30,11 +30,6 @@ test "roundUp" {
     try expect(roundUp(62, 7) == 63);
 }
 
-/// The same as std.math.clamp, but without the assertion.
-pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
-    return std.math.max(lower, std.math.min(val, upper));
-}
-
 pub fn StructureArray(comptime T: type) type {
     return struct {
         pub const TreeIterator = struct {

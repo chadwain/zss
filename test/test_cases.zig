@@ -187,7 +187,6 @@ pub const tree_data = [_]TreeData{
     .{
         .structure = &.{ 9, 8, 1, 6, 1, 4, 1, 2, 1 },
         .display = &.{ .{ .block = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} } },
-        .inline_size = &.{ .{}, .{ .size = .{ .px = 350 } }, .{}, .{ .size = .{ .px = 100 } }, .{}, .{ .size = .{ .px = 50 } }, .{}, .{ .size = .{ .px = 25 } }, .{} },
         .block_size = &.{ .{}, .{ .padding_start = .{ .px = 10 } }, .{}, .{ .padding_start = .{ .px = 10 } }, .{}, .{ .padding_start = .{ .px = 10 } }, .{}, .{ .padding_start = .{ .px = 10 } }, .{} },
         .latin1_text = &.{ .{}, .{}, .{ .text = "nested inline blocks  1 " }, .{}, .{ .text = "2 " }, .{}, .{ .text = "3 " }, .{}, .{ .text = "4 " } },
         .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{}, .{ .color = .{ .rgba = 0x805020ff } }, .{}, .{ .color = .{ .rgba = 0x802050ff } }, .{}, .{ .color = .{ .rgba = 0x208050ff } }, .{} },

@@ -67,6 +67,10 @@ fn positivePercentage(value: f32, unit: ZssUnit) !ZssUnit {
     return percentage(value, unit);
 }
 
+fn clampSize(size: ZssUnit, min_size: ZssUnit, max_size: ZssUnit) ZssUnit {
+    return std.math.max(min_size, std.math.min(size, max_size));
+}
+
 const LayoutMode = enum {
     Flow,
     ShrinkToFit1stPass,
@@ -509,7 +513,7 @@ fn flowBlockSolveInlineSizes(
     if (auto_bitfield == 0) {
         // None of the values were auto, so one of the margins must be set according to the other values.
         // TODO the margin that gets set is determined by the 'direction' property
-        size = zss.util.clamp(size, min_size, max_size);
+        size = clampSize(size, min_size, max_size);
         margin_end = content_margin_space - size - margin_start;
     } else if (auto_bitfield & size_bit == 0) {
         // 'inline-size' is not auto, but at least one of 'margin-inline-start' and 'margin-inline-end' is.
@@ -518,7 +522,7 @@ fn flowBlockSolveInlineSizes(
         const start = auto_bitfield & margin_start_bit;
         const end = auto_bitfield & margin_end_bit;
         const shr_amount = @boolToInt(start | end == margin_start_bit | margin_end_bit);
-        size = zss.util.clamp(size, min_size, max_size);
+        size = clampSize(size, min_size, max_size);
         const leftover_margin = max(0, content_margin_space - (size + margin_start + margin_end));
         // TODO the margin that gets the extra 1 unit shall be determined by the 'direction' property
         if (start != 0) margin_start = leftover_margin >> shr_amount;
@@ -526,7 +530,7 @@ fn flowBlockSolveInlineSizes(
     } else {
         // 'inline-size' is auto, so it is set according to the other values.
         // The margin values don't need to change.
-        size = zss.util.clamp(content_margin_space - margin_start - margin_end, min_size, max_size);
+        size = clampSize(content_margin_space - margin_start - margin_end, min_size, max_size);
     }
 
     box_offsets.border_start.x = margin_start;
@@ -627,7 +631,7 @@ fn flowBlockSolveBlockSizesPart1(
 }
 
 fn flowBlockSolveBlockSizesPart2(box_offsets: *used_values.BoxOffsets, used_logical_heights: UsedLogicalHeights, auto_logical_height: ZssUnit) ZssUnit {
-    const used_logical_height = zss.util.clamp(used_logical_heights.height orelse auto_logical_height, used_logical_heights.min_height, used_logical_heights.max_height);
+    const used_logical_height = clampSize(used_logical_heights.height orelse auto_logical_height, used_logical_heights.min_height, used_logical_heights.max_height);
     box_offsets.content_end.y = box_offsets.content_start.y + used_logical_height;
     box_offsets.border_end.y += box_offsets.content_end.y;
     return used_logical_height;
@@ -662,7 +666,8 @@ fn pushShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval
         block.box_offsets.content_end.x = 1;
         const parent_available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
         const available_width = std.math.max(0, parent_available_width - width_info.base_width);
-        try changeToShrinkToFit1stPassLayoutInner(context, box_id, block.used_id, available_width, width_info.base_width);
+        const used_logical_heights = try shrinkToFit1stPassGetHeights(context, box_id);
+        try changeToShrinkToFit1stPassLayout(context, box_id, block.used_id, available_width, width_info.base_width, used_logical_heights);
     }
 }
 
@@ -672,18 +677,7 @@ fn changeToShrinkToFit1stPassLayout(
     used_id: UsedId,
     available_width: ZssUnit,
     base_width: ZssUnit,
-    logical_heights: UsedLogicalHeights,
-) !void {
-    try changeToShrinkToFit1stPassLayoutInner(context, box_id, used_id, available_width, base_width);
-    try context.flow_block_used_logical_heights.append(context.allocator, logical_heights);
-}
-
-fn changeToShrinkToFit1stPassLayoutInner(
-    context: *LayoutContext,
-    box_id: BoxId,
-    used_id: UsedId,
-    available_width: ZssUnit,
-    base_width: ZssUnit,
+    used_logical_heights: UsedLogicalHeights,
 ) !void {
     const subtree_size = context.box_tree.structure[box_id];
     // The allocations here must have corresponding deallocations in popShrinkToFit1stPassBlock.
@@ -694,6 +688,7 @@ fn changeToShrinkToFit1stPassLayoutInner(
     try context.shrink_to_fit_available_width.append(context.allocator, available_width);
     try context.shrink_to_fit_auto_width.append(context.allocator, 0);
     try context.shrink_to_fit_base_width.append(context.allocator, base_width);
+    try context.flow_block_used_logical_heights.append(context.allocator, used_logical_heights);
 }
 
 fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) !void {
@@ -728,11 +723,10 @@ fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) !void {
     _ = context.shrink_to_fit_base_width.pop();
     _ = context.used_id.pop();
     _ = context.used_subtree_size.pop();
+    const used_logical_heights = context.flow_block_used_logical_heights.pop();
 
     if (go_to_2nd_pass) {
-        const box_id = context.used_id_to_box_id.items[used_id];
         const used_id_interval = UsedIdInterval{ .begin = used_id + 1, .end = used_id + doc.blocks.structure.items[used_id] };
-        const used_logical_heights = context.flow_block_used_logical_heights.pop();
         try changeToShrinkToFit2ndPassLayout(context, used_id, used_id_interval, shrink_to_fit_width, used_logical_heights);
     }
 }
@@ -794,6 +788,42 @@ fn shrinkToFit1stPassGetWidth(
     }
 
     return result;
+}
+
+fn shrinkToFit1stPassGetHeights(context: *LayoutContext, box_id: BoxId) !UsedLogicalHeights {
+    const block_size = context.box_tree.block_size[box_id];
+    const containing_block_logical_height = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1].height;
+    if (containing_block_logical_height) |h| assert(h >= 0);
+
+    const size = switch (block_size.size) {
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| if (containing_block_logical_height) |h|
+            try positivePercentage(value, h)
+        else
+            null,
+        .auto => null,
+    };
+    const min_size = switch (block_size.min_size) {
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| if (containing_block_logical_height) |s|
+            try positivePercentage(value, s)
+        else
+            0,
+    };
+    const max_size = switch (block_size.max_size) {
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| if (containing_block_logical_height) |s|
+            try positivePercentage(value, s)
+        else
+            std.math.maxInt(ZssUnit),
+        .none => std.math.maxInt(ZssUnit),
+    };
+
+    return UsedLogicalHeights{
+        .height = size,
+        .min_height = min_size,
+        .max_height = max_size,
+    };
 }
 
 fn pushShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext, used_id_interval: *UsedIdInterval) !void {
@@ -1165,7 +1195,7 @@ fn inlineBlockSolveSizesPart1(
     margins.* = .{ .inline_start = margin_inline_start, .inline_end = margin_inline_end, .block_start = margin_block_start, .block_end = margin_block_end };
 
     return InlineBlockSolveSizesResult{
-        .logical_width = if (inline_size) |s| zss.util.clamp(s, min_inline_size, max_inline_size) else null,
+        .logical_width = if (inline_size) |s| clampSize(s, min_inline_size, max_inline_size) else null,
         .logical_heights = UsedLogicalHeights{
             .height = block_size,
             .min_height = min_block_size,
@@ -1175,7 +1205,7 @@ fn inlineBlockSolveSizesPart1(
 }
 
 fn inlineBlockSolveSizesPart2(box_offsets: *used_values.BoxOffsets, used_logical_width: ZssUnit, used_logical_heights: UsedLogicalHeights, auto_logical_height: ZssUnit) ZssUnit {
-    const used_logical_height = zss.util.clamp(used_logical_heights.height orelse auto_logical_height, used_logical_heights.min_height, used_logical_heights.max_height);
+    const used_logical_height = clampSize(used_logical_heights.height orelse auto_logical_height, used_logical_heights.min_height, used_logical_heights.max_height);
     box_offsets.content_end.x += used_logical_width;
     box_offsets.content_end.y += used_logical_height;
     box_offsets.border_end.x += used_logical_width;
@@ -1743,6 +1773,7 @@ fn splitIntoLineBoxes(doc: *Document, values: *InlineLevelUsedValues, containing
     if (values.line_boxes.items.len > 0) {
         result.logical_height = values.line_boxes.items[values.line_boxes.items.len - 1].baseline + bottom_height;
     } else {
+        // TODO This is never reached because the root inline box always creates at least 1 line box.
         result.logical_height = 0;
     }
 
