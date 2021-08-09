@@ -202,7 +202,7 @@ pub const BlockLevelUsedValues = struct {
 /// function to recover and interpret that data. Note that this data still has metrics associated with it.
 /// That metrics data is found in the same array index as that of the first glyph index (the one that was 0).
 pub const InlineLevelUsedValues = struct {
-    glyph_indeces: ArrayListUnmanaged(hb.hb_codepoint_t) = .{},
+    glyph_indeces: ArrayListUnmanaged(GlyphIndex) = .{},
     metrics: ArrayListUnmanaged(Metrics) = .{},
 
     line_boxes: ArrayListUnmanaged(LineBox) = .{},
@@ -227,6 +227,8 @@ pub const InlineLevelUsedValues = struct {
     const hb = @import("harfbuzz");
 
     const Self = @This();
+
+    pub const GlyphIndex = hb.hb_codepoint_t;
 
     pub const BoxProperties = struct {
         border: ZssUnit = 0,
@@ -279,7 +281,7 @@ pub const InlineLevelUsedValues = struct {
         };
 
         /// Recovers the data contained within a glyph index.
-        pub fn decode(encoded_glyph_index: hb.hb_codepoint_t) Special {
+        pub fn decode(encoded_glyph_index: GlyphIndex) Special {
             return @bitCast(Special, encoded_glyph_index);
         }
 
@@ -308,28 +310,28 @@ pub const InlineLevelUsedValues = struct {
             }
         }
 
-        pub fn encodeBoxStart(used_id: UsedId) hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .kind = .BoxStart, .data = used_id });
+        pub fn encodeBoxStart(used_id: UsedId) GlyphIndex {
+            return @bitCast(GlyphIndex, Special{ .kind = .BoxStart, .data = used_id });
         }
 
-        pub fn encodeBoxEnd(used_id: UsedId) hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .kind = .BoxEnd, .data = used_id });
+        pub fn encodeBoxEnd(used_id: UsedId) GlyphIndex {
+            return @bitCast(GlyphIndex, Special{ .kind = .BoxEnd, .data = used_id });
         }
 
-        pub fn encodeInlineBlock(used_id: UsedId) hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .kind = .InlineBlock, .data = used_id });
+        pub fn encodeInlineBlock(used_id: UsedId) GlyphIndex {
+            return @bitCast(GlyphIndex, Special{ .kind = .InlineBlock, .data = used_id });
         }
 
-        pub fn encodeZeroGlyphIndex() hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .kind = .ZeroGlyphIndex, .data = undefined });
+        pub fn encodeZeroGlyphIndex() GlyphIndex {
+            return @bitCast(GlyphIndex, Special{ .kind = .ZeroGlyphIndex, .data = undefined });
         }
 
-        pub fn encodeLineBreak() hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .kind = @intToEnum(Kind, @enumToInt(LayoutInternalKind.LineBreak)), .data = undefined });
+        pub fn encodeLineBreak() GlyphIndex {
+            return @bitCast(GlyphIndex, Special{ .kind = @intToEnum(Kind, @enumToInt(LayoutInternalKind.LineBreak)), .data = undefined });
         }
 
-        pub fn encodeContinuationBlock(used_id: UsedId) hb.hb_codepoint_t {
-            return @bitCast(hb.hb_codepoint_t, Special{ .kind = @intToEnum(Kind, @enumToInt(LayoutInternalKind.ContinuationBlock)), .data = used_id });
+        pub fn encodeContinuationBlock(used_id: UsedId) GlyphIndex {
+            return @bitCast(GlyphIndex, Special{ .kind = @intToEnum(Kind, @enumToInt(LayoutInternalKind.ContinuationBlock)), .data = used_id });
         }
     };
 

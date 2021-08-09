@@ -21,6 +21,7 @@ const InlineId = used_values.InlineId;
 const ZIndex = used_values.ZIndex;
 const BlockLevelUsedValues = used_values.BlockLevelUsedValues;
 const InlineLevelUsedValues = used_values.InlineLevelUsedValues;
+const GlyphIndex = InlineLevelUsedValues.GlyphIndex;
 const Document = used_values.Document;
 
 const hb = @import("harfbuzz");
@@ -1457,18 +1458,18 @@ fn inlineLevelElementPop(doc: *Document, context: *InlineLayoutContext, values: 
 }
 
 fn addBoxStart(doc: *Document, values: *InlineLevelUsedValues, used_id: UsedId) !void {
-    const codepoints = [2]hb.hb_codepoint_t{ 0, InlineLevelUsedValues.Special.encodeBoxStart(used_id) };
-    try values.glyph_indeces.appendSlice(doc.allocator, &codepoints);
+    const glyphs = [2]GlyphIndex{ 0, InlineLevelUsedValues.Special.encodeBoxStart(used_id) };
+    try values.glyph_indeces.appendSlice(doc.allocator, &glyphs);
 }
 
 fn addBoxEnd(doc: *Document, values: *InlineLevelUsedValues, used_id: UsedId) !void {
-    const codepoints = [2]hb.hb_codepoint_t{ 0, InlineLevelUsedValues.Special.encodeBoxEnd(used_id) };
-    try values.glyph_indeces.appendSlice(doc.allocator, &codepoints);
+    const glyphs = [2]GlyphIndex{ 0, InlineLevelUsedValues.Special.encodeBoxEnd(used_id) };
+    try values.glyph_indeces.appendSlice(doc.allocator, &glyphs);
 }
 
 fn addLineBreak(doc: *Document, values: *InlineLevelUsedValues) !void {
-    const codepoints = [2]hb.hb_codepoint_t{ 0, InlineLevelUsedValues.Special.encodeLineBreak() };
-    try values.glyph_indeces.appendSlice(doc.allocator, &codepoints);
+    const glyphs = [2]GlyphIndex{ 0, InlineLevelUsedValues.Special.encodeLineBreak() };
+    try values.glyph_indeces.appendSlice(doc.allocator, &glyphs);
 }
 
 fn addText(doc: *Document, values: *InlineLevelUsedValues, latin1_text: BoxTree.Latin1Text, font: BoxTree.Font) !void {
@@ -1534,8 +1535,9 @@ fn addTextRun(doc: *Document, values: *InlineLevelUsedValues, buffer: *hb.hb_buf
     try values.glyph_indeces.ensureUnusedCapacity(doc.allocator, 2 * glyph_infos.len);
 
     for (glyph_infos) |info, i| {
-        values.glyph_indeces.appendAssumeCapacity(info.codepoint);
-        if (info.codepoint == 0) {
+        const glyph_index: GlyphIndex = info.codepoint;
+        values.glyph_indeces.appendAssumeCapacity(glyph_index);
+        if (glyph_index == 0) {
             values.glyph_indeces.appendAssumeCapacity(InlineLevelUsedValues.Special.encodeZeroGlyphIndex());
         }
     }
@@ -1665,7 +1667,7 @@ fn setInlineBoxUsedData(context: *LayoutContext, values: *InlineLevelUsedValues,
     values.background1.items[used_id] = solveBackground1(context.box_tree.background[box_id]);
 }
 
-fn setMetricsGlyph(metrics: *InlineLevelUsedValues.Metrics, font: *hb.hb_font_t, glyph_index: hb.hb_codepoint_t) void {
+fn setMetricsGlyph(metrics: *InlineLevelUsedValues.Metrics, font: *hb.hb_font_t, glyph_index: GlyphIndex) void {
     var extents: hb.hb_glyph_extents_t = undefined;
     const extents_result = hb.hb_font_get_glyph_extents(font, glyph_index, &extents);
     if (extents_result == 0) {
