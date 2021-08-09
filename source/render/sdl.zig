@@ -30,7 +30,7 @@ const RenderState = struct {
         var result = Self{};
         try result.inlines_list.ensureCapacity(allocator, doc.inlines.items.len);
         errdefer result.inlines_list.deinit(allocator);
-        try result.stacking_context_inlines_count.ensureCapacity(allocator, doc.blocks.stacking_contexts.items.len);
+        try result.stacking_context_inlines_count.ensureCapacity(allocator, doc.stacking_contexts.items.len);
         errdefer result.stacking_context_inlines_count.deinit(allocator);
         return result;
     }
@@ -61,7 +61,7 @@ pub fn renderDocument(
         state: enum { DrawRoot, DrawChildren },
 
         fn addToStack(stack: *ArrayList(@This()), top: @This(), index: usize, doc_: *const Document) !void {
-            const child_used_id = doc_.blocks.stacking_contexts.items[top.interval.current].used_id;
+            const child_used_id = doc_.stacking_contexts.items[top.interval.current].used_id;
             var it = zss.util.StructureArray(UsedId).treeIterator(doc_.blocks.structure.items, top.used_id, child_used_id);
             var it_used_id = it.next().?;
             var tr = top.translation;
@@ -69,7 +69,7 @@ pub fn renderDocument(
                 tr = tr.add(zssLogicalVectorToZssVector(doc_.blocks.box_offsets.items[it_used_id].content_start));
             }
             try stack.insert(index, .{
-                .interval = .{ .current = top.interval.current + 1, .end = top.interval.current + doc_.blocks.stacking_context_structure.items[top.interval.current] },
+                .interval = .{ .current = top.interval.current + 1, .end = top.interval.current + doc_.stacking_context_structure.items[top.interval.current] },
                 .used_id = child_used_id,
                 .translation = tr,
                 .state = .DrawRoot,
@@ -79,8 +79,8 @@ pub fn renderDocument(
     var stacking_context_stack = ArrayList(StackItem).init(allocator);
     defer stacking_context_stack.deinit();
     try stacking_context_stack.append(.{
-        .interval = .{ .current = 1, .end = doc.blocks.stacking_context_structure.items[0] },
-        .used_id = doc.blocks.stacking_contexts.items[0].used_id,
+        .interval = .{ .current = 1, .end = doc.stacking_context_structure.items[0] },
+        .used_id = doc.stacking_contexts.items[0].used_id,
         .translation = sdlPointToZssVector(translation),
         .state = .DrawRoot,
     });
@@ -91,9 +91,9 @@ pub fn renderDocument(
         switch (top.state) {
             .DrawRoot => {
                 top.state = .DrawChildren;
-                while (top.interval.current < top.interval.end and doc.blocks.stacking_contexts.items[top.interval.current].z_index < 0) {
+                while (top.interval.current < top.interval.end and doc.stacking_contexts.items[top.interval.current].z_index < 0) {
                     try StackItem.addToStack(&stacking_context_stack, top, old_len, doc);
-                    top.interval.current += doc.blocks.stacking_context_structure.items[top.interval.current];
+                    top.interval.current += doc.stacking_context_structure.items[top.interval.current];
                 }
                 stacking_context_stack.items[old_len - 1] = top;
 
@@ -104,7 +104,7 @@ pub fn renderDocument(
                 _ = stacking_context_stack.pop();
                 while (top.interval.current < top.interval.end) {
                     try StackItem.addToStack(&stacking_context_stack, top, old_len - 1, doc);
-                    top.interval.current += doc.blocks.stacking_context_structure.items[top.interval.current];
+                    top.interval.current += doc.stacking_context_structure.items[top.interval.current];
                 }
                 try drawBlockValuesChildren(&s, &doc.blocks, top.used_id, allocator, top.translation, clip_rect_zss, renderer, pixel_format);
 

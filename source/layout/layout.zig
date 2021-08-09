@@ -250,8 +250,8 @@ fn createBlockLevelUsedValues(doc: *Document, context: *LayoutContext) Error!voi
     }
 
     // Create the root stacking context.
-    try doc.blocks.stacking_context_structure.append(doc.allocator, 1);
-    try doc.blocks.stacking_contexts.append(doc.allocator, .{ .z_index = 0, .used_id = 0 });
+    try doc.stacking_context_structure.append(doc.allocator, 1);
+    try doc.stacking_contexts.append(doc.allocator, .{ .z_index = 0, .used_id = 0 });
     doc.blocks.properties.items[0].creates_stacking_context = true;
     try context.stacking_context_id.append(context.allocator, 0);
 
@@ -1270,14 +1270,14 @@ fn blockBoxFillOtherPropertiesWithDefaults(doc: *Document, used_id: UsedId) void
 fn createStackingContext(doc: *Document, context: *LayoutContext, block: Block, z_index: ZIndex) !StackingContextId {
     const parent_stacking_context_id = context.stacking_context_id.items[context.stacking_context_id.items.len - 1];
     var current = parent_stacking_context_id + 1;
-    const end = parent_stacking_context_id + doc.blocks.stacking_context_structure.items[parent_stacking_context_id];
-    while (current < end and z_index >= doc.blocks.stacking_contexts.items[current].z_index) : (current += doc.blocks.stacking_context_structure.items[current]) {}
+    const end = parent_stacking_context_id + doc.stacking_context_structure.items[parent_stacking_context_id];
+    while (current < end and z_index >= doc.stacking_contexts.items[current].z_index) : (current += doc.stacking_context_structure.items[current]) {}
 
     for (context.stacking_context_id.items) |index| {
-        doc.blocks.stacking_context_structure.items[index] += 1;
+        doc.stacking_context_structure.items[index] += 1;
     }
-    try doc.blocks.stacking_context_structure.insert(doc.allocator, current, 1);
-    try doc.blocks.stacking_contexts.insert(doc.allocator, current, .{ .z_index = z_index, .used_id = block.used_id });
+    try doc.stacking_context_structure.insert(doc.allocator, current, 1);
+    try doc.stacking_contexts.insert(doc.allocator, current, .{ .z_index = z_index, .used_id = block.used_id });
     block.properties.creates_stacking_context = true;
     return current;
 }

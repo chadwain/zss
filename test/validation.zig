@@ -66,10 +66,10 @@ fn validateStackingContexts(document: *zss.used_values.Document) !void {
     stack.append(0) catch unreachable;
     while (stack.items.len > 0) {
         const parent = stack.pop();
-        var it = zss.util.StructureArray(StackingContextId).childIterator(document.blocks.stacking_context_structure.items, parent);
+        var it = zss.util.StructureArray(StackingContextId).childIterator(document.stacking_context_structure.items, parent);
         var last: ZIndex = std.math.minInt(ZIndex);
         while (it.next()) |child| {
-            const current = document.blocks.stacking_contexts.items[child].z_index;
+            const current = document.stacking_contexts.items[child].z_index;
             try expect(last <= current);
             last = current;
             stack.append(child) catch unreachable;

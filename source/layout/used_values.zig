@@ -151,20 +151,12 @@ pub const BlockLevelUsedValues = struct {
     properties: ArrayListUnmanaged(BoxProperties) = .{},
     // End of the "used id" indexed arrays.
 
-    stacking_context_structure: ArrayListUnmanaged(StackingContextId) = .{},
-    stacking_contexts: ArrayListUnmanaged(StackingContext) = .{},
-
     const Self = @This();
 
     pub const BoxProperties = struct {
         creates_stacking_context: bool = false,
         inline_context_index: ?InlineId = null,
         uses_shrink_to_fit_sizing: bool = false,
-    };
-
-    pub const StackingContext = struct {
-        z_index: ZIndex,
-        used_id: UsedId,
     };
 
     pub fn deinit(self: *Self, allocator: *Allocator) void {
@@ -176,9 +168,6 @@ pub const BlockLevelUsedValues = struct {
         self.background1.deinit(allocator);
         self.background2.deinit(allocator);
         self.properties.deinit(allocator);
-
-        self.stacking_context_structure.deinit(allocator);
-        self.stacking_contexts.deinit(allocator);
     }
 
     pub fn ensureCapacity(self: *Self, allocator: *Allocator, capacity: usize) !void {
@@ -365,9 +354,16 @@ pub const InlineLevelUsedValues = struct {
 pub const Document = struct {
     blocks: BlockLevelUsedValues,
     inlines: ArrayListUnmanaged(*InlineLevelUsedValues),
+    stacking_context_structure: ArrayListUnmanaged(StackingContextId) = .{},
+    stacking_contexts: ArrayListUnmanaged(StackingContext) = .{},
     allocator: *Allocator,
 
     const Self = @This();
+
+    pub const StackingContext = struct {
+        z_index: ZIndex,
+        used_id: UsedId,
+    };
 
     pub fn deinit(self: *Self) void {
         self.blocks.deinit(self.allocator);
@@ -376,6 +372,8 @@ pub const Document = struct {
             self.allocator.destroy(inl);
         }
         self.inlines.deinit(self.allocator);
+        self.stacking_context_structure.deinit(self.allocator);
+        self.stacking_contexts.deinit(self.allocator);
     }
 };
 
