@@ -665,13 +665,15 @@ fn pushShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval
     const width_info = try shrinkToFit1stPassGetWidth(context, box_id);
 
     if (width_info.width) |width| {
-        block.box_offsets.content_end.x = 0;
         const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
         parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, width + width_info.base_width);
+
+        const logical_width = try flowBlockSolveInlineSizes(context, box_id, block.box_offsets, block.borders, block.margins);
+        assert(logical_width == width);
         const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, box_id, block.box_offsets, block.borders, block.margins);
-        try changeToFlowLayout(context, box_id, block.used_id, width, used_logical_heights, null);
+        try changeToFlowLayout(context, box_id, block.used_id, logical_width, used_logical_heights, null);
     } else {
-        block.box_offsets.content_end.x = 1;
+        block.properties.uses_shrink_to_fit_sizing = true;
         const parent_available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
         const available_width = std.math.max(0, parent_available_width - width_info.base_width);
         const used_logical_heights = try shrinkToFit1stPassGetHeights(context, box_id);
@@ -846,25 +848,14 @@ fn pushShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext, used_id_
     const borders = &doc.blocks.borders.items[used_id];
     const margins = &doc.blocks.margins.items[used_id];
 
-    if (properties.inline_context_index) |_| {
+    if (!properties.uses_shrink_to_fit_sizing or properties.inline_context_index != null) {
         const parent_auto_logical_height = &context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 1];
         addBlockToFlow(box_offsets, margins.block_end, parent_auto_logical_height);
-        return;
-    }
-
-    switch (box_offsets.content_end.x) {
-        0 => {
-            _ = try flowBlockSolveInlineSizes(context, box_id, box_offsets, borders, margins);
-            const parent_auto_logical_height = &context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 1];
-            addBlockToFlow(box_offsets, margins.block_end, parent_auto_logical_height);
-        },
-        1 => {
-            const logical_width = try flowBlockSolveInlineSizes(context, box_id, box_offsets, borders, margins);
-            const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, box_id, box_offsets, borders, margins);
-            const new_interval = UsedIdInterval{ .begin = used_id + 1, .end = used_id + used_subtree_size };
-            try changeToShrinkToFit2ndPassLayout(context, used_id, new_interval, logical_width, used_logical_heights);
-        },
-        else => unreachable,
+    } else {
+        const logical_width = try flowBlockSolveInlineSizes(context, box_id, box_offsets, borders, margins);
+        const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, box_id, box_offsets, borders, margins);
+        const new_interval = UsedIdInterval{ .begin = used_id + 1, .end = used_id + used_subtree_size };
+        try changeToShrinkToFit2ndPassLayout(context, used_id, new_interval, logical_width, used_logical_heights);
     }
 }
 

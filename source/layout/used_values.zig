@@ -159,6 +159,7 @@ pub const BlockLevelUsedValues = struct {
     pub const BoxProperties = struct {
         creates_stacking_context: bool = false,
         inline_context_index: ?InlineId = null,
+        uses_shrink_to_fit_sizing: bool = false,
     };
 
     pub const StackingContext = struct {
