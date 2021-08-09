@@ -214,4 +214,11 @@ pub const tree_data = [_]TreeData{
         .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{ .color = .{ .rgba = 0x472658ff } }, .{ .color = .{ .rgba = 0xd74529ff } }, .{ .color = .{ .rgba = 0xd5ad81ff } }, .{} },
         .border = border_color_sets[0],
     },
+    .{
+        .structure = &.{ 7, 1, 1, 1, 2, 1, 1 },
+        .display = &.{ .{ .block = {} }, .{ .block = {} }, .{ .text = {} }, .{ .block = {} }, .{ .inline_ = {} }, .{ .text = {} }, .{ .block = {} } },
+        .block_size = &.{ .{ .size = .{ .px = 400 } }, .{ .size = .{ .px = 50 } }, .{}, .{ .size = .{ .px = 50 } }, .{}, .{}, .{ .size = .{ .px = 50 } } },
+        .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{}, .{ .color = .{ .rgba = 0x472658ff } }, .{ .color = .{ .rgba = 0xd74529ff } }, .{}, .{ .color = .{ .rgba = 0xd5ad81ff } } },
+        .latin1_text = &.{ .{}, .{}, .{ .text = "stuff 1" }, .{}, .{}, .{ .text = "stuff 2" }, .{} },
+    },
 };

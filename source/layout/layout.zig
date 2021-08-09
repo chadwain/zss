@@ -78,6 +78,11 @@ const LayoutMode = enum {
     InlineContainer,
 };
 
+const Interval = struct {
+    begin: BoxId,
+    end: BoxId,
+};
+
 const UsedIdInterval = struct {
     begin: UsedId,
     end: UsedId,
@@ -91,6 +96,14 @@ const UsedLogicalHeights = struct {
 
 const Metadata = struct {
     is_stacking_context_parent: bool,
+};
+
+const ContinuationBlock = struct {
+    /// The box id of the inline block.
+    box_id: BoxId,
+    /// The position within the glyph_indeces array of
+    /// the special glyph index that represents the continuation block.
+    index: usize,
 };
 
 const InlineBlock = struct {
@@ -117,12 +130,6 @@ const InlineContainer = struct {
 
 const LayoutContext = struct {
     const Self = @This();
-
-    const Interval = struct {
-        parent: BoxId,
-        begin: BoxId,
-        end: BoxId,
-    };
 
     box_tree: *const BoxTree,
     allocator: *Allocator,
@@ -158,7 +165,7 @@ const LayoutContext = struct {
 
         var intervals = ArrayListUnmanaged(Interval){};
         errdefer intervals.deinit(allocator);
-        try intervals.append(allocator, .{ .parent = root_box_id, .begin = root_box_id, .end = root_box_id + box_tree.structure[root_box_id] });
+        try intervals.append(allocator, .{ .begin = root_box_id, .end = root_box_id + box_tree.structure[root_box_id] });
 
         var used_subtree_size = ArrayListUnmanaged(UsedSubtreeSize){};
         errdefer used_subtree_size.deinit(allocator);
@@ -322,7 +329,7 @@ fn processElement(doc: *Document, context: *LayoutContext) !void {
     }
 }
 
-fn skipElement(context: *LayoutContext, interval: *LayoutContext.Interval) void {
+fn skipElement(context: *LayoutContext, interval: *Interval) void {
     const box_id = interval.begin;
     interval.begin += context.box_tree.structure[box_id];
 }
@@ -335,7 +342,7 @@ fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_end: ZssUnit, par
     parent_auto_logical_height.* = box_offsets.border_end.y + margin_end;
 }
 
-fn pushFlowBlock(doc: *Document, context: *LayoutContext, interval: *LayoutContext.Interval) !void {
+fn pushFlowBlock(doc: *Document, context: *LayoutContext, interval: *Interval) !void {
     const box_id = interval.begin;
     const subtree_size = context.box_tree.structure[box_id];
     interval.begin += subtree_size;
@@ -382,7 +389,7 @@ fn changeToFlowLayout(
     const subtree_size = context.box_tree.structure[box_id];
     // The allocations here must have corresponding deallocations in popFlowBlock.
     try context.layout_mode.append(context.allocator, .Flow);
-    try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
+    try context.intervals.append(context.allocator, .{ .begin = box_id + 1, .end = box_id + subtree_size });
     try context.used_id.append(context.allocator, used_id);
     try context.used_subtree_size.append(context.allocator, 1);
     try context.flow_block_used_logical_width.append(context.allocator, logical_width);
@@ -645,7 +652,7 @@ fn flowBlockFinishLayout(doc: *Document, context: *LayoutContext, box_offsets: *
     blockBoxApplyRelativePositioningToChildren(doc, context, logical_width, logical_height);
 }
 
-fn pushShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval: *LayoutContext.Interval) !void {
+fn pushShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval: *Interval) !void {
     const box_id = interval.begin;
     const subtree_size = context.box_tree.structure[box_id];
     interval.begin += subtree_size;
@@ -682,7 +689,7 @@ fn changeToShrinkToFit1stPassLayout(
     const subtree_size = context.box_tree.structure[box_id];
     // The allocations here must have corresponding deallocations in popShrinkToFit1stPassBlock.
     try context.layout_mode.append(context.allocator, .ShrinkToFit1stPass);
-    try context.intervals.append(context.allocator, .{ .parent = box_id, .begin = box_id + 1, .end = box_id + subtree_size });
+    try context.intervals.append(context.allocator, .{ .begin = box_id + 1, .end = box_id + subtree_size });
     try context.used_id.append(context.allocator, used_id);
     try context.used_subtree_size.append(context.allocator, 1);
     try context.shrink_to_fit_available_width.append(context.allocator, available_width);
@@ -910,17 +917,20 @@ fn popShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext) void {
 fn pushInlineContainer(
     doc: *Document,
     context: *LayoutContext,
-    interval: *LayoutContext.Interval,
+    interval: *Interval,
     containing_block_logical_width: ZssUnit,
     mode: enum { Normal, ShrinkToFit },
 ) !void {
+    var continuation_blocks = ArrayListUnmanaged(ContinuationBlock){};
+    errdefer continuation_blocks.deinit(context.allocator);
+
     var inline_blocks = ArrayListUnmanaged(InlineBlock){};
     errdefer inline_blocks.deinit(context.allocator);
 
     var used_id_to_box_id = ArrayListUnmanaged(BoxId){};
     errdefer used_id_to_box_id.deinit(context.allocator);
 
-    var inline_context = InlineLayoutContext.init(context.box_tree, context.allocator, interval.*, &inline_blocks, &used_id_to_box_id);
+    var inline_context = InlineLayoutContext.init(context.box_tree, context.allocator, interval.*, &continuation_blocks, &inline_blocks, &used_id_to_box_id);
     defer inline_context.deinit();
 
     const inline_values_ptr = try doc.allocator.create(InlineLevelUsedValues);
@@ -930,8 +940,8 @@ fn pushInlineContainer(
 
     try createInlineLevelUsedValues(doc, &inline_context, inline_values_ptr);
 
-    if (inline_context.next_box_id != interval.parent + context.box_tree.structure[interval.parent]) {
-        @panic("TODO A group of inline-level elements cannot be interrupted by a block-level element");
+    if (continuation_blocks.items.len > 0) {
+        @panic("TODO Continuation blocks");
     }
     interval.begin = inline_context.next_box_id;
     try doc.inlines.append(doc.allocator, inline_values_ptr);
@@ -1325,17 +1335,13 @@ fn blockBoxApplyRelativePositioningToChildren(doc: *Document, context: *LayoutCo
 const InlineLayoutContext = struct {
     const Self = @This();
 
-    const Interval = struct {
-        begin: BoxId,
-        end: BoxId,
-    };
-
     box_tree: *const BoxTree,
     intervals: ArrayListUnmanaged(Interval),
     used_ids: ArrayListUnmanaged(UsedId),
     allocator: *Allocator,
     root_interval: Interval,
 
+    continuation_blocks: *ArrayListUnmanaged(ContinuationBlock),
     inline_blocks: *ArrayListUnmanaged(InlineBlock),
     used_id_to_box_id: *ArrayListUnmanaged(BoxId),
     next_box_id: BoxId,
@@ -1343,7 +1349,8 @@ const InlineLayoutContext = struct {
     fn init(
         box_tree: *const BoxTree,
         allocator: *Allocator,
-        block_container_interval: LayoutContext.Interval,
+        block_container_interval: Interval,
+        continuation_blocks: *ArrayListUnmanaged(ContinuationBlock),
         inline_blocks: *ArrayListUnmanaged(InlineBlock),
         used_id_to_box_id: *ArrayListUnmanaged(BoxId),
     ) Self {
@@ -1353,6 +1360,7 @@ const InlineLayoutContext = struct {
             .used_ids = .{},
             .allocator = allocator,
             .root_interval = Interval{ .begin = block_container_interval.begin, .end = block_container_interval.end },
+            .continuation_blocks = continuation_blocks,
             .inline_blocks = inline_blocks,
             .used_id_to_box_id = used_id_to_box_id,
             .next_box_id = block_container_interval.end,
@@ -1383,7 +1391,7 @@ fn createInlineLevelUsedValues(doc: *Document, context: *InlineLayoutContext, va
     }
 }
 
-fn inlineLevelRootElementPush(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues, root_interval: InlineLayoutContext.Interval) !void {
+fn inlineLevelRootElementPush(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues, root_interval: Interval) !void {
     const root_used_id = try std.math.cast(UsedId, context.used_id_to_box_id.items.len);
     try context.used_id_to_box_id.append(context.allocator, reserved_box_id);
     try addBoxStart(doc, values, root_used_id);
@@ -1396,12 +1404,13 @@ fn inlineLevelRootElementPush(doc: *Document, context: *InlineLayoutContext, val
     }
 }
 
-fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues, interval: *InlineLayoutContext.Interval) !bool {
+fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues, interval: *Interval) !bool {
     const box_id = interval.begin;
     const subtree_size = context.box_tree.structure[box_id];
     interval.begin += subtree_size;
 
     switch (context.box_tree.display[box_id]) {
+        .text => try addText(doc, values, context.box_tree.latin1_text[box_id], context.box_tree.font),
         .inline_ => {
             const used_id = try std.math.cast(UsedId, context.used_id_to_box_id.items.len);
             try context.used_id_to_box_id.append(context.allocator, box_id);
@@ -1419,11 +1428,19 @@ fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values:
             try values.glyph_indeces.appendSlice(doc.allocator, &.{ 0, undefined });
             try context.inline_blocks.append(context.allocator, .{ .box_id = box_id, .index = values.glyph_indeces.items.len - 2 });
         },
-        .text => try addText(doc, values, context.box_tree.latin1_text[box_id], context.box_tree.font),
         .block => {
-            // Immediately finish off this inline layout context.
-            context.next_box_id = box_id;
-            return true;
+            const is_top_level = context.used_ids.items.len == 1;
+            if (is_top_level) {
+                context.next_box_id = box_id;
+                var i = context.used_ids.items.len;
+                while (i > 0) : (i -= 1) {
+                    try addBoxEnd(doc, values, context.used_ids.items[i - 1]);
+                }
+                return true;
+            } else {
+                try values.glyph_indeces.appendSlice(doc.allocator, &.{ 0, undefined });
+                try context.continuation_blocks.append(context.allocator, .{ .box_id = box_id, .index = values.glyph_indeces.items.len - 2 });
+            }
         },
         .none => {},
     }
@@ -1575,6 +1592,7 @@ fn inlineValuesFinishLayout(doc: *Document, context: *LayoutContext, container: 
                         setMetricsInlineBlock(metrics, doc, used_id);
                     },
                     .LineBreak => setMetricsLineBreak(metrics),
+                    .ContinuationBlock => @panic("TODO Continuation block metrics"),
                 }
             } else {
                 setMetricsGlyph(metrics, values.font, glyph_index);
@@ -1729,6 +1747,7 @@ fn splitIntoLineBoxes(doc: *Document, values: *InlineLevelUsedValues, containing
                     max_top_height = top_height;
                     continue;
                 },
+                .ContinuationBlock => @panic("TODO Continuation blocks"),
                 else => {},
             }
         }
@@ -1756,6 +1775,7 @@ fn splitIntoLineBoxes(doc: *Document, values: *InlineLevelUsedValues, containing
                     max_top_height = std.math.max(max_top_height, margin_box_height);
                 },
                 .LineBreak => unreachable,
+                .ContinuationBlock => @panic("TODO Continuation blocks"),
                 else => {},
             }
             line_box.elements[1] += 2;

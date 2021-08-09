@@ -272,7 +272,7 @@ pub const InlineLevelUsedValues = struct {
             /// data is the used id of the box.
             BoxEnd,
             /// Represents an inline block
-            /// data is the (block) used id of the box.
+            /// data is the used id of the block box.
             InlineBlock,
             /// Any other value of this enum should never appear in an end user's code.
             _,
@@ -294,6 +294,12 @@ pub const InlineLevelUsedValues = struct {
             /// Represents a mandatory line break in the text.
             /// data has no meaning.
             LineBreak,
+            /// Represents a continuation block.
+            /// A "continuation block" is a block box that is the child of an inline box.
+            /// It causes the inline formatting context to be split around this block,
+            /// and creates anonymous block boxes, as per CSS2§9.2.1.1.
+            /// data is the used id of the block box.
+            ContinuationBlock,
         };
 
         comptime {
@@ -320,6 +326,10 @@ pub const InlineLevelUsedValues = struct {
 
         pub fn encodeLineBreak() hb.hb_codepoint_t {
             return @bitCast(hb.hb_codepoint_t, Special{ .kind = @intToEnum(Kind, @enumToInt(LayoutInternalKind.LineBreak)), .data = undefined });
+        }
+
+        pub fn encodeContinuationBlock(used_id: UsedId) hb.hb_codepoint_t {
+            return @bitCast(hb.hb_codepoint_t, Special{ .kind = @intToEnum(Kind, @enumToInt(LayoutInternalKind.ContinuationBlock)), .data = used_id });
         }
     };
 
