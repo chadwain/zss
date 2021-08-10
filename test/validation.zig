@@ -23,7 +23,7 @@ test "validation" {
 
         var test_case = cases.get(i, library);
         defer test_case.deinit();
-        var document = try zss.layout.doLayout(&test_case.tree, allocator, test_case.width, test_case.height);
+        var document = try zss.layout.doLayout(&test_case.tree, allocator, .{ .w = test_case.width, .h = test_case.height });
         defer document.deinit();
 
         try validateStackingContexts(&document);

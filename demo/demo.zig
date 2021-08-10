@@ -316,7 +316,7 @@ const ProgramState = struct {
         sdl.SDL_GetWindowSize(window, &result.width, &result.height);
         result.timer = try std.time.Timer.start();
 
-        result.document = try zss.layout.doLayout(tree, allocator, pixelToZssUnit(result.width), pixelToZssUnit(result.height));
+        result.document = try zss.layout.doLayout(tree, allocator, .{ .w = pixelToZssUnit(result.width), .h = pixelToZssUnit(result.height) });
         errdefer result.document.deinit();
 
         result.last_layout_time = result.timer.read();
@@ -335,7 +335,7 @@ const ProgramState = struct {
 
     fn updateDocument(self: *Self, allocator: *Allocator) !void {
         self.timer.reset();
-        var new_document = try zss.layout.doLayout(self.tree, allocator, pixelToZssUnit(self.width), pixelToZssUnit(self.height));
+        var new_document = try zss.layout.doLayout(self.tree, allocator, .{ .w = pixelToZssUnit(self.width), .h = pixelToZssUnit(self.height) });
         self.last_layout_time = self.timer.read();
         self.document.deinit();
         self.document = new_document;

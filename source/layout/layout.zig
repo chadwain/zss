@@ -12,6 +12,7 @@ const maximum_box_id = BoxTree.maximum_box_id;
 
 const used_values = @import("./used_values.zig");
 const ZssUnit = used_values.ZssUnit;
+const ZssSize = used_values.ZssSize;
 const unitsPerPixel = used_values.unitsPerPixel;
 const UsedId = used_values.UsedId;
 const UsedSubtreeSize = used_values.UsedSubtreeSize;
@@ -32,9 +33,9 @@ pub const Error = error{
     Overflow,
 };
 
-pub fn doLayout(box_tree: *const BoxTree, allocator: *Allocator, document_width: ZssUnit, document_height: ZssUnit) Error!Document {
+pub fn doLayout(box_tree: *const BoxTree, allocator: *Allocator, viewport_size: ZssSize) Error!Document {
     if (box_tree.structure[0] > maximum_box_id) return error.Overflow;
-    var context = try LayoutContext.init(box_tree, allocator, document_width, document_height);
+    var context = LayoutContext{ .box_tree = box_tree, .allocator = allocator, .viewport_size = viewport_size };
     defer context.deinit();
     var doc = Document{
         .blocks = BlockLevelUsedValues{},
@@ -134,86 +135,31 @@ const LayoutContext = struct {
 
     box_tree: *const BoxTree,
     allocator: *Allocator,
+    viewport_size: ZssSize,
 
-    layout_mode: ArrayListUnmanaged(LayoutMode),
+    layout_mode: ArrayListUnmanaged(LayoutMode) = .{},
 
-    metadata: ArrayListUnmanaged(Metadata),
-    stacking_context_id: ArrayListUnmanaged(StackingContextId),
-    used_id_to_box_id: ArrayListUnmanaged(BoxId),
+    metadata: ArrayListUnmanaged(Metadata) = .{},
+    stacking_context_id: ArrayListUnmanaged(StackingContextId) = .{},
+    used_id_to_box_id: ArrayListUnmanaged(BoxId) = .{},
 
-    intervals: ArrayListUnmanaged(Interval),
-    used_id: ArrayListUnmanaged(UsedId),
-    used_subtree_size: ArrayListUnmanaged(UsedSubtreeSize),
+    intervals: ArrayListUnmanaged(Interval) = .{},
+    used_id: ArrayListUnmanaged(UsedId) = .{},
+    used_subtree_size: ArrayListUnmanaged(UsedSubtreeSize) = .{},
 
-    flow_block_used_logical_width: ArrayListUnmanaged(ZssUnit),
-    flow_block_auto_logical_height: ArrayListUnmanaged(ZssUnit),
-    flow_block_used_logical_heights: ArrayListUnmanaged(UsedLogicalHeights),
+    flow_block_used_logical_width: ArrayListUnmanaged(ZssUnit) = .{},
+    flow_block_auto_logical_height: ArrayListUnmanaged(ZssUnit) = .{},
+    flow_block_used_logical_heights: ArrayListUnmanaged(UsedLogicalHeights) = .{},
 
-    relative_positioned_descendants_ids: ArrayListUnmanaged(UsedId),
-    relative_positioned_descendants_count: ArrayListUnmanaged(UsedBoxCount),
+    relative_positioned_descendants_ids: ArrayListUnmanaged(UsedId) = .{},
+    relative_positioned_descendants_count: ArrayListUnmanaged(UsedBoxCount) = .{},
 
-    shrink_to_fit_available_width: ArrayListUnmanaged(ZssUnit),
-    shrink_to_fit_auto_width: ArrayListUnmanaged(ZssUnit),
-    shrink_to_fit_base_width: ArrayListUnmanaged(ZssUnit),
-    used_id_intervals: ArrayListUnmanaged(UsedIdInterval),
+    shrink_to_fit_available_width: ArrayListUnmanaged(ZssUnit) = .{},
+    shrink_to_fit_auto_width: ArrayListUnmanaged(ZssUnit) = .{},
+    shrink_to_fit_base_width: ArrayListUnmanaged(ZssUnit) = .{},
+    used_id_intervals: ArrayListUnmanaged(UsedIdInterval) = .{},
 
-    inline_container: ArrayListUnmanaged(InlineContainer),
-
-    fn init(box_tree: *const BoxTree, allocator: *Allocator, containing_block_logical_width: ZssUnit, containing_block_logical_height: ZssUnit) !Self {
-        var layout_mode = ArrayListUnmanaged(LayoutMode){};
-        errdefer layout_mode.deinit(allocator);
-        try layout_mode.append(allocator, .Flow);
-
-        var intervals = ArrayListUnmanaged(Interval){};
-        errdefer intervals.deinit(allocator);
-        try intervals.append(allocator, .{ .begin = root_box_id, .end = root_box_id + box_tree.structure[root_box_id] });
-
-        var used_subtree_size = ArrayListUnmanaged(UsedSubtreeSize){};
-        errdefer used_subtree_size.deinit(allocator);
-        try used_subtree_size.append(allocator, 1);
-
-        var flow_block_used_logical_width = ArrayListUnmanaged(ZssUnit){};
-        errdefer flow_block_used_logical_width.deinit(allocator);
-        try flow_block_used_logical_width.append(allocator, containing_block_logical_width);
-
-        var flow_block_auto_logical_height = ArrayListUnmanaged(ZssUnit){};
-        errdefer flow_block_auto_logical_height.deinit(allocator);
-        try flow_block_auto_logical_height.append(allocator, 0);
-
-        var flow_block_used_logical_heights = ArrayListUnmanaged(UsedLogicalHeights){};
-        errdefer flow_block_used_logical_heights.deinit(allocator);
-        try flow_block_used_logical_heights.append(allocator, UsedLogicalHeights{
-            .height = containing_block_logical_height,
-            .min_height = 0,
-            .max_height = 0,
-        });
-
-        var relative_positioned_descendants_count = ArrayListUnmanaged(UsedBoxCount){};
-        errdefer relative_positioned_descendants_count.deinit(allocator);
-        try relative_positioned_descendants_count.append(allocator, 0);
-
-        return Self{
-            .box_tree = box_tree,
-            .allocator = allocator,
-            .intervals = intervals,
-            .layout_mode = layout_mode,
-            .metadata = .{},
-            .stacking_context_id = .{},
-            .used_id_to_box_id = .{},
-            .used_id = .{},
-            .used_subtree_size = used_subtree_size,
-            .flow_block_used_logical_width = flow_block_used_logical_width,
-            .flow_block_auto_logical_height = flow_block_auto_logical_height,
-            .flow_block_used_logical_heights = flow_block_used_logical_heights,
-            .relative_positioned_descendants_ids = .{},
-            .relative_positioned_descendants_count = relative_positioned_descendants_count,
-            .shrink_to_fit_available_width = .{},
-            .shrink_to_fit_auto_width = .{},
-            .shrink_to_fit_base_width = .{},
-            .used_id_intervals = .{},
-            .inline_container = .{},
-        };
-    }
+    inline_container: ArrayListUnmanaged(InlineContainer) = .{},
 
     fn deinit(self: *Self) void {
         self.intervals.deinit(self.allocator);
@@ -239,20 +185,28 @@ const LayoutContext = struct {
     }
 };
 
-fn createBlockLevelUsedValues(doc: *Document, context: *LayoutContext) Error!void {
-    doc.blocks.ensureCapacity(doc.allocator, context.box_tree.structure[0]) catch {};
+fn createBlockLevelUsedValues(doc: *Document, context: *LayoutContext) !void {
+    doc.blocks.ensureCapacity(doc.allocator, context.box_tree.structure[0] + 1) catch {};
+
+    // Initialize the context with some data.
+    try context.layout_mode.append(context.allocator, .Flow);
+    try context.used_subtree_size.append(context.allocator, 1);
+    try context.flow_block_auto_logical_height.append(context.allocator, 0);
+
+    // Create the initial containing block.
+    try createInitialContainingBlock(doc, context);
 
     // Process the root element.
     try processElement(doc, context);
-    if (doc.blocks.structure.items.len == 0) {
+    if (doc.blocks.structure.items.len == 1) {
         // The root element has a 'display' value of 'none'.
         return;
     }
 
     // Create the root stacking context.
     try doc.stacking_context_structure.append(doc.allocator, 1);
-    try doc.stacking_contexts.append(doc.allocator, .{ .z_index = 0, .used_id = 0 });
-    doc.blocks.properties.items[0].creates_stacking_context = true;
+    try doc.stacking_contexts.append(doc.allocator, .{ .z_index = 0, .used_id = 1 });
+    doc.blocks.properties.items[1].creates_stacking_context = true;
     try context.stacking_context_id.append(context.allocator, 0);
 
     // Process all other elements.
@@ -273,6 +227,31 @@ fn createBlockLevelUsedValues(doc: *Document, context: *LayoutContext) Error!voi
             blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, used_id));
         }
     }
+}
+
+fn createInitialContainingBlock(doc: *Document, context: *LayoutContext) !void {
+    const width = context.viewport_size.w;
+    const height = context.viewport_size.h;
+
+    const block = try createBlock(doc, context, reserved_box_id);
+    block.structure.* = undefined;
+    block.properties.* = .{};
+    block.box_offsets.* = .{
+        .border_start = .{ .x = 0, .y = 0 },
+        .content_start = .{ .x = 0, .y = 0 },
+        .content_end = .{ .x = width, .y = height },
+        .border_end = .{ .x = width, .y = height },
+    };
+    block.borders.* = .{};
+    block.margins.* = .{};
+
+    const interval = Interval{ .begin = root_box_id, .end = root_box_id + context.box_tree.structure[root_box_id] };
+    const logical_heights = UsedLogicalHeights{
+        .height = height,
+        .min_height = height,
+        .max_height = height,
+    };
+    try changeToFlowLayout(context, interval, block.used_id, width, logical_heights, null);
 }
 
 fn processElement(doc: *Document, context: *LayoutContext) !void {
@@ -376,21 +355,20 @@ fn pushFlowBlock(doc: *Document, context: *LayoutContext, interval: *Interval) !
         },
     };
 
-    try changeToFlowLayout(context, box_id, block.used_id, logical_width, used_logical_heights, stacking_context_id);
+    try changeToFlowLayout(context, Interval{ .begin = box_id + 1, .end = box_id + subtree_size }, block.used_id, logical_width, used_logical_heights, stacking_context_id);
 }
 
 fn changeToFlowLayout(
     context: *LayoutContext,
-    box_id: BoxId,
+    interval: Interval,
     used_id: UsedId,
     logical_width: ZssUnit,
     logical_heights: UsedLogicalHeights,
     stacking_context_id: ?StackingContextId,
 ) !void {
-    const subtree_size = context.box_tree.structure[box_id];
     // The allocations here must have corresponding deallocations in popFlowBlock.
     try context.layout_mode.append(context.allocator, .Flow);
-    try context.intervals.append(context.allocator, .{ .begin = box_id + 1, .end = box_id + subtree_size });
+    try context.intervals.append(context.allocator, interval);
     try context.used_id.append(context.allocator, used_id);
     try context.used_subtree_size.append(context.allocator, 1);
     try context.flow_block_used_logical_width.append(context.allocator, logical_width);
@@ -671,7 +649,7 @@ fn pushShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval
         const logical_width = try flowBlockSolveInlineSizes(context, box_id, block.box_offsets, block.borders, block.margins);
         assert(logical_width == width);
         const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, box_id, block.box_offsets, block.borders, block.margins);
-        try changeToFlowLayout(context, box_id, block.used_id, logical_width, used_logical_heights, null);
+        try changeToFlowLayout(context, Interval{ .begin = box_id + 1, .end = box_id + subtree_size }, block.used_id, logical_width, used_logical_heights, null);
     } else {
         block.properties.uses_shrink_to_fit_sizing = true;
         const parent_available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
@@ -1079,7 +1057,7 @@ fn pushInlineBlock(doc: *Document, context: *LayoutContext, container: InlineCon
     const sizes = try inlineBlockSolveSizesPart1(context, inline_block.box_id, block.box_offsets, block.borders, block.margins);
 
     if (sizes.logical_width) |logical_width| {
-        try changeToFlowLayout(context, box_id, block.used_id, logical_width, sizes.logical_heights, null);
+        try changeToFlowLayout(context, Interval{ .begin = box_id + 1, .end = box_id + subtree_size }, block.used_id, logical_width, sizes.logical_heights, null);
     } else {
         const base_width = (block.box_offsets.content_start.x - block.box_offsets.border_start.x) + (block.box_offsets.border_end.x - block.box_offsets.content_end.x) + block.margins.inline_start + block.margins.inline_end;
         const available_width = std.math.max(0, container.containing_block_logical_width - base_width);

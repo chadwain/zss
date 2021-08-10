@@ -81,9 +81,9 @@ test "sdl" {
         defer case.deinit();
         var atlas = try r.GlyphAtlas.init(case.face, renderer.?, pixel_format, allocator);
         defer atlas.deinit(allocator);
-        var doc = try zss.layout.doLayout(&case.tree, allocator, case.width, case.height);
+        var doc = try zss.layout.doLayout(&case.tree, allocator, .{ .w = case.width, .h = case.height });
         defer doc.deinit();
-        const root_sizes = doc.blocks.box_offsets.items[0];
+        const root_sizes = doc.blocks.box_offsets.items[1];
         const root_width = r.zssUnitToPixel(root_sizes.border_end.x - root_sizes.border_start.x);
         const root_height = r.zssUnitToPixel(root_sizes.border_end.y - root_sizes.border_start.y);
         const surface = try drawToSurface(&doc, root_width, root_height, sdl.SDL_Point{ .x = 0, .y = 0 }, renderer.?, pixel_format, &atlas);
