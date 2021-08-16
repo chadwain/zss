@@ -27,16 +27,17 @@ pub fn build(b: *Builder) void {
 }
 
 fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {
-    const test_validation_option = b.option(bool, "test-validation", "Also run validation tests") orelse true;
-    const test_sdl_option = b.option(bool, "test-sdl", "Also run SDL tests") orelse true;
+    const test_lib_option = b.option(bool, "test-lib", "Enable or disable library tests") orelse true;
+    const test_validation_option = b.option(bool, "test-validation", "Enable or disable validation tests") orelse true;
+    const test_sdl_option = b.option(bool, "test-sdl", "Enable or disable SDL tests") orelse true;
 
-    var main_tests = b.addTest("zss.zig");
-    main_tests.setBuildMode(mode);
-    main_tests.setTarget(target);
-    main_tests.addPackage(pkgs.harfbuzz);
-    main_tests.linkLibC();
-    main_tests.linkSystemLibrary("harfbuzz");
-    main_tests.linkSystemLibrary("freetype2");
+    var lib_tests = b.addTest("zss.zig");
+    lib_tests.setBuildMode(mode);
+    lib_tests.setTarget(target);
+    lib_tests.addPackage(pkgs.harfbuzz);
+    lib_tests.linkLibC();
+    lib_tests.linkSystemLibrary("harfbuzz");
+    lib_tests.linkSystemLibrary("freetype2");
 
     var validation_tests = b.addTest("test/validation.zig");
     validation_tests.setBuildMode(mode);
@@ -67,7 +68,7 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
     });
 
     const tests_step = b.step("test", "Run tests");
-    tests_step.dependOn(&main_tests.step);
+    if (test_lib_option) tests_step.dependOn(&lib_tests.step);
     if (test_validation_option) tests_step.dependOn(&validation_tests.step);
     if (test_sdl_option) tests_step.dependOn(&sdl_tests.step);
 }
