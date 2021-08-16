@@ -203,7 +203,7 @@ pub const tree_data = [_]TreeData{
             .{},
         },
         .block_size = &.{
-            .{ .size = .{ .px = 400 } },
+            .{},
             .{ .padding_start = .{ .px = 0 }, .padding_end = .{ .px = 0 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } },
             .{ .size = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } },
             .{ .size = .{ .px = 50 }, .border_start = .{ .px = 10 }, .border_end = .{ .px = 10 } },
@@ -217,7 +217,7 @@ pub const tree_data = [_]TreeData{
     .{
         .structure = &.{ 7, 1, 1, 1, 2, 1, 1 },
         .display = &.{ .{ .block = {} }, .{ .block = {} }, .{ .text = {} }, .{ .block = {} }, .{ .inline_ = {} }, .{ .text = {} }, .{ .block = {} } },
-        .block_size = &.{ .{ .size = .{ .px = 400 } }, .{ .size = .{ .px = 50 } }, .{}, .{ .size = .{ .px = 50 } }, .{}, .{}, .{ .size = .{ .px = 50 } } },
+        .block_size = &.{ .{}, .{ .size = .{ .px = 50 } }, .{}, .{ .size = .{ .px = 50 } }, .{}, .{}, .{ .size = .{ .px = 50 } } },
         .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{}, .{ .color = .{ .rgba = 0x472658ff } }, .{ .color = .{ .rgba = 0xd74529ff } }, .{}, .{ .color = .{ .rgba = 0xd5ad81ff } } },
         .latin1_text = &.{ .{}, .{}, .{ .text = "stuff 1" }, .{}, .{}, .{ .text = "stuff 2" }, .{} },
     },

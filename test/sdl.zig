@@ -27,6 +27,9 @@ pub fn drawToSurface(
     var th: c_int = undefined;
     assert(sdl.SDL_QueryTexture(sdl.SDL_GetRenderTarget(renderer), null, null, &tw, &th) == 0);
 
+    const buffer = sdl.SDL_CreateRGBSurface(0, tw, th, 32, 0, 0, 0, 0);
+    defer sdl.SDL_FreeSurface(buffer);
+
     const count_x = zss.util.divCeil(width, tw);
     const count_y = zss.util.divCeil(height, th);
 
@@ -39,8 +42,9 @@ pub fn drawToSurface(
             assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0) == 0);
             assert(sdl.SDL_RenderClear(renderer) == 0);
             try r.renderDocument(doc, renderer, pixel_format, glyph_atlas, allocator, vp, tr);
-            const pixels = @ptrCast([*]u8, surface.*.pixels.?);
-            assert(sdl.SDL_RenderReadPixels(renderer, &vp, 0, &pixels[@intCast(usize, 4 * ((i * tw) + (j * th) * width))], width * 4) == 0);
+            sdl.SDL_RenderPresent(renderer);
+            assert(sdl.SDL_RenderReadPixels(renderer, &vp, buffer.*.format.*.format, buffer.*.pixels, buffer.*.pitch) == 0);
+            assert(sdl.SDL_BlitSurface(buffer, null, surface, &.{ .x = i * tw, .y = j * th, .w = tw, .h = th }) == 0);
         }
     }
 
@@ -50,7 +54,6 @@ pub fn drawToSurface(
 test "sdl" {
     var window: ?*sdl.SDL_Window = undefined;
     var renderer: ?*sdl.SDL_Renderer = undefined;
-    // TODO crash from SDL_RenderReadPixels if window is too small
     const wwidth = 100;
     const wheight = 100;
     assert(sdl.SDL_Init(sdl.SDL_INIT_VIDEO) == 0);
