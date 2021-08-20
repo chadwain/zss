@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const sdl = @import("SDL2");
 const util = @import("../../util.zig");
+const Ratio = util.Ratio;
 
 pub fn rgbaMap(pixel_format: *sdl.SDL_PixelFormat, color: u32) [4]u8 {
     const color_le = std.mem.nativeToLittle(u32, color);
@@ -49,9 +50,14 @@ pub const BackgroundRepeat = struct {
     y: BackgroundRepeatStyle,
 };
 
+pub const ImagePosition = struct {
+    x: Ratio(c_int),
+    y: Ratio(c_int),
+};
+
 pub const ImageSize = struct {
-    w: c_int,
-    h: c_int,
+    w: Ratio(c_int),
+    h: Ratio(c_int),
 };
 
 pub fn drawBordersSolid(renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, border_rect: sdl.SDL_Rect, widths: Widths, colors: Colors) void {
@@ -186,11 +192,11 @@ pub fn drawBackgroundImage(
     texture: *sdl.SDL_Texture,
     positioning_area: sdl.SDL_Rect,
     painting_area: sdl.SDL_Rect,
-    position: sdl.SDL_Point,
+    position: ImagePosition,
     size: ImageSize,
     repeat: BackgroundRepeat,
 ) void {
-    if (size.w == 0 or size.h == 0) return;
+    if (size.w.eqlInt(0) or size.h.eqlInt(0)) return;
     const unscaled_size = blk: {
         var w: c_int = undefined;
         var h: c_int = undefined;
@@ -204,7 +210,7 @@ pub fn drawBackgroundImage(
         painting_area.w,
         positioning_area.x - painting_area.x,
         positioning_area.w,
-        position.x - positioning_area.x,
+        position.x.subInt(positioning_area.x),
         size.w,
     );
     const info_y = getBackgroundImageRepeatInfo(
@@ -212,7 +218,7 @@ pub fn drawBackgroundImage(
         painting_area.h,
         positioning_area.y - painting_area.y,
         positioning_area.h,
-        position.y - positioning_area.y,
+        position.y.subInt(positioning_area.y),
         size.h,
     );
 
@@ -220,11 +226,12 @@ pub fn drawBackgroundImage(
     while (i < info_x.start_index + info_x.count) : (i += 1) {
         var j = info_y.start_index;
         while (j < info_y.start_index + info_y.count) : (j += 1) {
+            const R = Ratio(c_int);
             const image_rect = sdl.SDL_Rect{
-                .x = positioning_area.x + info_x.offset + @divFloor(i * (size.w * info_x.space.den + info_x.space.num), info_x.space.den),
-                .y = positioning_area.y + info_y.offset + @divFloor(j * (size.h * info_y.space.den + info_y.space.num), info_y.space.den),
-                .w = size.w,
-                .h = size.h,
+                .x = R.fromInt(positioning_area.x).add(info_x.offset).add(R.fromInt(i).mul(size.w.add(info_x.space))).floor(),
+                .y = R.fromInt(positioning_area.y).add(info_y.offset).add(R.fromInt(j).mul(size.h.add(info_y.space))).floor(),
+                .w = size.w.floor(),
+                .h = size.h.floor(),
             };
             var intersection = @as(sdl.SDL_Rect, undefined);
             // getBackgroundImageRepeatInfo should never return info that would make us draw
@@ -234,10 +241,10 @@ pub fn drawBackgroundImage(
                 renderer,
                 texture,
                 &sdl.SDL_Rect{
-                    .x = @divFloor((intersection.x - image_rect.x) * unscaled_size.w, size.w),
-                    .y = @divFloor((intersection.y - image_rect.y) * unscaled_size.h, size.h),
-                    .w = @divFloor(intersection.w * unscaled_size.w, size.w),
-                    .h = @divFloor(intersection.h * unscaled_size.h, size.h),
+                    .x = R.fromInt((intersection.x - image_rect.x) * unscaled_size.w).div(size.w).floor(),
+                    .y = R.fromInt((intersection.y - image_rect.y) * unscaled_size.h).div(size.h).floor(),
+                    .w = R.fromInt(intersection.w * unscaled_size.w).div(size.w).floor(),
+                    .h = R.fromInt(intersection.h * unscaled_size.h).div(size.h).floor(),
                 },
                 &intersection,
             ) == 0);
@@ -251,9 +258,9 @@ const GetBackgroundImageRepeatInfoReturnType = struct {
     /// The number of images to draw. Always positive.
     count: c_int,
     /// The amount of space to leave between each image. Always positive.
-    space: util.Ratio(c_int),
+    space: Ratio(c_int),
     /// The offset of the top/left of the image with index 0 from the top/left of the positioning area.
-    offset: c_int,
+    offset: Ratio(c_int),
 };
 
 fn getBackgroundImageRepeatInfo(
@@ -265,51 +272,48 @@ fn getBackgroundImageRepeatInfo(
     /// Must be greater than or equal to 0.
     positioning_area_size: c_int,
     /// The offset of the top/left of the image with index 0 from the top/left of the positioning area.
-    image_offset: c_int,
+    image_offset: Ratio(c_int),
     /// Must be strictly greater than 0.
-    image_size: c_int,
+    image_size: Ratio(c_int),
 ) GetBackgroundImageRepeatInfoReturnType {
+    const R = Ratio(c_int);
     return switch (repeat) {
         .None => .{
             .start_index = 0,
             .count = 1,
-            .space = util.Ratio(c_int){ .num = 0, .den = 1 },
+            .space = R.fromInt(0),
             .offset = image_offset,
         },
         .Repeat => blk: {
-            const before = util.divCeil(image_offset + positioning_area_offset, image_size);
-            const after = util.divCeil(painting_area_size - positioning_area_offset - image_offset - image_size, image_size);
+            const before = image_offset.addInt(positioning_area_offset).div(image_size).ceil();
+            const after = R.fromInt(painting_area_size).subInt(positioning_area_offset).sub(image_offset).sub(image_size).div(image_size).ceil();
             break :blk .{
                 .start_index = -before,
                 .count = before + after + 1,
-                .space = util.Ratio(c_int){ .num = 0, .den = 1 },
+                .space = R.fromInt(0),
                 .offset = image_offset,
             };
         },
         .Space => blk: {
-            const positioning_area_count = @divFloor(positioning_area_size, image_size);
+            const positioning_area_count = R.fromInt(positioning_area_size).div(image_size).floor();
             if (positioning_area_count <= 1) {
                 break :blk GetBackgroundImageRepeatInfoReturnType{
                     .start_index = 0,
                     .count = 1,
-                    .space = util.Ratio(c_int){ .num = 0, .den = 1 },
+                    .space = R.fromInt(0),
                     .offset = image_offset,
                 };
             } else {
-                const space = @mod(positioning_area_size, image_size);
-                const before = util.divCeil(
-                    (positioning_area_count - 1) * positioning_area_offset - space,
-                    positioning_area_size - image_size,
-                );
-                const after = util.divCeil(
-                    (positioning_area_count - 1) * (painting_area_size - positioning_area_size - positioning_area_offset) - space,
-                    positioning_area_size - image_size,
-                );
+                const space = R.fromInt(positioning_area_size).div(image_size).mod();
+                // TODO Write down the math that this is derived from
+                const before = R.fromInt((positioning_area_count - 1) * positioning_area_offset - space).div(R.fromInt(positioning_area_size).sub(image_size)).ceil();
+                const after = R.fromInt((positioning_area_count - 1) * (painting_area_size - positioning_area_size - positioning_area_offset) - space).div(R.fromInt(positioning_area_size).sub(image_size)).ceil();
+
                 break :blk GetBackgroundImageRepeatInfoReturnType{
                     .start_index = -before,
                     .count = before + after + positioning_area_count,
-                    .space = util.Ratio(c_int){ .num = space, .den = positioning_area_count - 1 },
-                    .offset = 0,
+                    .space = R.initReduce(space, positioning_area_count - 1),
+                    .offset = R.fromInt(0),
                 };
             }
         },

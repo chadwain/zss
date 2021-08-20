@@ -123,8 +123,12 @@ pub fn renderDocument(
     }
 }
 
-pub fn zssUnitToPixel(unit: ZssUnit) i32 {
+pub fn zssUnitToPixel(unit: ZssUnit) c_int {
     return @divFloor(unit, zss.used_values.unitsPerPixel);
+}
+
+pub fn zssUnitToPixelRatio(unit: ZssUnit) zss.util.Ratio(c_int) {
+    return zss.util.Ratio(c_int).initReduce(unit, zss.used_values.unitsPerPixel);
 }
 
 pub fn pixelToZssUnit(pixels: c_int) ZssUnit {
@@ -165,10 +169,10 @@ pub fn zssRectToSdlRect(rect: ZssRect) sdl.SDL_Rect {
 
 // The only supported writing mode is horizontal-tb, so this function
 // lets us ignore the logical coords and move into physical coords.
-pub fn zssLogicalVectorToZssVector(flow_vector: ZssLogicalVector) ZssVector {
+pub fn zssLogicalVectorToZssVector(logical_vector: ZssLogicalVector) ZssVector {
     return ZssVector{
-        .x = flow_vector.x,
-        .y = flow_vector.y,
+        .x = logical_vector.x,
+        .y = logical_vector.y,
     };
 }
 
@@ -521,12 +525,12 @@ pub fn drawBlockContainer(
             .Content => boxes.content,
         });
         const size = util.ImageSize{
-            .w = zssUnitToPixel(background2.size.width),
-            .h = zssUnitToPixel(background2.size.height),
+            .w = zssUnitToPixelRatio(background2.size.width),
+            .h = zssUnitToPixelRatio(background2.size.height),
         };
-        const position = sdl.SDL_Point{
-            .x = origin_rect.x + zssUnitToPixel(background2.position.x),
-            .y = origin_rect.y + zssUnitToPixel(background2.position.y),
+        const position = util.ImagePosition{
+            .x = zssUnitToPixelRatio(background2.position.x).addInt(origin_rect.x),
+            .y = zssUnitToPixelRatio(background2.position.y).addInt(origin_rect.y),
         };
 
         const convertRepeat = (struct {
