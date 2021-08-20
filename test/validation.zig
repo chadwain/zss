@@ -58,21 +58,21 @@ fn validateInline(inl: *used.InlineLevelUsedValues) !void {
 
 fn validateStackingContexts(document: *zss.used_values.Document) !void {
     @setRuntimeSafety(true);
-    const StackingContextId = used.StackingContextId;
+    const StackingContextTree = used.StackingContextTree;
     const ZIndex = used.ZIndex;
 
-    var stack = std.ArrayList(StackingContextId).init(allocator);
+    var stack = std.ArrayList(StackingContextTree.Range).init(allocator);
     defer stack.deinit();
-    stack.append(0) catch unreachable;
+    stack.append(document.stacking_context_tree.range()) catch unreachable;
     while (stack.items.len > 0) {
         const parent = stack.pop();
-        var it = zss.util.StructureArray(StackingContextId).childIterator(document.stacking_context_structure.items, parent);
+        var range = parent.children(document.stacking_context_tree);
         var last: ZIndex = std.math.minInt(ZIndex);
-        while (it.next()) |child| {
-            const current = document.stacking_contexts.items[child].z_index;
+        while (!range.empty()) : (range.next(document.stacking_context_tree)) {
+            const current = range.get(document.stacking_context_tree).z_index;
             try expect(last <= current);
             last = current;
-            stack.append(child) catch unreachable;
+            stack.append(range) catch unreachable;
         }
     }
 }

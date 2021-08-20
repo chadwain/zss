@@ -13,6 +13,7 @@ const ZssLogicalVector = zss.used_values.ZssLogicalVector;
 const UsedId = zss.used_values.UsedId;
 const BlockLevelUsedValues = zss.used_values.BlockLevelUsedValues;
 const InlineLevelUsedValues = zss.used_values.InlineLevelUsedValues;
+const StackingContextTree = zss.used_values.StackingContextTree;
 const Document = zss.used_values.Document;
 
 const hb = @import("harfbuzz");
@@ -30,7 +31,7 @@ const RenderState = struct {
         var result = Self{};
         try result.inlines_list.ensureCapacity(allocator, doc.inlines.items.len);
         errdefer result.inlines_list.deinit(allocator);
-        try result.stacking_context_inlines_count.ensureCapacity(allocator, doc.stacking_contexts.items.len);
+        try result.stacking_context_inlines_count.ensureCapacity(allocator, doc.stacking_context_tree.subtree.items.len);
         errdefer result.stacking_context_inlines_count.deinit(allocator);
         return result;
     }
@@ -55,32 +56,38 @@ pub fn renderDocument(
     const clip_rect_zss = sdlRectToZssRect(clip_rect);
 
     const StackItem = struct {
-        interval: struct { current: u16, end: u16 },
+        range: StackingContextTree.Range,
         used_id: UsedId,
         translation: ZssVector,
         state: enum { DrawRoot, DrawChildren },
 
         fn addToStack(stack: *ArrayList(@This()), top: @This(), index: usize, doc_: *const Document) !void {
-            const child_used_id = doc_.stacking_contexts.items[top.interval.current].used_id;
-            var it = zss.util.StructureArray(UsedId).treeIterator(doc_.blocks.structure.items, top.used_id, child_used_id);
-            var it_used_id = it.next().?;
-            var tr = top.translation;
-            while (it_used_id != child_used_id) : (it_used_id = it.next().?) {
-                tr = tr.add(zssLogicalVectorToZssVector(doc_.blocks.box_offsets.items[it_used_id].content_start));
-            }
+            const child_used_id = top.range.get(doc_.stacking_context_tree).used_id;
+            const translation_ = blk: {
+                var tr = top.translation;
+                var it = zss.util.StructureArray(UsedId).treeIterator(doc_.blocks.structure.items, top.used_id, child_used_id);
+                while (it.next()) |used_id| {
+                    if (used_id == child_used_id) break;
+                    tr = tr.add(zssLogicalVectorToZssVector(doc_.blocks.box_offsets.items[used_id].content_start));
+                }
+                break :blk tr;
+            };
             try stack.insert(index, .{
-                .interval = .{ .current = top.interval.current + 1, .end = top.interval.current + doc_.stacking_context_structure.items[top.interval.current] },
+                .range = top.range.children(doc_.stacking_context_tree),
                 .used_id = child_used_id,
-                .translation = tr,
+                .translation = translation_,
                 .state = .DrawRoot,
             });
         }
     };
+
+    const sc_tree = &doc.stacking_context_tree;
+    const root_range = sc_tree.range();
     var stacking_context_stack = ArrayList(StackItem).init(allocator);
     defer stacking_context_stack.deinit();
     try stacking_context_stack.append(.{
-        .interval = .{ .current = 1, .end = doc.stacking_context_structure.items[0] },
-        .used_id = doc.stacking_contexts.items[0].used_id,
+        .range = root_range.children(sc_tree.*),
+        .used_id = root_range.get(sc_tree.*).used_id,
         .translation = sdlPointToZssVector(translation),
         .state = .DrawRoot,
     });
@@ -91,9 +98,9 @@ pub fn renderDocument(
         switch (top.state) {
             .DrawRoot => {
                 top.state = .DrawChildren;
-                while (top.interval.current < top.interval.end and doc.stacking_contexts.items[top.interval.current].z_index < 0) {
+                while (!top.range.empty()) : (top.range.next(sc_tree.*)) {
+                    if (top.range.get(sc_tree.*).z_index >= 0) break;
                     try StackItem.addToStack(&stacking_context_stack, top, old_len, doc);
-                    top.interval.current += doc.stacking_context_structure.items[top.interval.current];
                 }
                 stacking_context_stack.items[old_len - 1] = top;
 
@@ -102,9 +109,8 @@ pub fn renderDocument(
             },
             .DrawChildren => {
                 _ = stacking_context_stack.pop();
-                while (top.interval.current < top.interval.end) {
+                while (!top.range.empty()) : (top.range.next(sc_tree.*)) {
                     try StackItem.addToStack(&stacking_context_stack, top, old_len - 1, doc);
-                    top.interval.current += doc.stacking_context_structure.items[top.interval.current];
                 }
                 try drawBlockValuesChildren(&s, &doc.blocks, top.used_id, allocator, top.translation, clip_rect_zss, renderer, pixel_format);
 

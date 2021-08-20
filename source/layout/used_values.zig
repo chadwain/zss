@@ -350,13 +350,9 @@ pub const InlineLevelUsedValues = struct {
     }
 };
 
-/// The final result of layout.
-pub const Document = struct {
-    blocks: BlockLevelUsedValues,
-    inlines: ArrayListUnmanaged(*InlineLevelUsedValues),
-    stacking_context_structure: ArrayListUnmanaged(StackingContextId) = .{},
+pub const StackingContextTree = struct {
+    subtree: ArrayListUnmanaged(StackingContextId) = .{},
     stacking_contexts: ArrayListUnmanaged(StackingContext) = .{},
-    allocator: *Allocator,
 
     const Self = @This();
 
@@ -365,6 +361,52 @@ pub const Document = struct {
         used_id: UsedId,
     };
 
+    pub fn deinit(self: *Self, allocator: *Allocator) void {
+        self.subtree.deinit(allocator);
+        self.stacking_contexts.deinit(allocator);
+    }
+
+    pub const Range = struct {
+        current: StackingContextId,
+        end: StackingContextId,
+
+        pub fn get(self: Range, sc_tree: StackingContextTree) StackingContext {
+            return sc_tree.stacking_contexts.items[self.current];
+        }
+
+        pub fn empty(self: Range) bool {
+            return self.current == self.end;
+        }
+
+        pub fn next(self: *Range, sc_tree: StackingContextTree) void {
+            self.current += sc_tree.subtree.items[self.current];
+        }
+
+        pub fn children(self: Range, sc_tree: StackingContextTree) Range {
+            return Range{
+                .current = self.current + 1,
+                .end = self.current + sc_tree.subtree.items[self.current],
+            };
+        }
+    };
+
+    pub fn range(self: Self) Range {
+        return Range{
+            .current = 0,
+            .end = self.subtree.items[0],
+        };
+    }
+};
+
+/// The final result of layout.
+pub const Document = struct {
+    blocks: BlockLevelUsedValues = .{},
+    inlines: ArrayListUnmanaged(*InlineLevelUsedValues) = .{},
+    stacking_context_tree: StackingContextTree = .{},
+    allocator: *Allocator,
+
+    const Self = @This();
+
     pub fn deinit(self: *Self) void {
         self.blocks.deinit(self.allocator);
         for (self.inlines.items) |inl| {
@@ -372,8 +414,7 @@ pub const Document = struct {
             self.allocator.destroy(inl);
         }
         self.inlines.deinit(self.allocator);
-        self.stacking_context_structure.deinit(self.allocator);
-        self.stacking_contexts.deinit(self.allocator);
+        self.stacking_context_tree.deinit(self.allocator);
     }
 };
 
