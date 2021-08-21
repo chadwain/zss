@@ -247,7 +247,7 @@ fn createInitialContainingBlock(doc: *Document, context: *LayoutContext) !void {
         .min_height = height,
         .max_height = height,
     };
-    try changeToFlowLayout(context, interval, block.used_id, width, logical_heights, null);
+    try pushFlowLayout(context, interval, block.used_id, width, logical_heights, null);
 }
 
 fn processElement(doc: *Document, context: *LayoutContext) !void {
@@ -258,10 +258,10 @@ fn processElement(doc: *Document, context: *LayoutContext) !void {
             if (interval.begin != interval.end) {
                 const display = context.box_tree.display[interval.begin];
                 switch (display) {
-                    .block => return pushFlowBlock(doc, context, interval),
+                    .block => return processFlowBlock(doc, context, interval),
                     .inline_, .inline_block, .text => {
                         const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
-                        return pushInlineContainer(doc, context, interval, containing_block_logical_width, .Normal);
+                        return processInlineContainer(doc, context, interval, containing_block_logical_width, .Normal);
                     },
                     .none => return skipElement(context, interval),
                 }
@@ -274,10 +274,10 @@ fn processElement(doc: *Document, context: *LayoutContext) !void {
             if (interval.begin != interval.end) {
                 const display = context.box_tree.display[interval.begin];
                 return switch (display) {
-                    .block => pushShrinkToFit1stPassBlock(doc, context, interval),
+                    .block => processShrinkToFit1stPassBlock(doc, context, interval),
                     .inline_, .inline_block, .text => {
                         const available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
-                        return pushInlineContainer(doc, context, interval, available_width, .ShrinkToFit);
+                        return processInlineContainer(doc, context, interval, available_width, .ShrinkToFit);
                     },
                     .none => skipElement(context, interval),
                 };
@@ -288,7 +288,7 @@ fn processElement(doc: *Document, context: *LayoutContext) !void {
         .ShrinkToFit2ndPass => {
             const used_id_interval = &context.used_id_intervals.items[context.used_id_intervals.items.len - 1];
             if (used_id_interval.begin != used_id_interval.end) {
-                try pushShrinkToFit2ndPassBlock(doc, context, used_id_interval);
+                try processShrinkToFit2ndPassBlock(doc, context, used_id_interval);
             } else {
                 popShrinkToFit2ndPassBlock(doc, context);
             }
@@ -297,7 +297,7 @@ fn processElement(doc: *Document, context: *LayoutContext) !void {
             const container = context.inline_container.items[context.inline_container.items.len - 1];
 
             if (container.next_inline_block < container.inline_blocks.len) {
-                return pushInlineBlock(doc, context, container);
+                return processInlineBlock(doc, context, container);
             }
 
             try popInlineContainer(doc, context);
@@ -318,7 +318,7 @@ fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_end: ZssUnit, par
     parent_auto_logical_height.* = box_offsets.border_end.y + margin_end;
 }
 
-fn pushFlowBlock(doc: *Document, context: *LayoutContext, interval: *Interval) !void {
+fn processFlowBlock(doc: *Document, context: *LayoutContext, interval: *Interval) !void {
     const box_id = interval.begin;
     const subtree_size = context.box_tree.structure[box_id];
     interval.begin += subtree_size;
@@ -342,19 +342,19 @@ fn pushFlowBlock(doc: *Document, context: *LayoutContext, interval: *Interval) !
             context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1] += 1;
             try context.relative_positioned_descendants_ids.append(context.allocator, block.used_id);
             switch (position.z_index) {
-                .value => |z_index| break :blk try createStackingContext(doc, context, block, z_index),
+                .value => |z_index| break :blk try createStackingContext(doc, context, block.used_id, z_index),
                 .auto => {
-                    _ = try createStackingContext(doc, context, block, 0);
+                    _ = try createStackingContext(doc, context, block.used_id, 0);
                     break :blk null;
                 },
             }
         },
     };
 
-    try changeToFlowLayout(context, Interval{ .begin = box_id + 1, .end = box_id + subtree_size }, block.used_id, logical_width, used_logical_heights, stacking_context_id);
+    try pushFlowLayout(context, Interval{ .begin = box_id + 1, .end = box_id + subtree_size }, block.used_id, logical_width, used_logical_heights, stacking_context_id);
 }
 
-fn changeToFlowLayout(
+fn pushFlowLayout(
     context: *LayoutContext,
     interval: Interval,
     used_id: UsedId,
@@ -407,7 +407,7 @@ fn popFlowBlock(doc: *Document, context: *LayoutContext) void {
         },
     }
 
-    // The deallocations here must correspond to allocations in changeToFlowLayout.
+    // The deallocations here must correspond to allocations in pushFlowLayout.
     _ = context.layout_mode.pop();
     _ = context.intervals.pop();
     _ = context.used_id.pop();
@@ -627,7 +627,7 @@ fn flowBlockFinishLayout(doc: *Document, context: *LayoutContext, box_offsets: *
     blockBoxApplyRelativePositioningToChildren(doc, context, logical_width, logical_height);
 }
 
-fn pushShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval: *Interval) !void {
+fn processShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval: *Interval) !void {
     const box_id = interval.begin;
     const subtree_size = context.box_tree.structure[box_id];
     interval.begin += subtree_size;
@@ -645,17 +645,17 @@ fn pushShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval
         const logical_width = try flowBlockSolveInlineSizes(context, box_id, block.box_offsets, block.borders, block.margins);
         assert(logical_width == width);
         const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, box_id, block.box_offsets, block.borders, block.margins);
-        try changeToFlowLayout(context, Interval{ .begin = box_id + 1, .end = box_id + subtree_size }, block.used_id, logical_width, used_logical_heights, null);
+        try pushFlowLayout(context, Interval{ .begin = box_id + 1, .end = box_id + subtree_size }, block.used_id, logical_width, used_logical_heights, null);
     } else {
         block.properties.uses_shrink_to_fit_sizing = true;
         const parent_available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
         const available_width = std.math.max(0, parent_available_width - width_info.base_width);
         const used_logical_heights = try shrinkToFit1stPassGetHeights(context, box_id);
-        try changeToShrinkToFit1stPassLayout(context, box_id, block.used_id, available_width, width_info.base_width, used_logical_heights);
+        try pushShrinkToFit1stPassLayout(context, box_id, block.used_id, available_width, width_info.base_width, used_logical_heights);
     }
 }
 
-fn changeToShrinkToFit1stPassLayout(
+fn pushShrinkToFit1stPassLayout(
     context: *LayoutContext,
     box_id: BoxId,
     used_id: UsedId,
@@ -711,11 +711,12 @@ fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) !void {
 
     if (go_to_2nd_pass) {
         const used_id_interval = UsedIdInterval{ .begin = used_id + 1, .end = used_id + doc.blocks.structure.items[used_id] };
-        try changeToShrinkToFit2ndPassLayout(context, used_id, used_id_interval, shrink_to_fit_width, used_logical_heights);
+        try pushShrinkToFit2ndPassLayout(context, used_id, used_id_interval, shrink_to_fit_width, used_logical_heights);
     }
 }
 
 const ShrinkToFit1stPassGetWidthResult = struct {
+    /// The sum of the widths of all horizontal borders, padding, and margins.
     base_width: ZssUnit,
     width: ?ZssUnit,
 };
@@ -810,12 +811,10 @@ fn shrinkToFit1stPassGetHeights(context: *LayoutContext, box_id: BoxId) !UsedLog
     };
 }
 
-fn pushShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext, used_id_interval: *UsedIdInterval) !void {
+fn processShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext, used_id_interval: *UsedIdInterval) !void {
     const used_id = used_id_interval.begin;
     const used_subtree_size = doc.blocks.structure.items[used_id_interval.begin];
     used_id_interval.begin += used_subtree_size;
-
-    const box_id = context.used_id_to_box_id.items[used_id];
 
     const properties = doc.blocks.properties.items[used_id];
     const box_offsets = &doc.blocks.box_offsets.items[used_id];
@@ -826,14 +825,15 @@ fn pushShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext, used_id_
         const parent_auto_logical_height = &context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 1];
         addBlockToFlow(box_offsets, margins.block_end, parent_auto_logical_height);
     } else {
+        const box_id = context.used_id_to_box_id.items[used_id];
         const logical_width = try flowBlockSolveInlineSizes(context, box_id, box_offsets, borders, margins);
         const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, box_id, box_offsets, borders, margins);
         const new_interval = UsedIdInterval{ .begin = used_id + 1, .end = used_id + used_subtree_size };
-        try changeToShrinkToFit2ndPassLayout(context, used_id, new_interval, logical_width, used_logical_heights);
+        try pushShrinkToFit2ndPassLayout(context, used_id, new_interval, logical_width, used_logical_heights);
     }
 }
 
-fn changeToShrinkToFit2ndPassLayout(
+fn pushShrinkToFit2ndPassLayout(
     context: *LayoutContext,
     used_id: UsedId,
     used_id_interval: UsedIdInterval,
@@ -880,7 +880,7 @@ fn popShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext) void {
     _ = context.used_id_intervals.pop();
 }
 
-fn pushInlineContainer(
+fn processInlineContainer(
     doc: *Document,
     context: *LayoutContext,
     interval: *Interval,
@@ -924,10 +924,10 @@ fn pushInlineContainer(
         .Normal => false,
         .ShrinkToFit => true,
     };
-    try changeToInlineContainerLayout(context, inline_values_ptr, block.used_id, &inline_blocks, &used_id_to_box_id, containing_block_logical_width, is_shrink_to_fit);
+    try pushInlineContainerLayout(context, inline_values_ptr, block.used_id, &inline_blocks, &used_id_to_box_id, containing_block_logical_width, is_shrink_to_fit);
 }
 
-fn changeToInlineContainerLayout(
+fn pushInlineContainerLayout(
     context: *LayoutContext,
     values: *InlineLevelUsedValues,
     used_id: UsedId,
@@ -998,7 +998,7 @@ fn popInlineContainer(doc: *Document, context: *LayoutContext) !void {
         .InlineContainer => unreachable,
     }
 
-    // The deallocations here must correspond to allocations in changeToInlineContainerLayout.
+    // The deallocations here must correspond to allocations in pushInlineContainerLayout.
     _ = context.layout_mode.pop();
     _ = context.used_id.pop();
     _ = context.used_subtree_size.pop();
@@ -1038,7 +1038,7 @@ fn addBlockToInlineContainer(container: *InlineContainer) void {
     container.next_inline_block += 1;
 }
 
-fn pushInlineBlock(doc: *Document, context: *LayoutContext, container: InlineContainer) !void {
+fn processInlineBlock(doc: *Document, context: *LayoutContext, container: InlineContainer) !void {
     const inline_block = container.inline_blocks[container.next_inline_block];
     const box_id = inline_block.box_id;
     const subtree_size = context.box_tree.structure[box_id];
@@ -1047,17 +1047,17 @@ fn pushInlineBlock(doc: *Document, context: *LayoutContext, container: InlineCon
     block.structure.* = undefined;
     block.properties.* = .{};
 
-    _ = try createStackingContext(doc, context, block, 0);
+    _ = try createStackingContext(doc, context, block.used_id, 0);
     container.values.glyph_indeces.items[inline_block.index + 1] = InlineLevelUsedValues.Special.encodeInlineBlock(block.used_id);
 
     const sizes = try inlineBlockSolveSizesPart1(context, inline_block.box_id, block.box_offsets, block.borders, block.margins);
 
     if (sizes.logical_width) |logical_width| {
-        try changeToFlowLayout(context, Interval{ .begin = box_id + 1, .end = box_id + subtree_size }, block.used_id, logical_width, sizes.logical_heights, null);
+        try pushFlowLayout(context, Interval{ .begin = box_id + 1, .end = box_id + subtree_size }, block.used_id, logical_width, sizes.logical_heights, null);
     } else {
         const base_width = (block.box_offsets.content_start.x - block.box_offsets.border_start.x) + (block.box_offsets.border_end.x - block.box_offsets.content_end.x) + block.margins.inline_start + block.margins.inline_end;
         const available_width = std.math.max(0, container.containing_block_logical_width - base_width);
-        try changeToShrinkToFit1stPassLayout(context, box_id, block.used_id, available_width, base_width, sizes.logical_heights);
+        try pushShrinkToFit1stPassLayout(context, box_id, block.used_id, available_width, base_width, sizes.logical_heights);
     }
 }
 
@@ -1241,7 +1241,7 @@ fn blockBoxFillOtherPropertiesWithDefaults(doc: *Document, used_id: UsedId) void
     doc.blocks.background2.items[used_id] = .{};
 }
 
-fn createStackingContext(doc: *Document, context: *LayoutContext, block: Block, z_index: ZIndex) !StackingContextId {
+fn createStackingContext(doc: *Document, context: *LayoutContext, used_id: UsedId, z_index: ZIndex) !StackingContextId {
     const sc_tree = &doc.stacking_context_tree;
     const parent_stacking_context_id = context.stacking_context_id.items[context.stacking_context_id.items.len - 1];
     var current = parent_stacking_context_id + 1;
@@ -1252,8 +1252,8 @@ fn createStackingContext(doc: *Document, context: *LayoutContext, block: Block, 
         sc_tree.subtree.items[index] += 1;
     }
     try sc_tree.subtree.insert(doc.allocator, current, 1);
-    try sc_tree.stacking_contexts.insert(doc.allocator, current, .{ .z_index = z_index, .used_id = block.used_id });
-    block.properties.creates_stacking_context = true;
+    try sc_tree.stacking_contexts.insert(doc.allocator, current, .{ .z_index = z_index, .used_id = used_id });
+    doc.blocks.properties.items[used_id].creates_stacking_context = true;
     return current;
 }
 
