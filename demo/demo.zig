@@ -74,7 +74,7 @@ pub fn main() !u8 {
         sdl.SDL_RENDERER_ACCELERATED | sdl.SDL_RENDERER_PRESENTVSYNC,
     ) orelse unreachable;
     defer sdl.SDL_DestroyRenderer(renderer);
-    assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BlendMode.SDL_BLENDMODE_BLEND) == 0);
+    assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BLENDMODE_BLEND) == 0);
 
     var library: hb.FT_Library = undefined;
     assert(hb.FT_Init_FreeType(&library) == hb.FT_Err_Ok);
@@ -293,7 +293,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .font = .{ .font = font, .color = .{ .rgba = args.text_color } },
     };
 
-    try sdlMainLoop(args, window, renderer, face, allocator, &tree);
+    try sdlMainLoop(window, renderer, face, allocator, &tree);
 }
 
 const ProgramState = struct {
@@ -348,7 +348,7 @@ const ProgramState = struct {
     }
 };
 
-fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: hb.FT_Face, allocator: *Allocator, tree: *const BoxTree) !void {
+fn sdlMainLoop(window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: hb.FT_Face, allocator: *Allocator, tree: *const BoxTree) !void {
     const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
 
@@ -369,10 +369,10 @@ fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer:
     var event: sdl.SDL_Event = undefined;
     mainLoop: while (true) {
         while (sdl.SDL_PollEvent(&event) != 0) {
-            switch (@intToEnum(sdl.SDL_EventType, @intCast(c_int, event.@"type"))) {
-                .SDL_WINDOWEVENT => {
-                    switch (@intToEnum(sdl.SDL_WindowEventID, event.window.event)) {
-                        .SDL_WINDOWEVENT_SIZE_CHANGED => {
+            switch (event.@"type") {
+                sdl.SDL_WINDOWEVENT => {
+                    switch (event.window.event) {
+                        sdl.SDL_WINDOWEVENT_SIZE_CHANGED => {
                             ps.width = event.window.data1;
                             ps.height = event.window.data2;
                             needs_relayout = true;
@@ -380,7 +380,7 @@ fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer:
                         else => {},
                     }
                 },
-                .SDL_KEYDOWN => {
+                sdl.SDL_KEYDOWN => {
                     switch (event.key.keysym.sym) {
                         sdl.SDLK_UP => {
                             ps.scroll_y -= scroll_speed;
@@ -407,7 +407,7 @@ fn sdlMainLoop(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer:
                         else => {},
                     }
                 },
-                .SDL_QUIT => {
+                sdl.SDL_QUIT => {
                     break :mainLoop;
                 },
                 else => {},

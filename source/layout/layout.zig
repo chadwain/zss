@@ -1443,8 +1443,8 @@ fn addText(doc: *Document, values: *InlineLevelUsedValues, latin1_text: BoxTree.
     defer hb.hb_buffer_destroy(buffer);
     _ = hb.hb_buffer_pre_allocate(buffer, @intCast(c_uint, latin1_text.text.len));
     // TODO direction, script, and language must be determined by examining the text itself
-    hb.hb_buffer_set_direction(buffer, hb.hb_direction_t.HB_DIRECTION_LTR);
-    hb.hb_buffer_set_script(buffer, hb.hb_script_t.HB_SCRIPT_LATIN);
+    hb.hb_buffer_set_direction(buffer, hb.HB_DIRECTION_LTR);
+    hb.hb_buffer_set_script(buffer, hb.HB_SCRIPT_LATIN);
     hb.hb_buffer_set_language(buffer, hb.hb_language_from_string("en", -1));
 
     var run_begin: usize = 0;
@@ -1500,7 +1500,7 @@ fn addTextRun(doc: *Document, values: *InlineLevelUsedValues, buffer: *hb.hb_buf
     // Allocate twice as much so that special glyph indeces always have space
     try values.glyph_indeces.ensureUnusedCapacity(doc.allocator, 2 * glyph_infos.len);
 
-    for (glyph_infos) |info, i| {
+    for (glyph_infos) |info| {
         const glyph_index: GlyphIndex = info.codepoint;
         values.glyph_indeces.appendAssumeCapacity(glyph_index);
         if (glyph_index == 0) {

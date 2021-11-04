@@ -236,7 +236,7 @@ pub fn drawBackgroundImage(
             var intersection = @as(sdl.SDL_Rect, undefined);
             // getBackgroundImageRepeatInfo should never return info that would make us draw
             // an image that is completely outside of the background painting area.
-            assert(sdl.SDL_IntersectRect(&painting_area, &image_rect, &intersection) == .SDL_TRUE);
+            assert(sdl.SDL_IntersectRect(&painting_area, &image_rect, &intersection) == sdl.SDL_TRUE);
             assert(sdl.SDL_RenderCopy(
                 renderer,
                 texture,

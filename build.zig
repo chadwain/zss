@@ -5,11 +5,11 @@ const Pkg = std.build.Pkg;
 const pkgs = struct {
     const harfbuzz = Pkg{
         .name = "harfbuzz",
-        .path = "dependencies/harfbuzz.zig",
+        .path = .{ .path = "dependencies/harfbuzz.zig" },
     };
     const SDL2 = Pkg{
         .name = "SDL2",
-        .path = "dependencies/SDL2.zig",
+        .path = .{ .path = "dependencies/SDL2.zig" },
     };
 };
 
@@ -48,7 +48,7 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
     validation_tests.addPackage(pkgs.harfbuzz);
     validation_tests.addPackage(Pkg{
         .name = "zss",
-        .path = "zss.zig",
+        .path = .{ .path = "zss.zig" },
         .dependencies = &[_]Pkg{pkgs.harfbuzz},
     });
 
@@ -63,7 +63,7 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
     sdl_tests.addPackage(pkgs.SDL2);
     sdl_tests.addPackage(Pkg{
         .name = "zss",
-        .path = "zss.zig",
+        .path = .{ .path = "zss.zig" },
         .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2 },
     });
 
@@ -79,7 +79,7 @@ fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) voi
     demo_exe.addPackage(pkgs.SDL2);
     demo_exe.addPackage(Pkg{
         .name = "zss",
-        .path = "zss.zig",
+        .path = .{ .path = "zss.zig" },
         .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2 },
     });
     demo_exe.linkLibC();

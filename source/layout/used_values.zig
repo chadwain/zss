@@ -253,7 +253,7 @@ pub const InlineLevelUsedValues = struct {
         data: u16,
 
         // This must start at 1 to make the Special struct never have a bit representation of 0.
-        pub const Kind = extern enum(u16) {
+        pub const Kind = enum(u16) {
             /// Represents a glyph index of 0.
             /// data has no meaning.
             ZeroGlyphIndex = 1,
@@ -277,7 +277,7 @@ pub const InlineLevelUsedValues = struct {
 
         // End users should not concern themselves with anything below this comment.
 
-        pub const LayoutInternalKind = extern enum(u16) {
+        pub const LayoutInternalKind = enum(u16) {
             // The explanations for some of these are above.
             ZeroGlyphIndex = 1,
             BoxStart,

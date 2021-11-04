@@ -239,7 +239,7 @@ pub const GlyphAtlas = struct {
             max_glyph_height * 16,
         ) orelse return error.SDL_Error;
         errdefer sdl.SDL_DestroyTexture(texture);
-        assert(sdl.SDL_SetTextureBlendMode(texture, sdl.SDL_BlendMode.SDL_BLENDMODE_BLEND) == 0);
+        assert(sdl.SDL_SetTextureBlendMode(texture, sdl.SDL_BLENDMODE_BLEND) == 0);
 
         var map = AutoArrayHashMapUnmanaged(c_uint, Entry){};
         errdefer map.deinit(allocator);
@@ -269,7 +269,7 @@ pub const GlyphAtlas = struct {
             if (self.next_slot >= 256) return error.OutOfGlyphSlots;
 
             assert(hb.FT_Load_Glyph(self.face, glyph_index, hb.FT_LOAD_DEFAULT) == hb.FT_Err_Ok);
-            assert(hb.FT_Render_Glyph(self.face.*.glyph, hb.FT_Render_Mode.FT_RENDER_MODE_NORMAL) == hb.FT_Err_Ok);
+            assert(hb.FT_Render_Glyph(self.face.*.glyph, hb.FT_RENDER_MODE_NORMAL) == hb.FT_Err_Ok);
             const bitmap = self.face.*.glyph.*.bitmap;
             assert(bitmap.width <= self.max_glyph_width and bitmap.rows <= self.max_glyph_height);
 
@@ -510,6 +510,7 @@ pub fn drawBlockContainer(
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
 ) void {
+    _ = clip_rect;
     const bg_clip_rect = zssRectToSdlRect(switch (background1.clip) {
         .Border => boxes.border,
         .Padding => boxes.padding,
@@ -592,7 +593,6 @@ pub fn drawInlineValues(
     pixel_format: *sdl.SDL_PixelFormat,
     atlas: *GlyphAtlas,
 ) !void {
-    const face = hb.hb_ft_font_get_face(values.font);
     const color = util.rgbaMap(pixel_format, values.font_color_rgba);
     assert(sdl.SDL_SetTextureColorMod(atlas.texture, color[0], color[1], color[2]) == 0);
     assert(sdl.SDL_SetTextureAlphaMod(atlas.texture, color[3]) == 0);

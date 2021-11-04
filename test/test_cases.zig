@@ -2,7 +2,6 @@ const zss = @import("zss");
 const ZssUnit = zss.used_values.ZssUnit;
 const unitsPerPixel = zss.used_values.unitsPerPixel;
 const BoxTree = zss.BoxTree;
-usingnamespace BoxTree;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -43,15 +42,15 @@ pub fn get(index: usize, library: hb.FT_Library) TestCase {
     assert(data.display.len == data.structure.len);
     return TestCase{
         .tree = .{
-            .structure = allocator.dupe(BoxId, data.structure) catch unreachable,
-            .display = allocator.dupe(Display, data.display) catch unreachable,
-            .position = copy(Positioning, data.position, tree_size),
-            .inline_size = copy(LogicalSize, data.inline_size, tree_size),
-            .block_size = copy(LogicalSize, data.block_size, tree_size),
-            .insets = copy(Insets, data.insets, tree_size),
-            .latin1_text = copy(Latin1Text, data.latin1_text, tree_size),
-            .border = copy(Border, data.border, tree_size),
-            .background = copy(Background, data.background, tree_size),
+            .structure = allocator.dupe(BoxTree.BoxId, data.structure) catch unreachable,
+            .display = allocator.dupe(BoxTree.Display, data.display) catch unreachable,
+            .position = copy(BoxTree.Positioning, data.position, tree_size),
+            .inline_size = copy(BoxTree.LogicalSize, data.inline_size, tree_size),
+            .block_size = copy(BoxTree.LogicalSize, data.block_size, tree_size),
+            .insets = copy(BoxTree.Insets, data.insets, tree_size),
+            .latin1_text = copy(BoxTree.Latin1Text, data.latin1_text, tree_size),
+            .border = copy(BoxTree.Border, data.border, tree_size),
+            .background = copy(BoxTree.Background, data.background, tree_size),
             .font = .{
                 .font = blk: {
                     const hb_font = hb.hb_ft_font_create_referenced(face).?;
@@ -80,15 +79,15 @@ fn copy(comptime T: type, data: ?[]const T, tree_size: usize) []T {
 }
 
 pub const TreeData = struct {
-    structure: []const BoxId,
-    display: []const Display,
-    position: ?[]const Positioning = null,
-    inline_size: ?[]const LogicalSize = null,
-    block_size: ?[]const LogicalSize = null,
-    insets: ?[]const Insets = null,
-    latin1_text: ?[]const Latin1Text = null,
-    border: ?[]const Border = null,
-    background: ?[]const Background = null,
+    structure: []const BoxTree.BoxId,
+    display: []const BoxTree.Display,
+    position: ?[]const BoxTree.Positioning = null,
+    inline_size: ?[]const BoxTree.LogicalSize = null,
+    block_size: ?[]const BoxTree.LogicalSize = null,
+    insets: ?[]const BoxTree.Insets = null,
+    latin1_text: ?[]const BoxTree.Latin1Text = null,
+    border: ?[]const BoxTree.Border = null,
+    background: ?[]const BoxTree.Background = null,
     width: u32 = 400,
     height: u32 = 400,
     font: [:0]const u8 = fonts[0],
@@ -105,7 +104,7 @@ pub const fonts = [_][:0]const u8{
     "demo/NotoSans-Regular.ttf",
 };
 
-pub const border_color_sets = [_][]const Border{
+pub const border_color_sets = [_][]const BoxTree.Border{
     &.{
         .{ .inline_start_color = .{ .rgba = 0x1e3c7bff }, .inline_end_color = .{ .rgba = 0xc5b6f7ff }, .block_start_color = .{ .rgba = 0x8e5085ff }, .block_end_color = .{ .rgba = 0xfdc409ff } },
         .{ .inline_start_color = .{ .rgba = 0xe5bb0dff }, .inline_end_color = .{ .rgba = 0x46eefcff }, .block_start_color = .{ .rgba = 0xa4504bff }, .block_end_color = .{ .rgba = 0xb43430ff } },

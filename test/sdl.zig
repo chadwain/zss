@@ -66,7 +66,7 @@ test "sdl" {
     const texture = sdl.SDL_CreateTexture(renderer, pixel_format.*.format, sdl.SDL_TEXTUREACCESS_TARGET, wwidth, wheight);
     defer sdl.SDL_DestroyTexture(texture);
     assert(sdl.SDL_SetRenderTarget(renderer, texture) == 0);
-    assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BlendMode.SDL_BLENDMODE_BLEND) == 0);
+    assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BLENDMODE_BLEND) == 0);
 
     var library: hb.FT_Library = undefined;
     assert(hb.FT_Init_FreeType(&library) == 0);
