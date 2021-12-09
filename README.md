@@ -18,7 +18,7 @@ You should have received a copy of the GNU General Public License along with thi
   - Allows one to draw a document to graphical window via a rendering backend. At the moment, the only provided backend is [SDL2](source/render/sdl.zig).
 
 # Building zss
-zss is built using Zig 0.8.0, not master.
+Use the latest version of zig.
 
 To do layout or run tests, you will need:
 - harfbuzz

@@ -33,7 +33,7 @@ pub const Error = error{
     Overflow,
 };
 
-pub fn doLayout(box_tree: *const BoxTree, allocator: *Allocator, viewport_size: ZssSize) Error!Document {
+pub fn doLayout(box_tree: *const BoxTree, allocator: Allocator, viewport_size: ZssSize) Error!Document {
     if (box_tree.structure[0] > maximum_box_id) return error.Overflow;
     var context = LayoutContext{ .box_tree = box_tree, .allocator = allocator, .viewport_size = viewport_size };
     defer context.deinit();
@@ -120,7 +120,7 @@ const InlineContainer = struct {
     containing_block_logical_width: ZssUnit,
     shrink_to_fit: bool,
 
-    fn deinit(self: *@This(), allocator: *Allocator) void {
+    fn deinit(self: *@This(), allocator: Allocator) void {
         allocator.free(self.inline_blocks);
         allocator.free(self.used_id_to_box_id);
     }
@@ -130,7 +130,7 @@ const LayoutContext = struct {
     const Self = @This();
 
     box_tree: *const BoxTree,
-    allocator: *Allocator,
+    allocator: Allocator,
     viewport_size: ZssSize,
 
     layout_mode: ArrayListUnmanaged(LayoutMode) = .{},
@@ -182,7 +182,7 @@ const LayoutContext = struct {
 };
 
 fn createBlockLevelUsedValues(doc: *Document, context: *LayoutContext) !void {
-    doc.blocks.ensureCapacity(doc.allocator, context.box_tree.structure[0] + 1) catch {};
+    doc.blocks.ensureTotalCapacity(doc.allocator, context.box_tree.structure[0] + 1) catch {};
 
     // Initialize the context with some data.
     try context.layout_mode.append(context.allocator, .Flow);
@@ -1305,7 +1305,7 @@ const InlineLayoutContext = struct {
     box_tree: *const BoxTree,
     intervals: ArrayListUnmanaged(Interval),
     used_ids: ArrayListUnmanaged(UsedId),
-    allocator: *Allocator,
+    allocator: Allocator,
     root_interval: Interval,
 
     continuation_blocks: *ArrayListUnmanaged(ContinuationBlock),
@@ -1315,7 +1315,7 @@ const InlineLayoutContext = struct {
 
     fn init(
         box_tree: *const BoxTree,
-        allocator: *Allocator,
+        allocator: Allocator,
         block_container_interval: Interval,
         continuation_blocks: *ArrayListUnmanaged(ContinuationBlock),
         inline_blocks: *ArrayListUnmanaged(InlineBlock),
@@ -1343,7 +1343,7 @@ const InlineLayoutContext = struct {
 fn createInlineLevelUsedValues(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues) Error!void {
     const root_interval = context.root_interval;
 
-    values.ensureCapacity(doc.allocator, root_interval.end - root_interval.begin + 1) catch {};
+    values.ensureTotalCapacity(doc.allocator, root_interval.end - root_interval.begin + 1) catch {};
 
     try inlineLevelRootElementPush(doc, context, values, root_interval);
 

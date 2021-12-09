@@ -25,7 +25,7 @@ pub fn main() !u8 {
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(!gpa.deinit());
-    var allocator = &gpa.allocator;
+    var allocator = gpa.allocator();
 
     const program_args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, program_args);
@@ -159,7 +159,7 @@ fn parseArgs(args: []const [:0]const u8, stderr: std.fs.File.Writer) ProgramArgu
     };
 }
 
-fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: hb.FT_Face, allocator: *Allocator, bytes: []const u8) !void {
+fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: hb.FT_Face, allocator: Allocator, bytes: []const u8) !void {
     const font = hb.hb_ft_font_create_referenced(face) orelse unreachable;
     defer hb.hb_font_destroy(font);
     hb.hb_ft_font_set_funcs(font);
@@ -309,7 +309,7 @@ const ProgramState = struct {
 
     const Self = @This();
 
-    fn init(tree: *const BoxTree, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, face: hb.FT_Face, allocator: *Allocator) !Self {
+    fn init(tree: *const BoxTree, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, face: hb.FT_Face, allocator: Allocator) !Self {
         var result = @as(Self, undefined);
 
         result.tree = tree;
@@ -328,12 +328,12 @@ const ProgramState = struct {
         return result;
     }
 
-    fn deinit(self: *Self, allocator: *Allocator) void {
+    fn deinit(self: *Self, allocator: Allocator) void {
         self.document.deinit();
         self.atlas.deinit(allocator);
     }
 
-    fn updateDocument(self: *Self, allocator: *Allocator) !void {
+    fn updateDocument(self: *Self, allocator: Allocator) !void {
         self.timer.reset();
         var new_document = try zss.layout.doLayout(self.tree, allocator, .{ .w = pixelToZssUnit(self.width), .h = pixelToZssUnit(self.height) });
         self.last_layout_time = self.timer.read();
@@ -348,7 +348,7 @@ const ProgramState = struct {
     }
 };
 
-fn sdlMainLoop(window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: hb.FT_Face, allocator: *Allocator, tree: *const BoxTree) !void {
+fn sdlMainLoop(window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: hb.FT_Face, allocator: Allocator, tree: *const BoxTree) !void {
     const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
 

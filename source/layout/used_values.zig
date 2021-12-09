@@ -159,7 +159,7 @@ pub const BlockLevelUsedValues = struct {
         uses_shrink_to_fit_sizing: bool = false,
     };
 
-    pub fn deinit(self: *Self, allocator: *Allocator) void {
+    pub fn deinit(self: *Self, allocator: Allocator) void {
         self.structure.deinit(allocator);
         self.box_offsets.deinit(allocator);
         self.borders.deinit(allocator);
@@ -170,15 +170,15 @@ pub const BlockLevelUsedValues = struct {
         self.properties.deinit(allocator);
     }
 
-    pub fn ensureCapacity(self: *Self, allocator: *Allocator, capacity: usize) !void {
-        try self.structure.ensureCapacity(allocator, capacity);
-        try self.box_offsets.ensureCapacity(allocator, capacity);
-        try self.borders.ensureCapacity(allocator, capacity);
-        try self.margins.ensureCapacity(allocator, capacity);
-        try self.border_colors.ensureCapacity(allocator, capacity);
-        try self.background1.ensureCapacity(allocator, capacity);
-        try self.background2.ensureCapacity(allocator, capacity);
-        try self.properties.ensureCapacity(allocator, capacity);
+    pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, capacity: usize) !void {
+        try self.structure.ensureTotalCapacity(allocator, capacity);
+        try self.box_offsets.ensureTotalCapacity(allocator, capacity);
+        try self.borders.ensureTotalCapacity(allocator, capacity);
+        try self.margins.ensureTotalCapacity(allocator, capacity);
+        try self.border_colors.ensureTotalCapacity(allocator, capacity);
+        try self.background1.ensureTotalCapacity(allocator, capacity);
+        try self.background2.ensureTotalCapacity(allocator, capacity);
+        try self.properties.ensureTotalCapacity(allocator, capacity);
     }
 };
 
@@ -325,7 +325,7 @@ pub const InlineLevelUsedValues = struct {
         }
     };
 
-    pub fn deinit(self: *@This(), allocator: *Allocator) void {
+    pub fn deinit(self: *@This(), allocator: Allocator) void {
         self.glyph_indeces.deinit(allocator);
         self.metrics.deinit(allocator);
         self.line_boxes.deinit(allocator);
@@ -337,16 +337,16 @@ pub const InlineLevelUsedValues = struct {
         self.margins.deinit(allocator);
     }
 
-    pub fn ensureCapacity(self: *Self, allocator: *Allocator, count: usize) !void {
-        try self.line_boxes.ensureCapacity(allocator, count);
-        try self.glyph_indeces.ensureCapacity(allocator, count);
-        try self.metrics.ensureCapacity(allocator, count);
-        try self.inline_start.ensureCapacity(allocator, count);
-        try self.inline_end.ensureCapacity(allocator, count);
-        try self.block_start.ensureCapacity(allocator, count);
-        try self.block_end.ensureCapacity(allocator, count);
-        try self.background1.ensureCapacity(allocator, count);
-        try self.margins.ensureCapacity(allocator, count);
+    pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: usize) !void {
+        try self.line_boxes.ensureTotalCapacity(allocator, count);
+        try self.glyph_indeces.ensureTotalCapacity(allocator, count);
+        try self.metrics.ensureTotalCapacity(allocator, count);
+        try self.inline_start.ensureTotalCapacity(allocator, count);
+        try self.inline_end.ensureTotalCapacity(allocator, count);
+        try self.block_start.ensureTotalCapacity(allocator, count);
+        try self.block_end.ensureTotalCapacity(allocator, count);
+        try self.background1.ensureTotalCapacity(allocator, count);
+        try self.margins.ensureTotalCapacity(allocator, count);
     }
 };
 
@@ -361,7 +361,7 @@ pub const StackingContextTree = struct {
         used_id: UsedId,
     };
 
-    pub fn deinit(self: *Self, allocator: *Allocator) void {
+    pub fn deinit(self: *Self, allocator: Allocator) void {
         self.subtree.deinit(allocator);
         self.stacking_contexts.deinit(allocator);
     }
@@ -403,7 +403,7 @@ pub const Document = struct {
     blocks: BlockLevelUsedValues = .{},
     inlines: ArrayListUnmanaged(*InlineLevelUsedValues) = .{},
     stacking_context_tree: StackingContextTree = .{},
-    allocator: *Allocator,
+    allocator: Allocator,
 
     const Self = @This();
 

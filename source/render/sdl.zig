@@ -27,16 +27,16 @@ const RenderState = struct {
 
     const Self = @This();
 
-    fn init(doc: *const Document, allocator: *Allocator) !Self {
+    fn init(doc: *const Document, allocator: Allocator) !Self {
         var result = Self{};
-        try result.inlines_list.ensureCapacity(allocator, doc.inlines.items.len);
+        try result.inlines_list.ensureTotalCapacity(allocator, doc.inlines.items.len);
         errdefer result.inlines_list.deinit(allocator);
-        try result.stacking_context_inlines_count.ensureCapacity(allocator, doc.stacking_context_tree.subtree.items.len);
+        try result.stacking_context_inlines_count.ensureTotalCapacity(allocator, doc.stacking_context_tree.subtree.items.len);
         errdefer result.stacking_context_inlines_count.deinit(allocator);
         return result;
     }
 
-    fn deinit(self: *Self, allocator: *Allocator) void {
+    fn deinit(self: *Self, allocator: Allocator) void {
         self.inlines_list.deinit(allocator);
         self.stacking_context_inlines_count.deinit(allocator);
     }
@@ -47,7 +47,7 @@ pub fn renderDocument(
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
     glyph_atlas: *GlyphAtlas,
-    allocator: *std.mem.Allocator,
+    allocator: Allocator,
     clip_rect: sdl.SDL_Rect,
     translation: sdl.SDL_Point,
 ) !void {
@@ -217,7 +217,7 @@ pub const GlyphAtlas = struct {
 
     const Self = @This();
 
-    pub fn init(face: hb.FT_Face, renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, allocator: *Allocator) !Self {
+    pub fn init(face: hb.FT_Face, renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, allocator: Allocator) !Self {
         const max_glyph_width = @intCast(u16, zss.util.roundUp(zss.util.divCeil((face.*.bbox.xMax - face.*.bbox.xMin) * face.*.size.*.metrics.x_ppem, face.*.units_per_EM), 4));
         const max_glyph_height = @intCast(u16, zss.util.roundUp(zss.util.divCeil((face.*.bbox.yMax - face.*.bbox.yMin) * face.*.size.*.metrics.y_ppem, face.*.units_per_EM), 4));
 
@@ -243,7 +243,7 @@ pub const GlyphAtlas = struct {
 
         var map = AutoArrayHashMapUnmanaged(c_uint, Entry){};
         errdefer map.deinit(allocator);
-        try map.ensureCapacity(allocator, 256);
+        try map.ensureTotalCapacity(allocator, 256);
 
         return Self{
             .map = map,
@@ -256,7 +256,7 @@ pub const GlyphAtlas = struct {
         };
     }
 
-    pub fn deinit(self: *Self, allocator: *Allocator) void {
+    pub fn deinit(self: *Self, allocator: Allocator) void {
         self.map.deinit(allocator);
         sdl.SDL_DestroyTexture(self.texture);
         sdl.SDL_FreeSurface(self.surface);
@@ -387,7 +387,7 @@ pub fn drawBlockValuesChildren(
     s: *RenderState,
     values: *const BlockLevelUsedValues,
     root_used_id: UsedId,
-    allocator: *std.mem.Allocator,
+    allocator: Allocator,
     translation: ZssVector,
     initial_clip_rect: ZssRect,
     renderer: *sdl.SDL_Renderer,
@@ -588,7 +588,7 @@ pub fn drawBlockContainer(
 pub fn drawInlineValues(
     values: *const InlineLevelUsedValues,
     translation: ZssVector,
-    allocator: *std.mem.Allocator,
+    allocator: Allocator,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
     atlas: *GlyphAtlas,
