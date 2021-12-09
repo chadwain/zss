@@ -6,6 +6,8 @@ pub const render = @import("source/render/render.zig");
 
 pub const util = @import("source/util.zig");
 
+const skip_tree = @import("source/layout/skip_tree.zig");
+
 comptime {
     if (@import("builtin").is_test) {
         @import("std").testing.refAllDecls(@This());
