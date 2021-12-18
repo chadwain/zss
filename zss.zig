@@ -6,7 +6,9 @@ pub const render = @import("source/render/render.zig");
 
 pub const util = @import("source/util.zig");
 
-const skip_tree = @import("source/layout/skip_tree.zig");
+const skip_tree = @import("source/cascade/skip_tree.zig");
+pub const SkipTree = skip_tree.SkipTree;
+pub const SparseSkipTree = skip_tree.SparseSkipTree;
 
 comptime {
     if (@import("builtin").is_test) {

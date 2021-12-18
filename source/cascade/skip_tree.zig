@@ -5,11 +5,11 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
-pub fn SkipTree(comptime Index: type, comptime Values: type) type {
+pub fn SkipTree(comptime IndexType: type, comptime Value: type) type {
     comptime {
-        const info = @typeInfo(Index);
+        const info = @typeInfo(IndexType);
         if (info != .Int or info.Int.signedness != .unsigned) {
-            @compileError("Index must be an unsigned integer type, instead found '" ++ @typeName(Index) ++ "'");
+            @compileError("IndexType must be an unsigned integer type, instead found '" ++ @typeName(IndexType) ++ "'");
         }
     }
 
@@ -17,23 +17,23 @@ pub fn SkipTree(comptime Index: type, comptime Values: type) type {
         .layout = .Auto,
         .decls = &.{},
         .is_tuple = false,
-        .fields = @typeInfo(Values).Struct.fields ++ &[_]std.builtin.TypeInfo.StructField{
+        .fields = @typeInfo(Value).Struct.fields ++ &[_]std.builtin.TypeInfo.StructField{
             .{
                 .name = "__skip_tree_skip",
-                .field_type = Index,
+                .field_type = IndexType,
                 .default_value = null,
                 .is_comptime = false,
-                .alignment = @alignOf(Index),
+                .alignment = @alignOf(IndexType),
             },
         },
     } });
 
-    const valuesToMultiElem = struct {
-        fn f(skip_tree_skip: Index, values: Values) MultiElem {
+    const valueToMultiElem = struct {
+        fn f(skip_tree_skip: IndexType, value: Value) MultiElem {
             var result: MultiElem = undefined;
             result.__skip_tree_skip = skip_tree_skip;
-            inline for (std.meta.fields(Values)) |field| {
-                @field(result, field.name) = @field(values, field.name);
+            inline for (std.meta.fields(Value)) |field| {
+                @field(result, field.name) = @field(value, field.name);
             }
             return result;
         }
@@ -41,6 +41,8 @@ pub fn SkipTree(comptime Index: type, comptime Values: type) type {
 
     return struct {
         multi_list: MultiArrayList(MultiElem) = .{},
+
+        pub const Index = IndexType;
 
         const Self = @This();
 
@@ -56,13 +58,13 @@ pub fn SkipTree(comptime Index: type, comptime Values: type) type {
             return self.multi_list.ensureTotalCapacity(allocator, count);
         }
 
-        pub fn createRootAssumeCapacity(self: *Self, values: Values) Index {
+        pub fn createRootAssumeCapacity(self: *Self, value: Value) Index {
             assert(self.multi_list.len == 0);
-            self.multi_list.appendAssumeCapacity(valuesToMultiElem(1, values));
+            self.multi_list.appendAssumeCapacity(valueToMultiElem(1, value));
             return 0;
         }
 
-        pub fn appendChildAssumeCapacity(self: *Self, parent: Index, values: Values) Index {
+        pub fn appendChildAssumeCapacity(self: *Self, parent: Index, value: Value) Index {
             const skips_ = self.multi_list.items(.__skip_tree_skip);
             const parent_next_sibling = parent + skips_[parent];
 
@@ -78,17 +80,17 @@ pub fn SkipTree(comptime Index: type, comptime Values: type) type {
                 index += 1;
             }
 
-            self.multi_list.insertAssumeCapacity(parent_next_sibling, valuesToMultiElem(1, values));
+            self.multi_list.insertAssumeCapacity(parent_next_sibling, valueToMultiElem(1, value));
             return parent_next_sibling;
         }
     };
 }
 
-pub fn SparseSkipTree(comptime Index: type, comptime Values: type) type {
+pub fn SparseSkipTree(comptime IndexType: type, comptime ValueSpec: type) type {
     comptime {
-        const info = @typeInfo(Index);
+        const info = @typeInfo(IndexType);
         if (info != .Int or info.Int.signedness != .unsigned) {
-            @compileError("Index must be an unsigned integer type, instead found '" ++ @typeName(Index) ++ "'");
+            @compileError("IndexType must be an unsigned integer type, instead found '" ++ @typeName(IndexType) ++ "'");
         }
     }
 
@@ -96,40 +98,45 @@ pub fn SparseSkipTree(comptime Index: type, comptime Values: type) type {
         .layout = .Auto,
         .decls = &.{},
         .is_tuple = false,
-        .fields = @typeInfo(Values).Struct.fields ++ &[_]std.builtin.TypeInfo.StructField{
+        .fields = @typeInfo(ValueSpec).Struct.fields ++ &[_]std.builtin.TypeInfo.StructField{
             .{
                 .name = "__sparse_tree_skip",
-                .field_type = Index,
+                .field_type = IndexType,
                 .default_value = null,
                 .is_comptime = false,
-                .alignment = @alignOf(Index),
+                .alignment = @alignOf(IndexType),
             },
             .{
                 .name = "__sparse_tree_reference_index",
-                .field_type = Index,
+                .field_type = IndexType,
                 .default_value = null,
                 .is_comptime = false,
-                .alignment = @alignOf(Index),
+                .alignment = @alignOf(IndexType),
             },
         },
     } });
 
-    const valuesToMultiElem = struct {
-        fn f(sparse_tree_skip: Index, sparse_tree_reference_index: Index, values: Values) MultiElem {
+    const valueToMultiElem = struct {
+        fn f(sparse_tree_skip: IndexType, sparse_tree_reference_index: IndexType, value: ValueSpec) MultiElem {
             var result: MultiElem = undefined;
             result.__sparse_tree_reference_index = sparse_tree_reference_index;
             result.__sparse_tree_skip = sparse_tree_skip;
-            inline for (std.meta.fields(Values)) |field| {
-                @field(result, field.name) = @field(values, field.name);
+            inline for (std.meta.fields(ValueSpec)) |field| {
+                @field(result, field.name) = @field(value, field.name);
             }
             return result;
         }
     }.f;
 
     return struct {
-        multi_list: MultiArrayList(MultiElem) = .{},
+        multi_list: MultiList = .{},
+
+        pub const Index = IndexType;
+        pub const Value = ValueSpec;
+        pub const ValueEnum = std.meta.FieldEnum(Value);
 
         const Self = @This();
+        const MultiList = MultiArrayList(MultiElem);
 
         pub fn deinit(self: *Self, allocator: Allocator) void {
             self.multi_list.deinit(allocator);
@@ -147,7 +154,7 @@ pub fn SparseSkipTree(comptime Index: type, comptime Values: type) type {
             return self.multi_list.ensureTotalCapacity(allocator, count);
         }
 
-        pub fn insertAssumeCapacity(self: *Self, reference_tree_index: Index, reference_tree_skips: []const Index, values: Values) void {
+        pub fn insertAssumeCapacity(self: *Self, reference_tree_index: Index, reference_tree_skips: []const Index, value: Value) void {
             const slice = self.multi_list.slice();
             const skips_ = slice.items(.__sparse_tree_skip);
             const reference_indeces = slice.items(.__sparse_tree_reference_index);
@@ -169,6 +176,9 @@ pub fn SparseSkipTree(comptime Index: type, comptime Values: type) type {
                     }
                 }
 
+                // We have found that the new element should be inserted after the element at `previous_index`,
+                // but we must find out if it (the new element) is a sibling or a child of the one at `previous_index`.
+
                 const is_child_of_previous = if (previous_index) |pi| blk: {
                     const previous_reference_index = reference_indeces[pi];
                     break :blk reference_tree_index < previous_reference_index + reference_tree_skips[previous_reference_index];
@@ -180,6 +190,7 @@ pub fn SparseSkipTree(comptime Index: type, comptime Values: type) type {
                     previous_index = null;
                 } else {
                     const insertion_point = index;
+                    // Find all elements after `insertion_point` which should become the children of the new element.
                     const reference_end = reference_tree_index + reference_tree_skips[reference_tree_index];
                     while (index < end) {
                         const reference_index = reference_indeces[index];
@@ -188,7 +199,7 @@ pub fn SparseSkipTree(comptime Index: type, comptime Values: type) type {
                     }
                     return self.multi_list.insertAssumeCapacity(
                         insertion_point,
-                        valuesToMultiElem(index - insertion_point + 1, reference_tree_index, values),
+                        valueToMultiElem(index - insertion_point + 1, reference_tree_index, value),
                     );
                 }
             }
@@ -198,9 +209,9 @@ pub fn SparseSkipTree(comptime Index: type, comptime Values: type) type {
 
 test "SkipTree and SparseSkipTree" {
     const allocator = std.testing.allocator;
-
     const Int = u16;
     const ST = SkipTree(Int, struct {});
+
     var st = ST{};
     defer st.deinit(allocator);
 
@@ -227,11 +238,68 @@ test "SkipTree and SparseSkipTree" {
     defer sst.deinit(allocator);
 
     try sst.ensureTotalCapacity(allocator, 5);
-    sst.insertAssumeCapacity(0, st_skips, .{});
-    sst.insertAssumeCapacity(7, st_skips, .{});
-    sst.insertAssumeCapacity(4, st_skips, .{});
-    sst.insertAssumeCapacity(2, st_skips, .{});
+    sst.insertAssumeCapacity(root, st_skips, .{});
+    sst.insertAssumeCapacity(root_1, st_skips, .{});
+    sst.insertAssumeCapacity(root_0, st_skips, .{});
+    sst.insertAssumeCapacity(root_0_0_0, st_skips, .{});
+}
 
-    try expectEqualSlices(Int, &[_]Int{ 4, 2, 1, 1 }, sst.skips());
-    try expectEqualSlices(Int, &[_]Int{ 0, 2, 4, 7 }, sst.referenceIndeces());
+pub fn SSTSeeker(comptime SST: type) type {
+    const SlicePointers = SlicePointers: {
+        const sst_value_fields = std.meta.fields(SST.Value);
+        var fields: [sst_value_fields.len]std.builtin.TypeInfo.StructField = undefined;
+        inline for (sst_value_fields) |field, i| {
+            fields[i] = .{
+                .name = field.name,
+                .field_type = [*]const field.field_type,
+                .default_value = null,
+                .is_comptime = false,
+                .alignment = @alignOf([*]const field.field_type),
+            };
+        }
+        break :SlicePointers @Type(std.builtin.TypeInfo{ .Struct = .{
+            .layout = .Auto,
+            .fields = &fields,
+            .decls = &.{},
+            .is_tuple = false,
+        } });
+    };
+
+    return struct {
+        pointers: SlicePointers,
+        refs: [*]const SST.Index,
+        len: SST.Index,
+        current_ref: SST.Index = 0,
+
+        pub const TreeType = SST;
+
+        pub fn seekForward(self: *@This(), index: SST.Index) bool {
+            while (self.current_ref < self.len) {
+                const current = self.refs[self.current_ref];
+                if (current == index) return true;
+                if (current > index) return false;
+                self.current_ref += 1;
+            }
+            return false;
+        }
+
+        pub fn getValue(self: @This(), comptime field: SST.ValueEnum) std.meta.fieldInfo(SST.Value, field).field_type {
+            return @field(self.pointers, @tagName(field))[self.current_ref];
+        }
+    };
+}
+
+pub fn sstSeeker(sst: anytype) SSTSeeker(@TypeOf(sst)) {
+    const SST = @TypeOf(sst);
+    const slice = sst.multi_list.slice();
+    var result = SSTSeeker(SST){
+        .pointers = undefined,
+        .refs = slice.items(.__sparse_tree_reference_index).ptr,
+        .len = @intCast(SST.Index, sst.multi_list.len),
+    };
+    inline for (std.meta.fields(SST.Value)) |field| {
+        const tag = comptime std.meta.stringToEnum(SST.MultiList.Field, field.name).?;
+        @field(result.pointers, field.name) = slice.items(tag).ptr;
+    }
+    return result;
 }
