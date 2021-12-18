@@ -27,9 +27,7 @@ pub fn build(b: *Builder) void {
 }
 
 fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {
-    const test_lib_option = b.option(bool, "test-lib", "Enable or disable library tests") orelse true;
-    const test_validation_option = b.option(bool, "test-validation", "Enable or disable validation tests") orelse true;
-    const test_sdl_option = b.option(bool, "test-sdl", "Enable or disable SDL tests") orelse true;
+    const all_tests_step = b.step("test", "Run all tests");
 
     var lib_tests = b.addTest("zss.zig");
     lib_tests.setBuildMode(mode);
@@ -38,6 +36,8 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
     lib_tests.linkLibC();
     lib_tests.linkSystemLibrary("harfbuzz");
     lib_tests.linkSystemLibrary("freetype2");
+    const lib_tests_step = b.step("test-lib", "Run library tests");
+    lib_tests_step.dependOn(&lib_tests.step);
 
     var validation_tests = b.addTest("test/validation.zig");
     validation_tests.setBuildMode(mode);
@@ -51,6 +51,8 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
         .path = .{ .path = "zss.zig" },
         .dependencies = &[_]Pkg{pkgs.harfbuzz},
     });
+    const validation_tests_step = b.step("test-validation", "Run validation tests");
+    validation_tests_step.dependOn(&validation_tests.step);
 
     var sdl_tests = b.addTest("test/sdl.zig");
     sdl_tests.setBuildMode(mode);
@@ -66,11 +68,12 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
         .path = .{ .path = "zss.zig" },
         .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2 },
     });
+    const sdl_tests_step = b.step("test-sdl", "Run SDL tests");
+    sdl_tests_step.dependOn(&sdl_tests.step);
 
-    const tests_step = b.step("test", "Run tests");
-    if (test_lib_option) tests_step.dependOn(&lib_tests.step);
-    if (test_validation_option) tests_step.dependOn(&validation_tests.step);
-    if (test_sdl_option) tests_step.dependOn(&sdl_tests.step);
+    all_tests_step.dependOn(&lib_tests.step);
+    all_tests_step.dependOn(&validation_tests.step);
+    all_tests_step.dependOn(&sdl_tests.step);
 }
 
 fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {
