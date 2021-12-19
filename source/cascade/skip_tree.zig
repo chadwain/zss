@@ -50,8 +50,12 @@ pub fn SkipTree(comptime IndexType: type, comptime Value: type) type {
             self.multi_list.deinit(allocator);
         }
 
-        pub fn skips(self: *Self) []const Index {
+        pub fn skips(self: Self) []const Index {
             return self.multi_list.items(.__skip_tree_skip);
+        }
+
+        pub fn size(self: Self) Index {
+            return @intCast(Index, self.multi_list.len);
         }
 
         pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: Index) !void {
