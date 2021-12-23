@@ -360,19 +360,23 @@ fn createBlockLevelUsedValues(doc: *Document, context: *LayoutContext) !void {
         try processElement(doc, context);
     }
 
-    // // Solve for all of the properties that don't affect layout.
-    // const num_created_boxes = doc.blocks.structure.items[0];
-    // assert(context.used_id_to_element_index.items.len == num_created_boxes);
-    // try doc.blocks.border_colors.resize(doc.allocator, num_created_boxes);
-    // try doc.blocks.background1.resize(doc.allocator, num_created_boxes);
-    // try doc.blocks.background2.resize(doc.allocator, num_created_boxes);
-    // for (context.used_id_to_element_index.items) |box_id, used_id| {
-    //     if (box_id != reserved_box_id) {
-    //         try blockBoxSolveOtherProperties(doc, context.box_tree, box_id, @intCast(UsedId, used_id));
-    //     } else {
-    //         blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, used_id));
-    //     }
-    // }
+    // Solve for all of the properties that don't affect layout.
+    const num_created_boxes = doc.blocks.structure.items[0];
+    assert(context.used_id_to_element_index.items.len == num_created_boxes);
+    try doc.blocks.border_colors.resize(doc.allocator, num_created_boxes);
+    try doc.blocks.background1.resize(doc.allocator, num_created_boxes);
+    try doc.blocks.background2.resize(doc.allocator, num_created_boxes);
+    for (context.used_id_to_element_index.items) |box_id, used_id| {
+        _ = box_id;
+        blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, used_id));
+
+        // TODO: Uncomment this someday
+        // if (box_id != reserved_box_id) {
+        //     try blockBoxSolveOtherProperties(doc, context.box_tree, box_id, @intCast(UsedId, used_id));
+        // } else {
+        //     blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, used_id));
+        // }
+    }
 }
 
 fn createInitialContainingBlock(doc: *Document, context: *LayoutContext) !void {

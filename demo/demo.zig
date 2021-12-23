@@ -13,6 +13,8 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("zss");
 const BoxTree = zss.BoxTree;
+const ElementTree = zss.ElementTree;
+const ValueTree = zss.ValueTree;
 const pixelToZssUnit = zss.render.sdl.pixelToZssUnit;
 
 const sdl = @import("SDL2");
@@ -170,134 +172,199 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     const zig_png = sdl.IMG_LoadTexture(renderer, "demo/zig.png") orelse return error.ResourceLoadFail;
     defer sdl.SDL_DestroyTexture(zig_png);
 
-    const root_border = BoxTree.LogicalSize.BorderWidth{ .px = 10 };
-    const root_padding = BoxTree.LogicalSize.Padding{ .px = 30 };
+    const root_border = zss.value.BorderWidth{ .px = 10 };
+    const root_padding = zss.value.Padding{ .px = 30 };
     const root_border_color = BoxTree.Border.Color{ .rgba = 0xaf2233ff };
 
-    const len = 9;
-    var structure = [len]BoxTree.BoxId{ 9, 1, 3, 2, 1, 3, 2, 1, 1 };
-    var inline_size = [len]BoxTree.LogicalSize{
-        .{ .min_size = .{ .px = 200 }, .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border },
-        .{ .size = .{ .px = 10000 } },
-        .{},
-        .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } },
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-    };
-    var block_size = [len]BoxTree.LogicalSize{
-        .{ .padding_start = root_padding, .padding_end = .{ .px = 12 }, .border_start = root_border, .border_end = root_border },
-        .{ .size = .{ .px = 10000 } },
-        .{ .border_end = .{ .px = 2 }, .margin_end = .{ .px = 24 } },
-        .{ .padding_end = .{ .px = 5 } },
-        .{},
-        .{},
-        .{},
-        .{},
-        .{ .size = .{ .px = 50 }, .margin_start = .{ .px = 10 } },
-    };
-    var display = [len]BoxTree.Display{
-        .{ .block = {} },
-        .{ .none = {} },
-        .{ .block = {} },
-        .{ .inline_ = {} },
-        .{ .text = {} },
-        .{ .block = {} },
-        .{ .inline_ = {} },
-        .{ .text = {} },
-        .{ .block = {} },
-    };
-    var position = [len]BoxTree.Positioning{
-        .{},
-        .{},
-        .{ .style = .{ .relative = {} }, .z_index = .{ .value = -1 } },
-        .{},
-        .{},
-        .{ .style = .{ .relative = {} } },
-        .{},
-        .{},
-        .{},
-    };
-    var insets = [len]BoxTree.Insets{
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-    };
-    var latin1_text = [len]BoxTree.Latin1Text{
-        .{},
-        .{},
-        .{},
-        .{},
-        .{ .text = args.filename },
-        .{},
-        .{},
-        .{ .text = bytes },
-        .{},
-    };
-    var border = [len]BoxTree.Border{
-        .{ .inline_start_color = root_border_color, .inline_end_color = root_border_color, .block_start_color = root_border_color, .block_end_color = root_border_color },
-        .{},
-        .{ .block_end_color = .{ .rgba = 0x202020ff } },
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-    };
-    var background = [len]BoxTree.Background{
-        .{
-            .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(smile) },
-            .position = .{ .position = .{
-                .x = .{ .side = .right },
-                .y = .{ .offset = .{ .px = 10 } },
-            } },
-            .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
-            .color = .{ .rgba = args.bg_color },
-        },
-        .{},
-        .{},
-        .{ .color = .{ .rgba = 0xfa58007f } },
-        .{},
-        .{},
-        .{},
-        .{},
-        .{
-            .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(zig_png) },
-            .position = .{ .position = .{
-                .x = .{ .offset = .{ .percentage = 0.5 } },
-                .y = .{ .offset = .{ .percentage = 0.5 } },
-            } },
-            .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
-            .size = .{ .contain = {} },
-        },
-    };
-    const tree = BoxTree{
-        .structure = &structure,
-        .inline_size = &inline_size,
-        .block_size = &block_size,
-        .display = &display,
-        .position = &position,
-        .insets = &insets,
-        .latin1_text = &latin1_text,
-        .border = &border,
-        .background = &background,
-        .font = .{ .font = font, .color = .{ .rgba = args.text_color } },
-    };
+    var element_tree = zss.ElementTree{};
+    defer element_tree.deinit(allocator);
 
-    try sdlMainLoop(window, renderer, face, allocator, &tree);
+    try element_tree.ensureTotalCapacity(allocator, 9);
+    const root = element_tree.createRootAssumeCapacity(.{});
+    const root_0 = element_tree.appendChildAssumeCapacity(root, .{});
+    const root_1 = element_tree.appendChildAssumeCapacity(root, .{});
+    const root_1_0 = element_tree.appendChildAssumeCapacity(root_1, .{});
+    const root_1_0_0 = element_tree.appendChildAssumeCapacity(root_1_0, .{});
+    const root_2 = element_tree.appendChildAssumeCapacity(root, .{});
+    const root_2_0 = element_tree.appendChildAssumeCapacity(root_2, .{});
+    const root_2_0_0 = element_tree.appendChildAssumeCapacity(root_2_0, .{});
+    const root_3 = element_tree.appendChildAssumeCapacity(root, .{});
+    _ = root_1_0_0;
+    _ = root_2_0_0;
+    const skips = element_tree.skips();
+
+    var cascaded = zss.ValueTree{};
+    defer cascaded.deinit(allocator);
+    const v = &cascaded.values;
+
+    try v.display.ensureTotalCapacity(allocator, 9);
+    try v.position.ensureTotalCapacity(allocator, 9);
+    try v.z_index.ensureTotalCapacity(allocator, 9);
+    try v.width.ensureTotalCapacity(allocator, 9);
+    try v.min_width.ensureTotalCapacity(allocator, 9);
+    try v.height.ensureTotalCapacity(allocator, 9);
+    try v.padding_top.ensureTotalCapacity(allocator, 9);
+    try v.padding_right.ensureTotalCapacity(allocator, 9);
+    try v.padding_bottom.ensureTotalCapacity(allocator, 9);
+    try v.padding_left.ensureTotalCapacity(allocator, 9);
+    try v.border_top.ensureTotalCapacity(allocator, 9);
+    try v.border_right.ensureTotalCapacity(allocator, 9);
+    try v.border_bottom.ensureTotalCapacity(allocator, 9);
+    try v.border_left.ensureTotalCapacity(allocator, 9);
+
+    v.display.insertAssumeCapacity(root, skips, .{ .display = .block });
+    v.min_width.insertAssumeCapacity(root, skips, .{ .min_width = .{ .px = 200 } });
+    v.padding_top.insertAssumeCapacity(root, skips, .{ .padding_top = root_padding });
+    v.padding_right.insertAssumeCapacity(root, skips, .{ .padding_right = root_padding });
+    v.padding_bottom.insertAssumeCapacity(root, skips, .{ .padding_bottom = root_padding });
+    v.padding_left.insertAssumeCapacity(root, skips, .{ .padding_left = root_padding });
+    v.border_top.insertAssumeCapacity(root, skips, .{ .border_top = root_border });
+    v.border_right.insertAssumeCapacity(root, skips, .{ .border_right = root_border });
+    v.border_bottom.insertAssumeCapacity(root, skips, .{ .border_bottom = root_border });
+    v.border_left.insertAssumeCapacity(root, skips, .{ .border_left = root_border });
+
+    v.display.insertAssumeCapacity(root_0, skips, .{ .display = .none });
+    v.width.insertAssumeCapacity(root_0, skips, .{ .width = .{ .px = 10000 } });
+    v.height.insertAssumeCapacity(root_0, skips, .{ .height = .{ .px = 10000 } });
+
+    v.display.insertAssumeCapacity(root_1, skips, .{ .display = .block });
+    v.position.insertAssumeCapacity(root_1, skips, .{ .position = .relative });
+    v.z_index.insertAssumeCapacity(root_1, skips, .{ .z_index = .{ .integer = -1 } });
+
+    v.display.insertAssumeCapacity(root_2, skips, .{ .display = .block });
+    v.display.insertAssumeCapacity(root_3, skips, .{ .display = .block });
+
+    v.display.insertAssumeCapacity(root_1_0, skips, .{ .display = .none });
+    v.display.insertAssumeCapacity(root_2_0, skips, .{ .display = .none });
+
+    if (false) {
+        const len = 9;
+        var structure = [len]BoxTree.BoxId{ 9, 1, 3, 2, 1, 3, 2, 1, 1 };
+        var inline_size = [len]BoxTree.LogicalSize{
+            .{ .min_size = .{ .px = 200 }, .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border },
+            .{ .size = .{ .px = 10000 } },
+            .{},
+            .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } },
+            .{},
+            .{},
+            .{},
+            .{},
+            .{},
+        };
+        var block_size = [len]BoxTree.LogicalSize{
+            .{ .padding_start = root_padding, .padding_end = .{ .px = 12 }, .border_start = root_border, .border_end = root_border },
+            .{ .size = .{ .px = 10000 } },
+            .{ .border_end = .{ .px = 2 }, .margin_end = .{ .px = 24 } },
+            .{ .padding_end = .{ .px = 5 } },
+            .{},
+            .{},
+            .{},
+            .{},
+            .{ .size = .{ .px = 50 }, .margin_start = .{ .px = 10 } },
+        };
+        var display = [len]BoxTree.Display{
+            .{ .block = {} },
+            .{ .none = {} },
+            .{ .block = {} },
+            .{ .inline_ = {} },
+            .{ .text = {} },
+            .{ .block = {} },
+            .{ .inline_ = {} },
+            .{ .text = {} },
+            .{ .block = {} },
+        };
+        var position = [len]BoxTree.Positioning{
+            .{},
+            .{},
+            .{ .style = .{ .relative = {} }, .z_index = .{ .value = -1 } },
+            .{},
+            .{},
+            .{ .style = .{ .relative = {} } },
+            .{},
+            .{},
+            .{},
+        };
+        var insets = [len]BoxTree.Insets{
+            .{},
+            .{},
+            .{},
+            .{},
+            .{},
+            .{},
+            .{},
+            .{},
+            .{},
+        };
+        var latin1_text = [len]BoxTree.Latin1Text{
+            .{},
+            .{},
+            .{},
+            .{},
+            .{ .text = args.filename },
+            .{},
+            .{},
+            .{ .text = bytes },
+            .{},
+        };
+        var border = [len]BoxTree.Border{
+            .{ .inline_start_color = root_border_color, .inline_end_color = root_border_color, .block_start_color = root_border_color, .block_end_color = root_border_color },
+            .{},
+            .{ .block_end_color = .{ .rgba = 0x202020ff } },
+            .{},
+            .{},
+            .{},
+            .{},
+            .{},
+            .{},
+        };
+        var background = [len]BoxTree.Background{
+            .{
+                .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(smile) },
+                .position = .{ .position = .{
+                    .x = .{ .side = .right },
+                    .y = .{ .offset = .{ .px = 10 } },
+                } },
+                .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
+                .color = .{ .rgba = args.bg_color },
+            },
+            .{},
+            .{},
+            .{ .color = .{ .rgba = 0xfa58007f } },
+            .{},
+            .{},
+            .{},
+            .{},
+            .{
+                .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(zig_png) },
+                .position = .{ .position = .{
+                    .x = .{ .offset = .{ .percentage = 0.5 } },
+                    .y = .{ .offset = .{ .percentage = 0.5 } },
+                } },
+                .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
+                .size = .{ .contain = {} },
+            },
+        };
+        const tree = BoxTree{
+            .structure = &structure,
+            .inline_size = &inline_size,
+            .block_size = &block_size,
+            .display = &display,
+            .position = &position,
+            .insets = &insets,
+            .latin1_text = &latin1_text,
+            .border = &border,
+            .background = &background,
+            .font = .{ .font = font, .color = .{ .rgba = args.text_color } },
+        };
+        _ = tree;
+    }
+
+    try sdlMainLoop(window, renderer, face, allocator, &element_tree, &cascaded);
 }
 
 const ProgramState = struct {
-    tree: *const BoxTree,
+    element_tree: *const ElementTree,
+    cascaded_value_tree: *const ValueTree,
     document: zss.used_values.Document,
     atlas: zss.render.sdl.GlyphAtlas,
     width: c_int,
@@ -309,14 +376,23 @@ const ProgramState = struct {
 
     const Self = @This();
 
-    fn init(tree: *const BoxTree, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, face: hb.FT_Face, allocator: Allocator) !Self {
+    fn init(
+        element_tree: *const ElementTree,
+        cascaded_value_tree: *const ValueTree,
+        window: *sdl.SDL_Window,
+        renderer: *sdl.SDL_Renderer,
+        pixel_format: *sdl.SDL_PixelFormat,
+        face: hb.FT_Face,
+        allocator: Allocator,
+    ) !Self {
         var result = @as(Self, undefined);
 
-        result.tree = tree;
+        result.element_tree = element_tree;
+        result.cascaded_value_tree = cascaded_value_tree;
         sdl.SDL_GetWindowSize(window, &result.width, &result.height);
         result.timer = try std.time.Timer.start();
 
-        result.document = try zss.layout.doLayout(tree, allocator, .{ .w = pixelToZssUnit(result.width), .h = pixelToZssUnit(result.height) });
+        result.document = try zss.layout.doLayout(element_tree, cascaded_value_tree, allocator, .{ .w = pixelToZssUnit(result.width), .h = pixelToZssUnit(result.height) });
         errdefer result.document.deinit();
 
         result.last_layout_time = result.timer.read();
@@ -335,7 +411,7 @@ const ProgramState = struct {
 
     fn updateDocument(self: *Self, allocator: Allocator) !void {
         self.timer.reset();
-        var new_document = try zss.layout.doLayout(self.tree, allocator, .{ .w = pixelToZssUnit(self.width), .h = pixelToZssUnit(self.height) });
+        var new_document = try zss.layout.doLayout(self.element_tree, self.cascaded_value_tree, allocator, .{ .w = pixelToZssUnit(self.width), .h = pixelToZssUnit(self.height) });
         self.last_layout_time = self.timer.read();
         self.document.deinit();
         self.document = new_document;
@@ -348,11 +424,18 @@ const ProgramState = struct {
     }
 };
 
-fn sdlMainLoop(window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: hb.FT_Face, allocator: Allocator, tree: *const BoxTree) !void {
+fn sdlMainLoop(
+    window: *sdl.SDL_Window,
+    renderer: *sdl.SDL_Renderer,
+    face: hb.FT_Face,
+    allocator: Allocator,
+    element_tree: *const ElementTree,
+    cascaded_value_tree: *const ValueTree,
+) !void {
     const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
 
-    var ps = try ProgramState.init(tree, window, renderer, pixel_format, face, allocator);
+    var ps = try ProgramState.init(element_tree, cascaded_value_tree, window, renderer, pixel_format, face, allocator);
     defer ps.deinit(allocator);
 
     const stderr = std.io.getStdErr().writer();

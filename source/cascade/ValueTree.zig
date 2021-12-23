@@ -3,6 +3,11 @@ const Index = zss.ElementTree.Index;
 const value = zss.value;
 const SparseSkipTree = zss.SparseSkipTree;
 
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Self = @This();
+
 pub const Values = struct {
     all: SparseSkipTree(Index, struct { all: value.All }) = .{},
     display: SparseSkipTree(Index, struct { display: value.Display }) = .{},
@@ -37,3 +42,9 @@ pub const Values = struct {
 };
 
 values: Values = .{},
+
+pub fn deinit(self: *Self, allocator: Allocator) void {
+    inline for (std.meta.fields(Values)) |f| {
+        @field(self.values, f.name).deinit(allocator);
+    }
+}
