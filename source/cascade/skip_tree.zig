@@ -249,8 +249,9 @@ test "SkipTree and SparseSkipTree" {
 }
 
 pub fn SSTSeeker(comptime SST: type) type {
+    const sst_value_fields = std.meta.fields(SST.Value);
+
     const SlicePointers = SlicePointers: {
-        const sst_value_fields = std.meta.fields(SST.Value);
         var fields: [sst_value_fields.len]std.builtin.TypeInfo.StructField = undefined;
         inline for (sst_value_fields) |field, i| {
             fields[i] = .{
@@ -277,7 +278,9 @@ pub fn SSTSeeker(comptime SST: type) type {
 
         pub const TreeType = SST;
 
-        pub fn seekForward(self: *@This(), index: SST.Index) bool {
+        const Self = @This();
+
+        pub fn seekForward(self: *Self, index: SST.Index) bool {
             while (self.current_ref < self.len) {
                 const current = self.refs[self.current_ref];
                 if (current == index) return true;
@@ -287,7 +290,15 @@ pub fn SSTSeeker(comptime SST: type) type {
             return false;
         }
 
-        pub fn getValue(self: @This(), comptime field: SST.ValueEnum) std.meta.fieldInfo(SST.Value, field).field_type {
+        pub fn get(self: Self) SST.Value {
+            var result: SST.Value = undefined;
+            inline for (sst_value_fields) |field_info| {
+                @field(result, field_info.name) = @field(self.pointers, field_info.name)[self.current_ref];
+            }
+            return result;
+        }
+
+        pub fn getField(self: Self, comptime field: SST.ValueEnum) std.meta.fieldInfo(SST.Value, field).field_type {
             return @field(self.pointers, @tagName(field))[self.current_ref];
         }
     };

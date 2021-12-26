@@ -8,37 +8,65 @@ const Allocator = std.mem.Allocator;
 
 const Self = @This();
 
+pub const AggregatePropertyEnum = enum {
+    all,
+    display_position_float,
+    widths,
+    horizontal_sizes,
+    heights,
+    vertical_sizes,
+    z_index,
+    insets,
+
+    // Not yet implemented.
+    direction,
+    unicode_bidi,
+    custom, // Custom property
+
+    pub fn Value(comptime self: @This()) type {
+        const Enum = std.meta.FieldEnum(Values);
+        const name = @tagName(self);
+        const tag = std.meta.stringToEnum(Enum, name) orelse @compileError("TODO: Value(" ++ name ++ ")");
+        const field = std.meta.fieldInfo(Values, tag);
+        return field.field_type.Value;
+    }
+
+    pub const InheritanceType = enum { inherited, not_inherited, neither };
+
+    pub fn inheritanceType(self: @This()) InheritanceType {
+        return switch (self) {
+            .all => .neither,
+
+            .display_position_float,
+            .widths,
+            .horizontal_sizes,
+            .heights,
+            .vertical_sizes,
+            .z_index,
+            .insets,
+            .unicode_bidi,
+            => .not_inherited,
+
+            .direction,
+            .custom,
+            => .inherited,
+        };
+    }
+};
+
 pub const Values = struct {
     all: SparseSkipTree(Index, struct { all: value.All }) = .{},
-    display: SparseSkipTree(Index, struct { display: value.Display }) = .{},
-    position: SparseSkipTree(Index, struct { position: value.Position }) = .{},
-    float: SparseSkipTree(Index, struct { float: value.Float }) = .{},
-    z_index: SparseSkipTree(Index, struct { z_index: value.ZIndex }) = .{},
 
-    width: SparseSkipTree(Index, struct { width: value.Size }) = .{},
-    min_width: SparseSkipTree(Index, struct { min_width: value.MinSize }) = .{},
-    max_width: SparseSkipTree(Index, struct { max_width: value.MaxSize }) = .{},
-    padding_left: SparseSkipTree(Index, struct { padding_left: value.Padding }) = .{},
-    padding_right: SparseSkipTree(Index, struct { padding_right: value.Padding }) = .{},
-    border_left: SparseSkipTree(Index, struct { border_left: value.BorderWidth }) = .{},
-    border_right: SparseSkipTree(Index, struct { border_right: value.BorderWidth }) = .{},
-    margin_left: SparseSkipTree(Index, struct { margin_left: value.Margin }) = .{},
-    margin_right: SparseSkipTree(Index, struct { margin_right: value.Margin }) = .{},
+    display_position_float: SparseSkipTree(Index, DisplayPositionFloat) = .{},
 
-    height: SparseSkipTree(Index, struct { height: value.Size }) = .{},
-    min_height: SparseSkipTree(Index, struct { min_height: value.MinSize }) = .{},
-    max_height: SparseSkipTree(Index, struct { max_height: value.MaxSize }) = .{},
-    padding_top: SparseSkipTree(Index, struct { padding_top: value.Padding }) = .{},
-    padding_bottom: SparseSkipTree(Index, struct { padding_bottom: value.Padding }) = .{},
-    border_top: SparseSkipTree(Index, struct { border_top: value.BorderWidth }) = .{},
-    border_bottom: SparseSkipTree(Index, struct { border_bottom: value.BorderWidth }) = .{},
-    margin_top: SparseSkipTree(Index, struct { margin_top: value.Margin }) = .{},
-    margin_bottom: SparseSkipTree(Index, struct { margin_bottom: value.Margin }) = .{},
+    widths: SparseSkipTree(Index, Sizes) = .{},
+    horizontal_sizes: SparseSkipTree(Index, PaddingBorderMargin) = .{},
 
-    top: SparseSkipTree(Index, struct { top: value.Inset }) = .{},
-    right: SparseSkipTree(Index, struct { right: value.Inset }) = .{},
-    bottom: SparseSkipTree(Index, struct { bottom: value.Inset }) = .{},
-    left: SparseSkipTree(Index, struct { left: value.Inset }) = .{},
+    heights: SparseSkipTree(Index, Sizes) = .{},
+    vertical_sizes: SparseSkipTree(Index, PaddingBorderMargin) = .{},
+
+    z_index: SparseSkipTree(Index, struct { z_index: value.ZIndex = .auto }) = .{},
+    insets: SparseSkipTree(Index, Insets) = .{},
 };
 
 values: Values = .{},
@@ -48,3 +76,31 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
         @field(self.values, f.name).deinit(allocator);
     }
 }
+
+pub const DisplayPositionFloat = struct {
+    display: value.Display = .inline_,
+    position: value.Position = .static,
+    float: value.Float = .none,
+};
+
+pub const Sizes = struct {
+    size: value.Size = .auto,
+    min_size: value.MinSize = .{ .px = 0 },
+    max_size: value.MaxSize = .none,
+};
+
+pub const PaddingBorderMargin = struct {
+    padding_start: value.Padding = .{ .px = 0 },
+    padding_end: value.Padding = .{ .px = 0 },
+    border_start: value.BorderWidth = .medium,
+    border_end: value.BorderWidth = .medium,
+    margin_start: value.Margin = .{ .px = 0 },
+    margin_end: value.Margin = .{ .px = 0 },
+};
+
+pub const Insets = struct {
+    top: value.Inset = .auto,
+    right: value.Inset = .auto,
+    bottom: value.Inset = .auto,
+    left: value.Inset = .auto,
+};

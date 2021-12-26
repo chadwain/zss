@@ -197,45 +197,30 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     defer cascaded.deinit(allocator);
     const v = &cascaded.values;
 
-    try v.display.ensureTotalCapacity(allocator, 9);
-    try v.position.ensureTotalCapacity(allocator, 9);
+    try v.display_position_float.ensureTotalCapacity(allocator, 9);
     try v.z_index.ensureTotalCapacity(allocator, 9);
-    try v.width.ensureTotalCapacity(allocator, 9);
-    try v.min_width.ensureTotalCapacity(allocator, 9);
-    try v.height.ensureTotalCapacity(allocator, 9);
-    try v.padding_top.ensureTotalCapacity(allocator, 9);
-    try v.padding_right.ensureTotalCapacity(allocator, 9);
-    try v.padding_bottom.ensureTotalCapacity(allocator, 9);
-    try v.padding_left.ensureTotalCapacity(allocator, 9);
-    try v.border_top.ensureTotalCapacity(allocator, 9);
-    try v.border_right.ensureTotalCapacity(allocator, 9);
-    try v.border_bottom.ensureTotalCapacity(allocator, 9);
-    try v.border_left.ensureTotalCapacity(allocator, 9);
+    try v.widths.ensureTotalCapacity(allocator, 9);
+    try v.horizontal_sizes.ensureTotalCapacity(allocator, 9);
+    try v.heights.ensureTotalCapacity(allocator, 9);
+    try v.vertical_sizes.ensureTotalCapacity(allocator, 9);
 
-    v.display.insertAssumeCapacity(root, skips, .{ .display = .block });
-    v.min_width.insertAssumeCapacity(root, skips, .{ .min_width = .{ .px = 200 } });
-    v.padding_top.insertAssumeCapacity(root, skips, .{ .padding_top = root_padding });
-    v.padding_right.insertAssumeCapacity(root, skips, .{ .padding_right = root_padding });
-    v.padding_bottom.insertAssumeCapacity(root, skips, .{ .padding_bottom = root_padding });
-    v.padding_left.insertAssumeCapacity(root, skips, .{ .padding_left = root_padding });
-    v.border_top.insertAssumeCapacity(root, skips, .{ .border_top = root_border });
-    v.border_right.insertAssumeCapacity(root, skips, .{ .border_right = root_border });
-    v.border_bottom.insertAssumeCapacity(root, skips, .{ .border_bottom = root_border });
-    v.border_left.insertAssumeCapacity(root, skips, .{ .border_left = root_border });
+    v.display_position_float.insertAssumeCapacity(root, skips, .{ .display = .block });
+    v.widths.insertAssumeCapacity(root, skips, .{ .min_size = .{ .px = 200 } });
+    v.horizontal_sizes.insertAssumeCapacity(root, skips, .{ .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border });
+    v.vertical_sizes.insertAssumeCapacity(root, skips, .{ .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border });
 
-    v.display.insertAssumeCapacity(root_0, skips, .{ .display = .none });
-    v.width.insertAssumeCapacity(root_0, skips, .{ .width = .{ .px = 10000 } });
-    v.height.insertAssumeCapacity(root_0, skips, .{ .height = .{ .px = 10000 } });
+    v.display_position_float.insertAssumeCapacity(root_0, skips, .{ .display = .none });
+    v.widths.insertAssumeCapacity(root_0, skips, .{ .size = .{ .px = 10000 } });
+    v.heights.insertAssumeCapacity(root_0, skips, .{ .size = .{ .px = 10000 } });
 
-    v.display.insertAssumeCapacity(root_1, skips, .{ .display = .block });
-    v.position.insertAssumeCapacity(root_1, skips, .{ .position = .relative });
+    v.display_position_float.insertAssumeCapacity(root_1, skips, .{ .display = .block, .position = .relative });
     v.z_index.insertAssumeCapacity(root_1, skips, .{ .z_index = .{ .integer = -1 } });
 
-    v.display.insertAssumeCapacity(root_2, skips, .{ .display = .block });
-    v.display.insertAssumeCapacity(root_3, skips, .{ .display = .block });
+    v.display_position_float.insertAssumeCapacity(root_2, skips, .{ .display = .block });
+    v.display_position_float.insertAssumeCapacity(root_3, skips, .{ .display = .block });
 
-    v.display.insertAssumeCapacity(root_1_0, skips, .{ .display = .none });
-    v.display.insertAssumeCapacity(root_2_0, skips, .{ .display = .none });
+    v.display_position_float.insertAssumeCapacity(root_1_0, skips, .{ .display = .none });
+    v.display_position_float.insertAssumeCapacity(root_2_0, skips, .{ .display = .none });
 
     if (false) {
         const len = 9;

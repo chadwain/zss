@@ -163,35 +163,13 @@ const Seekers = struct {
     const Enum = std.meta.FieldEnum(ValueTree.Values);
 
     all: SSTSeeker(fields[@enumToInt(Enum.all)].field_type),
-    display: SSTSeeker(fields[@enumToInt(Enum.display)].field_type),
-    position: SSTSeeker(fields[@enumToInt(Enum.position)].field_type),
-    float: SSTSeeker(fields[@enumToInt(Enum.float)].field_type),
+    display_position_float: SSTSeeker(fields[@enumToInt(Enum.display_position_float)].field_type),
+    widths: SSTSeeker(fields[@enumToInt(Enum.widths)].field_type),
+    horizontal_sizes: SSTSeeker(fields[@enumToInt(Enum.horizontal_sizes)].field_type),
+    heights: SSTSeeker(fields[@enumToInt(Enum.heights)].field_type),
+    vertical_sizes: SSTSeeker(fields[@enumToInt(Enum.vertical_sizes)].field_type),
     z_index: SSTSeeker(fields[@enumToInt(Enum.z_index)].field_type),
-
-    width: SSTSeeker(fields[@enumToInt(Enum.width)].field_type),
-    min_width: SSTSeeker(fields[@enumToInt(Enum.min_width)].field_type),
-    max_width: SSTSeeker(fields[@enumToInt(Enum.max_width)].field_type),
-    margin_left: SSTSeeker(fields[@enumToInt(Enum.margin_left)].field_type),
-    margin_right: SSTSeeker(fields[@enumToInt(Enum.margin_right)].field_type),
-    border_left: SSTSeeker(fields[@enumToInt(Enum.border_left)].field_type),
-    border_right: SSTSeeker(fields[@enumToInt(Enum.border_right)].field_type),
-    padding_left: SSTSeeker(fields[@enumToInt(Enum.padding_left)].field_type),
-    padding_right: SSTSeeker(fields[@enumToInt(Enum.padding_right)].field_type),
-
-    height: SSTSeeker(fields[@enumToInt(Enum.height)].field_type),
-    min_height: SSTSeeker(fields[@enumToInt(Enum.min_height)].field_type),
-    max_height: SSTSeeker(fields[@enumToInt(Enum.max_height)].field_type),
-    margin_top: SSTSeeker(fields[@enumToInt(Enum.margin_top)].field_type),
-    margin_bottom: SSTSeeker(fields[@enumToInt(Enum.margin_bottom)].field_type),
-    border_top: SSTSeeker(fields[@enumToInt(Enum.border_top)].field_type),
-    border_bottom: SSTSeeker(fields[@enumToInt(Enum.border_bottom)].field_type),
-    padding_top: SSTSeeker(fields[@enumToInt(Enum.padding_top)].field_type),
-    padding_bottom: SSTSeeker(fields[@enumToInt(Enum.padding_bottom)].field_type),
-
-    top: SSTSeeker(fields[@enumToInt(Enum.top)].field_type),
-    right: SSTSeeker(fields[@enumToInt(Enum.right)].field_type),
-    bottom: SSTSeeker(fields[@enumToInt(Enum.bottom)].field_type),
-    left: SSTSeeker(fields[@enumToInt(Enum.left)].field_type),
+    insets: SSTSeeker(fields[@enumToInt(Enum.insets)].field_type),
 
     fn init(cascaded_value_tree: *const ValueTree) @This() {
         var result: @This() = undefined;
@@ -266,14 +244,45 @@ const LayoutContext = struct {
         self.inline_container.deinit(self.allocator);
     }
 
-    fn getSpecifiedValue(self: *Self, comptime property: zss.value.PropertyEnum, element: ElementIndex) zss.value.Value(property) {
-        return getCascadedValue(self, property, element) orelse @panic("TODO: Get specified value via inheritance");
+    fn getSpecifiedValue(self: *Self, comptime property: zss.ValueTree.AggregatePropertyEnum, element: ElementIndex) property.Value() {
+        const Value = property.Value();
+        const fields = std.meta.fields(Value);
+        const inheritance_type = comptime property.inheritanceType();
+
+        var result: Value = undefined;
+        switch (getCascadedValue(self, property, element)) {
+            .value => |value| result = value,
+            .all_inherit => result = comptime blk: {
+                var v: Value = undefined;
+                inline for (fields) |field_info| {
+                    @field(v, field_info.name) = .inherit;
+                }
+                break :blk v;
+            },
+            .all_initial => return Value{},
+        }
+
+        inline for (fields) |field_info| {
+            const value = &@field(result, field_info.name);
+            switch (value.*) {
+                .inherit => @panic("TODO: Get specified value via inheritance"),
+                .initial => value.* = field_info.default_value.?,
+                .unset => switch (inheritance_type) {
+                    .inherited => @panic("TODO: Get specified value via inheritance"),
+                    .not_inherited => value.* = field_info.default_value.?,
+                    .neither => unreachable,
+                },
+                else => {},
+            }
+        }
+
+        return result;
     }
 
     /// Returns null if the cascaded value is 'inherit',
     /// Never returns 'initial' or 'unset'.
-    fn getCascadedValue(self: *Self, comptime property: zss.value.PropertyEnum, element: ElementIndex) ?zss.value.Value(property) {
-        const inheritance_type = comptime zss.value.inheritanceType(property);
+    fn getCascadedValue(self: *Self, comptime property: zss.ValueTree.AggregatePropertyEnum, element: ElementIndex) union(enum) { value: property.Value(), all_inherit, all_initial } {
+        const inheritance_type = comptime property.inheritanceType();
         switch (inheritance_type) {
             .inherited, .not_inherited => {},
             .neither => @compileError("Use getAll instead"),
@@ -282,41 +291,22 @@ const LayoutContext = struct {
         // Find the value using the cascaded value tree.
         const seeker = &@field(self.seekers, @tagName(property));
         if (seeker.seekForward(element)) {
-            const cascaded_value = seeker.getValue(std.meta.stringToEnum(@TypeOf(seeker.*).TreeType.ValueEnum, @tagName(property)).?);
-            switch (inheritance_type) {
-                .not_inherited => {
-                    switch (cascaded_value) {
-                        .inherit => return null,
-                        .unset => return zss.value.initialValue(property),
-                        .initial => unreachable,
-                        else => return cascaded_value,
-                    }
-                },
-                .inherited => {
-                    switch (cascaded_value) {
-                        .inherit => unreachable,
-                        .unset => return null,
-                        .initial => return zss.value.initialValue(property),
-                        else => return cascaded_value,
-                    }
-                },
-                .neither => unreachable,
-            }
+            return .{ .value = seeker.get() };
         }
 
         // Use the value of the 'all' property, if it is set.
         if (property != .direction and property != .unicode_bidi and property != .custom) {
             if (self.this_element.all) |all| switch (all) {
-                .inherit => return null,
-                .initial => return zss.value.initialValue(property),
+                .inherit => return .all_inherit,
+                .initial => return .all_initial,
                 .unset => {},
             };
         }
 
         // Just use the inheritance type.
         switch (inheritance_type) {
-            .inherited => return null,
-            .not_inherited => return zss.value.initialValue(property),
+            .inherited => return .all_inherit,
+            .not_inherited => return .all_initial,
             .neither => unreachable,
         }
     }
@@ -324,7 +314,7 @@ const LayoutContext = struct {
     fn getAll(self: *Self, element: ElementIndex) ?zss.value.All {
         const seeker = &self.seekers.all;
         if (seeker.seekForward(element)) {
-            return seeker.getValue(.all);
+            return seeker.get().all;
         } else {
             return null;
         }
@@ -423,25 +413,23 @@ fn processElement(doc: *Document, context: *LayoutContext) !void {
             context.this_element.all = context.getAll(interval.begin);
 
             if (interval.begin != interval.end) {
-                const specified_display = context.getSpecifiedValue(.display, interval.begin);
-                const specified_position = context.getSpecifiedValue(.position, interval.begin);
-                const specified_float = context.getSpecifiedValue(.float, interval.begin);
+                const specified = context.getSpecifiedValue(.display_position_float, interval.begin);
                 var display: zss.value.Display = undefined;
-                var float: zss.value.Float = specified_float;
-                if (specified_display == .none) {
+                var float: zss.value.Float = specified.float;
+                if (specified.display == .none) {
                     display = .none;
-                } else if (specified_position == .absolute or specified_position == .fixed) {
-                    display = @"CSS2.2Section9.7Table"(specified_display);
+                } else if (specified.position == .absolute or specified.position == .fixed) {
+                    display = @"CSS2.2Section9.7Table"(specified.display);
                     float = .none;
-                } else if (specified_float != .none) {
-                    display = @"CSS2.2Section9.7Table"(specified_display);
+                } else if (specified.float != .none) {
+                    display = @"CSS2.2Section9.7Table"(specified.display);
                 } else if (interval.begin == root_box_id) {
                     // TODO: There should be a slightly different version of this function for the root element. (See rule 4 of secion 9.7)
-                    display = @"CSS2.2Section9.7Table"(specified_display);
+                    display = @"CSS2.2Section9.7Table"(specified.display);
                 } else {
-                    display = specified_display;
+                    display = specified.display;
                 }
-                context.this_element.position = specified_position;
+                context.this_element.position = specified.position;
 
                 switch (display) {
                     .block => return processFlowBlock(doc, context, interval),
@@ -531,7 +519,7 @@ fn processFlowBlock(doc: *Document, context: *LayoutContext, interval: *Interval
 
             context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1] += 1;
             try context.relative_positioned_descendants_ids.append(context.allocator, block.used_id);
-            const specified_z_index = context.getSpecifiedValue(.z_index, element);
+            const specified_z_index = context.getSpecifiedValue(.z_index, element).z_index;
             switch (specified_z_index) {
                 .integer => |z_index| break :blk try createStackingContext(doc, context, block.used_id, z_index),
                 .auto => {
@@ -630,50 +618,43 @@ fn flowBlockSolveInlineSizes(
     // TODO: Also use the logical properties ('inline-size', 'border-inline-start', etc.) to determine lengths.
     // TODO: Any relative units must be converted to absolute units to form the computed value.
     const specified = .{
-        .width = context.getSpecifiedValue(.width, element),
-        .min_width = context.getSpecifiedValue(.min_width, element),
-        .max_width = context.getSpecifiedValue(.max_width, element),
-        .margin_left = context.getSpecifiedValue(.margin_left, element),
-        .margin_right = context.getSpecifiedValue(.margin_right, element),
-        .border_left = context.getSpecifiedValue(.border_left, element),
-        .border_right = context.getSpecifiedValue(.border_right, element),
-        .padding_left = context.getSpecifiedValue(.padding_left, element),
-        .padding_right = context.getSpecifiedValue(.padding_right, element),
+        .widths = context.getSpecifiedValue(.widths, element),
+        .horizontal_sizes = context.getSpecifiedValue(.horizontal_sizes, element),
     };
     const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
     assert(containing_block_logical_width >= 0);
 
-    const border_start = switch (specified.border_left) {
+    const border_start = switch (specified.horizontal_sizes.border_start) {
         .px => |value| try positiveLength(.px, value),
         .thin => borderWidth(.thin),
         .medium => borderWidth(.medium),
         .thick => borderWidth(.thick),
         .initial, .inherit, .unset => unreachable,
     };
-    const border_end = switch (specified.border_right) {
+    const border_end = switch (specified.horizontal_sizes.border_end) {
         .px => |value| try positiveLength(.px, value),
         .thin => borderWidth(.thin),
         .medium => borderWidth(.medium),
         .thick => borderWidth(.thick),
         .initial, .inherit, .unset => unreachable,
     };
-    const padding_start = switch (specified.padding_left) {
+    const padding_start = switch (specified.horizontal_sizes.padding_start) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
         .initial, .inherit, .unset => unreachable,
     };
-    const padding_end = switch (specified.padding_right) {
+    const padding_end = switch (specified.horizontal_sizes.padding_end) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
         .initial, .inherit, .unset => unreachable,
     };
 
-    const min_size = switch (specified.min_width) {
+    const min_size = switch (specified.widths.min_size) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
         .initial, .inherit, .unset => unreachable,
     };
-    const max_size = switch (specified.max_width) {
+    const max_size = switch (specified.widths.max_size) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
         .none => std.math.maxInt(ZssUnit),
@@ -685,7 +666,7 @@ fn flowBlockSolveInlineSizes(
     const margin_start_bit = 2;
     const margin_end_bit = 1;
 
-    var size = switch (specified.width) {
+    var size = switch (specified.widths.size) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
         .auto => blk: {
@@ -694,7 +675,7 @@ fn flowBlockSolveInlineSizes(
         },
         .initial, .inherit, .unset => unreachable,
     };
-    var margin_start = switch (specified.margin_left) {
+    var margin_start = switch (specified.horizontal_sizes.margin_start) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_logical_width),
         .auto => blk: {
@@ -703,7 +684,7 @@ fn flowBlockSolveInlineSizes(
         },
         .initial, .inherit, .unset => unreachable,
     };
-    var margin_end = switch (specified.margin_right) {
+    var margin_end = switch (specified.horizontal_sizes.margin_end) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_logical_width),
         .auto => blk: {
@@ -762,59 +743,52 @@ fn flowBlockSolveBlockSizesPart1(
     // TODO: Also use the logical properties ('block-size', 'border-block-end', etc.) to determine lengths.
     // TODO: Any relative units must be converted to absolute units to form the computed value.
     const specified = .{
-        .height = context.getSpecifiedValue(.height, element),
-        .min_height = context.getSpecifiedValue(.min_height, element),
-        .max_height = context.getSpecifiedValue(.max_height, element),
-        .margin_top = context.getSpecifiedValue(.margin_top, element),
-        .margin_bottom = context.getSpecifiedValue(.margin_bottom, element),
-        .border_top = context.getSpecifiedValue(.border_top, element),
-        .border_bottom = context.getSpecifiedValue(.border_bottom, element),
-        .padding_top = context.getSpecifiedValue(.padding_top, element),
-        .padding_bottom = context.getSpecifiedValue(.padding_bottom, element),
+        .heights = context.getSpecifiedValue(.heights, element),
+        .vertical_sizes = context.getSpecifiedValue(.vertical_sizes, element),
     };
     const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
     const containing_block_logical_height = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1].height;
     assert(containing_block_logical_width >= 0);
     if (containing_block_logical_height) |h| assert(h >= 0);
 
-    const border_start = switch (specified.border_top) {
+    const border_start = switch (specified.vertical_sizes.border_start) {
         .px => |value| try positiveLength(.px, value),
         .thin => borderWidth(.thin),
         .medium => borderWidth(.medium),
         .thick => borderWidth(.thick),
         .initial, .inherit, .unset => unreachable,
     };
-    const border_end = switch (specified.border_bottom) {
+    const border_end = switch (specified.vertical_sizes.border_end) {
         .px => |value| try positiveLength(.px, value),
         .thin => borderWidth(.thin),
         .medium => borderWidth(.medium),
         .thick => borderWidth(.thick),
         .initial, .inherit, .unset => unreachable,
     };
-    const padding_start = switch (specified.padding_top) {
+    const padding_start = switch (specified.vertical_sizes.padding_start) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
         .initial, .inherit, .unset => unreachable,
     };
-    const padding_end = switch (specified.padding_bottom) {
+    const padding_end = switch (specified.vertical_sizes.padding_end) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
         .initial, .inherit, .unset => unreachable,
     };
-    const margin_start = switch (specified.margin_top) {
+    const margin_start = switch (specified.vertical_sizes.margin_start) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_logical_width),
         .auto => 0,
         .initial, .inherit, .unset => unreachable,
     };
-    const margin_end = switch (specified.margin_bottom) {
+    const margin_end = switch (specified.vertical_sizes.margin_end) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_logical_width),
         .auto => 0,
         .initial, .inherit, .unset => unreachable,
     };
 
-    const min_size = switch (specified.min_height) {
+    const min_size = switch (specified.heights.min_size) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| if (containing_block_logical_height) |s|
             try positivePercentage(value, s)
@@ -822,7 +796,7 @@ fn flowBlockSolveBlockSizesPart1(
             0,
         .initial, .inherit, .unset => unreachable,
     };
-    const max_size = switch (specified.max_height) {
+    const max_size = switch (specified.heights.max_size) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| if (containing_block_logical_height) |s|
             try positivePercentage(value, s)
@@ -831,7 +805,7 @@ fn flowBlockSolveBlockSizesPart1(
         .none => std.math.maxInt(ZssUnit),
         .initial, .inherit, .unset => unreachable,
     };
-    const size = switch (specified.height) {
+    const size = switch (specified.heights.size) {
         .px => |value| clampSize(try positiveLength(.px, value), min_size, max_size),
         .percentage => |value| if (containing_block_logical_height) |h|
             clampSize(try positivePercentage(value, h), min_size, max_size)
@@ -1515,32 +1489,29 @@ fn blockBoxApplyRelativePositioningToChildren(doc: *Document, context: *LayoutCo
         // TODO: Also use the logical properties ('inset-inline-start', 'inset-block-end', etc.) to determine lengths.
         // TODO: Any relative units must be converted to absolute units to form the computed value.
         const specified = .{
-            .top = context.getSpecifiedValue(.top, element),
-            .right = context.getSpecifiedValue(.right, element),
-            .bottom = context.getSpecifiedValue(.bottom, element),
-            .left = context.getSpecifiedValue(.left, element),
+            .insets = context.getSpecifiedValue(.insets, element),
         };
         const box_offsets = &doc.blocks.box_offsets.items[used_id];
 
-        const inline_start = switch (specified.left) {
+        const inline_start = switch (specified.insets.left) {
             .px => |value| length(.px, value),
             .percentage => |value| percentage(value, containing_block_logical_width),
             .auto => null,
             .initial, .inherit, .unset => unreachable,
         };
-        const inline_end = switch (specified.right) {
+        const inline_end = switch (specified.insets.right) {
             .px => |value| -length(.px, value),
             .percentage => |value| -percentage(value, containing_block_logical_width),
             .auto => null,
             .initial, .inherit, .unset => unreachable,
         };
-        const block_start = switch (specified.top) {
+        const block_start = switch (specified.insets.top) {
             .px => |value| length(.px, value),
             .percentage => |value| percentage(value, containing_block_logical_height),
             .auto => null,
             .initial, .inherit, .unset => unreachable,
         };
-        const block_end = switch (specified.bottom) {
+        const block_end = switch (specified.insets.bottom) {
             .px => |value| -length(.px, value),
             .percentage => |value| -percentage(value, containing_block_logical_height),
             .auto => null,
