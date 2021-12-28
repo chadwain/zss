@@ -168,6 +168,8 @@ pub const All = enum {
     unset,
 };
 
+pub const Text = []const u8;
+
 pub const Display = enum {
     block,
     inline_,
@@ -343,6 +345,110 @@ pub const Inset = union(enum) {
     px: f32,
     percentage: f32,
     auto,
+    initial,
+    inherit,
+    unset,
+};
+
+pub const Color = union(enum) {
+    rgba: u32,
+    current_color,
+    initial,
+    inherit,
+    unset,
+
+    pub const transparent = Color{ .rgba = 0 };
+};
+
+pub const BackgroundImage = union(enum) {
+    pub const Object = struct {
+        pub const Data = opaque {};
+        pub const Dimensions = struct {
+            width: f32,
+            height: f32,
+        };
+
+        data: *Data,
+        getNaturalSizeFn: fn (data: *Data) Dimensions,
+
+        pub fn getNaturalSize(self: *Object) Dimensions {
+            return self.getNaturalSizeFn(self.data);
+        }
+    };
+
+    object: Object,
+    none,
+    initial,
+    inherit,
+    unset,
+};
+
+pub const BackgroundRepeat = union(enum) {
+    pub const Style = enum { repeat, no_repeat, space, round };
+
+    repeat: struct {
+        x: Style = .repeat,
+        y: Style = .repeat,
+    },
+    initial,
+    inherit,
+    unset,
+};
+
+pub const BackgroundPosition = union(enum) {
+    pub const Offset = union(enum) {
+        px: f32,
+        percentage: f32,
+    };
+    pub const SideX = enum { left, right };
+    pub const SideY = enum { top, bottom };
+
+    position: struct {
+        x: struct {
+            side: SideX,
+            offset: Offset,
+        },
+        y: struct {
+            side: SideY,
+            offset: Offset,
+        },
+    },
+    initial,
+    inherit,
+    unset,
+};
+
+pub const BackgroundClip = union(enum) {
+    border_box,
+    padding_box,
+    content_box,
+    initial,
+    inherit,
+    unset,
+};
+
+pub const BackgroundOrigin = union(enum) {
+    border_box,
+    padding_box,
+    content_box,
+    initial,
+    inherit,
+    unset,
+};
+
+pub const BackgroundSize = union(enum) {
+    pub const SizeType = union(enum) {
+        px: f32,
+        percentage: f32,
+        auto,
+    };
+
+    size: struct {
+        width: SizeType,
+        height: SizeType,
+    },
+    contain,
+    cover,
     initial,
     inherit,
     unset,

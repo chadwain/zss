@@ -183,7 +183,7 @@ pub fn zssLogicalVectorToZssVector(logical_vector: ZssLogicalVector) ZssVector {
 }
 
 const bg_image_fns = struct {
-    fn getNaturalSize(data: *zss.BoxTree.Background.Image.Object.Data) zss.BoxTree.Background.Image.Object.Dimensions {
+    fn getNaturalSize(data: *zss.value.BackgroundImage.Object.Data) zss.value.BackgroundImage.Object.Dimensions {
         const texture = @ptrCast(*sdl.SDL_Texture, data);
         var width: c_int = undefined;
         var height: c_int = undefined;
@@ -192,9 +192,9 @@ const bg_image_fns = struct {
     }
 };
 
-pub fn textureAsBackgroundImageObject(texture: *sdl.SDL_Texture) zss.BoxTree.Background.Image.Object {
+pub fn textureAsBackgroundImageObject(texture: *sdl.SDL_Texture) zss.value.BackgroundImage.Object {
     return .{
-        .data = @ptrCast(*zss.BoxTree.Background.Image.Object.Data, texture),
+        .data = @ptrCast(*zss.value.BackgroundImage.Object.Data, texture),
         .getNaturalSizeFn = bg_image_fns.getNaturalSize,
     };
 }

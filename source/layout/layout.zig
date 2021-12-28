@@ -48,13 +48,14 @@ pub fn doLayout(
     const size = element_tree.size();
     // TODO: Decide if `size == 0` should be an error or not.
     if (size == 0 or size > maximum_box_id) return error.Overflow;
-    var context = LayoutContext{
+    var inputs = Inputs{
         .element_tree_skips = element_tree.skips(),
-        .cascaded_value_tree = cascaded_value_tree,
         .seekers = Seekers.init(cascaded_value_tree),
+        .font = cascaded_value_tree.font,
         .allocator = allocator,
         .viewport_size = viewport_size,
     };
+    var context = BlockLayoutContext{ .inputs = &inputs };
     defer context.deinit();
     var doc = Document{ .allocator = allocator };
     errdefer doc.deinit();
@@ -96,6 +97,22 @@ fn borderWidth(thickness: enum { thin, medium, thick }) ZssUnit {
     });
 }
 
+fn color(col: zss.value.Color, current_color: u32) u32 {
+    return switch (col) {
+        .rgba => |rgba| rgba,
+        .current_color => current_color,
+        .initial, .inherit, .unset => unreachable,
+    };
+}
+
+fn colorProperty(col: zss.value.Color) u32 {
+    return switch (col) {
+        .rgba => |rgba| rgba,
+        .current_color => unreachable,
+        .initial, .inherit, .unset => unreachable,
+    };
+}
+
 const LayoutMode = enum {
     Flow,
     ShrinkToFit1stPass,
@@ -124,16 +141,16 @@ const Metadata = struct {
 };
 
 const ContinuationBlock = struct {
-    /// The box id of the inline block.
-    box_id: BoxId,
+    /// The element that created the continuation block.
+    element: ElementIndex,
     /// The position within the glyph_indeces array of
     /// the special glyph index that represents the continuation block.
     index: usize,
 };
 
 const InlineBlock = struct {
-    /// The box id of the inline block.
-    box_id: BoxId,
+    /// The element that created the inline block.
+    element: ElementIndex,
     /// The position within the glyph_indeces array of
     /// the special glyph index that represents the inline block.
     index: usize,
@@ -163,6 +180,7 @@ const Seekers = struct {
     const Enum = std.meta.FieldEnum(ValueTree.Values);
 
     all: SSTSeeker(fields[@enumToInt(Enum.all)].field_type),
+    text: SSTSeeker(fields[@enumToInt(Enum.text)].field_type),
     display_position_float: SSTSeeker(fields[@enumToInt(Enum.display_position_float)].field_type),
     widths: SSTSeeker(fields[@enumToInt(Enum.widths)].field_type),
     horizontal_sizes: SSTSeeker(fields[@enumToInt(Enum.horizontal_sizes)].field_type),
@@ -170,10 +188,14 @@ const Seekers = struct {
     vertical_sizes: SSTSeeker(fields[@enumToInt(Enum.vertical_sizes)].field_type),
     z_index: SSTSeeker(fields[@enumToInt(Enum.z_index)].field_type),
     insets: SSTSeeker(fields[@enumToInt(Enum.insets)].field_type),
+    color: SSTSeeker(fields[@enumToInt(Enum.color)].field_type),
+    border_colors: SSTSeeker(fields[@enumToInt(Enum.border_colors)].field_type),
+    background1: SSTSeeker(fields[@enumToInt(Enum.background1)].field_type),
+    background2: SSTSeeker(fields[@enumToInt(Enum.background2)].field_type),
 
-    fn init(cascaded_value_tree: *const ValueTree) @This() {
-        var result: @This() = undefined;
-        inline for (std.meta.fields(@This())) |seeker| {
+    fn init(cascaded_value_tree: *const ValueTree) Seekers {
+        var result: Seekers = undefined;
+        inline for (std.meta.fields(Seekers)) |seeker| {
             @field(result, seeker.name) = sstSeeker(@field(cascaded_value_tree.values, seeker.name));
         }
         return result;
@@ -185,66 +207,19 @@ const InheritanceStack = struct {
     position: ArrayListUnmanaged(zss.value.Position),
 };
 
-const LayoutContext = struct {
+const Inputs = struct {
     const Self = @This();
 
     element_tree_skips: []const ElementIndex,
-    cascaded_value_tree: *const ValueTree,
     seekers: Seekers,
+    font: ValueTree.Font,
     //inheritances: InheritanceStack,
     this_element: ThisElement = undefined,
 
     allocator: Allocator,
     viewport_size: ZssSize,
 
-    layout_mode: ArrayListUnmanaged(LayoutMode) = .{},
-
-    metadata: ArrayListUnmanaged(Metadata) = .{},
-    stacking_context_id: ArrayListUnmanaged(StackingContextId) = .{},
-    used_id_to_element_index: ArrayListUnmanaged(BoxId) = .{},
-
-    intervals: ArrayListUnmanaged(Interval) = .{},
-    used_id: ArrayListUnmanaged(UsedId) = .{},
-    used_subtree_size: ArrayListUnmanaged(UsedSubtreeSize) = .{},
-
-    flow_block_used_logical_width: ArrayListUnmanaged(ZssUnit) = .{},
-    flow_block_auto_logical_height: ArrayListUnmanaged(ZssUnit) = .{},
-    flow_block_used_logical_heights: ArrayListUnmanaged(UsedLogicalHeights) = .{},
-
-    relative_positioned_descendants_ids: ArrayListUnmanaged(UsedId) = .{},
-    relative_positioned_descendants_count: ArrayListUnmanaged(UsedBoxCount) = .{},
-
-    shrink_to_fit_available_width: ArrayListUnmanaged(ZssUnit) = .{},
-    shrink_to_fit_auto_width: ArrayListUnmanaged(ZssUnit) = .{},
-    shrink_to_fit_base_width: ArrayListUnmanaged(ZssUnit) = .{},
-    used_id_intervals: ArrayListUnmanaged(UsedIdInterval) = .{},
-
-    inline_container: ArrayListUnmanaged(InlineContainer) = .{},
-
-    fn deinit(self: *Self) void {
-        self.intervals.deinit(self.allocator);
-        self.metadata.deinit(self.allocator);
-        self.layout_mode.deinit(self.allocator);
-        self.used_id.deinit(self.allocator);
-        self.used_subtree_size.deinit(self.allocator);
-        self.stacking_context_id.deinit(self.allocator);
-        self.used_id_to_element_index.deinit(self.allocator);
-        self.flow_block_used_logical_width.deinit(self.allocator);
-        self.flow_block_auto_logical_height.deinit(self.allocator);
-        self.flow_block_used_logical_heights.deinit(self.allocator);
-        self.relative_positioned_descendants_ids.deinit(self.allocator);
-        self.relative_positioned_descendants_count.deinit(self.allocator);
-        self.shrink_to_fit_available_width.deinit(self.allocator);
-        self.shrink_to_fit_auto_width.deinit(self.allocator);
-        self.shrink_to_fit_base_width.deinit(self.allocator);
-        self.used_id_intervals.deinit(self.allocator);
-        for (self.inline_container.items) |*container| {
-            container.deinit(self.allocator);
-        }
-        self.inline_container.deinit(self.allocator);
-    }
-
-    fn getSpecifiedValue(self: *Self, comptime property: zss.ValueTree.AggregatePropertyEnum, element: ElementIndex) property.Value() {
+    fn getSpecifiedValue(self: *Self, comptime property: ValueTree.AggregatePropertyEnum, element: ElementIndex) property.Value() {
         const Value = property.Value();
         const fields = std.meta.fields(Value);
         const inheritance_type = comptime property.inheritanceType();
@@ -252,6 +227,7 @@ const LayoutContext = struct {
         var result: Value = undefined;
         switch (getCascadedValue(self, property, element)) {
             .value => |value| result = value,
+            // TODO: Just copy the inherited value and return
             .all_inherit => result = comptime blk: {
                 var v: Value = undefined;
                 inline for (fields) |field_info| {
@@ -279,19 +255,32 @@ const LayoutContext = struct {
         return result;
     }
 
-    /// Returns null if the cascaded value is 'inherit',
-    /// Never returns 'initial' or 'unset'.
-    fn getCascadedValue(self: *Self, comptime property: zss.ValueTree.AggregatePropertyEnum, element: ElementIndex) union(enum) { value: property.Value(), all_inherit, all_initial } {
+    fn getCascadedValue(
+        self: *Self,
+        comptime property: ValueTree.AggregatePropertyEnum,
+        element: ElementIndex,
+    ) union(enum) {
+        value: property.Value(),
+        all_inherit,
+        all_initial,
+    } {
         const inheritance_type = comptime property.inheritanceType();
         switch (inheritance_type) {
             .inherited, .not_inherited => {},
-            .neither => @compileError("Use getAll instead"),
+            .neither => @compileError("Cannot get cascaded value of '" ++ @tagName(property) ++ "'"),
         }
 
         // Find the value using the cascaded value tree.
         const seeker = &@field(self.seekers, @tagName(property));
         if (seeker.seekForward(element)) {
-            return .{ .value = seeker.get() };
+            const value = seeker.get();
+            if (property == .color) {
+                if (value.color == .current_color) {
+                    // If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
+                    return .all_inherit;
+                }
+            }
+            return .{ .value = value };
         }
 
         // Use the value of the 'all' property, if it is set.
@@ -319,15 +308,75 @@ const LayoutContext = struct {
             return null;
         }
     }
+
+    fn getText(self: *Self, element: ElementIndex) zss.value.Text {
+        const seeker = &self.seekers.text;
+        if (seeker.seekForward(element)) {
+            return seeker.get().text;
+        } else {
+            return "";
+        }
+    }
 };
 
-fn createBlockLevelUsedValues(doc: *Document, context: *LayoutContext) !void {
-    doc.blocks.ensureTotalCapacity(doc.allocator, context.element_tree_skips[0] + 1) catch {};
+const BlockLayoutContext = struct {
+    inputs: *Inputs,
+
+    layout_mode: ArrayListUnmanaged(LayoutMode) = .{},
+
+    metadata: ArrayListUnmanaged(Metadata) = .{},
+    stacking_context_id: ArrayListUnmanaged(StackingContextId) = .{},
+    used_id_to_element_index: ArrayListUnmanaged(BoxId) = .{},
+
+    intervals: ArrayListUnmanaged(Interval) = .{},
+    used_id: ArrayListUnmanaged(UsedId) = .{},
+    used_subtree_size: ArrayListUnmanaged(UsedSubtreeSize) = .{},
+
+    flow_block_used_logical_width: ArrayListUnmanaged(ZssUnit) = .{},
+    flow_block_auto_logical_height: ArrayListUnmanaged(ZssUnit) = .{},
+    flow_block_used_logical_heights: ArrayListUnmanaged(UsedLogicalHeights) = .{},
+
+    relative_positioned_descendants_ids: ArrayListUnmanaged(UsedId) = .{},
+    relative_positioned_descendants_count: ArrayListUnmanaged(UsedBoxCount) = .{},
+
+    shrink_to_fit_available_width: ArrayListUnmanaged(ZssUnit) = .{},
+    shrink_to_fit_auto_width: ArrayListUnmanaged(ZssUnit) = .{},
+    shrink_to_fit_base_width: ArrayListUnmanaged(ZssUnit) = .{},
+    used_id_intervals: ArrayListUnmanaged(UsedIdInterval) = .{},
+
+    inline_container: ArrayListUnmanaged(InlineContainer) = .{},
+
+    fn deinit(self: *BlockLayoutContext) void {
+        self.intervals.deinit(self.inputs.allocator);
+        self.metadata.deinit(self.inputs.allocator);
+        self.layout_mode.deinit(self.inputs.allocator);
+        self.used_id.deinit(self.inputs.allocator);
+        self.used_subtree_size.deinit(self.inputs.allocator);
+        self.stacking_context_id.deinit(self.inputs.allocator);
+        self.used_id_to_element_index.deinit(self.inputs.allocator);
+        self.flow_block_used_logical_width.deinit(self.inputs.allocator);
+        self.flow_block_auto_logical_height.deinit(self.inputs.allocator);
+        self.flow_block_used_logical_heights.deinit(self.inputs.allocator);
+        self.relative_positioned_descendants_ids.deinit(self.inputs.allocator);
+        self.relative_positioned_descendants_count.deinit(self.inputs.allocator);
+        self.shrink_to_fit_available_width.deinit(self.inputs.allocator);
+        self.shrink_to_fit_auto_width.deinit(self.inputs.allocator);
+        self.shrink_to_fit_base_width.deinit(self.inputs.allocator);
+        self.used_id_intervals.deinit(self.inputs.allocator);
+        for (self.inline_container.items) |*container| {
+            container.deinit(self.inputs.allocator);
+        }
+        self.inline_container.deinit(self.inputs.allocator);
+    }
+};
+
+fn createBlockLevelUsedValues(doc: *Document, context: *BlockLayoutContext) !void {
+    doc.blocks.ensureTotalCapacity(doc.allocator, context.inputs.element_tree_skips[0] + 1) catch {};
 
     // Initialize the context with some data.
-    try context.layout_mode.append(context.allocator, .Flow);
-    try context.used_subtree_size.append(context.allocator, 1);
-    try context.flow_block_auto_logical_height.append(context.allocator, 0);
+    try context.layout_mode.append(context.inputs.allocator, .Flow);
+    try context.used_subtree_size.append(context.inputs.allocator, 1);
+    try context.flow_block_auto_logical_height.append(context.inputs.allocator, 0);
 
     // Create the initial containing block.
     try createInitialContainingBlock(doc, context);
@@ -343,7 +392,7 @@ fn createBlockLevelUsedValues(doc: *Document, context: *LayoutContext) !void {
     try doc.stacking_context_tree.subtree.append(doc.allocator, 1);
     try doc.stacking_context_tree.stacking_contexts.append(doc.allocator, .{ .z_index = 0, .used_id = 1 });
     doc.blocks.properties.items[1].creates_stacking_context = true;
-    try context.stacking_context_id.append(context.allocator, 0);
+    try context.stacking_context_id.append(context.inputs.allocator, 0);
 
     // Process all other elements.
     while (context.layout_mode.items.len > 1) {
@@ -353,25 +402,26 @@ fn createBlockLevelUsedValues(doc: *Document, context: *LayoutContext) !void {
     // Solve for all of the properties that don't affect layout.
     const num_created_boxes = doc.blocks.structure.items[0];
     assert(context.used_id_to_element_index.items.len == num_created_boxes);
+    { // TODO: This is a janky solution
+        inline for (std.meta.fields(Seekers)) |field_info| {
+            @field(context.inputs.seekers, field_info.name).current_ref = 0;
+        }
+    }
     try doc.blocks.border_colors.resize(doc.allocator, num_created_boxes);
     try doc.blocks.background1.resize(doc.allocator, num_created_boxes);
     try doc.blocks.background2.resize(doc.allocator, num_created_boxes);
-    for (context.used_id_to_element_index.items) |box_id, used_id| {
-        _ = box_id;
-        blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, used_id));
-
-        // TODO: Uncomment this someday
-        // if (box_id != reserved_box_id) {
-        //     try blockBoxSolveOtherProperties(doc, context.box_tree, box_id, @intCast(UsedId, used_id));
-        // } else {
-        //     blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, used_id));
-        // }
+    for (context.used_id_to_element_index.items) |element, used_id| {
+        if (element != reserved_box_id) {
+            try blockBoxSolveOtherProperties(doc, context.inputs, element, @intCast(UsedId, used_id));
+        } else {
+            blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, used_id));
+        }
     }
 }
 
-fn createInitialContainingBlock(doc: *Document, context: *LayoutContext) !void {
-    const width = context.viewport_size.w;
-    const height = context.viewport_size.h;
+fn createInitialContainingBlock(doc: *Document, context: *BlockLayoutContext) !void {
+    const width = context.inputs.viewport_size.w;
+    const height = context.inputs.viewport_size.h;
 
     const block = try createBlock(doc, context, reserved_box_id);
     block.structure.* = undefined;
@@ -385,7 +435,7 @@ fn createInitialContainingBlock(doc: *Document, context: *LayoutContext) !void {
     block.borders.* = .{};
     block.margins.* = .{};
 
-    const interval = Interval{ .begin = root_box_id, .end = root_box_id + context.element_tree_skips[root_box_id] };
+    const interval = Interval{ .begin = root_box_id, .end = root_box_id + context.inputs.element_tree_skips[root_box_id] };
     const logical_heights = UsedLogicalHeights{
         .height = height,
         .min_height = height,
@@ -404,16 +454,16 @@ fn @"CSS2.2Section9.7Table"(display: zss.value.Display) zss.value.Display {
     };
 }
 
-fn processElement(doc: *Document, context: *LayoutContext) !void {
-    context.this_element = undefined;
+fn processElement(doc: *Document, context: *BlockLayoutContext) !void {
+    context.inputs.this_element = undefined;
     const layout_mode = context.layout_mode.items[context.layout_mode.items.len - 1];
     switch (layout_mode) {
         .Flow => {
             const interval = &context.intervals.items[context.intervals.items.len - 1];
-            context.this_element.all = context.getAll(interval.begin);
+            context.inputs.this_element.all = context.inputs.getAll(interval.begin);
 
             if (interval.begin != interval.end) {
-                const specified = context.getSpecifiedValue(.display_position_float, interval.begin);
+                const specified = context.inputs.getSpecifiedValue(.display_position_float, interval.begin);
                 var display: zss.value.Display = undefined;
                 var float: zss.value.Float = specified.float;
                 if (specified.display == .none) {
@@ -429,14 +479,13 @@ fn processElement(doc: *Document, context: *LayoutContext) !void {
                 } else {
                     display = specified.display;
                 }
-                context.this_element.position = specified.position;
+                context.inputs.this_element.position = specified.position;
 
                 switch (display) {
                     .block => return processFlowBlock(doc, context, interval),
                     .inline_, .inline_block, .text => {
-                        // const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
-                        // return processInlineContainer(doc, context, interval, containing_block_logical_width, .Normal);
-                        @panic("TODO: Inline layout.");
+                        const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
+                        return processInlineContainer(doc, context, interval, containing_block_logical_width, .Normal);
                     },
                     .none => return skipElement(context, interval),
                     .initial, .inherit, .unset => unreachable,
@@ -445,7 +494,6 @@ fn processElement(doc: *Document, context: *LayoutContext) !void {
                 popFlowBlock(doc, context);
             }
         },
-        else => @panic("TODO: Other layout modes."),
         //        .ShrinkToFit1stPass => {
         //            const interval = &context.intervals.items[context.intervals.items.len - 1];
         //            if (interval.begin != interval.end) {
@@ -470,21 +518,22 @@ fn processElement(doc: *Document, context: *LayoutContext) !void {
         //                popShrinkToFit2ndPassBlock(doc, context);
         //            }
         //        },
-        //        .InlineContainer => {
-        //            const container = context.inline_container.items[context.inline_container.items.len - 1];
-        //
-        //            if (container.next_inline_block < container.inline_blocks.len) {
-        //                return processInlineBlock(doc, context, container);
-        //            }
-        //
-        //            try popInlineContainer(doc, context);
-        //        },
+        .InlineContainer => {
+            const container = context.inline_container.items[context.inline_container.items.len - 1];
+
+            if (container.next_inline_block < container.inline_blocks.len) {
+                return processInlineBlock(doc, context, container);
+            }
+
+            try popInlineContainer(doc, context);
+        },
+        else => @panic("TODO: Other layout modes."),
     }
 }
 
-fn skipElement(context: *LayoutContext, interval: *Interval) void {
+fn skipElement(context: *BlockLayoutContext, interval: *Interval) void {
     const element = interval.begin;
-    interval.begin += context.element_tree_skips[element];
+    interval.begin += context.inputs.element_tree_skips[element];
 }
 
 fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_end: ZssUnit, parent_auto_logical_height: *ZssUnit) void {
@@ -495,9 +544,9 @@ fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_end: ZssUnit, par
     parent_auto_logical_height.* = box_offsets.border_end.y + margin_end;
 }
 
-fn processFlowBlock(doc: *Document, context: *LayoutContext, interval: *Interval) !void {
+fn processFlowBlock(doc: *Document, context: *BlockLayoutContext, interval: *Interval) !void {
     const element = interval.begin;
-    const skip = context.element_tree_skips[element];
+    const skip = context.inputs.element_tree_skips[element];
     interval.begin += skip;
 
     const block = try createBlock(doc, context, element);
@@ -507,7 +556,7 @@ fn processFlowBlock(doc: *Document, context: *LayoutContext, interval: *Interval
     const logical_width = try flowBlockSolveInlineSizes(context, element, block.box_offsets, block.borders, block.margins);
     const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, element, block.box_offsets, block.borders, block.margins);
 
-    const position = context.this_element.position;
+    const position = context.inputs.this_element.position;
     const stacking_context_id = switch (position) {
         .static => null,
         .relative => blk: {
@@ -518,8 +567,8 @@ fn processFlowBlock(doc: *Document, context: *LayoutContext, interval: *Interval
             }
 
             context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1] += 1;
-            try context.relative_positioned_descendants_ids.append(context.allocator, block.used_id);
-            const specified_z_index = context.getSpecifiedValue(.z_index, element).z_index;
+            try context.relative_positioned_descendants_ids.append(context.inputs.allocator, block.used_id);
+            const specified_z_index = context.inputs.getSpecifiedValue(.z_index, element).z_index;
             switch (specified_z_index) {
                 .integer => |z_index| break :blk try createStackingContext(doc, context, block.used_id, z_index),
                 .auto => {
@@ -539,7 +588,7 @@ fn processFlowBlock(doc: *Document, context: *LayoutContext, interval: *Interval
 }
 
 fn pushFlowLayout(
-    context: *LayoutContext,
+    context: *BlockLayoutContext,
     interval: Interval,
     used_id: UsedId,
     logical_width: ZssUnit,
@@ -547,24 +596,24 @@ fn pushFlowLayout(
     stacking_context_id: ?StackingContextId,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowBlock.
-    try context.layout_mode.append(context.allocator, .Flow);
-    try context.intervals.append(context.allocator, interval);
-    try context.used_id.append(context.allocator, used_id);
-    try context.used_subtree_size.append(context.allocator, 1);
-    try context.flow_block_used_logical_width.append(context.allocator, logical_width);
-    try context.flow_block_auto_logical_height.append(context.allocator, 0);
+    try context.layout_mode.append(context.inputs.allocator, .Flow);
+    try context.intervals.append(context.inputs.allocator, interval);
+    try context.used_id.append(context.inputs.allocator, used_id);
+    try context.used_subtree_size.append(context.inputs.allocator, 1);
+    try context.flow_block_used_logical_width.append(context.inputs.allocator, logical_width);
+    try context.flow_block_auto_logical_height.append(context.inputs.allocator, 0);
     // TODO don't need used_logical_heights
-    try context.flow_block_used_logical_heights.append(context.allocator, logical_heights);
-    try context.relative_positioned_descendants_count.append(context.allocator, 0);
+    try context.flow_block_used_logical_heights.append(context.inputs.allocator, logical_heights);
+    try context.relative_positioned_descendants_count.append(context.inputs.allocator, 0);
     if (stacking_context_id) |id| {
-        try context.stacking_context_id.append(context.allocator, id);
-        try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = true });
+        try context.stacking_context_id.append(context.inputs.allocator, id);
+        try context.metadata.append(context.inputs.allocator, .{ .is_stacking_context_parent = true });
     } else {
-        try context.metadata.append(context.allocator, .{ .is_stacking_context_parent = false });
+        try context.metadata.append(context.inputs.allocator, .{ .is_stacking_context_parent = false });
     }
 }
 
-fn popFlowBlock(doc: *Document, context: *LayoutContext) void {
+fn popFlowBlock(doc: *Document, context: *BlockLayoutContext) void {
     const used_id = context.used_id.items[context.used_id.items.len - 1];
     const used_subtree_size = context.used_subtree_size.items[context.used_subtree_size.items.len - 1];
     doc.blocks.structure.items[used_id] = used_subtree_size;
@@ -609,7 +658,7 @@ fn popFlowBlock(doc: *Document, context: *LayoutContext) void {
 
 /// This is an implementation of CSS2§10.2, CSS2§10.3.3, and CSS2§10.4.
 fn flowBlockSolveInlineSizes(
-    context: *LayoutContext,
+    context: *BlockLayoutContext,
     element: ElementIndex,
     box_offsets: *used_values.BoxOffsets,
     borders: *used_values.Borders,
@@ -618,8 +667,8 @@ fn flowBlockSolveInlineSizes(
     // TODO: Also use the logical properties ('inline-size', 'border-inline-start', etc.) to determine lengths.
     // TODO: Any relative units must be converted to absolute units to form the computed value.
     const specified = .{
-        .widths = context.getSpecifiedValue(.widths, element),
-        .horizontal_sizes = context.getSpecifiedValue(.horizontal_sizes, element),
+        .widths = context.inputs.getSpecifiedValue(.widths, element),
+        .horizontal_sizes = context.inputs.getSpecifiedValue(.horizontal_sizes, element),
     };
     const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
     assert(containing_block_logical_width >= 0);
@@ -734,7 +783,7 @@ fn flowBlockSolveInlineSizes(
 
 /// This is an implementation of CSS2§10.5 and CSS2§10.6.3.
 fn flowBlockSolveBlockSizesPart1(
-    context: *LayoutContext,
+    context: *BlockLayoutContext,
     element: ElementIndex,
     box_offsets: *used_values.BoxOffsets,
     borders: *used_values.Borders,
@@ -743,8 +792,8 @@ fn flowBlockSolveBlockSizesPart1(
     // TODO: Also use the logical properties ('block-size', 'border-block-end', etc.) to determine lengths.
     // TODO: Any relative units must be converted to absolute units to form the computed value.
     const specified = .{
-        .heights = context.getSpecifiedValue(.heights, element),
-        .vertical_sizes = context.getSpecifiedValue(.vertical_sizes, element),
+        .heights = context.inputs.getSpecifiedValue(.heights, element),
+        .vertical_sizes = context.inputs.getSpecifiedValue(.vertical_sizes, element),
     };
     const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
     const containing_block_logical_height = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1].height;
@@ -842,7 +891,7 @@ fn flowBlockSolveBlockSizesPart2(box_offsets: *used_values.BoxOffsets, used_logi
     return used_logical_height;
 }
 
-fn flowBlockFinishLayout(doc: *Document, context: *LayoutContext, box_offsets: *used_values.BoxOffsets) void {
+fn flowBlockFinishLayout(doc: *Document, context: *BlockLayoutContext, box_offsets: *used_values.BoxOffsets) void {
     const used_logical_heights = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1];
     const auto_logical_height = context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 1];
     const logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
@@ -850,7 +899,7 @@ fn flowBlockFinishLayout(doc: *Document, context: *LayoutContext, box_offsets: *
     blockBoxApplyRelativePositioningToChildren(doc, context, logical_width, logical_height);
 }
 
-fn processShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, interval: *Interval) !void {
+fn processShrinkToFit1stPassBlock(doc: *Document, context: *BlockLayoutContext, interval: *Interval) !void {
     const box_id = interval.begin;
     const subtree_size = context.box_tree.structure[box_id];
     interval.begin += subtree_size;
@@ -879,26 +928,26 @@ fn processShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext, inter
 }
 
 fn pushShrinkToFit1stPassLayout(
-    context: *LayoutContext,
-    box_id: BoxId,
+    context: *BlockLayoutContext,
+    element: ElementIndex,
     used_id: UsedId,
     available_width: ZssUnit,
     base_width: ZssUnit,
     used_logical_heights: UsedLogicalHeights,
 ) !void {
-    const subtree_size = context.box_tree.structure[box_id];
+    const skip = context.inputs.element_tree_skips[element];
     // The allocations here must have corresponding deallocations in popShrinkToFit1stPassBlock.
-    try context.layout_mode.append(context.allocator, .ShrinkToFit1stPass);
-    try context.intervals.append(context.allocator, .{ .begin = box_id + 1, .end = box_id + subtree_size });
-    try context.used_id.append(context.allocator, used_id);
-    try context.used_subtree_size.append(context.allocator, 1);
-    try context.shrink_to_fit_available_width.append(context.allocator, available_width);
-    try context.shrink_to_fit_auto_width.append(context.allocator, 0);
-    try context.shrink_to_fit_base_width.append(context.allocator, base_width);
-    try context.flow_block_used_logical_heights.append(context.allocator, used_logical_heights);
+    try context.layout_mode.append(context.inputs.allocator, .ShrinkToFit1stPass);
+    try context.intervals.append(context.inputs.allocator, .{ .begin = element + 1, .end = element + skip });
+    try context.used_id.append(context.inputs.allocator, used_id);
+    try context.used_subtree_size.append(context.inputs.allocator, 1);
+    try context.shrink_to_fit_available_width.append(context.inputs.allocator, available_width);
+    try context.shrink_to_fit_auto_width.append(context.inputs.allocator, 0);
+    try context.shrink_to_fit_base_width.append(context.inputs.allocator, base_width);
+    try context.flow_block_used_logical_heights.append(context.inputs.allocator, used_logical_heights);
 }
 
-fn popShrinkToFit1stPassBlock(doc: *Document, context: *LayoutContext) !void {
+fn popShrinkToFit1stPassBlock(doc: *Document, context: *BlockLayoutContext) !void {
     const used_id = context.used_id.items[context.used_id.items.len - 1];
     const used_subtree_size = context.used_subtree_size.items[context.used_subtree_size.items.len - 1];
     doc.blocks.structure.items[used_id] = used_subtree_size;
@@ -945,7 +994,7 @@ const ShrinkToFit1stPassGetWidthResult = struct {
 };
 
 fn shrinkToFit1stPassGetWidth(
-    context: *const LayoutContext,
+    context: *const BlockLayoutContext,
     box_id: BoxId,
 ) !ShrinkToFit1stPassGetWidthResult {
     const inline_size = context.box_tree.inline_size[box_id];
@@ -998,7 +1047,7 @@ fn shrinkToFit1stPassGetWidth(
     return result;
 }
 
-fn shrinkToFit1stPassGetHeights(context: *LayoutContext, box_id: BoxId) !UsedLogicalHeights {
+fn shrinkToFit1stPassGetHeights(context: *BlockLayoutContext, box_id: BoxId) !UsedLogicalHeights {
     const block_size = context.box_tree.block_size[box_id];
     const containing_block_logical_height = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1].height;
     if (containing_block_logical_height) |h| assert(h >= 0);
@@ -1034,7 +1083,7 @@ fn shrinkToFit1stPassGetHeights(context: *LayoutContext, box_id: BoxId) !UsedLog
     };
 }
 
-fn processShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext, used_id_interval: *UsedIdInterval) !void {
+fn processShrinkToFit2ndPassBlock(doc: *Document, context: *BlockLayoutContext, used_id_interval: *UsedIdInterval) !void {
     const used_id = used_id_interval.begin;
     const used_subtree_size = doc.blocks.structure.items[used_id_interval.begin];
     used_id_interval.begin += used_subtree_size;
@@ -1057,22 +1106,22 @@ fn processShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext, used_
 }
 
 fn pushShrinkToFit2ndPassLayout(
-    context: *LayoutContext,
+    context: *BlockLayoutContext,
     used_id: UsedId,
     used_id_interval: UsedIdInterval,
     logical_width: ZssUnit,
     logical_heights: UsedLogicalHeights,
 ) !void {
     // The allocations here must correspond to deallocations in popShrinkToFit2ndPassBlock.
-    try context.layout_mode.append(context.allocator, .ShrinkToFit2ndPass);
-    try context.used_id.append(context.allocator, used_id);
-    try context.used_id_intervals.append(context.allocator, used_id_interval);
-    try context.flow_block_used_logical_width.append(context.allocator, logical_width);
-    try context.flow_block_auto_logical_height.append(context.allocator, 0);
-    try context.flow_block_used_logical_heights.append(context.allocator, logical_heights);
+    try context.layout_mode.append(context.inputs.allocator, .ShrinkToFit2ndPass);
+    try context.used_id.append(context.inputs.allocator, used_id);
+    try context.used_id_intervals.append(context.inputs.allocator, used_id_interval);
+    try context.flow_block_used_logical_width.append(context.inputs.allocator, logical_width);
+    try context.flow_block_auto_logical_height.append(context.inputs.allocator, 0);
+    try context.flow_block_used_logical_heights.append(context.inputs.allocator, logical_heights);
 }
 
-fn popShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext) void {
+fn popShrinkToFit2ndPassBlock(doc: *Document, context: *BlockLayoutContext) void {
     const used_id = context.used_id.items[context.used_id.items.len - 1];
     const box_offsets = &doc.blocks.box_offsets.items[used_id];
     const margins = doc.blocks.margins.items[used_id];
@@ -1105,21 +1154,21 @@ fn popShrinkToFit2ndPassBlock(doc: *Document, context: *LayoutContext) void {
 
 fn processInlineContainer(
     doc: *Document,
-    context: *LayoutContext,
+    context: *BlockLayoutContext,
     interval: *Interval,
     containing_block_logical_width: ZssUnit,
     mode: enum { Normal, ShrinkToFit },
 ) !void {
     var continuation_blocks = ArrayListUnmanaged(ContinuationBlock){};
-    errdefer continuation_blocks.deinit(context.allocator);
+    errdefer continuation_blocks.deinit(context.inputs.allocator);
 
     var inline_blocks = ArrayListUnmanaged(InlineBlock){};
-    errdefer inline_blocks.deinit(context.allocator);
+    errdefer inline_blocks.deinit(context.inputs.allocator);
 
     var used_id_to_element_index = ArrayListUnmanaged(BoxId){};
-    errdefer used_id_to_element_index.deinit(context.allocator);
+    errdefer used_id_to_element_index.deinit(context.inputs.allocator);
 
-    var inline_context = InlineLayoutContext.init(context.box_tree, context.allocator, interval.*, &continuation_blocks, &inline_blocks, &used_id_to_element_index);
+    var inline_context = InlineLayoutContext.init(context, interval.*, &continuation_blocks, &inline_blocks, &used_id_to_element_index);
     defer inline_context.deinit();
 
     const inline_values_ptr = try doc.allocator.create(InlineLevelUsedValues);
@@ -1132,7 +1181,7 @@ fn processInlineContainer(
     if (continuation_blocks.items.len > 0) {
         @panic("TODO Continuation blocks");
     }
-    interval.begin = inline_context.next_box_id;
+    interval.begin = inline_context.next_element;
     try doc.inlines.append(doc.allocator, inline_values_ptr);
 
     // Create an "anonymous block box" to contain this inline formatting context.
@@ -1151,7 +1200,7 @@ fn processInlineContainer(
 }
 
 fn pushInlineContainerLayout(
-    context: *LayoutContext,
+    context: *BlockLayoutContext,
     values: *InlineLevelUsedValues,
     used_id: UsedId,
     inline_blocks_list: *ArrayListUnmanaged(InlineBlock),
@@ -1159,17 +1208,17 @@ fn pushInlineContainerLayout(
     containing_block_logical_width: ZssUnit,
     shrink_to_fit: bool,
 ) !void {
-    const inline_blocks = inline_blocks_list.toOwnedSlice(context.allocator);
-    errdefer context.allocator.free(inline_blocks);
+    const inline_blocks = inline_blocks_list.toOwnedSlice(context.inputs.allocator);
+    errdefer context.inputs.allocator.free(inline_blocks);
 
-    const used_id_to_element_index = used_id_to_element_index_list.toOwnedSlice(context.allocator);
-    errdefer context.allocator.free(used_id_to_element_index);
+    const used_id_to_element_index = used_id_to_element_index_list.toOwnedSlice(context.inputs.allocator);
+    errdefer context.inputs.allocator.free(used_id_to_element_index);
 
     // The allocations here must have corresponding deallocations in popInlineContainer.
-    try context.layout_mode.append(context.allocator, .InlineContainer);
-    try context.used_id.append(context.allocator, used_id);
-    try context.used_subtree_size.append(context.allocator, 1);
-    try context.inline_container.append(context.allocator, .{
+    try context.layout_mode.append(context.inputs.allocator, .InlineContainer);
+    try context.used_id.append(context.inputs.allocator, used_id);
+    try context.used_subtree_size.append(context.inputs.allocator, 1);
+    try context.inline_container.append(context.inputs.allocator, .{
         .values = values,
         .inline_blocks = inline_blocks,
         .used_id_to_element_index = used_id_to_element_index,
@@ -1179,7 +1228,7 @@ fn pushInlineContainerLayout(
     });
 }
 
-fn popInlineContainer(doc: *Document, context: *LayoutContext) !void {
+fn popInlineContainer(doc: *Document, context: *BlockLayoutContext) !void {
     const used_id = context.used_id.items[context.used_id.items.len - 1];
     const used_subtree_size = context.used_subtree_size.items[context.used_subtree_size.items.len - 1];
     doc.blocks.structure.items[used_id] = used_subtree_size;
@@ -1225,7 +1274,7 @@ fn popInlineContainer(doc: *Document, context: *LayoutContext) !void {
     _ = context.layout_mode.pop();
     _ = context.used_id.pop();
     _ = context.used_subtree_size.pop();
-    container.deinit(context.allocator);
+    container.deinit(context.inputs.allocator);
     _ = context.inline_container.pop();
 }
 
@@ -1261,26 +1310,26 @@ fn addBlockToInlineContainer(container: *InlineContainer) void {
     container.next_inline_block += 1;
 }
 
-fn processInlineBlock(doc: *Document, context: *LayoutContext, container: InlineContainer) !void {
+fn processInlineBlock(doc: *Document, context: *BlockLayoutContext, container: InlineContainer) !void {
     const inline_block = container.inline_blocks[container.next_inline_block];
-    const box_id = inline_block.box_id;
-    const subtree_size = context.box_tree.structure[box_id];
+    const element = inline_block.element;
+    const skip = context.inputs.element_tree_skips[element];
 
-    const block = try createBlock(doc, context, box_id);
+    const block = try createBlock(doc, context, element);
     block.structure.* = undefined;
     block.properties.* = .{};
 
     _ = try createStackingContext(doc, context, block.used_id, 0);
     container.values.glyph_indeces.items[inline_block.index + 1] = InlineLevelUsedValues.Special.encodeInlineBlock(block.used_id);
 
-    const sizes = try inlineBlockSolveSizesPart1(context, inline_block.box_id, block.box_offsets, block.borders, block.margins);
+    const sizes = try inlineBlockSolveSizesPart1(context, inline_block.element, block.box_offsets, block.borders, block.margins);
 
     if (sizes.logical_width) |logical_width| {
-        try pushFlowLayout(context, Interval{ .begin = box_id + 1, .end = box_id + subtree_size }, block.used_id, logical_width, sizes.logical_heights, null);
+        try pushFlowLayout(context, Interval{ .begin = element + 1, .end = element + skip }, block.used_id, logical_width, sizes.logical_heights, null);
     } else {
         const base_width = (block.box_offsets.content_start.x - block.box_offsets.border_start.x) + (block.box_offsets.border_end.x - block.box_offsets.content_end.x) + block.margins.inline_start + block.margins.inline_end;
         const available_width = std.math.max(0, container.containing_block_logical_width - base_width);
-        try pushShrinkToFit1stPassLayout(context, box_id, block.used_id, available_width, base_width, sizes.logical_heights);
+        try pushShrinkToFit1stPassLayout(context, element, block.used_id, available_width, base_width, sizes.logical_heights);
     }
 }
 
@@ -1290,94 +1339,129 @@ const InlineBlockSolveSizesResult = struct {
 };
 
 fn inlineBlockSolveSizesPart1(
-    context: *LayoutContext,
-    box_id: BoxId,
+    context: *BlockLayoutContext,
+    element: ElementIndex,
     box_offsets: *used_values.BoxOffsets,
     borders: *used_values.Borders,
     margins: *used_values.Margins,
 ) !InlineBlockSolveSizesResult {
     const max = std.math.max;
-    const inline_sizes = context.box_tree.inline_size[box_id];
-    const block_sizes = context.box_tree.block_size[box_id];
+    // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
+    const specified = .{
+        .widths = context.inputs.getSpecifiedValue(.widths, element),
+        .horizontal_sizes = context.inputs.getSpecifiedValue(.horizontal_sizes, element),
+        .heights = context.inputs.getSpecifiedValue(.heights, element),
+        .vertical_sizes = context.inputs.getSpecifiedValue(.vertical_sizes, element),
+    };
     const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
     assert(containing_block_logical_width >= 0);
 
-    const border_inline_start = switch (inline_sizes.border_start) {
+    const border_inline_start = switch (specified.horizontal_sizes.border_start) {
         .px => |value| try positiveLength(.px, value),
+        .thin => borderWidth(.thin),
+        .medium => borderWidth(.medium),
+        .thick => borderWidth(.thick),
+        .initial, .inherit, .unset => unreachable,
     };
-    const border_inline_end = switch (inline_sizes.border_end) {
+    const border_inline_end = switch (specified.horizontal_sizes.border_end) {
         .px => |value| try positiveLength(.px, value),
+        .thin => borderWidth(.thin),
+        .medium => borderWidth(.medium),
+        .thick => borderWidth(.thick),
+        .initial, .inherit, .unset => unreachable,
     };
-    const padding_inline_start = switch (inline_sizes.padding_start) {
+    const padding_inline_start = switch (specified.horizontal_sizes.padding_start) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
+        .initial, .inherit, .unset => unreachable,
     };
-    const padding_inline_end = switch (inline_sizes.padding_end) {
+    const padding_inline_end = switch (specified.horizontal_sizes.padding_end) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
+        .initial, .inherit, .unset => unreachable,
     };
-    const margin_inline_start = switch (inline_sizes.margin_start) {
+    const margin_inline_start = switch (specified.horizontal_sizes.margin_start) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_logical_width),
         .auto => 0,
+        .initial, .inherit, .unset => unreachable,
     };
-    const margin_inline_end = switch (inline_sizes.margin_end) {
+    const margin_inline_end = switch (specified.horizontal_sizes.margin_end) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_logical_width),
         .auto => 0,
+        .initial, .inherit, .unset => unreachable,
     };
-    const min_inline_size = switch (inline_sizes.min_size) {
+    const min_inline_size = switch (specified.widths.min_size) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, max(0, containing_block_logical_width)),
+        .initial, .inherit, .unset => unreachable,
     };
-    const max_inline_size = switch (inline_sizes.max_size) {
+    const max_inline_size = switch (specified.widths.max_size) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, max(0, containing_block_logical_width)),
         .none => std.math.maxInt(ZssUnit),
+        .initial, .inherit, .unset => unreachable,
     };
-    const inline_size = switch (inline_sizes.size) {
+    const inline_size = switch (specified.widths.size) {
         .px => |value| clampSize(try positiveLength(.px, value), min_inline_size, max_inline_size),
         .percentage => |value| clampSize(try positivePercentage(value, containing_block_logical_width), min_inline_size, max_inline_size),
         .auto => null,
+        .initial, .inherit, .unset => unreachable,
     };
 
-    const border_block_start = switch (block_sizes.border_start) {
+    const border_block_start = switch (specified.vertical_sizes.border_start) {
         .px => |value| try positiveLength(.px, value),
+        .thin => borderWidth(.thin),
+        .medium => borderWidth(.medium),
+        .thick => borderWidth(.thick),
+        .initial, .inherit, .unset => unreachable,
     };
-    const border_block_end = switch (block_sizes.border_end) {
+    const border_block_end = switch (specified.vertical_sizes.border_end) {
         .px => |value| try positiveLength(.px, value),
+        .thin => borderWidth(.thin),
+        .medium => borderWidth(.medium),
+        .thick => borderWidth(.thick),
+        .initial, .inherit, .unset => unreachable,
     };
-    const padding_block_start = switch (block_sizes.padding_start) {
+    const padding_block_start = switch (specified.vertical_sizes.padding_start) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
+        .initial, .inherit, .unset => unreachable,
     };
-    const padding_block_end = switch (block_sizes.padding_end) {
+    const padding_block_end = switch (specified.vertical_sizes.padding_end) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
+        .initial, .inherit, .unset => unreachable,
     };
-    const margin_block_start = switch (block_sizes.margin_start) {
+    const margin_block_start = switch (specified.vertical_sizes.margin_start) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_logical_width),
         .auto => 0,
+        .initial, .inherit, .unset => unreachable,
     };
-    const margin_block_end = switch (block_sizes.margin_end) {
+    const margin_block_end = switch (specified.vertical_sizes.margin_end) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_logical_width),
         .auto => 0,
+        .initial, .inherit, .unset => unreachable,
     };
-    const min_block_size = switch (block_sizes.min_size) {
+    const min_block_size = switch (specified.heights.min_size) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, max(0, containing_block_logical_width)),
+        .initial, .inherit, .unset => unreachable,
     };
-    const max_block_size = switch (block_sizes.max_size) {
+    const max_block_size = switch (specified.heights.max_size) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, max(0, containing_block_logical_width)),
         .none => std.math.maxInt(ZssUnit),
+        .initial, .inherit, .unset => unreachable,
     };
-    const block_size = switch (block_sizes.size) {
+    const block_size = switch (specified.heights.size) {
         .px => |value| clampSize(try positiveLength(.px, value), min_block_size, max_block_size),
         .percentage => |value| clampSize(try positivePercentage(value, containing_block_logical_width), min_block_size, max_block_size),
         .auto => null,
+        .initial, .inherit, .unset => unreachable,
     };
 
     box_offsets.border_start = .{ .x = margin_inline_start, .y = margin_block_start };
@@ -1412,7 +1496,7 @@ fn inlineBlockSolveSizesPart2(box_offsets: *used_values.BoxOffsets, used_logical
     return used_logical_height;
 }
 
-fn inlineBlockFinishLayout(doc: *Document, context: *LayoutContext, box_offsets: *used_values.BoxOffsets) void {
+fn inlineBlockFinishLayout(doc: *Document, context: *BlockLayoutContext, box_offsets: *used_values.BoxOffsets) void {
     const used_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
     const auto_logical_height = context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 1];
     const used_logical_heights = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1];
@@ -1430,10 +1514,10 @@ const Block = struct {
     properties: *BlockLevelUsedValues.BoxProperties,
 };
 
-fn createBlock(doc: *Document, context: *LayoutContext, box_id: BoxId) !Block {
+fn createBlock(doc: *Document, context: *BlockLayoutContext, box_id: BoxId) !Block {
     assert(doc.blocks.structure.items.len == context.used_id_to_element_index.items.len);
     const used_id = try std.math.cast(UsedId, doc.blocks.structure.items.len);
-    try context.used_id_to_element_index.append(context.allocator, box_id);
+    try context.used_id_to_element_index.append(context.inputs.allocator, box_id);
     return Block{
         .used_id = used_id,
         .structure = try doc.blocks.structure.addOne(doc.allocator),
@@ -1444,18 +1528,25 @@ fn createBlock(doc: *Document, context: *LayoutContext, box_id: BoxId) !Block {
     };
 }
 
-fn blockBoxSolveOtherProperties(doc: *Document, box_tree: *const BoxTree, box_id: BoxId, used_id: UsedId) !void {
+fn blockBoxSolveOtherProperties(doc: *Document, inputs: *Inputs, element: ElementIndex, used_id: UsedId) !void {
+    const specified = .{
+        .color = inputs.getSpecifiedValue(.color, element),
+        .border_colors = inputs.getSpecifiedValue(.border_colors, element),
+        .background1 = inputs.getSpecifiedValue(.background1, element),
+        .background2 = inputs.getSpecifiedValue(.background2, element),
+    };
+    const current_color = colorProperty(specified.color.color);
+
     const box_offsets_ptr = &doc.blocks.box_offsets.items[used_id];
     const borders_ptr = &doc.blocks.borders.items[used_id];
 
     const border_colors_ptr = &doc.blocks.border_colors.items[used_id];
-    border_colors_ptr.* = solveBorderColors(box_tree.border[box_id]);
+    border_colors_ptr.* = solveBorderColors(specified.border_colors, current_color);
 
     const background1_ptr = &doc.blocks.background1.items[used_id];
     const background2_ptr = &doc.blocks.background2.items[used_id];
-    const background = box_tree.background[box_id];
-    background1_ptr.* = solveBackground1(background);
-    background2_ptr.* = try solveBackground2(background, box_offsets_ptr, borders_ptr);
+    background1_ptr.* = solveBackground1(specified.background1, current_color);
+    background2_ptr.* = try solveBackground2(specified.background2, box_offsets_ptr, borders_ptr);
 }
 
 fn blockBoxFillOtherPropertiesWithDefaults(doc: *Document, used_id: UsedId) void {
@@ -1464,7 +1555,7 @@ fn blockBoxFillOtherPropertiesWithDefaults(doc: *Document, used_id: UsedId) void
     doc.blocks.background2.items[used_id] = .{};
 }
 
-fn createStackingContext(doc: *Document, context: *LayoutContext, used_id: UsedId, z_index: ZIndex) !StackingContextId {
+fn createStackingContext(doc: *Document, context: *BlockLayoutContext, used_id: UsedId, z_index: ZIndex) !StackingContextId {
     const sc_tree = &doc.stacking_context_tree;
     const parent_stacking_context_id = context.stacking_context_id.items[context.stacking_context_id.items.len - 1];
     var current = parent_stacking_context_id + 1;
@@ -1480,7 +1571,7 @@ fn createStackingContext(doc: *Document, context: *LayoutContext, used_id: UsedI
     return current;
 }
 
-fn blockBoxApplyRelativePositioningToChildren(doc: *Document, context: *LayoutContext, containing_block_logical_width: ZssUnit, containing_block_logical_height: ZssUnit) void {
+fn blockBoxApplyRelativePositioningToChildren(doc: *Document, context: *BlockLayoutContext, containing_block_logical_width: ZssUnit, containing_block_logical_height: ZssUnit) void {
     const count = context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1];
     var i: UsedBoxCount = 0;
     while (i < count) : (i += 1) {
@@ -1489,7 +1580,7 @@ fn blockBoxApplyRelativePositioningToChildren(doc: *Document, context: *LayoutCo
         // TODO: Also use the logical properties ('inset-inline-start', 'inset-block-end', etc.) to determine lengths.
         // TODO: Any relative units must be converted to absolute units to form the computed value.
         const specified = .{
-            .insets = context.getSpecifiedValue(.insets, element),
+            .insets = context.inputs.getSpecifiedValue(.insets, element),
         };
         const box_offsets = &doc.blocks.box_offsets.items[used_id];
 
@@ -1533,41 +1624,39 @@ fn blockBoxApplyRelativePositioningToChildren(doc: *Document, context: *LayoutCo
 const InlineLayoutContext = struct {
     const Self = @This();
 
-    box_tree: *const BoxTree,
+    inputs: *Inputs,
+    root_interval: Interval,
+
     intervals: ArrayListUnmanaged(Interval),
     used_ids: ArrayListUnmanaged(UsedId),
-    allocator: Allocator,
-    root_interval: Interval,
 
     continuation_blocks: *ArrayListUnmanaged(ContinuationBlock),
     inline_blocks: *ArrayListUnmanaged(InlineBlock),
     used_id_to_element_index: *ArrayListUnmanaged(BoxId),
-    next_box_id: BoxId,
+    next_element: ElementIndex,
 
     fn init(
-        box_tree: *const BoxTree,
-        allocator: Allocator,
+        context: *const BlockLayoutContext,
         block_container_interval: Interval,
         continuation_blocks: *ArrayListUnmanaged(ContinuationBlock),
         inline_blocks: *ArrayListUnmanaged(InlineBlock),
         used_id_to_element_index: *ArrayListUnmanaged(BoxId),
     ) Self {
         return Self{
-            .box_tree = box_tree,
+            .inputs = context.inputs,
+            .root_interval = Interval{ .begin = block_container_interval.begin, .end = block_container_interval.end },
             .intervals = .{},
             .used_ids = .{},
-            .allocator = allocator,
-            .root_interval = Interval{ .begin = block_container_interval.begin, .end = block_container_interval.end },
             .continuation_blocks = continuation_blocks,
             .inline_blocks = inline_blocks,
             .used_id_to_element_index = used_id_to_element_index,
-            .next_box_id = block_container_interval.end,
+            .next_element = block_container_interval.end,
         };
     }
 
     fn deinit(self: *Self) void {
-        self.intervals.deinit(self.allocator);
-        self.used_ids.deinit(self.allocator);
+        self.intervals.deinit(self.inputs.allocator);
+        self.used_ids.deinit(self.inputs.allocator);
     }
 };
 
@@ -1591,32 +1680,39 @@ fn createInlineLevelUsedValues(doc: *Document, context: *InlineLayoutContext, va
 
 fn inlineLevelRootElementPush(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues, root_interval: Interval) !void {
     const root_used_id = try std.math.cast(UsedId, context.used_id_to_element_index.items.len);
-    try context.used_id_to_element_index.append(context.allocator, reserved_box_id);
+    try context.used_id_to_element_index.append(context.inputs.allocator, reserved_box_id);
     try addBoxStart(doc, values, root_used_id);
 
     if (root_interval.begin != root_interval.end) {
-        try context.intervals.append(context.allocator, root_interval);
-        try context.used_ids.append(context.allocator, root_used_id);
+        try context.intervals.append(context.inputs.allocator, root_interval);
+        try context.used_ids.append(context.inputs.allocator, root_used_id);
     } else {
         try addBoxEnd(doc, values, root_used_id);
     }
 }
 
 fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues, interval: *Interval) !bool {
-    const box_id = interval.begin;
-    const subtree_size = context.box_tree.structure[box_id];
-    interval.begin += subtree_size;
+    const element = interval.begin;
+    const skip = context.inputs.element_tree_skips[element];
+    interval.begin += skip;
 
-    switch (context.box_tree.display[box_id]) {
-        .text => try addText(doc, values, context.box_tree.latin1_text[box_id], context.box_tree.font),
+    const dps = context.inputs.getSpecifiedValue(.display_position_float, element);
+    // TODO: Use the computed value of display.
+    switch (dps.display) {
+        .text => {
+            assert(skip == 1);
+            const text = context.inputs.getText(element);
+            // TODO: Do proper font matching.
+            try addText(doc, values, text, context.inputs.font);
+        },
         .inline_ => {
             const used_id = try std.math.cast(UsedId, context.used_id_to_element_index.items.len);
-            try context.used_id_to_element_index.append(context.allocator, box_id);
+            try context.used_id_to_element_index.append(context.inputs.allocator, element);
             try addBoxStart(doc, values, used_id);
 
-            if (subtree_size != 1) {
-                try context.intervals.append(context.allocator, .{ .begin = box_id + 1, .end = box_id + subtree_size });
-                try context.used_ids.append(context.allocator, used_id);
+            if (skip != 1) {
+                try context.intervals.append(context.inputs.allocator, .{ .begin = element + 1, .end = element + skip });
+                try context.used_ids.append(context.inputs.allocator, used_id);
             } else {
                 // Optimized path for elements that have no children. It is like a shorter version of inlineLevelElementPop.
                 try addBoxEnd(doc, values, used_id);
@@ -1624,12 +1720,12 @@ fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values:
         },
         .inline_block => {
             try values.glyph_indeces.appendSlice(doc.allocator, &.{ 0, undefined });
-            try context.inline_blocks.append(context.allocator, .{ .box_id = box_id, .index = values.glyph_indeces.items.len - 2 });
+            try context.inline_blocks.append(context.inputs.allocator, .{ .element = element, .index = values.glyph_indeces.items.len - 2 });
         },
         .block => {
             const is_top_level = context.used_ids.items.len == 1;
             if (is_top_level) {
-                context.next_box_id = box_id;
+                context.next_element = element;
                 var i = context.used_ids.items.len;
                 while (i > 0) : (i -= 1) {
                     try addBoxEnd(doc, values, context.used_ids.items[i - 1]);
@@ -1637,10 +1733,11 @@ fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values:
                 return true;
             } else {
                 try values.glyph_indeces.appendSlice(doc.allocator, &.{ 0, undefined });
-                try context.continuation_blocks.append(context.allocator, .{ .box_id = box_id, .index = values.glyph_indeces.items.len - 2 });
+                try context.continuation_blocks.append(context.inputs.allocator, .{ .element = element, .index = values.glyph_indeces.items.len - 2 });
             }
         },
         .none => {},
+        .initial, .inherit, .unset => unreachable,
     }
 
     return false;
@@ -1669,10 +1766,10 @@ fn addLineBreak(doc: *Document, values: *InlineLevelUsedValues) !void {
     try values.glyph_indeces.appendSlice(doc.allocator, &glyphs);
 }
 
-fn addText(doc: *Document, values: *InlineLevelUsedValues, latin1_text: BoxTree.Latin1Text, font: BoxTree.Font) !void {
+fn addText(doc: *Document, values: *InlineLevelUsedValues, text: zss.value.Text, font: ValueTree.Font) !void {
     const buffer = hb.hb_buffer_create() orelse unreachable;
     defer hb.hb_buffer_destroy(buffer);
-    _ = hb.hb_buffer_pre_allocate(buffer, @intCast(c_uint, latin1_text.text.len));
+    _ = hb.hb_buffer_pre_allocate(buffer, @intCast(c_uint, text.len));
     // TODO direction, script, and language must be determined by examining the text itself
     hb.hb_buffer_set_direction(buffer, hb.HB_DIRECTION_LTR);
     hb.hb_buffer_set_script(buffer, hb.HB_SCRIPT_LATIN);
@@ -1680,22 +1777,22 @@ fn addText(doc: *Document, values: *InlineLevelUsedValues, latin1_text: BoxTree.
 
     var run_begin: usize = 0;
     var run_end: usize = 0;
-    while (run_end < latin1_text.text.len) : (run_end += 1) {
-        const codepoint = latin1_text.text[run_end];
+    while (run_end < text.len) : (run_end += 1) {
+        const codepoint = text[run_end];
         switch (codepoint) {
             '\n' => {
-                try endTextRun(doc, values, latin1_text, buffer, font.font, run_begin, run_end);
+                try endTextRun(doc, values, text, buffer, font.font, run_begin, run_end);
                 try addLineBreak(doc, values);
                 run_begin = run_end + 1;
             },
             '\r' => {
-                try endTextRun(doc, values, latin1_text, buffer, font.font, run_begin, run_end);
+                try endTextRun(doc, values, text, buffer, font.font, run_begin, run_end);
                 try addLineBreak(doc, values);
-                run_end += @boolToInt(run_end + 1 < latin1_text.text.len and latin1_text.text[run_end + 1] == '\n');
+                run_end += @boolToInt(run_end + 1 < text.len and text[run_end + 1] == '\n');
                 run_begin = run_end + 1;
             },
             '\t' => {
-                try endTextRun(doc, values, latin1_text, buffer, font.font, run_begin, run_end);
+                try endTextRun(doc, values, text, buffer, font.font, run_begin, run_end);
                 run_begin = run_end + 1;
                 // TODO tab size should be determined by the 'tab-size' property
                 const tab_size = 8;
@@ -1708,12 +1805,12 @@ fn addText(doc: *Document, values: *InlineLevelUsedValues, latin1_text: BoxTree.
         }
     }
 
-    try endTextRun(doc, values, latin1_text, buffer, font.font, run_begin, run_end);
+    try endTextRun(doc, values, text, buffer, font.font, run_begin, run_end);
 }
 
-fn endTextRun(doc: *Document, values: *InlineLevelUsedValues, latin1_text: BoxTree.Latin1Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
+fn endTextRun(doc: *Document, values: *InlineLevelUsedValues, text: zss.value.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
     if (run_end > run_begin) {
-        hb.hb_buffer_add_latin1(buffer, latin1_text.text.ptr, @intCast(c_int, latin1_text.text.len), @intCast(c_uint, run_begin), @intCast(c_int, run_end - run_begin));
+        hb.hb_buffer_add_latin1(buffer, text.ptr, @intCast(c_int, text.len), @intCast(c_uint, run_begin), @intCast(c_int, run_end - run_begin));
         if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
         try addTextRun(doc, values, buffer, font);
         assert(hb.hb_buffer_set_length(buffer, 0) != 0);
@@ -1740,7 +1837,7 @@ fn addTextRun(doc: *Document, values: *InlineLevelUsedValues, buffer: *hb.hb_buf
     }
 }
 
-fn inlineValuesFinishLayout(doc: *Document, context: *LayoutContext, container: *InlineContainer, percentage_base_unit: ZssUnit) !void {
+fn inlineValuesFinishLayout(doc: *Document, context: *BlockLayoutContext, container: *InlineContainer, percentage_base_unit: ZssUnit) !void {
     const values = container.values;
 
     const num_glyphs = values.glyph_indeces.items.len;
@@ -1754,10 +1851,8 @@ fn inlineValuesFinishLayout(doc: *Document, context: *LayoutContext, container: 
     try values.margins.resize(doc.allocator, num_boxes);
     try values.background1.resize(doc.allocator, num_boxes);
 
-    values.font = context.box_tree.font.font;
-    values.font_color_rgba = switch (context.box_tree.font.color) {
-        .rgba => |rgba| rgba,
-    };
+    values.font = context.inputs.font.font;
+    values.font_color_rgba = colorProperty(context.inputs.font.color);
 
     // Set the used values for all inline elements
     assert(container.used_id_to_element_index[0] == reserved_box_id);
@@ -1809,59 +1904,92 @@ fn setRootInlineBoxUsedData(values: *InlineLevelUsedValues, used_id: UsedId) voi
     values.background1.items[used_id] = .{};
 }
 
-fn setInlineBoxUsedData(context: *LayoutContext, values: *InlineLevelUsedValues, box_id: BoxId, used_id: UsedId, containing_block_logical_width: ZssUnit) !void {
+fn setInlineBoxUsedData(context: *BlockLayoutContext, values: *InlineLevelUsedValues, element: ElementIndex, used_id: UsedId, containing_block_logical_width: ZssUnit) !void {
     assert(containing_block_logical_width >= 0);
-    const inline_sizes = context.box_tree.inline_size[box_id];
-    const block_sizes = context.box_tree.block_size[box_id];
+    // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
+    // TODO: Border/Background colors don't affect layout, solve for them later.
+    const specified = .{
+        .horizontal_sizes = context.inputs.getSpecifiedValue(.horizontal_sizes, element),
+        .vertical_sizes = context.inputs.getSpecifiedValue(.vertical_sizes, element),
+        .border_colors = context.inputs.getSpecifiedValue(.border_colors, element),
+        .color = context.inputs.getSpecifiedValue(.color, element),
+        .background1 = context.inputs.getSpecifiedValue(.background1, element),
+    };
 
-    const margin_inline_start = switch (inline_sizes.margin_start) {
+    const margin_inline_start = switch (specified.horizontal_sizes.margin_start) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_logical_width),
         .auto => 0,
+        .initial, .inherit, .unset => unreachable,
     };
-    const border_inline_start = switch (inline_sizes.border_start) {
+    const border_inline_start = switch (specified.horizontal_sizes.border_start) {
         .px => |value| try positiveLength(.px, value),
+        .thin => borderWidth(.thin),
+        .medium => borderWidth(.medium),
+        .thick => borderWidth(.thick),
+        .initial, .inherit, .unset => unreachable,
     };
-    const padding_inline_start = switch (inline_sizes.padding_start) {
+    const padding_inline_start = switch (specified.horizontal_sizes.padding_start) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
+        .initial, .inherit, .unset => unreachable,
     };
-    const margin_inline_end = switch (inline_sizes.margin_end) {
+    const margin_inline_end = switch (specified.horizontal_sizes.margin_end) {
         .px => |value| length(.px, value),
         .percentage => |value| percentage(value, containing_block_logical_width),
         .auto => 0,
+        .initial, .inherit, .unset => unreachable,
     };
-    const border_inline_end = switch (inline_sizes.border_end) {
+    const border_inline_end = switch (specified.horizontal_sizes.border_end) {
         .px => |value| try positiveLength(.px, value),
+        .thin => borderWidth(.thin),
+        .medium => borderWidth(.medium),
+        .thick => borderWidth(.thick),
+        .initial, .inherit, .unset => unreachable,
     };
-    const padding_inline_end = switch (inline_sizes.padding_end) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
-    };
-
-    const border_block_start = switch (block_sizes.border_start) {
-        .px => |value| try positiveLength(.px, value),
-    };
-    const padding_block_start = switch (block_sizes.padding_start) {
+    const padding_inline_end = switch (specified.horizontal_sizes.padding_end) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
+        .initial, .inherit, .unset => unreachable,
     };
-    const border_block_end = switch (block_sizes.border_end) {
+
+    const border_block_start = switch (specified.vertical_sizes.border_start) {
         .px => |value| try positiveLength(.px, value),
+        .thin => borderWidth(.thin),
+        .medium => borderWidth(.medium),
+        .thick => borderWidth(.thick),
+        .initial, .inherit, .unset => unreachable,
     };
-    const padding_block_end = switch (block_sizes.padding_end) {
+    const padding_block_start = switch (specified.vertical_sizes.padding_start) {
         .px => |value| try positiveLength(.px, value),
         .percentage => |value| try positivePercentage(value, containing_block_logical_width),
+        .initial, .inherit, .unset => unreachable,
+    };
+    const border_block_end = switch (specified.vertical_sizes.border_end) {
+        .px => |value| try positiveLength(.px, value),
+        .thin => borderWidth(.thin),
+        .medium => borderWidth(.medium),
+        .thick => borderWidth(.thick),
+        .initial, .inherit, .unset => unreachable,
+    };
+    const padding_block_end = switch (specified.vertical_sizes.padding_end) {
+        .px => |value| try positiveLength(.px, value),
+        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
+        .initial, .inherit, .unset => unreachable,
     };
 
-    const border_colors = solveBorderColors(context.box_tree.border[box_id]);
+    const current_color = colorProperty(specified.color.color);
+    const border_inline_start_color = color(specified.border_colors.left, current_color);
+    const border_inline_end_color = color(specified.border_colors.right, current_color);
+    const border_block_start_color = color(specified.border_colors.top, current_color);
+    const border_block_end_color = color(specified.border_colors.bottom, current_color);
 
-    values.inline_start.items[used_id] = .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = border_colors.inline_start_rgba };
-    values.inline_end.items[used_id] = .{ .border = border_inline_end, .padding = padding_inline_end, .border_color_rgba = border_colors.inline_end_rgba };
-    values.block_start.items[used_id] = .{ .border = border_block_start, .padding = padding_block_start, .border_color_rgba = border_colors.block_start_rgba };
-    values.block_end.items[used_id] = .{ .border = border_block_end, .padding = padding_block_end, .border_color_rgba = border_colors.block_end_rgba };
+    values.inline_start.items[used_id] = .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = border_inline_start_color };
+    values.inline_end.items[used_id] = .{ .border = border_inline_end, .padding = padding_inline_end, .border_color_rgba = border_inline_end_color };
+    values.block_start.items[used_id] = .{ .border = border_block_start, .padding = padding_block_start, .border_color_rgba = border_block_start_color };
+    values.block_end.items[used_id] = .{ .border = border_block_end, .padding = padding_block_end, .border_color_rgba = border_block_end_color };
     values.margins.items[used_id] = .{ .start = margin_inline_start, .end = margin_inline_end };
-    values.background1.items[used_id] = solveBackground1(context.box_tree.background[box_id]);
+    values.background1.items[used_id] = solveBackground1(specified.background1, current_color);
 }
 
 fn setMetricsGlyph(metrics: *InlineLevelUsedValues.Metrics, font: *hb.hb_font_t, glyph_index: GlyphIndex) void {
@@ -1999,40 +2127,32 @@ fn splitIntoLineBoxes(doc: *Document, values: *InlineLevelUsedValues, containing
     return result;
 }
 
-fn solveBorderColors(border: BoxTree.Border) used_values.BorderColor {
-    const solveOneBorderColor = struct {
-        fn f(color: BoxTree.Border.Color) u32 {
-            return switch (color) {
-                .rgba => |rgba| rgba,
-            };
-        }
-    }.f;
-
+fn solveBorderColors(border_colors: ValueTree.BorderColors, current_color: u32) used_values.BorderColor {
     return used_values.BorderColor{
-        .inline_start_rgba = solveOneBorderColor(border.inline_start_color),
-        .inline_end_rgba = solveOneBorderColor(border.inline_end_color),
-        .block_start_rgba = solveOneBorderColor(border.block_start_color),
-        .block_end_rgba = solveOneBorderColor(border.block_end_color),
+        .inline_start_rgba = color(border_colors.left, current_color),
+        .inline_end_rgba = color(border_colors.right, current_color),
+        .block_start_rgba = color(border_colors.top, current_color),
+        .block_end_rgba = color(border_colors.bottom, current_color),
     };
 }
 
-fn solveBackground1(bg: BoxTree.Background) used_values.Background1 {
+fn solveBackground1(bg: ValueTree.Background1, current_color: u32) used_values.Background1 {
     return used_values.Background1{
-        .color_rgba = switch (bg.color) {
-            .rgba => |rgba| rgba,
-        },
+        .color_rgba = color(bg.color, current_color),
         .clip = switch (bg.clip) {
             .border_box => .Border,
             .padding_box => .Padding,
             .content_box => .Content,
+            .initial, .inherit, .unset => unreachable,
         },
     };
 }
 
-fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxOffsets, borders: *const used_values.Borders) !used_values.Background2 {
+fn solveBackground2(bg: ValueTree.Background2, box_offsets: *const used_values.BoxOffsets, borders: *const used_values.Borders) !used_values.Background2 {
     var object = switch (bg.image) {
         .object => |object| object,
         .none => return used_values.Background2{},
+        .initial, .inherit, .unset => unreachable,
     };
 
     const border_width = box_offsets.border_end.x - box_offsets.border_start.x;
@@ -2045,6 +2165,7 @@ fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxO
         .border_box => .{ .origin = .Border, .width = border_width, .height = border_height },
         .padding_box => .{ .origin = .Padding, .width = padding_width, .height = padding_height },
         .content_box => .{ .origin = .Content, .width = content_width, .height = content_height },
+        .initial, .inherit, .unset => unreachable,
     };
 
     const NaturalSize = struct {
@@ -2052,7 +2173,7 @@ fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxO
         height: ZssUnit,
         has_aspect_ratio: bool,
 
-        fn init(obj: *BoxTree.Background.Image.Object) !@This() {
+        fn init(obj: *zss.value.BackgroundImage.Object) !@This() {
             const n = obj.getNaturalSize();
             const width = try positiveLength(.px, n.width);
             const height = try positiveLength(.px, n.height);
@@ -2100,6 +2221,7 @@ fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxO
                 break :blk used_values.Background2.Size{ .width = positioning_area.width, .height = @divFloor(positioning_area.width * natural.?.height, natural.?.width) };
             }
         },
+        .initial, .inherit, .unset => unreachable,
     };
 
     const repeat: used_values.Background2.Repeat = switch (bg.repeat) {
@@ -2117,6 +2239,7 @@ fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxO
                 .round => .Round,
             },
         },
+        .initial, .inherit, .unset => unreachable,
     };
 
     if (width_was_auto or height_was_auto or repeat.x == .Round or repeat.y == .Round) {
@@ -2167,6 +2290,7 @@ fn solveBackground2(bg: BoxTree.Background, box_offsets: *const used_values.BoxO
                 },
             },
         },
+        .initial, .inherit, .unset => unreachable,
     };
 
     return used_values.Background2{

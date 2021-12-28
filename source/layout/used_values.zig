@@ -121,7 +121,7 @@ pub const Background2 = struct {
         y: Style = .None,
     };
 
-    image: ?*zss.BoxTree.Background.Image.Object.Data = null,
+    image: ?*zss.value.BackgroundImage.Object.Data = null,
     position: Position = .{},
     size: Size = .{},
     repeat: Repeat = .{},
