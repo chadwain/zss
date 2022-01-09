@@ -290,6 +290,18 @@ pub fn SSTSeeker(comptime SST: type) type {
             return false;
         }
 
+        pub fn seekBinary(self: *Self, index: SST.Index) bool {
+            const compareFn = struct {
+                fn f(context: void, lhs: SST.Index, rhs: SST.Index) std.math.Order {
+                    _ = context;
+                    return std.math.order(lhs, rhs);
+                }
+            }.f;
+            const ref_index = std.sort.binarySearch(SST.Index, index, self.refs[0..self.len], {}, compareFn) orelse return false;
+            self.current_ref = @intCast(SST.Index, ref_index);
+            return true;
+        }
+
         pub fn get(self: Self) SST.Value {
             var result: SST.Value = undefined;
             inline for (sst_value_fields) |field_info| {

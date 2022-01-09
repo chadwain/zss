@@ -264,7 +264,10 @@ const Inputs = struct {
         all_inherit,
         all_initial,
     } {
+        const Value = property.Value();
+        const fields = std.meta.fields(Value);
         const inheritance_type = comptime property.inheritanceType();
+
         switch (inheritance_type) {
             .inherited, .not_inherited => {},
             .neither => @compileError("Cannot get cascaded value of '" ++ @tagName(property) ++ "'"),
@@ -272,11 +275,13 @@ const Inputs = struct {
 
         // Find the value using the cascaded value tree.
         const seeker = &@field(self.seekers, @tagName(property));
-        if (seeker.seekForward(element)) {
+        // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do seeking.
+        if (seeker.seekBinary(element)) {
             const value = seeker.get();
             if (property == .color) {
                 if (value.color == .current_color) {
-                    // If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
+                    // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
+                    comptime assert(fields.len == 1);
                     return .all_inherit;
                 }
             }
@@ -326,7 +331,7 @@ const BlockLayoutContext = struct {
 
     metadata: ArrayListUnmanaged(Metadata) = .{},
     stacking_context_id: ArrayListUnmanaged(StackingContextId) = .{},
-    used_id_to_element_index: ArrayListUnmanaged(BoxId) = .{},
+    used_id_to_element_index: ArrayListUnmanaged(ElementIndex) = .{},
 
     intervals: ArrayListUnmanaged(Interval) = .{},
     used_id: ArrayListUnmanaged(UsedId) = .{},
@@ -383,12 +388,16 @@ fn createBlockLevelUsedValues(doc: *Document, context: *BlockLayoutContext) !voi
 
     // Process the root element.
     try processElement(doc, context);
+    // TODO: This is not a good reason to return early
+    //  * Root might generate more than one box
+    //  * Root might have 'display: contents'
     if (doc.blocks.structure.items.len == 1) {
         // The root element has a 'display' value of 'none'.
         return;
     }
 
     // Create the root stacking context.
+    // TODO: Don't assume that the principal box of the root element has a used_id of 1.
     try doc.stacking_context_tree.subtree.append(doc.allocator, 1);
     try doc.stacking_context_tree.stacking_contexts.append(doc.allocator, .{ .z_index = 0, .used_id = 1 });
     doc.blocks.properties.items[1].creates_stacking_context = true;
@@ -402,11 +411,6 @@ fn createBlockLevelUsedValues(doc: *Document, context: *BlockLayoutContext) !voi
     // Solve for all of the properties that don't affect layout.
     const num_created_boxes = doc.blocks.structure.items[0];
     assert(context.used_id_to_element_index.items.len == num_created_boxes);
-    { // TODO: This is a janky solution
-        inline for (std.meta.fields(Seekers)) |field_info| {
-            @field(context.inputs.seekers, field_info.name).current_ref = 0;
-        }
-    }
     try doc.blocks.border_colors.resize(doc.allocator, num_created_boxes);
     try doc.blocks.background1.resize(doc.allocator, num_created_boxes);
     try doc.blocks.background2.resize(doc.allocator, num_created_boxes);
