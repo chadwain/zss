@@ -1,7 +1,8 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const assert = std.debug.assert;
+const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../../zss.zig");
 const ValueTree = zss.ValueTree;
@@ -55,6 +56,7 @@ pub fn doLayout(
         .allocator = allocator,
         .viewport_size = viewport_size,
     };
+    defer inputs.deinit();
     var context = BlockLayoutContext{ .inputs = &inputs };
     defer context.deinit();
     var doc = Document{ .allocator = allocator };
@@ -89,12 +91,18 @@ fn clampSize(size: ZssUnit, min_size: ZssUnit, max_size: ZssUnit) ZssUnit {
     return std.math.max(min_size, std.math.min(size, max_size));
 }
 
-fn borderWidth(thickness: enum { thin, medium, thick }) ZssUnit {
-    return unitsPerPixel * @as(ZssUnit, switch (thickness) {
+const BorderThickness = enum { thin, medium, thick };
+
+fn borderWidthPx(comptime thickness: BorderThickness) f32 {
+    return switch (thickness) {
         .thin => 1,
         .medium => 3,
         .thick => 5,
-    });
+    };
+}
+
+fn borderWidth(comptime thickness: BorderThickness) ZssUnit {
+    return length(.px, thickness);
 }
 
 fn color(col: zss.value.Color, current_color: u32) u32 {
@@ -170,11 +178,6 @@ const InlineContainer = struct {
     }
 };
 
-const ThisElement = struct {
-    all: ?zss.value.All,
-    position: zss.value.Position,
-};
-
 const Seekers = struct {
     const fields = std.meta.fields(ValueTree.Values);
     const Enum = std.meta.FieldEnum(ValueTree.Values);
@@ -202,9 +205,36 @@ const Seekers = struct {
     }
 };
 
-const InheritanceStack = struct {
-    display: ArrayListUnmanaged(zss.value.Display),
-    position: ArrayListUnmanaged(zss.value.Position),
+const ComputedValueStack = struct {
+    display_position_float: ArrayListUnmanaged(ValueTree.DisplayPositionFloat) = .{},
+    widths: ArrayListUnmanaged(ValueTree.Sizes) = .{},
+    horizontal_sizes: ArrayListUnmanaged(ValueTree.PaddingBorderMargin) = .{},
+    heights: ArrayListUnmanaged(ValueTree.Sizes) = .{},
+    vertical_sizes: ArrayListUnmanaged(ValueTree.PaddingBorderMargin) = .{},
+};
+
+const ListOfComptutedValues = struct {
+    display_position_float: bool = false,
+    widths: bool = false,
+    horizontal_sizes: bool = false,
+    heights: bool = false,
+    vertical_sizes: bool = false,
+    insets: bool = false,
+};
+
+const ThisElement = struct {
+    element: ElementIndex = undefined,
+    all: ?zss.value.All = undefined,
+
+    list_of_computed_values: ListOfComptutedValues = .{},
+    computed: struct {
+        display_position_float: ValueTree.DisplayPositionFloat = undefined,
+        widths: ValueTree.Sizes = undefined,
+        horizontal_sizes: ValueTree.PaddingBorderMargin = undefined,
+        heights: ValueTree.Sizes = undefined,
+        vertical_sizes: ValueTree.PaddingBorderMargin = undefined,
+        insets: ValueTree.Insets = undefined,
+    } = .{},
 };
 
 const Inputs = struct {
@@ -213,19 +243,74 @@ const Inputs = struct {
     element_tree_skips: []const ElementIndex,
     seekers: Seekers,
     font: ValueTree.Font,
-    //inheritances: InheritanceStack,
-    this_element: ThisElement = undefined,
+
+    computed_value_stack: ComputedValueStack = .{},
+    element_stack: ArrayListUnmanaged(ElementIndex) = .{},
+    list_of_computed_values_stack: MultiArrayList(ListOfComptutedValues) = .{},
+
+    this_element: ThisElement = .{},
 
     allocator: Allocator,
     viewport_size: ZssSize,
 
-    fn getSpecifiedValue(self: *Self, comptime property: ValueTree.AggregatePropertyEnum, element: ElementIndex) property.Value() {
+    fn deinit(self: *Self) void {
+        self.element_stack.deinit(self.allocator);
+        self.list_of_computed_values_stack.deinit(self.allocator);
+        inline for (std.meta.fields(ComputedValueStack)) |field_info| {
+            @field(self.computed_value_stack, field_info.name).deinit(self.allocator);
+        }
+    }
+
+    fn setElement(self: *Self, element: ElementIndex) void {
+        self.this_element.element = element;
+
+        const all_seeker = &self.seekers.all;
+        if (all_seeker.seekBinary(element)) {
+            self.this_element.all = all_seeker.get().all;
+        } else {
+            self.this_element.all = null;
+        }
+    }
+
+    fn setComputedValue(self: *Self, comptime property: ValueTree.AggregatePropertyEnum, value: property.Value()) void {
+        const flag = &@field(self.this_element.list_of_computed_values, @tagName(property));
+        assert(!flag.*);
+        flag.* = true;
+        @field(self.this_element.computed, @tagName(property)) = value;
+    }
+
+    fn pushElement(self: *Self) !void {
+        try self.element_stack.append(self.allocator, self.this_element.element);
+        try self.list_of_computed_values_stack.append(self.allocator, self.this_element.list_of_computed_values);
+        inline for (std.meta.fields(ListOfComptutedValues)) |field_info| {
+            if (@field(self.this_element.list_of_computed_values, field_info.name)) {
+                const value = @field(self.this_element.computed, field_info.name);
+                try @field(self.computed_value_stack, field_info.name).append(self.allocator, value);
+            }
+        }
+
+        self.this_element = .{};
+    }
+
+    fn popElement(self: *Self) void {
+        self.element_stack.shrinkRetainingCapacity(self.element_stack.items.len - 1);
+        const list = self.list_of_computed_values_stack.get(self.list_of_computed_values_stack.len - 1);
+        self.list_of_computed_values_stack.shrinkRetainingCapacity(self.list_of_computed_values_stack.len - 1);
+
+        inline for (std.meta.fields(ListOfComptutedValues)) |field_info| {
+            if (@field(list, field_info.name)) {
+                _ = @field(self.computed_value_stack, field_info.name).pop();
+            }
+        }
+    }
+
+    fn getSpecifiedValue(self: *Self, comptime property: ValueTree.AggregatePropertyEnum) property.Value() {
         const Value = property.Value();
         const fields = std.meta.fields(Value);
         const inheritance_type = comptime property.inheritanceType();
 
         var result: Value = undefined;
-        switch (getCascadedValue(self, property, element)) {
+        switch (getCascadedValue(self, property)) {
             .value => |value| result = value,
             // TODO: Just copy the inherited value and return
             .all_inherit => result = comptime blk: {
@@ -258,7 +343,6 @@ const Inputs = struct {
     fn getCascadedValue(
         self: *Self,
         comptime property: ValueTree.AggregatePropertyEnum,
-        element: ElementIndex,
     ) union(enum) {
         value: property.Value(),
         all_inherit,
@@ -276,12 +360,12 @@ const Inputs = struct {
         // Find the value using the cascaded value tree.
         const seeker = &@field(self.seekers, @tagName(property));
         // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do seeking.
-        if (seeker.seekBinary(element)) {
+        if (seeker.seekBinary(self.this_element.element)) {
             const value = seeker.get();
             if (property == .color) {
+                // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
+                comptime assert(fields.len == 1);
                 if (value.color == .current_color) {
-                    // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
-                    comptime assert(fields.len == 1);
                     return .all_inherit;
                 }
             }
@@ -305,18 +389,9 @@ const Inputs = struct {
         }
     }
 
-    fn getAll(self: *Self, element: ElementIndex) ?zss.value.All {
-        const seeker = &self.seekers.all;
-        if (seeker.seekForward(element)) {
-            return seeker.get().all;
-        } else {
-            return null;
-        }
-    }
-
     fn getText(self: *Self, element: ElementIndex) zss.value.Text {
         const seeker = &self.seekers.text;
-        if (seeker.seekForward(element)) {
+        if (seeker.seekBinary(element)) {
             return seeker.get().text;
         } else {
             return "";
@@ -415,11 +490,13 @@ fn createBlockLevelUsedValues(doc: *Document, context: *BlockLayoutContext) !voi
     try doc.blocks.background1.resize(doc.allocator, num_created_boxes);
     try doc.blocks.background2.resize(doc.allocator, num_created_boxes);
     for (context.used_id_to_element_index.items) |element, used_id| {
-        if (element != reserved_box_id) {
-            try blockBoxSolveOtherProperties(doc, context.inputs, element, @intCast(UsedId, used_id));
-        } else {
-            blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, used_id));
-        }
+        _ = element;
+        blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, used_id));
+        // if (element != reserved_box_id) {
+        //     try blockBoxSolveOtherProperties(doc, context.inputs, element, @intCast(UsedId, used_id));
+        // } else {
+        //     blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, used_id));
+        // }
     }
 }
 
@@ -459,37 +536,39 @@ fn @"CSS2.2Section9.7Table"(display: zss.value.Display) zss.value.Display {
 }
 
 fn processElement(doc: *Document, context: *BlockLayoutContext) !void {
-    context.inputs.this_element = undefined;
     const layout_mode = context.layout_mode.items[context.layout_mode.items.len - 1];
     switch (layout_mode) {
         .Flow => {
             const interval = &context.intervals.items[context.intervals.items.len - 1];
-            context.inputs.this_element.all = context.inputs.getAll(interval.begin);
-
             if (interval.begin != interval.end) {
-                const specified = context.inputs.getSpecifiedValue(.display_position_float, interval.begin);
-                var display: zss.value.Display = undefined;
-                var float: zss.value.Float = specified.float;
+                context.inputs.setElement(interval.begin);
+                const specified = context.inputs.getSpecifiedValue(.display_position_float);
+                var computed: ValueTree.DisplayPositionFloat = .{
+                    .display = undefined,
+                    .position = specified.position,
+                    .float = specified.float,
+                };
                 if (specified.display == .none) {
-                    display = .none;
+                    computed.display = .none;
                 } else if (specified.position == .absolute or specified.position == .fixed) {
-                    display = @"CSS2.2Section9.7Table"(specified.display);
-                    float = .none;
+                    computed.display = @"CSS2.2Section9.7Table"(specified.display);
+                    computed.float = .none;
                 } else if (specified.float != .none) {
-                    display = @"CSS2.2Section9.7Table"(specified.display);
+                    computed.display = @"CSS2.2Section9.7Table"(specified.display);
                 } else if (interval.begin == root_box_id) {
                     // TODO: There should be a slightly different version of this function for the root element. (See rule 4 of secion 9.7)
-                    display = @"CSS2.2Section9.7Table"(specified.display);
+                    computed.display = @"CSS2.2Section9.7Table"(specified.display);
                 } else {
-                    display = specified.display;
+                    computed.display = specified.display;
                 }
-                context.inputs.this_element.position = specified.position;
+                context.inputs.setComputedValue(.display_position_float, computed);
 
-                switch (display) {
+                switch (computed.display) {
                     .block => return processFlowBlock(doc, context, interval),
                     .inline_, .inline_block, .text => {
-                        const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
-                        return processInlineContainer(doc, context, interval, containing_block_logical_width, .Normal);
+                        @panic("TODO Inline layout");
+                        //const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
+                        //return processInlineContainer(doc, context, interval, containing_block_logical_width, .Normal);
                     },
                     .none => return skipElement(context, interval),
                     .initial, .inherit, .unset => unreachable,
@@ -522,15 +601,15 @@ fn processElement(doc: *Document, context: *BlockLayoutContext) !void {
         //                popShrinkToFit2ndPassBlock(doc, context);
         //            }
         //        },
-        .InlineContainer => {
-            const container = context.inline_container.items[context.inline_container.items.len - 1];
+        //.InlineContainer => {
+        //    const container = context.inline_container.items[context.inline_container.items.len - 1];
 
-            if (container.next_inline_block < container.inline_blocks.len) {
-                return processInlineBlock(doc, context, container);
-            }
+        //    if (container.next_inline_block < container.inline_blocks.len) {
+        //        return processInlineBlock(doc, context, container);
+        //    }
 
-            try popInlineContainer(doc, context);
-        },
+        //    try popInlineContainer(doc, context);
+        //},
         else => @panic("TODO: Other layout modes."),
     }
 }
@@ -557,10 +636,10 @@ fn processFlowBlock(doc: *Document, context: *BlockLayoutContext, interval: *Int
     block.structure.* = undefined;
     block.properties.* = .{};
 
-    const logical_width = try flowBlockSolveInlineSizes(context, element, block.box_offsets, block.borders, block.margins);
-    const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, element, block.box_offsets, block.borders, block.margins);
+    const logical_width = try flowBlockSolveInlineSizes(context, block.box_offsets, block.borders, block.margins);
+    const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, block.box_offsets, block.borders, block.margins);
 
-    const position = context.inputs.this_element.position;
+    const position = context.inputs.this_element.computed.display_position_float.position;
     const stacking_context_id = switch (position) {
         .static => null,
         .relative => blk: {
@@ -572,8 +651,10 @@ fn processFlowBlock(doc: *Document, context: *BlockLayoutContext, interval: *Int
 
             context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1] += 1;
             try context.relative_positioned_descendants_ids.append(context.inputs.allocator, block.used_id);
-            const specified_z_index = context.inputs.getSpecifiedValue(.z_index, element).z_index;
-            switch (specified_z_index) {
+
+            const specified_z_index = context.inputs.getSpecifiedValue(.z_index);
+            context.inputs.setComputedValue(.z_index, specified_z_index);
+            switch (specified_z_index.z_index) {
                 .integer => |z_index| break :blk try createStackingContext(doc, context, block.used_id, z_index),
                 .auto => {
                     _ = try createStackingContext(doc, context, block.used_id, 0);
@@ -599,6 +680,8 @@ fn pushFlowLayout(
     logical_heights: UsedLogicalHeights,
     stacking_context_id: ?StackingContextId,
 ) !void {
+    try context.inputs.pushElement();
+
     // The allocations here must have corresponding deallocations in popFlowBlock.
     try context.layout_mode.append(context.inputs.allocator, .Flow);
     try context.intervals.append(context.inputs.allocator, interval);
@@ -644,6 +727,8 @@ fn popFlowBlock(doc: *Document, context: *BlockLayoutContext) void {
         },
     }
 
+    context.inputs.popElement();
+
     // The deallocations here must correspond to allocations in pushFlowLayout.
     _ = context.layout_mode.pop();
     _ = context.intervals.pop();
@@ -663,96 +748,195 @@ fn popFlowBlock(doc: *Document, context: *BlockLayoutContext) void {
 /// This is an implementation of CSS2§10.2, CSS2§10.3.3, and CSS2§10.4.
 fn flowBlockSolveInlineSizes(
     context: *BlockLayoutContext,
-    element: ElementIndex,
     box_offsets: *used_values.BoxOffsets,
     borders: *used_values.Borders,
     margins: *used_values.Margins,
 ) !ZssUnit {
-    // TODO: Also use the logical properties ('inline-size', 'border-inline-start', etc.) to determine lengths.
-    // TODO: Any relative units must be converted to absolute units to form the computed value.
-    const specified = .{
-        .widths = context.inputs.getSpecifiedValue(.widths, element),
-        .horizontal_sizes = context.inputs.getSpecifiedValue(.horizontal_sizes, element),
-    };
     const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
     assert(containing_block_logical_width >= 0);
 
-    const border_start = switch (specified.horizontal_sizes.border_start) {
-        .px => |value| try positiveLength(.px, value),
-        .thin => borderWidth(.thin),
-        .medium => borderWidth(.medium),
-        .thick => borderWidth(.thick),
-        .initial, .inherit, .unset => unreachable,
-    };
-    const border_end = switch (specified.horizontal_sizes.border_end) {
-        .px => |value| try positiveLength(.px, value),
-        .thin => borderWidth(.thin),
-        .medium => borderWidth(.medium),
-        .thick => borderWidth(.thick),
-        .initial, .inherit, .unset => unreachable,
-    };
-    const padding_start = switch (specified.horizontal_sizes.padding_start) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
-        .initial, .inherit, .unset => unreachable,
-    };
-    const padding_end = switch (specified.horizontal_sizes.padding_end) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
-        .initial, .inherit, .unset => unreachable,
+    // TODO: Also use the logical properties ('inline-size', 'border-inline-start', etc.) to determine lengths.
+    // TODO: Any relative units must be converted to absolute units to form the computed value.
+    const specified = .{
+        .widths = context.inputs.getSpecifiedValue(.widths),
+        .horizontal_sizes = context.inputs.getSpecifiedValue(.horizontal_sizes),
     };
 
-    const min_size = switch (specified.widths.min_size) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
+    var computed: struct {
+        widths: ValueTree.Sizes = undefined,
+        horizontal_sizes: ValueTree.PaddingBorderMargin = undefined,
+    } = .{};
+
+    var used: struct {
+        border_start: ZssUnit = undefined,
+        border_end: ZssUnit = undefined,
+        padding_start: ZssUnit = undefined,
+        padding_end: ZssUnit = undefined,
+        margin_start: ZssUnit = undefined,
+        margin_end: ZssUnit = undefined,
+        size: ZssUnit = undefined,
+        min_size: ZssUnit = undefined,
+        max_size: ZssUnit = undefined,
+    } = .{};
+
+    // TODO: Border widths are '0' if the value of 'border-style' is 'none' or 'hidden'
+    switch (specified.horizontal_sizes.border_start) {
+        .px => |value| {
+            computed.horizontal_sizes.border_start = .{ .px = value };
+            used.border_start = try positiveLength(.px, value);
+        },
+        .thin => {
+            const width = borderWidthPx(.thin);
+            computed.horizontal_sizes.border_start = .{ .px = width };
+            used.border_start = length(.px, width);
+        },
+        .medium => {
+            const width = borderWidthPx(.medium);
+            computed.horizontal_sizes.border_start = .{ .px = width };
+            used.border_start = length(.px, width);
+        },
+        .thick => {
+            const width = borderWidthPx(.thick);
+            computed.horizontal_sizes.border_start = .{ .px = width };
+            used.border_start = length(.px, width);
+        },
         .initial, .inherit, .unset => unreachable,
-    };
-    const max_size = switch (specified.widths.max_size) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
-        .none => std.math.maxInt(ZssUnit),
+    }
+    switch (specified.horizontal_sizes.border_end) {
+        .px => |value| {
+            computed.horizontal_sizes.border_end = .{ .px = value };
+            used.border_end = try positiveLength(.px, value);
+        },
+        .thin => {
+            const width = borderWidthPx(.thin);
+            computed.horizontal_sizes.border_end = .{ .px = width };
+            used.border_end = length(.px, width);
+        },
+        .medium => {
+            const width = borderWidthPx(.medium);
+            computed.horizontal_sizes.border_end = .{ .px = width };
+            used.border_end = length(.px, width);
+        },
+        .thick => {
+            const width = borderWidthPx(.thick);
+            computed.horizontal_sizes.border_end = .{ .px = width };
+            used.border_end = length(.px, width);
+        },
         .initial, .inherit, .unset => unreachable,
-    };
+    }
+    switch (specified.horizontal_sizes.padding_start) {
+        .px => |value| {
+            computed.horizontal_sizes.padding_start = .{ .px = value };
+            used.padding_start = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.horizontal_sizes.padding_start = .{ .percentage = value };
+            used.padding_start = try positivePercentage(value, containing_block_logical_width);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.horizontal_sizes.padding_end) {
+        .px => |value| {
+            computed.horizontal_sizes.padding_end = .{ .px = value };
+            used.padding_end = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.horizontal_sizes.padding_end = .{ .percentage = value };
+            used.padding_end = try positivePercentage(value, containing_block_logical_width);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+
+    switch (specified.widths.min_size) {
+        .px => |value| {
+            computed.widths.min_size = .{ .px = value };
+            used.min_size = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.widths.min_size = .{ .percentage = value };
+            used.min_size = try positivePercentage(value, containing_block_logical_width);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.widths.max_size) {
+        .px => |value| {
+            computed.widths.max_size = .{ .px = value };
+            used.max_size = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.widths.max_size = .{ .percentage = value };
+            used.max_size = try positivePercentage(value, containing_block_logical_width);
+        },
+        .none => {
+            computed.widths.max_size = .none;
+            used.max_size = std.math.maxInt(ZssUnit);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
 
     var auto_bitfield: u3 = 0;
     const size_bit = 4;
     const margin_start_bit = 2;
     const margin_end_bit = 1;
 
-    var size = switch (specified.widths.size) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
-        .auto => blk: {
+    switch (specified.widths.size) {
+        .px => |value| {
+            computed.widths.size = .{ .px = value };
+            used.size = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.widths.size = .{ .percentage = value };
+            used.size = try positivePercentage(value, containing_block_logical_width);
+        },
+        .auto => {
+            computed.widths.size = .auto;
             auto_bitfield |= size_bit;
-            break :blk 0;
+            used.size = 0;
         },
         .initial, .inherit, .unset => unreachable,
-    };
-    var margin_start = switch (specified.horizontal_sizes.margin_start) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
-        .auto => blk: {
+    }
+    switch (specified.horizontal_sizes.margin_start) {
+        .px => |value| {
+            computed.horizontal_sizes.margin_start = .{ .px = value };
+            used.margin_start = length(.px, value);
+        },
+        .percentage => |value| {
+            computed.horizontal_sizes.margin_start = .{ .percentage = value };
+            used.margin_start = percentage(value, containing_block_logical_width);
+        },
+        .auto => {
+            computed.horizontal_sizes.margin_start = .auto;
             auto_bitfield |= margin_start_bit;
-            break :blk 0;
+            used.margin_start = 0;
         },
         .initial, .inherit, .unset => unreachable,
-    };
-    var margin_end = switch (specified.horizontal_sizes.margin_end) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
-        .auto => blk: {
+    }
+    switch (specified.horizontal_sizes.margin_end) {
+        .px => |value| {
+            computed.horizontal_sizes.margin_end = .{ .px = value };
+            used.margin_end = length(.px, value);
+        },
+        .percentage => |value| {
+            computed.horizontal_sizes.margin_end = .{ .percentage = value };
+            used.margin_end = percentage(value, containing_block_logical_width);
+        },
+        .auto => {
+            computed.horizontal_sizes.margin_end = .auto;
             auto_bitfield |= margin_end_bit;
-            break :blk 0;
+            used.margin_end = 0;
         },
         .initial, .inherit, .unset => unreachable,
-    };
+    }
 
-    const content_margin_space = containing_block_logical_width - (border_start + border_end + padding_start + padding_end);
+    context.inputs.setComputedValue(.widths, computed.widths);
+    context.inputs.setComputedValue(.horizontal_sizes, computed.horizontal_sizes);
+
+    const content_margin_space = containing_block_logical_width - (used.border_start + used.border_end + used.padding_start + used.padding_end);
     if (auto_bitfield == 0) {
         // None of the values were auto, so one of the margins must be set according to the other values.
         // TODO the margin that gets set is determined by the 'direction' property
-        size = clampSize(size, min_size, max_size);
-        margin_end = content_margin_space - size - margin_start;
+        used.size = clampSize(used.size, used.min_size, used.max_size);
+        used.margin_end = content_margin_space - used.size - used.margin_start;
     } else if (auto_bitfield & size_bit == 0) {
         // 'inline-size' is not auto, but at least one of 'margin-inline-start' and 'margin-inline-end' is.
         // If there is only one "auto", then that value gets the remaining margin space.
@@ -760,131 +944,236 @@ fn flowBlockSolveInlineSizes(
         const start = auto_bitfield & margin_start_bit;
         const end = auto_bitfield & margin_end_bit;
         const shr_amount = @boolToInt(start | end == margin_start_bit | margin_end_bit);
-        size = clampSize(size, min_size, max_size);
-        const leftover_margin = std.math.max(0, content_margin_space - (size + margin_start + margin_end));
+        used.size = clampSize(used.size, used.min_size, used.max_size);
+        const leftover_margin = std.math.max(0, content_margin_space - (used.size + used.margin_start + used.margin_end));
         // TODO the margin that gets the extra 1 unit shall be determined by the 'direction' property
-        if (start != 0) margin_start = leftover_margin >> shr_amount;
-        if (end != 0) margin_end = (leftover_margin >> shr_amount) + @mod(leftover_margin, 2);
+        if (start != 0) used.margin_start = leftover_margin >> shr_amount;
+        if (end != 0) used.margin_end = (leftover_margin >> shr_amount) + @mod(leftover_margin, 2);
     } else {
         // 'inline-size' is auto, so it is set according to the other values.
         // The margin values don't need to change.
-        size = clampSize(content_margin_space - margin_start - margin_end, min_size, max_size);
+        used.size = clampSize(content_margin_space - used.margin_start - used.margin_end, used.min_size, used.max_size);
     }
 
-    box_offsets.border_start.x = margin_start;
-    box_offsets.content_start.x = margin_start + border_start + padding_start;
-    box_offsets.content_end.x = box_offsets.content_start.x + size;
-    box_offsets.border_end.x = box_offsets.content_end.x + padding_end + border_end;
+    box_offsets.border_start.x = used.margin_start;
+    box_offsets.content_start.x = used.margin_start + used.border_start + used.padding_start;
+    box_offsets.content_end.x = box_offsets.content_start.x + used.size;
+    box_offsets.border_end.x = box_offsets.content_end.x + used.padding_end + used.border_end;
 
-    borders.inline_start = border_start;
-    borders.inline_end = border_end;
+    borders.inline_start = used.border_start;
+    borders.inline_end = used.border_end;
 
-    margins.inline_start = margin_start;
-    margins.inline_end = margin_end;
+    margins.inline_start = used.margin_start;
+    margins.inline_end = used.margin_end;
 
-    return size;
+    return used.size;
 }
 
 /// This is an implementation of CSS2§10.5 and CSS2§10.6.3.
 fn flowBlockSolveBlockSizesPart1(
     context: *BlockLayoutContext,
-    element: ElementIndex,
     box_offsets: *used_values.BoxOffsets,
     borders: *used_values.Borders,
     margins: *used_values.Margins,
 ) !UsedLogicalHeights {
-    // TODO: Also use the logical properties ('block-size', 'border-block-end', etc.) to determine lengths.
-    // TODO: Any relative units must be converted to absolute units to form the computed value.
-    const specified = .{
-        .heights = context.inputs.getSpecifiedValue(.heights, element),
-        .vertical_sizes = context.inputs.getSpecifiedValue(.vertical_sizes, element),
-    };
     const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
     const containing_block_logical_height = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1].height;
     assert(containing_block_logical_width >= 0);
     if (containing_block_logical_height) |h| assert(h >= 0);
 
-    const border_start = switch (specified.vertical_sizes.border_start) {
-        .px => |value| try positiveLength(.px, value),
-        .thin => borderWidth(.thin),
-        .medium => borderWidth(.medium),
-        .thick => borderWidth(.thick),
-        .initial, .inherit, .unset => unreachable,
-    };
-    const border_end = switch (specified.vertical_sizes.border_end) {
-        .px => |value| try positiveLength(.px, value),
-        .thin => borderWidth(.thin),
-        .medium => borderWidth(.medium),
-        .thick => borderWidth(.thick),
-        .initial, .inherit, .unset => unreachable,
-    };
-    const padding_start = switch (specified.vertical_sizes.padding_start) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
-        .initial, .inherit, .unset => unreachable,
-    };
-    const padding_end = switch (specified.vertical_sizes.padding_end) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
-        .initial, .inherit, .unset => unreachable,
-    };
-    const margin_start = switch (specified.vertical_sizes.margin_start) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
-        .auto => 0,
-        .initial, .inherit, .unset => unreachable,
-    };
-    const margin_end = switch (specified.vertical_sizes.margin_end) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
-        .auto => 0,
-        .initial, .inherit, .unset => unreachable,
+    // TODO: Also use the logical properties ('block-size', 'border-block-end', etc.) to determine lengths.
+    // TODO: Any relative units must be converted to absolute units to form the computed value.
+    const specified = .{
+        .heights = context.inputs.getSpecifiedValue(.heights),
+        .vertical_sizes = context.inputs.getSpecifiedValue(.vertical_sizes),
     };
 
-    const min_size = switch (specified.heights.min_size) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| if (containing_block_logical_height) |s|
-            try positivePercentage(value, s)
-        else
-            0,
+    var computed: struct {
+        heights: ValueTree.Sizes = undefined,
+        vertical_sizes: ValueTree.PaddingBorderMargin = undefined,
+    } = .{};
+
+    var used: struct {
+        border_start: ZssUnit = undefined,
+        border_end: ZssUnit = undefined,
+        padding_start: ZssUnit = undefined,
+        padding_end: ZssUnit = undefined,
+        margin_start: ZssUnit = undefined,
+        margin_end: ZssUnit = undefined,
+        size: ?ZssUnit = undefined,
+        min_size: ZssUnit = undefined,
+        max_size: ZssUnit = undefined,
+    } = .{};
+
+    // TODO: Border widths are '0' if the value of 'border-style' is 'none' or 'hidden'
+    switch (specified.vertical_sizes.border_start) {
+        .px => |value| {
+            computed.vertical_sizes.border_start = .{ .px = value };
+            used.border_start = try positiveLength(.px, value);
+        },
+        .thin => {
+            const width = borderWidthPx(.thin);
+            computed.vertical_sizes.border_start = .{ .px = width };
+            used.border_start = length(.px, width);
+        },
+        .medium => {
+            const width = borderWidthPx(.medium);
+            computed.vertical_sizes.border_start = .{ .px = width };
+            used.border_start = length(.px, width);
+        },
+        .thick => {
+            const width = borderWidthPx(.thick);
+            computed.vertical_sizes.border_start = .{ .px = width };
+            used.border_start = length(.px, width);
+        },
         .initial, .inherit, .unset => unreachable,
-    };
-    const max_size = switch (specified.heights.max_size) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| if (containing_block_logical_height) |s|
-            try positivePercentage(value, s)
-        else
-            std.math.maxInt(ZssUnit),
-        .none => std.math.maxInt(ZssUnit),
+    }
+    switch (specified.vertical_sizes.border_end) {
+        .px => |value| {
+            computed.vertical_sizes.border_end = .{ .px = value };
+            used.border_end = try positiveLength(.px, value);
+        },
+        .thin => {
+            const width = borderWidthPx(.thin);
+            computed.vertical_sizes.border_end = .{ .px = width };
+            used.border_end = length(.px, width);
+        },
+        .medium => {
+            const width = borderWidthPx(.medium);
+            computed.vertical_sizes.border_end = .{ .px = width };
+            used.border_end = length(.px, width);
+        },
+        .thick => {
+            const width = borderWidthPx(.thick);
+            computed.vertical_sizes.border_end = .{ .px = width };
+            used.border_end = length(.px, width);
+        },
         .initial, .inherit, .unset => unreachable,
-    };
-    const size = switch (specified.heights.size) {
-        .px => |value| clampSize(try positiveLength(.px, value), min_size, max_size),
-        .percentage => |value| if (containing_block_logical_height) |h|
-            clampSize(try positivePercentage(value, h), min_size, max_size)
-        else
-            null,
-        .auto => null,
+    }
+    switch (specified.vertical_sizes.padding_start) {
+        .px => |value| {
+            computed.vertical_sizes.padding_start = .{ .px = value };
+            used.padding_start = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.vertical_sizes.padding_start = .{ .percentage = value };
+            used.padding_start = try positivePercentage(value, containing_block_logical_width);
+        },
         .initial, .inherit, .unset => unreachable,
-    };
+    }
+    switch (specified.vertical_sizes.padding_end) {
+        .px => |value| {
+            computed.vertical_sizes.padding_end = .{ .px = value };
+            used.padding_end = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.vertical_sizes.padding_end = .{ .percentage = value };
+            used.padding_end = try positivePercentage(value, containing_block_logical_width);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.vertical_sizes.margin_start) {
+        .px => |value| {
+            computed.vertical_sizes.margin_start = .{ .px = value };
+            used.margin_start = length(.px, value);
+        },
+        .percentage => |value| {
+            computed.vertical_sizes.margin_start = .{ .percentage = value };
+            used.margin_start = percentage(value, containing_block_logical_width);
+        },
+        .auto => {
+            computed.vertical_sizes.margin_start = .auto;
+            used.margin_start = 0;
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.vertical_sizes.margin_end) {
+        .px => |value| {
+            computed.vertical_sizes.margin_end = .{ .px = value };
+            used.margin_end = length(.px, value);
+        },
+        .percentage => |value| {
+            computed.vertical_sizes.margin_end = .{ .percentage = value };
+            used.margin_end = percentage(value, containing_block_logical_width);
+        },
+        .auto => {
+            computed.vertical_sizes.margin_end = .auto;
+            used.margin_end = 0;
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+
+    switch (specified.heights.min_size) {
+        .px => |value| {
+            computed.heights.min_size = .{ .px = value };
+            used.min_size = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.heights.min_size = .{ .percentage = value };
+            used.min_size = if (containing_block_logical_height) |s|
+                try positivePercentage(value, s)
+            else
+                0;
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.heights.max_size) {
+        .px => |value| {
+            computed.heights.max_size = .{ .px = value };
+            used.max_size = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.heights.max_size = .{ .percentage = value };
+            used.max_size = if (containing_block_logical_height) |s|
+                try positivePercentage(value, s)
+            else
+                std.math.maxInt(ZssUnit);
+        },
+        .none => {
+            computed.heights.max_size = .none;
+            used.max_size = std.math.maxInt(ZssUnit);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.heights.size) {
+        .px => |value| {
+            computed.heights.size = .{ .px = value };
+            used.size = clampSize(try positiveLength(.px, value), used.min_size, used.max_size);
+        },
+        .percentage => |value| {
+            computed.heights.size = .{ .percentage = value };
+            used.size = if (containing_block_logical_height) |h|
+                clampSize(try positivePercentage(value, h), used.min_size, used.max_size)
+            else
+                null;
+        },
+        .auto => {
+            computed.heights.size = .auto;
+            used.size = null;
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+
+    context.inputs.setComputedValue(.heights, computed.heights);
+    context.inputs.setComputedValue(.vertical_sizes, computed.vertical_sizes);
 
     // NOTE These are not the actual offsets, just some values that can be
     // determined without knowing 'size'. The offsets are properly filled in
     // in 'flowBlockSolveSizesPart2'.
-    box_offsets.border_start.y = margin_start;
-    box_offsets.content_start.y = margin_start + border_start + padding_start;
-    box_offsets.border_end.y = padding_end + border_end;
+    box_offsets.border_start.y = used.margin_start;
+    box_offsets.content_start.y = used.margin_start + used.border_start + used.padding_start;
+    box_offsets.border_end.y = used.padding_end + used.border_end;
 
-    borders.block_start = border_start;
-    borders.block_end = border_end;
+    borders.block_start = used.border_start;
+    borders.block_end = used.border_end;
 
-    margins.block_start = margin_start;
-    margins.block_end = margin_end;
+    margins.block_start = used.margin_start;
+    margins.block_end = used.margin_end;
 
     return UsedLogicalHeights{
-        .height = size,
-        .min_height = min_size,
-        .max_height = max_size,
+        .height = used.size,
+        .min_height = used.min_size,
+        .max_height = used.max_size,
     };
 }
 
@@ -1584,7 +1873,7 @@ fn blockBoxApplyRelativePositioningToChildren(doc: *Document, context: *BlockLay
         // TODO: Also use the logical properties ('inset-inline-start', 'inset-block-end', etc.) to determine lengths.
         // TODO: Any relative units must be converted to absolute units to form the computed value.
         const specified = .{
-            .insets = context.inputs.getSpecifiedValue(.insets, element),
+            .insets = context.inputs.getSpecifiedValue(.insets),
         };
         const box_offsets = &doc.blocks.box_offsets.items[used_id];
 
