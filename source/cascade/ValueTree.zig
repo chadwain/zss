@@ -81,7 +81,7 @@ pub const Values = struct {
     z_index: SparseSkipTree(Index, ZIndex) = .{},
     insets: SparseSkipTree(Index, Insets) = .{},
 
-    color: SparseSkipTree(Index, struct { color: value.Color = value.Color.transparent }) = .{},
+    color: SparseSkipTree(Index, Color) = .{},
     border_colors: SparseSkipTree(Index, BorderColors) = .{},
     background1: SparseSkipTree(Index, Background1) = .{},
     background2: SparseSkipTree(Index, Background2) = .{},
@@ -133,6 +133,10 @@ pub const Insets = struct {
     right: value.Inset = .auto,
     bottom: value.Inset = .auto,
     left: value.Inset = .auto,
+};
+
+pub const Color = struct {
+    color: value.Color = value.Color.transparent,
 };
 
 pub const BorderColors = struct {

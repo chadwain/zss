@@ -49,20 +49,43 @@ pub fn doLayout(
     const size = element_tree.size();
     // TODO: Decide if `size == 0` should be an error or not.
     if (size == 0 or size > maximum_box_id) return error.Overflow;
+
     var inputs = Inputs{
         .element_tree_skips = element_tree.skips(),
         .seekers = Seekers.init(cascaded_value_tree),
         .font = cascaded_value_tree.font,
+        .stage = .{ .box_gen = .{
+            .seekers = BoxGenSeekers.init(cascaded_value_tree),
+        } },
+        .current_stage = .box_gen,
         .allocator = allocator,
         .viewport_size = viewport_size,
-        .element_index_to_box = try allocator.alloc(BoxType, element_tree.size()),
+        .element_index_to_box = try allocator.alloc(BoxType, size),
     };
     defer inputs.deinit();
+
+    defer switch (inputs.current_stage) {
+        .box_gen => inputs.deinitStage(.box_gen),
+        .cosmetic => inputs.deinitStage(.cosmetic),
+    };
+
     var context = BlockLayoutContext{ .inputs = &inputs };
     defer context.deinit();
     var doc = Document{ .allocator = allocator };
     errdefer doc.deinit();
-    try createBlockLevelUsedValues(&doc, &context);
+
+    try doBoxGeneration(&doc, &context);
+    inputs.assertEmptyStage(.box_gen);
+    inputs.deinitStage(.box_gen);
+
+    inputs.current_stage = .cosmetic;
+    inputs.stage = .{ .cosmetic = .{
+        .seekers = CosmeticSeekers.init(cascaded_value_tree),
+    } };
+
+    try doCosmeticLayout(&doc, &inputs);
+    inputs.assertEmptyStage(.cosmetic);
+
     return doc;
 }
 
@@ -186,17 +209,6 @@ const Seekers = struct {
 
     all: SSTSeeker(fields[@enumToInt(Enum.all)].field_type),
     text: SSTSeeker(fields[@enumToInt(Enum.text)].field_type),
-    box_style: SSTSeeker(fields[@enumToInt(Enum.box_style)].field_type),
-    widths: SSTSeeker(fields[@enumToInt(Enum.widths)].field_type),
-    horizontal_sizes: SSTSeeker(fields[@enumToInt(Enum.horizontal_sizes)].field_type),
-    heights: SSTSeeker(fields[@enumToInt(Enum.heights)].field_type),
-    vertical_sizes: SSTSeeker(fields[@enumToInt(Enum.vertical_sizes)].field_type),
-    z_index: SSTSeeker(fields[@enumToInt(Enum.z_index)].field_type),
-    insets: SSTSeeker(fields[@enumToInt(Enum.insets)].field_type),
-    color: SSTSeeker(fields[@enumToInt(Enum.color)].field_type),
-    border_colors: SSTSeeker(fields[@enumToInt(Enum.border_colors)].field_type),
-    background1: SSTSeeker(fields[@enumToInt(Enum.background1)].field_type),
-    background2: SSTSeeker(fields[@enumToInt(Enum.background2)].field_type),
 
     fn init(cascaded_value_tree: *const ValueTree) Seekers {
         var result: Seekers = undefined;
@@ -207,7 +219,36 @@ const Seekers = struct {
     }
 };
 
-const ComputedValueStack = struct {
+const BoxGenSeekers = struct {
+    const fields = std.meta.fields(ValueTree.Values);
+    const Enum = std.meta.FieldEnum(ValueTree.Values);
+
+    box_style: SSTSeeker(fields[@enumToInt(Enum.box_style)].field_type),
+    widths: SSTSeeker(fields[@enumToInt(Enum.widths)].field_type),
+    horizontal_sizes: SSTSeeker(fields[@enumToInt(Enum.horizontal_sizes)].field_type),
+    heights: SSTSeeker(fields[@enumToInt(Enum.heights)].field_type),
+    vertical_sizes: SSTSeeker(fields[@enumToInt(Enum.vertical_sizes)].field_type),
+    z_index: SSTSeeker(fields[@enumToInt(Enum.z_index)].field_type),
+
+    fn init(cascaded_value_tree: *const ValueTree) BoxGenSeekers {
+        var result: BoxGenSeekers = undefined;
+        inline for (std.meta.fields(BoxGenSeekers)) |seeker| {
+            @field(result, seeker.name) = sstSeeker(@field(cascaded_value_tree.values, seeker.name));
+        }
+        return result;
+    }
+};
+
+const BoxGenCurrentValues = struct {
+    box_style: ValueTree.BoxStyle,
+    widths: ValueTree.Sizes,
+    horizontal_sizes: ValueTree.PaddingBorderMargin,
+    heights: ValueTree.Sizes,
+    vertical_sizes: ValueTree.PaddingBorderMargin,
+    z_index: ValueTree.ZIndex,
+};
+
+const BoxGenComputedValueStack = struct {
     box_style: ArrayListUnmanaged(ValueTree.BoxStyle) = .{},
     widths: ArrayListUnmanaged(ValueTree.Sizes) = .{},
     horizontal_sizes: ArrayListUnmanaged(ValueTree.PaddingBorderMargin) = .{},
@@ -216,7 +257,7 @@ const ComputedValueStack = struct {
     z_index: ArrayListUnmanaged(ValueTree.ZIndex) = .{},
 };
 
-const ListOfComptutedValues = struct {
+const BoxGenComptutedValueFlags = struct {
     box_style: bool = false,
     widths: bool = false,
     horizontal_sizes: bool = false,
@@ -225,19 +266,48 @@ const ListOfComptutedValues = struct {
     z_index: bool = false,
 };
 
+const CosmeticSeekers = struct {
+    const fields = std.meta.fields(ValueTree.Values);
+    const Enum = std.meta.FieldEnum(ValueTree.Values);
+
+    border_colors: SSTSeeker(fields[@enumToInt(Enum.border_colors)].field_type),
+    background1: SSTSeeker(fields[@enumToInt(Enum.background1)].field_type),
+    background2: SSTSeeker(fields[@enumToInt(Enum.background2)].field_type),
+    color: SSTSeeker(fields[@enumToInt(Enum.color)].field_type),
+
+    fn init(cascaded_value_tree: *const ValueTree) CosmeticSeekers {
+        var result: CosmeticSeekers = undefined;
+        inline for (std.meta.fields(CosmeticSeekers)) |seeker| {
+            @field(result, seeker.name) = sstSeeker(@field(cascaded_value_tree.values, seeker.name));
+        }
+        return result;
+    }
+};
+
+const CosmeticCurrentValues = struct {
+    border_colors: ValueTree.BorderColors,
+    background1: ValueTree.Background1,
+    background2: ValueTree.Background2,
+    color: ValueTree.Color,
+};
+
+const CosmeticComputedValueStack = struct {
+    border_colors: ArrayListUnmanaged(ValueTree.BorderColors) = .{},
+    background1: ArrayListUnmanaged(ValueTree.Background1) = .{},
+    background2: ArrayListUnmanaged(ValueTree.Background2) = .{},
+    color: ArrayListUnmanaged(ValueTree.Color) = .{},
+};
+
+const CosmeticComptutedValueFlags = struct {
+    border_colors: bool = false,
+    background1: bool = false,
+    background2: bool = false,
+    color: bool = false,
+};
+
 const ThisElement = struct {
     element: ElementIndex = undefined,
     all: ?zss.value.All = undefined,
-
-    list_of_computed_values: ListOfComptutedValues = .{},
-    computed: struct {
-        box_style: ValueTree.BoxStyle = undefined,
-        widths: ValueTree.Sizes = undefined,
-        horizontal_sizes: ValueTree.PaddingBorderMargin = undefined,
-        heights: ValueTree.Sizes = undefined,
-        vertical_sizes: ValueTree.PaddingBorderMargin = undefined,
-        z_index: ValueTree.ZIndex = undefined,
-    } = .{},
 };
 
 const BoxType = union(enum) {
@@ -249,15 +319,32 @@ const BoxType = union(enum) {
 const Inputs = struct {
     const Self = @This();
 
+    const Stage = enum { box_gen, cosmetic };
+
     element_tree_skips: []const ElementIndex,
     seekers: Seekers,
     font: ValueTree.Font,
 
-    computed_value_stack: ComputedValueStack = .{},
-    element_stack: ArrayListUnmanaged(ElementIndex) = .{},
-    list_of_computed_values_stack: MultiArrayList(ListOfComptutedValues) = .{},
-
     this_element: ThisElement = .{},
+    element_stack: ArrayListUnmanaged(ElementIndex) = .{},
+
+    stage: union {
+        box_gen: struct {
+            seekers: BoxGenSeekers,
+            current_values: BoxGenCurrentValues = undefined,
+            current_flags: BoxGenComptutedValueFlags = .{},
+            value_stack: BoxGenComputedValueStack = .{},
+            flags_stack: ArrayListUnmanaged(BoxGenComptutedValueFlags) = .{},
+        },
+        cosmetic: struct {
+            seekers: CosmeticSeekers,
+            current_values: CosmeticCurrentValues = undefined,
+            current_flags: CosmeticComptutedValueFlags = .{},
+            value_stack: CosmeticComputedValueStack = .{},
+            flags_stack: ArrayListUnmanaged(CosmeticComptutedValueFlags) = .{},
+        },
+    },
+    current_stage: Stage,
 
     allocator: Allocator,
     viewport_size: ZssSize,
@@ -267,16 +354,35 @@ const Inputs = struct {
 
     fn deinit(self: *Self) void {
         self.element_stack.deinit(self.allocator);
-        self.list_of_computed_values_stack.deinit(self.allocator);
-        inline for (std.meta.fields(ComputedValueStack)) |field_info| {
-            @field(self.computed_value_stack, field_info.name).deinit(self.allocator);
-        }
         self.allocator.free(self.element_index_to_box);
         self.anonymous_block_boxes.deinit(self.allocator);
     }
 
-    fn setElement(self: *Self, element: ElementIndex) void {
+    fn assertEmptyStage(self: *Self, comptime stage: Stage) void {
+        assert(self.current_stage == stage);
+        assert(self.element_stack.items.len == 0);
+        const current_stage = &@field(self.stage, @tagName(stage));
+        assert(current_stage.flags_stack.items.len == 0);
+        inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
+            assert(@field(current_stage.value_stack, field_info.name).items.len == 0);
+        }
+    }
+
+    fn deinitStage(self: *Self, comptime stage: Stage) void {
+        const current_stage = &@field(self.stage, @tagName(stage));
+        current_stage.flags_stack.deinit(self.allocator);
+        inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
+            @field(current_stage.value_stack, field_info.name).deinit(self.allocator);
+        }
+    }
+
+    fn setElement(self: *Self, comptime stage: Stage, element: ElementIndex) void {
         self.this_element = .{ .element = element };
+
+        assert(self.current_stage == stage);
+        const current_stage = &@field(self.stage, @tagName(stage));
+        current_stage.current_flags = .{};
+        current_stage.current_values = undefined;
 
         const all_seeker = &self.seekers.all;
         if (all_seeker.seekBinary(element)) {
@@ -286,43 +392,54 @@ const Inputs = struct {
         }
     }
 
-    fn setComputedValue(self: *Self, comptime property: ValueTree.AggregatePropertyEnum, value: property.Value()) void {
-        const flag = &@field(self.this_element.list_of_computed_values, @tagName(property));
+    fn setComputedValue(self: *Self, comptime stage: Stage, comptime property: ValueTree.AggregatePropertyEnum, value: property.Value()) void {
+        assert(self.current_stage == stage);
+        const current_stage = &@field(self.stage, @tagName(stage));
+        const flag = &@field(current_stage.current_flags, @tagName(property));
         assert(!flag.*);
         flag.* = true;
-        @field(self.this_element.computed, @tagName(property)) = value;
+        @field(current_stage.current_values, @tagName(property)) = value;
     }
 
-    fn pushElement(self: *Self) !void {
+    fn pushElement(self: *Self, comptime stage: Stage) !void {
+        assert(self.current_stage == stage);
         try self.element_stack.append(self.allocator, self.this_element.element);
-        try self.list_of_computed_values_stack.append(self.allocator, self.this_element.list_of_computed_values);
-        inline for (std.meta.fields(ListOfComptutedValues)) |field_info| {
-            if (@field(self.this_element.list_of_computed_values, field_info.name)) {
-                const value = @field(self.this_element.computed, field_info.name);
-                try @field(self.computed_value_stack, field_info.name).append(self.allocator, value);
+
+        const current_stage = &@field(self.stage, @tagName(stage));
+        const values = current_stage.current_values;
+        const flags = current_stage.current_flags;
+
+        try current_stage.flags_stack.append(self.allocator, flags);
+        inline for (std.meta.fields(@TypeOf(flags))) |field_info| {
+            if (@field(flags, field_info.name)) {
+                const value = @field(values, field_info.name);
+                try @field(current_stage.value_stack, field_info.name).append(self.allocator, value);
             }
         }
     }
 
-    fn popElement(self: *Self) void {
+    fn popElement(self: *Self, comptime stage: Stage) void {
+        assert(self.current_stage == stage);
         self.element_stack.shrinkRetainingCapacity(self.element_stack.items.len - 1);
-        const list = self.list_of_computed_values_stack.get(self.list_of_computed_values_stack.len - 1);
-        self.list_of_computed_values_stack.shrinkRetainingCapacity(self.list_of_computed_values_stack.len - 1);
 
-        inline for (std.meta.fields(ListOfComptutedValues)) |field_info| {
-            if (@field(list, field_info.name)) {
-                _ = @field(self.computed_value_stack, field_info.name).pop();
+        const current_stage = &@field(self.stage, @tagName(stage));
+        const flags = current_stage.flags_stack.pop();
+
+        inline for (std.meta.fields(@TypeOf(flags))) |field_info| {
+            if (@field(flags, field_info.name)) {
+                _ = @field(current_stage.value_stack, field_info.name).pop();
             }
         }
     }
 
-    fn getSpecifiedValue(self: *Self, comptime property: ValueTree.AggregatePropertyEnum) property.Value() {
+    fn getSpecifiedValue(self: *Self, comptime stage: Stage, comptime property: ValueTree.AggregatePropertyEnum) property.Value() {
+        assert(self.current_stage == stage);
         const Value = property.Value();
         const fields = std.meta.fields(Value);
         const inheritance_type = comptime property.inheritanceType();
 
         var result: Value = undefined;
-        switch (getCascadedValue(self, property)) {
+        switch (getCascadedValue(self, stage, property)) {
             .value => |value| result = value,
             // TODO: Just copy the inherited value and return
             .all_inherit => result = comptime blk: {
@@ -354,6 +471,7 @@ const Inputs = struct {
 
     fn getCascadedValue(
         self: *Self,
+        comptime stage: Stage,
         comptime property: ValueTree.AggregatePropertyEnum,
     ) union(enum) {
         value: property.Value(),
@@ -370,7 +488,8 @@ const Inputs = struct {
         }
 
         // Find the value using the cascaded value tree.
-        const seeker = &@field(self.seekers, @tagName(property));
+        const seekers = &@field(self.stage, @tagName(stage)).seekers;
+        const seeker = &@field(seekers, @tagName(property));
         // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do seeking.
         if (seeker.seekBinary(self.this_element.element)) {
             const value = seeker.get();
@@ -462,7 +581,7 @@ const BlockLayoutContext = struct {
     }
 };
 
-fn createBlockLevelUsedValues(doc: *Document, context: *BlockLayoutContext) !void {
+fn doBoxGeneration(doc: *Document, context: *BlockLayoutContext) !void {
     doc.blocks.ensureTotalCapacity(doc.allocator, context.inputs.element_tree_skips[0] + 1) catch {};
 
     // Initialize the context with some data.
@@ -489,11 +608,10 @@ fn createBlockLevelUsedValues(doc: *Document, context: *BlockLayoutContext) !voi
     while (context.layout_mode.items.len > 1) {
         try processElement(doc, context);
     }
+}
 
-    // Solve for all of the cosmetic properties.
+fn doCosmeticLayout(doc: *Document, inputs: *Inputs) !void {
     const num_created_boxes = doc.blocks.structure.items[0];
-    assert(context.used_id_to_element_index.items.len == num_created_boxes);
-    assert(context.inputs.element_stack.items.len == 0);
     try doc.blocks.border_colors.resize(doc.allocator, num_created_boxes);
     try doc.blocks.background1.resize(doc.allocator, num_created_boxes);
     try doc.blocks.background2.resize(doc.allocator, num_created_boxes);
@@ -504,42 +622,41 @@ fn createBlockLevelUsedValues(doc: *Document, context: *BlockLayoutContext) !voi
     }
 
     var interval_stack = ArrayListUnmanaged(Interval){};
-    defer interval_stack.deinit(context.inputs.allocator);
-    try interval_stack.append(context.inputs.allocator, .{ .begin = root_box_id, .end = root_box_id + context.inputs.element_tree_skips[root_box_id] });
+    defer interval_stack.deinit(inputs.allocator);
+    try interval_stack.append(inputs.allocator, .{ .begin = root_box_id, .end = root_box_id + inputs.element_tree_skips[root_box_id] });
 
     while (interval_stack.items.len > 0) {
         const interval = &interval_stack.items[interval_stack.items.len - 1];
 
         if (interval.begin != interval.end) {
             const element = interval.begin;
-            const skip = context.inputs.element_tree_skips[element];
+            const skip = inputs.element_tree_skips[element];
             interval.begin += skip;
 
-            context.inputs.setElement(element);
-            const box_type = context.inputs.element_index_to_box[element];
+            inputs.setElement(.cosmetic, element);
+            const box_type = inputs.element_index_to_box[element];
             switch (box_type) {
                 .none => continue,
-                .block_box => |used_id| try blockBoxSolveOtherProperties(doc, context.inputs, used_id),
+                .block_box => |used_id| try blockBoxSolveOtherProperties(doc, inputs, used_id),
                 .inline_box => |box_spec| {
                     const inline_values = doc.inlines.items[box_spec.inline_id];
-                    inlineBoxSolveOtherProperties(inline_values, context.inputs, box_spec.used_id);
+                    inlineBoxSolveOtherProperties(inline_values, inputs, box_spec.used_id);
                 },
             }
 
             if (skip != 1) {
-                try interval_stack.append(context.inputs.allocator, .{ .begin = element + 1, .end = element + skip });
-                try context.inputs.pushElement();
+                try interval_stack.append(inputs.allocator, .{ .begin = element + 1, .end = element + skip });
+                try inputs.pushElement(.cosmetic);
             }
         } else {
             if (interval_stack.items.len > 1) {
-                context.inputs.popElement();
+                inputs.popElement(.cosmetic);
             }
             _ = interval_stack.pop();
         }
     }
-    assert(context.inputs.element_stack.items.len == 0);
 
-    for (context.inputs.anonymous_block_boxes.items) |anon_used_id| {
+    for (inputs.anonymous_block_boxes.items) |anon_used_id| {
         blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, anon_used_id));
     }
 }
@@ -577,10 +694,10 @@ fn processElement(doc: *Document, context: *BlockLayoutContext) !void {
         .Flow => {
             const interval = &context.intervals.items[context.intervals.items.len - 1];
             if (interval.begin != interval.end) {
-                context.inputs.setElement(interval.begin);
-                const specified = context.inputs.getSpecifiedValue(.box_style);
+                context.inputs.setElement(.box_gen, interval.begin);
+                const specified = context.inputs.getSpecifiedValue(.box_gen, .box_style);
                 const computed = solveBoxStyle(specified, interval.begin == root_box_id);
-                context.inputs.setComputedValue(.box_style, computed);
+                context.inputs.setComputedValue(.box_gen, .box_style, computed);
 
                 switch (computed.display) {
                     .block => return processFlowBlock(doc, context, interval),
@@ -661,7 +778,7 @@ fn processFlowBlock(doc: *Document, context: *BlockLayoutContext, interval: *Int
     const logical_width = try flowBlockSolveInlineSizes(context, block.box_offsets, block.borders, block.margins);
     const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, block.box_offsets, block.borders, block.margins);
 
-    const position = context.inputs.this_element.computed.box_style.position;
+    const position = context.inputs.stage.box_gen.current_values.box_style.position;
     const stacking_context_id = switch (position) {
         .static => null,
         .relative => blk: {
@@ -674,8 +791,8 @@ fn processFlowBlock(doc: *Document, context: *BlockLayoutContext, interval: *Int
             context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1] += 1;
             try context.relative_positioned_descendants_ids.append(context.inputs.allocator, block.used_id);
 
-            const specified_z_index = context.inputs.getSpecifiedValue(.z_index);
-            context.inputs.setComputedValue(.z_index, specified_z_index);
+            const specified_z_index = context.inputs.getSpecifiedValue(.box_gen, .z_index);
+            context.inputs.setComputedValue(.box_gen, .z_index, specified_z_index);
             switch (specified_z_index.z_index) {
                 .integer => |z_index| break :blk try createStackingContext(doc, context, block.used_id, z_index),
                 .auto => {
@@ -702,7 +819,7 @@ fn pushFlowLayout(
     logical_heights: UsedLogicalHeights,
     stacking_context_id: ?StackingContextId,
 ) !void {
-    try context.inputs.pushElement();
+    try context.inputs.pushElement(.box_gen);
 
     // The allocations here must have corresponding deallocations in popFlowBlock.
     try context.layout_mode.append(context.inputs.allocator, .Flow);
@@ -751,7 +868,7 @@ fn popFlowBlock(doc: *Document, context: *BlockLayoutContext) void {
         },
     }
 
-    context.inputs.popElement();
+    context.inputs.popElement(.box_gen);
 
     // The deallocations here must correspond to allocations in pushFlowLayout.
     _ = context.layout_mode.pop();
@@ -782,8 +899,8 @@ fn flowBlockSolveInlineSizes(
     // TODO: Also use the logical properties ('inline-size', 'border-inline-start', etc.) to determine lengths.
     // TODO: Any relative units must be converted to absolute units to form the computed value.
     const specified = .{
-        .widths = context.inputs.getSpecifiedValue(.widths),
-        .horizontal_sizes = context.inputs.getSpecifiedValue(.horizontal_sizes),
+        .widths = context.inputs.getSpecifiedValue(.box_gen, .widths),
+        .horizontal_sizes = context.inputs.getSpecifiedValue(.box_gen, .horizontal_sizes),
     };
 
     var computed: struct {
@@ -952,8 +1069,8 @@ fn flowBlockSolveInlineSizes(
         .initial, .inherit, .unset => unreachable,
     }
 
-    context.inputs.setComputedValue(.widths, computed.widths);
-    context.inputs.setComputedValue(.horizontal_sizes, computed.horizontal_sizes);
+    context.inputs.setComputedValue(.box_gen, .widths, computed.widths);
+    context.inputs.setComputedValue(.box_gen, .horizontal_sizes, computed.horizontal_sizes);
 
     const content_margin_space = containing_block_logical_width - (used.border_start + used.border_end + used.padding_start + used.padding_end);
     if (auto_bitfield == 0) {
@@ -1008,8 +1125,8 @@ fn flowBlockSolveBlockSizesPart1(
     // TODO: Also use the logical properties ('block-size', 'border-block-end', etc.) to determine lengths.
     // TODO: Any relative units must be converted to absolute units to form the computed value.
     const specified = .{
-        .heights = context.inputs.getSpecifiedValue(.heights),
-        .vertical_sizes = context.inputs.getSpecifiedValue(.vertical_sizes),
+        .heights = context.inputs.getSpecifiedValue(.box_gen, .heights),
+        .vertical_sizes = context.inputs.getSpecifiedValue(.box_gen, .vertical_sizes),
     };
 
     var computed: struct {
@@ -1178,8 +1295,8 @@ fn flowBlockSolveBlockSizesPart1(
         .initial, .inherit, .unset => unreachable,
     }
 
-    context.inputs.setComputedValue(.heights, computed.heights);
-    context.inputs.setComputedValue(.vertical_sizes, computed.vertical_sizes);
+    context.inputs.setComputedValue(.box_gen, .heights, computed.heights);
+    context.inputs.setComputedValue(.box_gen, .vertical_sizes, computed.vertical_sizes);
 
     // NOTE These are not the actual offsets, just some values that can be
     // determined without knowing 'size'. The offsets are properly filled in
@@ -1842,8 +1959,10 @@ fn inlineBlockFinishLayout(doc: *Document, context: *BlockLayoutContext, box_off
     const auto_logical_height = context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 1];
     const used_logical_heights = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1];
     const used_logical_height = inlineBlockSolveSizesPart2(box_offsets, used_logical_width, used_logical_heights, auto_logical_height);
+    _ = doc;
+    _ = used_logical_height;
 
-    blockBoxApplyRelativePositioningToChildren(doc, context, used_logical_width, used_logical_height);
+    //blockBoxApplyRelativePositioningToChildren(doc, context, used_logical_width, used_logical_height);
 }
 
 const Block = struct {
@@ -1872,10 +1991,10 @@ fn createBlock(doc: *Document, context: *BlockLayoutContext, box_id: BoxId) !Blo
 fn blockBoxSolveOtherProperties(doc: *Document, inputs: *Inputs, used_id: UsedId) !void {
     // TODO: Set the computed values for the element
     const specified = .{
-        .color = inputs.getSpecifiedValue(.color),
-        .border_colors = inputs.getSpecifiedValue(.border_colors),
-        .background1 = inputs.getSpecifiedValue(.background1),
-        .background2 = inputs.getSpecifiedValue(.background2),
+        .color = inputs.getSpecifiedValue(.cosmetic, .color),
+        .border_colors = inputs.getSpecifiedValue(.cosmetic, .border_colors),
+        .background1 = inputs.getSpecifiedValue(.cosmetic, .background1),
+        .background2 = inputs.getSpecifiedValue(.cosmetic, .background2),
     };
     const current_color = colorProperty(specified.color.color);
 
@@ -1900,9 +2019,9 @@ fn blockBoxFillOtherPropertiesWithDefaults(doc: *Document, used_id: UsedId) void
 fn inlineBoxSolveOtherProperties(values: *InlineLevelUsedValues, inputs: *Inputs, used_id: UsedId) void {
     // TODO: Set the computed values for the element
     const specified = .{
-        .color = inputs.getSpecifiedValue(.color),
-        .border_colors = inputs.getSpecifiedValue(.border_colors),
-        .background1 = inputs.getSpecifiedValue(.background1),
+        .color = inputs.getSpecifiedValue(.cosmetic, .color),
+        .border_colors = inputs.getSpecifiedValue(.cosmetic, .border_colors),
+        .background1 = inputs.getSpecifiedValue(.cosmetic, .background1),
     };
     const current_color = colorProperty(specified.color.color);
 
@@ -2071,8 +2190,8 @@ fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values:
     const skip = context.inputs.element_tree_skips[element];
     interval.begin += skip;
 
-    context.inputs.setElement(element);
-    const specified = context.inputs.getSpecifiedValue(.box_style);
+    context.inputs.setElement(.box_gen, element);
+    const specified = context.inputs.getSpecifiedValue(.box_gen, .box_style);
     const computed = solveBoxStyle(specified, element == root_box_id);
     switch (computed.display) {
         .text => {
@@ -2090,7 +2209,7 @@ fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values:
             try addBoxStart(doc, values, used_id);
 
             if (skip != 1) {
-                try context.inputs.pushElement();
+                try context.inputs.pushElement(.box_gen);
                 try context.intervals.append(context.inputs.allocator, .{ .begin = element + 1, .end = element + skip });
                 try context.used_ids.append(context.inputs.allocator, used_id);
             } else {
@@ -2124,7 +2243,7 @@ fn inlineLevelElementPop(doc: *Document, context: *InlineLayoutContext, values: 
     try addBoxEnd(doc, values, used_id);
 
     if (used_id != 0) {
-        context.inputs.popElement();
+        context.inputs.popElement(.box_gen);
     }
     _ = context.intervals.pop();
     _ = context.used_ids.pop();
@@ -2286,8 +2405,8 @@ fn setInlineBoxUsedData(context: *InlineLayoutContext, values: *InlineLevelUsedV
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
     // TODO: Border widths are '0' if the value of 'border-style' is 'none' or 'hidden'
     const specified = .{
-        .horizontal_sizes = context.inputs.getSpecifiedValue(.horizontal_sizes),
-        .vertical_sizes = context.inputs.getSpecifiedValue(.vertical_sizes),
+        .horizontal_sizes = context.inputs.getSpecifiedValue(.box_gen, .horizontal_sizes),
+        .vertical_sizes = context.inputs.getSpecifiedValue(.box_gen, .vertical_sizes),
     };
 
     var computed: struct {
@@ -2475,8 +2594,8 @@ fn setInlineBoxUsedData(context: *InlineLayoutContext, values: *InlineLevelUsedV
     computed.vertical_sizes.margin_start = specified.vertical_sizes.margin_start;
     computed.vertical_sizes.margin_end = specified.vertical_sizes.margin_end;
 
-    context.inputs.setComputedValue(.horizontal_sizes, computed.horizontal_sizes);
-    context.inputs.setComputedValue(.vertical_sizes, computed.vertical_sizes);
+    context.inputs.setComputedValue(.box_gen, .horizontal_sizes, computed.horizontal_sizes);
+    context.inputs.setComputedValue(.box_gen, .vertical_sizes, computed.vertical_sizes);
 
     values.inline_start.items[used_id] = .{ .border = used.border_inline_start, .padding = used.padding_inline_start };
     values.inline_end.items[used_id] = .{ .border = used.border_inline_end, .padding = used.padding_inline_end };
