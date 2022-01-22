@@ -62,6 +62,8 @@ pub const ZssRect = struct {
     }
 };
 
+pub const Color = u32;
+
 /// The offsets of various points of a block box, taken from the
 /// inline-start/block-start corner of the content box of its parent.
 pub const BoxOffsets = struct {
@@ -85,10 +87,10 @@ pub const Borders = struct {
 /// 'border-block-start-color', 'border-inline-end-color',
 /// 'border-block-end-color', and 'border-inline-start-color'.
 pub const BorderColor = struct {
-    inline_start_rgba: u32 = 0,
-    inline_end_rgba: u32 = 0,
-    block_start_rgba: u32 = 0,
-    block_end_rgba: u32 = 0,
+    inline_start_rgba: Color = 0,
+    inline_end_rgba: Color = 0,
+    block_start_rgba: Color = 0,
+    block_end_rgba: Color = 0,
 };
 
 /// Contains the used values of the properties
@@ -104,7 +106,7 @@ pub const Margins = struct {
 /// Contains the used values of the properties
 /// 'background-color' and 'background-clip'.
 pub const Background1 = struct {
-    color_rgba: u32 = 0,
+    color_rgba: Color = 0,
     clip: enum { Border, Padding, Content } = .Border,
 };
 

@@ -106,7 +106,7 @@ fn borderWidth(comptime thickness: BorderThickness) ZssUnit {
     return length(.px, thickness);
 }
 
-fn color(col: zss.value.Color, current_color: u32) u32 {
+fn color(col: zss.value.Color, current_color: used_values.Color) used_values.Color {
     return switch (col) {
         .rgba => |rgba| rgba,
         .current_color => current_color,
@@ -114,7 +114,7 @@ fn color(col: zss.value.Color, current_color: u32) u32 {
     };
 }
 
-fn colorProperty(col: zss.value.Color) u32 {
+fn colorProperty(col: zss.value.Color) used_values.Color {
     return switch (col) {
         .rgba => |rgba| rgba,
         .current_color => unreachable,
@@ -122,9 +122,9 @@ fn colorProperty(col: zss.value.Color) u32 {
     };
 }
 
-// TODO: Add a InitialContainingBlock layout mode
 const LayoutMode = enum {
     Flow,
+    InitialContainingBlock,
     ShrinkToFit1stPass,
     ShrinkToFit2ndPass,
     InlineContainer,
@@ -466,28 +466,23 @@ fn createBlockLevelUsedValues(doc: *Document, context: *BlockLayoutContext) !voi
     doc.blocks.ensureTotalCapacity(doc.allocator, context.inputs.element_tree_skips[0] + 1) catch {};
 
     // Initialize the context with some data.
-    try context.layout_mode.append(context.inputs.allocator, .Flow);
-    try context.used_subtree_size.append(context.inputs.allocator, 1);
-    try context.flow_block_auto_logical_height.append(context.inputs.allocator, 0);
+    try context.layout_mode.append(context.inputs.allocator, .InitialContainingBlock);
 
     // Create the initial containing block.
     try createInitialContainingBlock(doc, context);
 
     // Process the root element.
     try processElement(doc, context);
-    // TODO: This is not a good reason to return early
-    //  * Root might generate more than one box
-    //  * Root might have 'display: contents'
-    if (doc.blocks.structure.items.len == 1) {
-        // The root element has a 'display' value of 'none'.
-        return;
-    }
+    const root_used_id = switch (context.inputs.element_index_to_box[root_box_id]) {
+        .none => return,
+        .block_box => |used_id| used_id,
+        .inline_box => unreachable,
+    };
 
     // Create the root stacking context.
-    // TODO: Don't assume that the principal box of the root element has a used_id of 1.
     try doc.stacking_context_tree.subtree.append(doc.allocator, 1);
-    try doc.stacking_context_tree.stacking_contexts.append(doc.allocator, .{ .z_index = 0, .used_id = 1 });
-    doc.blocks.properties.items[1].creates_stacking_context = true;
+    try doc.stacking_context_tree.stacking_contexts.append(doc.allocator, .{ .z_index = 0, .used_id = root_used_id });
+    doc.blocks.properties.items[root_used_id].creates_stacking_context = true;
     try context.stacking_context_id.append(context.inputs.allocator, 0);
 
     // Process all other elements.
@@ -495,7 +490,7 @@ fn createBlockLevelUsedValues(doc: *Document, context: *BlockLayoutContext) !voi
         try processElement(doc, context);
     }
 
-    // Solve for all of the properties that don't affect layout.
+    // Solve for all of the cosmetic properties.
     const num_created_boxes = doc.blocks.structure.items[0];
     assert(context.used_id_to_element_index.items.len == num_created_boxes);
     assert(context.inputs.element_stack.items.len == 0);
@@ -600,6 +595,7 @@ fn processElement(doc: *Document, context: *BlockLayoutContext) !void {
                 popFlowBlock(doc, context);
             }
         },
+        .InitialContainingBlock => unreachable,
         //        .ShrinkToFit1stPass => {
         //            const interval = &context.intervals.items[context.intervals.items.len - 1];
         //            if (interval.begin != interval.end) {
@@ -730,7 +726,6 @@ fn popFlowBlock(doc: *Document, context: *BlockLayoutContext) void {
     const used_id = context.used_id.items[context.used_id.items.len - 1];
     const used_subtree_size = context.used_subtree_size.items[context.used_subtree_size.items.len - 1];
     doc.blocks.structure.items[used_id] = used_subtree_size;
-    context.used_subtree_size.items[context.used_subtree_size.items.len - 2] += used_subtree_size;
 
     const box_offsets = &doc.blocks.box_offsets.items[used_id];
     const margins = doc.blocks.margins.items[used_id];
@@ -738,11 +733,14 @@ fn popFlowBlock(doc: *Document, context: *BlockLayoutContext) void {
     const parent_layout_mode = context.layout_mode.items[context.layout_mode.items.len - 2];
     switch (parent_layout_mode) {
         .Flow => {
+            context.used_subtree_size.items[context.used_subtree_size.items.len - 2] += used_subtree_size;
             flowBlockFinishLayout(doc, context, box_offsets);
             const parent_auto_logical_height = &context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 2];
             addBlockToFlow(box_offsets, margins.block_end, parent_auto_logical_height);
         },
+        .InitialContainingBlock => {},
         .ShrinkToFit1stPass => {
+            context.used_subtree_size.items[context.used_subtree_size.items.len - 2] += used_subtree_size;
             flowBlockFinishLayout(doc, context, box_offsets);
         },
         .ShrinkToFit2ndPass => unreachable,
@@ -1273,7 +1271,6 @@ fn popShrinkToFit1stPassBlock(doc: *Document, context: *BlockLayoutContext) !voi
     const used_id = context.used_id.items[context.used_id.items.len - 1];
     const used_subtree_size = context.used_subtree_size.items[context.used_subtree_size.items.len - 1];
     doc.blocks.structure.items[used_id] = used_subtree_size;
-    context.used_subtree_size.items[context.used_subtree_size.items.len - 2] += used_subtree_size;
 
     const shrink_to_fit_width = context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
 
@@ -1284,12 +1281,14 @@ fn popShrinkToFit1stPassBlock(doc: *Document, context: *BlockLayoutContext) !voi
         // This might change when absolute blocks or floats are implemented.
         .Flow => unreachable,
         .ShrinkToFit1stPass => {
+            context.used_subtree_size.items[context.used_subtree_size.items.len - 2] += used_subtree_size;
             const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 2];
             const base_width = context.shrink_to_fit_base_width.items[context.shrink_to_fit_base_width.items.len - 1];
             parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, shrink_to_fit_width + base_width);
         },
         .ShrinkToFit2ndPass => @panic("unimplemented"),
         .InlineContainer => {
+            context.used_subtree_size.items[context.used_subtree_size.items.len - 2] += used_subtree_size;
             go_to_2nd_pass = true;
         },
     }
@@ -1505,7 +1504,6 @@ fn processInlineContainer(
     try createInlineLevelUsedValues(doc, &inline_context, inline_values_ptr);
 
     interval.begin = inline_context.next_element;
-    context.used_subtree_size.items[context.used_subtree_size.items.len - 1] += inline_context.block_skip;
     try doc.inlines.append(doc.allocator, inline_values_ptr);
 
     const info = try splitIntoLineBoxes(doc, inline_values_ptr, containing_block_logical_width);
@@ -1533,10 +1531,13 @@ fn processInlineContainer(
     const parent_layout_mode = context.layout_mode.items[context.layout_mode.items.len - 1];
     switch (parent_layout_mode) {
         .Flow => {
+            context.used_subtree_size.items[context.used_subtree_size.items.len - 1] += inline_context.block_skip;
             const parent_auto_logical_height = &context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 1];
             addBlockToFlow(block.box_offsets, 0, parent_auto_logical_height);
         },
+        .InitialContainingBlock => unreachable,
         .ShrinkToFit1stPass => {
+            context.used_subtree_size.items[context.used_subtree_size.items.len - 1] += inline_context.block_skip;
             const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
             parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, used_logical_width);
         },
@@ -2283,7 +2284,7 @@ fn setRootInlineBoxUsedData(values: *InlineLevelUsedValues, used_id: UsedId) voi
 
 fn setInlineBoxUsedData(context: *InlineLayoutContext, values: *InlineLevelUsedValues, used_id: UsedId) !void {
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
-    // TODO: Border/Background colors don't affect layout, solve for them later.
+    // TODO: Border widths are '0' if the value of 'border-style' is 'none' or 'hidden'
     const specified = .{
         .horizontal_sizes = context.inputs.getSpecifiedValue(.horizontal_sizes),
         .vertical_sizes = context.inputs.getSpecifiedValue(.vertical_sizes),
@@ -2684,7 +2685,7 @@ fn @"CSS2.2Section9.7Table"(display: zss.value.Display) zss.value.Display {
     };
 }
 
-fn solveBorderColors(border_colors: ValueTree.BorderColors, current_color: u32) used_values.BorderColor {
+fn solveBorderColors(border_colors: ValueTree.BorderColors, current_color: used_values.Color) used_values.BorderColor {
     return used_values.BorderColor{
         .inline_start_rgba = color(border_colors.left, current_color),
         .inline_end_rgba = color(border_colors.right, current_color),
@@ -2693,7 +2694,7 @@ fn solveBorderColors(border_colors: ValueTree.BorderColors, current_color: u32) 
     };
 }
 
-fn solveBackground1(bg: ValueTree.Background1, current_color: u32) used_values.Background1 {
+fn solveBackground1(bg: ValueTree.Background1, current_color: used_values.Color) used_values.Background1 {
     return used_values.Background1{
         .color_rgba = color(bg.color, current_color),
         .clip = switch (bg.clip) {
