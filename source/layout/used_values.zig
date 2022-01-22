@@ -329,6 +329,7 @@ pub const InlineLevelUsedValues = struct {
         self.glyph_indeces.deinit(allocator);
         self.metrics.deinit(allocator);
         self.line_boxes.deinit(allocator);
+
         self.inline_start.deinit(allocator);
         self.inline_end.deinit(allocator);
         self.block_start.deinit(allocator);
@@ -338,9 +339,10 @@ pub const InlineLevelUsedValues = struct {
     }
 
     pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: usize) !void {
-        try self.line_boxes.ensureTotalCapacity(allocator, count);
         try self.glyph_indeces.ensureTotalCapacity(allocator, count);
         try self.metrics.ensureTotalCapacity(allocator, count);
+        try self.line_boxes.ensureTotalCapacity(allocator, count);
+
         try self.inline_start.ensureTotalCapacity(allocator, count);
         try self.inline_end.ensureTotalCapacity(allocator, count);
         try self.block_start.ensureTotalCapacity(allocator, count);

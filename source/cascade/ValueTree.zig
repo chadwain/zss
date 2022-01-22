@@ -12,7 +12,7 @@ pub const AggregatePropertyEnum = enum {
     all,
     text,
 
-    display_position_float,
+    box_style,
     widths,
     horizontal_sizes,
     heights,
@@ -45,7 +45,7 @@ pub const AggregatePropertyEnum = enum {
             .text,
             => .neither,
 
-            .display_position_float,
+            .box_style,
             .widths,
             .horizontal_sizes,
             .heights,
@@ -70,7 +70,7 @@ pub const Values = struct {
     all: SparseSkipTree(Index, struct { all: value.All }) = .{},
     text: SparseSkipTree(Index, struct { text: value.Text }) = .{},
 
-    display_position_float: SparseSkipTree(Index, DisplayPositionFloat) = .{},
+    box_style: SparseSkipTree(Index, BoxStyle) = .{},
 
     widths: SparseSkipTree(Index, Sizes) = .{},
     horizontal_sizes: SparseSkipTree(Index, PaddingBorderMargin) = .{},
@@ -103,7 +103,7 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     }
 }
 
-pub const DisplayPositionFloat = struct {
+pub const BoxStyle = struct {
     display: value.Display = .inline_,
     position: value.Position = .static,
     float: value.Float = .none,

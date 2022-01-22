@@ -55,6 +55,7 @@ pub fn doLayout(
         .font = cascaded_value_tree.font,
         .allocator = allocator,
         .viewport_size = viewport_size,
+        .element_index_to_box = try allocator.alloc(BoxType, element_tree.size()),
     };
     defer inputs.deinit();
     var context = BlockLayoutContext{ .inputs = &inputs };
@@ -121,6 +122,7 @@ fn colorProperty(col: zss.value.Color) u32 {
     };
 }
 
+// TODO: Add a InitialContainingBlock layout mode
 const LayoutMode = enum {
     Flow,
     ShrinkToFit1stPass,
@@ -184,7 +186,7 @@ const Seekers = struct {
 
     all: SSTSeeker(fields[@enumToInt(Enum.all)].field_type),
     text: SSTSeeker(fields[@enumToInt(Enum.text)].field_type),
-    display_position_float: SSTSeeker(fields[@enumToInt(Enum.display_position_float)].field_type),
+    box_style: SSTSeeker(fields[@enumToInt(Enum.box_style)].field_type),
     widths: SSTSeeker(fields[@enumToInt(Enum.widths)].field_type),
     horizontal_sizes: SSTSeeker(fields[@enumToInt(Enum.horizontal_sizes)].field_type),
     heights: SSTSeeker(fields[@enumToInt(Enum.heights)].field_type),
@@ -206,7 +208,7 @@ const Seekers = struct {
 };
 
 const ComputedValueStack = struct {
-    display_position_float: ArrayListUnmanaged(ValueTree.DisplayPositionFloat) = .{},
+    box_style: ArrayListUnmanaged(ValueTree.BoxStyle) = .{},
     widths: ArrayListUnmanaged(ValueTree.Sizes) = .{},
     horizontal_sizes: ArrayListUnmanaged(ValueTree.PaddingBorderMargin) = .{},
     heights: ArrayListUnmanaged(ValueTree.Sizes) = .{},
@@ -215,7 +217,7 @@ const ComputedValueStack = struct {
 };
 
 const ListOfComptutedValues = struct {
-    display_position_float: bool = false,
+    box_style: bool = false,
     widths: bool = false,
     horizontal_sizes: bool = false,
     heights: bool = false,
@@ -229,13 +231,19 @@ const ThisElement = struct {
 
     list_of_computed_values: ListOfComptutedValues = .{},
     computed: struct {
-        display_position_float: ValueTree.DisplayPositionFloat = undefined,
+        box_style: ValueTree.BoxStyle = undefined,
         widths: ValueTree.Sizes = undefined,
         horizontal_sizes: ValueTree.PaddingBorderMargin = undefined,
         heights: ValueTree.Sizes = undefined,
         vertical_sizes: ValueTree.PaddingBorderMargin = undefined,
         z_index: ValueTree.ZIndex = undefined,
     } = .{},
+};
+
+const BoxType = union(enum) {
+    none,
+    block_box: UsedId,
+    inline_box: struct { inline_id: InlineId, used_id: UsedId },
 };
 
 const Inputs = struct {
@@ -254,12 +262,17 @@ const Inputs = struct {
     allocator: Allocator,
     viewport_size: ZssSize,
 
+    element_index_to_box: []BoxType,
+    anonymous_block_boxes: ArrayListUnmanaged(UsedId) = .{},
+
     fn deinit(self: *Self) void {
         self.element_stack.deinit(self.allocator);
         self.list_of_computed_values_stack.deinit(self.allocator);
         inline for (std.meta.fields(ComputedValueStack)) |field_info| {
             @field(self.computed_value_stack, field_info.name).deinit(self.allocator);
         }
+        self.allocator.free(self.element_index_to_box);
+        self.anonymous_block_boxes.deinit(self.allocator);
     }
 
     fn setElement(self: *Self, element: ElementIndex) void {
@@ -485,17 +498,54 @@ fn createBlockLevelUsedValues(doc: *Document, context: *BlockLayoutContext) !voi
     // Solve for all of the properties that don't affect layout.
     const num_created_boxes = doc.blocks.structure.items[0];
     assert(context.used_id_to_element_index.items.len == num_created_boxes);
+    assert(context.inputs.element_stack.items.len == 0);
     try doc.blocks.border_colors.resize(doc.allocator, num_created_boxes);
     try doc.blocks.background1.resize(doc.allocator, num_created_boxes);
     try doc.blocks.background2.resize(doc.allocator, num_created_boxes);
-    for (context.used_id_to_element_index.items) |element, used_id| {
-        _ = element;
-        blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, used_id));
-        // if (element != reserved_box_id) {
-        //     try blockBoxSolveOtherProperties(doc, context.inputs, element, @intCast(UsedId, used_id));
-        // } else {
-        //     blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, used_id));
-        // }
+
+    for (doc.inlines.items) |inline_| {
+        try inline_.background1.resize(doc.allocator, inline_.inline_start.items.len);
+        inlineRootBoxSolveOtherProperties(inline_);
+    }
+
+    var interval_stack = ArrayListUnmanaged(Interval){};
+    defer interval_stack.deinit(context.inputs.allocator);
+    try interval_stack.append(context.inputs.allocator, .{ .begin = root_box_id, .end = root_box_id + context.inputs.element_tree_skips[root_box_id] });
+
+    while (interval_stack.items.len > 0) {
+        const interval = &interval_stack.items[interval_stack.items.len - 1];
+
+        if (interval.begin != interval.end) {
+            const element = interval.begin;
+            const skip = context.inputs.element_tree_skips[element];
+            interval.begin += skip;
+
+            context.inputs.setElement(element);
+            const box_type = context.inputs.element_index_to_box[element];
+            switch (box_type) {
+                .none => continue,
+                .block_box => |used_id| try blockBoxSolveOtherProperties(doc, context.inputs, used_id),
+                .inline_box => |box_spec| {
+                    const inline_values = doc.inlines.items[box_spec.inline_id];
+                    inlineBoxSolveOtherProperties(inline_values, context.inputs, box_spec.used_id);
+                },
+            }
+
+            if (skip != 1) {
+                try interval_stack.append(context.inputs.allocator, .{ .begin = element + 1, .end = element + skip });
+                try context.inputs.pushElement();
+            }
+        } else {
+            if (interval_stack.items.len > 1) {
+                context.inputs.popElement();
+            }
+            _ = interval_stack.pop();
+        }
+    }
+    assert(context.inputs.element_stack.items.len == 0);
+
+    for (context.inputs.anonymous_block_boxes.items) |anon_used_id| {
+        blockBoxFillOtherPropertiesWithDefaults(doc, @intCast(UsedId, anon_used_id));
     }
 }
 
@@ -515,6 +565,8 @@ fn createInitialContainingBlock(doc: *Document, context: *BlockLayoutContext) !v
     block.borders.* = .{};
     block.margins.* = .{};
 
+    try context.inputs.anonymous_block_boxes.append(context.inputs.allocator, block.used_id);
+
     const interval = Interval{ .begin = root_box_id, .end = root_box_id + context.inputs.element_tree_skips[root_box_id] };
     const logical_heights = UsedLogicalHeights{
         .height = height,
@@ -531,9 +583,9 @@ fn processElement(doc: *Document, context: *BlockLayoutContext) !void {
             const interval = &context.intervals.items[context.intervals.items.len - 1];
             if (interval.begin != interval.end) {
                 context.inputs.setElement(interval.begin);
-                const specified = context.inputs.getSpecifiedValue(.display_position_float);
-                const computed = solveDisplayPositionFloat(specified, interval.begin == root_box_id);
-                context.inputs.setComputedValue(.display_position_float, computed);
+                const specified = context.inputs.getSpecifiedValue(.box_style);
+                const computed = solveBoxStyle(specified, interval.begin == root_box_id);
+                context.inputs.setComputedValue(.box_style, computed);
 
                 switch (computed.display) {
                     .block => return processFlowBlock(doc, context, interval),
@@ -588,6 +640,7 @@ fn processElement(doc: *Document, context: *BlockLayoutContext) !void {
 fn skipElement(context: *BlockLayoutContext, interval: *Interval) void {
     const element = interval.begin;
     interval.begin += context.inputs.element_tree_skips[element];
+    context.inputs.element_index_to_box[element] = .none;
 }
 
 fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_end: ZssUnit, parent_auto_logical_height: *ZssUnit) void {
@@ -604,13 +657,15 @@ fn processFlowBlock(doc: *Document, context: *BlockLayoutContext, interval: *Int
     interval.begin += skip;
 
     const block = try createBlock(doc, context, element);
+    context.inputs.element_index_to_box[element] = .{ .block_box = block.used_id };
+
     block.structure.* = undefined;
     block.properties.* = .{};
 
     const logical_width = try flowBlockSolveInlineSizes(context, block.box_offsets, block.borders, block.margins);
     const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, block.box_offsets, block.borders, block.margins);
 
-    const position = context.inputs.this_element.computed.display_position_float.position;
+    const position = context.inputs.this_element.computed.box_style.position;
     const stacking_context_id = switch (position) {
         .static => null,
         .relative => blk: {
@@ -734,21 +789,21 @@ fn flowBlockSolveInlineSizes(
     };
 
     var computed: struct {
-        widths: ValueTree.Sizes = undefined,
-        horizontal_sizes: ValueTree.PaddingBorderMargin = undefined,
-    } = .{};
+        widths: ValueTree.Sizes,
+        horizontal_sizes: ValueTree.PaddingBorderMargin,
+    } = undefined;
 
     var used: struct {
-        border_start: ZssUnit = undefined,
-        border_end: ZssUnit = undefined,
-        padding_start: ZssUnit = undefined,
-        padding_end: ZssUnit = undefined,
-        margin_start: ZssUnit = undefined,
-        margin_end: ZssUnit = undefined,
-        size: ZssUnit = undefined,
-        min_size: ZssUnit = undefined,
-        max_size: ZssUnit = undefined,
-    } = .{};
+        border_start: ZssUnit,
+        border_end: ZssUnit,
+        padding_start: ZssUnit,
+        padding_end: ZssUnit,
+        margin_start: ZssUnit,
+        margin_end: ZssUnit,
+        size: ZssUnit,
+        min_size: ZssUnit,
+        max_size: ZssUnit,
+    } = undefined;
 
     // TODO: Border widths are '0' if the value of 'border-style' is 'none' or 'hidden'
     switch (specified.horizontal_sizes.border_start) {
@@ -960,21 +1015,21 @@ fn flowBlockSolveBlockSizesPart1(
     };
 
     var computed: struct {
-        heights: ValueTree.Sizes = undefined,
-        vertical_sizes: ValueTree.PaddingBorderMargin = undefined,
-    } = .{};
+        heights: ValueTree.Sizes,
+        vertical_sizes: ValueTree.PaddingBorderMargin,
+    } = undefined;
 
     var used: struct {
-        border_start: ZssUnit = undefined,
-        border_end: ZssUnit = undefined,
-        padding_start: ZssUnit = undefined,
-        padding_end: ZssUnit = undefined,
-        margin_start: ZssUnit = undefined,
-        margin_end: ZssUnit = undefined,
-        size: ?ZssUnit = undefined,
-        min_size: ZssUnit = undefined,
-        max_size: ZssUnit = undefined,
-    } = .{};
+        border_start: ZssUnit,
+        border_end: ZssUnit,
+        padding_start: ZssUnit,
+        padding_end: ZssUnit,
+        margin_start: ZssUnit,
+        margin_end: ZssUnit,
+        size: ?ZssUnit,
+        min_size: ZssUnit,
+        max_size: ZssUnit,
+    } = undefined;
 
     // TODO: Border widths are '0' if the value of 'border-style' is 'none' or 'hidden'
     switch (specified.vertical_sizes.border_start) {
@@ -1428,6 +1483,12 @@ fn processInlineContainer(
 ) !void {
     assert(containing_block_logical_width >= 0);
 
+    const inline_values_ptr = try doc.allocator.create(InlineLevelUsedValues);
+    errdefer doc.allocator.destroy(inline_values_ptr);
+    inline_values_ptr.* = .{};
+    errdefer inline_values_ptr.deinit(doc.allocator);
+    const inline_id = try std.math.cast(InlineId, doc.inlines.items.len);
+
     const percentage_base_unit: ZssUnit = switch (mode) {
         .Normal => containing_block_logical_width,
         .ShrinkToFit => 0,
@@ -1437,13 +1498,9 @@ fn processInlineContainer(
         .inputs = context.inputs,
         .root_interval = interval.*,
         .percentage_base_unit = percentage_base_unit,
+        .inline_id = inline_id,
     };
     defer inline_context.deinit();
-
-    const inline_values_ptr = try doc.allocator.create(InlineLevelUsedValues);
-    errdefer doc.allocator.destroy(inline_values_ptr);
-    inline_values_ptr.* = .{};
-    errdefer inline_values_ptr.deinit(doc.allocator);
 
     try createInlineLevelUsedValues(doc, &inline_context, inline_values_ptr);
 
@@ -1460,8 +1517,10 @@ fn processInlineContainer(
 
     // Create an "anonymous block box" to contain this inline formatting context.
     const block = try createBlock(doc, context, reserved_box_id);
+    try context.inputs.anonymous_block_boxes.append(context.inputs.allocator, block.used_id);
+
     block.structure.* = inline_context.block_skip;
-    block.properties.* = .{ .inline_context_index = try std.math.cast(InlineId, doc.inlines.items.len - 1) };
+    block.properties.* = .{ .inline_context_index = inline_id };
     block.box_offsets.* = .{
         .border_start = .{ .x = 0, .y = 0 },
         .content_start = .{ .x = 0, .y = 0 },
@@ -1809,12 +1868,13 @@ fn createBlock(doc: *Document, context: *BlockLayoutContext, box_id: BoxId) !Blo
     };
 }
 
-fn blockBoxSolveOtherProperties(doc: *Document, inputs: *Inputs, element: ElementIndex, used_id: UsedId) !void {
+fn blockBoxSolveOtherProperties(doc: *Document, inputs: *Inputs, used_id: UsedId) !void {
+    // TODO: Set the computed values for the element
     const specified = .{
-        .color = inputs.getSpecifiedValue(.color, element),
-        .border_colors = inputs.getSpecifiedValue(.border_colors, element),
-        .background1 = inputs.getSpecifiedValue(.background1, element),
-        .background2 = inputs.getSpecifiedValue(.background2, element),
+        .color = inputs.getSpecifiedValue(.color),
+        .border_colors = inputs.getSpecifiedValue(.border_colors),
+        .background1 = inputs.getSpecifiedValue(.background1),
+        .background2 = inputs.getSpecifiedValue(.background2),
     };
     const current_color = colorProperty(specified.color.color);
 
@@ -1831,9 +1891,37 @@ fn blockBoxSolveOtherProperties(doc: *Document, inputs: *Inputs, element: Elemen
 }
 
 fn blockBoxFillOtherPropertiesWithDefaults(doc: *Document, used_id: UsedId) void {
-    doc.blocks.borders.items[used_id] = .{};
+    doc.blocks.border_colors.items[used_id] = .{};
     doc.blocks.background1.items[used_id] = .{};
     doc.blocks.background2.items[used_id] = .{};
+}
+
+fn inlineBoxSolveOtherProperties(values: *InlineLevelUsedValues, inputs: *Inputs, used_id: UsedId) void {
+    // TODO: Set the computed values for the element
+    const specified = .{
+        .color = inputs.getSpecifiedValue(.color),
+        .border_colors = inputs.getSpecifiedValue(.border_colors),
+        .background1 = inputs.getSpecifiedValue(.background1),
+    };
+    const current_color = colorProperty(specified.color.color);
+
+    const border_colors = solveBorderColors(specified.border_colors, current_color);
+    values.inline_start.items[used_id].border_color_rgba = border_colors.inline_start_rgba;
+    values.inline_end.items[used_id].border_color_rgba = border_colors.inline_end_rgba;
+    values.block_start.items[used_id].border_color_rgba = border_colors.block_start_rgba;
+    values.block_end.items[used_id].border_color_rgba = border_colors.block_end_rgba;
+
+    const background1_ptr = &values.background1.items[used_id];
+    background1_ptr.* = solveBackground1(specified.background1, current_color);
+}
+
+fn inlineRootBoxSolveOtherProperties(values: *InlineLevelUsedValues) void {
+    values.inline_start.items[0].border_color_rgba = 0;
+    values.inline_end.items[0].border_color_rgba = 0;
+    values.block_start.items[0].border_color_rgba = 0;
+    values.block_end.items[0].border_color_rgba = 0;
+
+    values.background1.items[0] = .{};
 }
 
 fn createStackingContext(doc: *Document, context: *BlockLayoutContext, used_id: UsedId, z_index: ZIndex) !StackingContextId {
@@ -1909,6 +1997,7 @@ const InlineLayoutContext = struct {
     inputs: *Inputs,
     root_interval: Interval,
     percentage_base_unit: ZssUnit,
+    inline_id: InlineId,
 
     next_element: ElementIndex = undefined,
     block_skip: UsedId = 1,
@@ -1957,10 +2046,6 @@ fn createInlineLevelUsedValues(doc: *Document, context: *InlineLayoutContext, va
 
     try values.metrics.resize(doc.allocator, values.glyph_indeces.items.len);
     inlineValuesSolveMetrics(doc, values);
-
-    // TODO: Delete this
-    try values.background1.resize(doc.allocator, values.inline_start.items.len);
-    std.mem.set(used_values.Background1, values.background1.items, .{});
 }
 
 fn inlineLevelRootElementPush(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues) !void {
@@ -1986,17 +2071,19 @@ fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values:
     interval.begin += skip;
 
     context.inputs.setElement(element);
-    const specified = context.inputs.getSpecifiedValue(.display_position_float);
-    const computed = solveDisplayPositionFloat(specified, element == root_box_id);
+    const specified = context.inputs.getSpecifiedValue(.box_style);
+    const computed = solveBoxStyle(specified, element == root_box_id);
     switch (computed.display) {
         .text => {
             assert(skip == 1);
+            context.inputs.element_index_to_box[element] = .none;
             const text = context.inputs.getText();
             // TODO: Do proper font matching.
             try addText(doc, values, text, context.inputs.font);
         },
         .inline_ => {
             const used_id = try createInlineBox(doc, values);
+            context.inputs.element_index_to_box[element] = .{ .inline_box = .{ .inline_id = context.inline_id, .used_id = used_id } };
             try setInlineBoxUsedData(context, values, used_id);
 
             try addBoxStart(doc, values, used_id);
@@ -2565,8 +2652,8 @@ fn splitIntoLineBoxes(doc: *Document, values: *InlineLevelUsedValues, containing
     return result;
 }
 
-fn solveDisplayPositionFloat(specified: ValueTree.DisplayPositionFloat, root: bool) ValueTree.DisplayPositionFloat {
-    var computed: ValueTree.DisplayPositionFloat = .{
+fn solveBoxStyle(specified: ValueTree.BoxStyle, root: bool) ValueTree.BoxStyle {
+    var computed: ValueTree.BoxStyle = .{
         .display = undefined,
         .position = specified.position,
         .float = specified.float,
