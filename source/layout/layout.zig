@@ -211,6 +211,7 @@ const ComputedValueStack = struct {
     horizontal_sizes: ArrayListUnmanaged(ValueTree.PaddingBorderMargin) = .{},
     heights: ArrayListUnmanaged(ValueTree.Sizes) = .{},
     vertical_sizes: ArrayListUnmanaged(ValueTree.PaddingBorderMargin) = .{},
+    z_index: ArrayListUnmanaged(ValueTree.ZIndex) = .{},
 };
 
 const ListOfComptutedValues = struct {
@@ -219,7 +220,7 @@ const ListOfComptutedValues = struct {
     horizontal_sizes: bool = false,
     heights: bool = false,
     vertical_sizes: bool = false,
-    insets: bool = false,
+    z_index: bool = false,
 };
 
 const ThisElement = struct {
@@ -233,7 +234,7 @@ const ThisElement = struct {
         horizontal_sizes: ValueTree.PaddingBorderMargin = undefined,
         heights: ValueTree.Sizes = undefined,
         vertical_sizes: ValueTree.PaddingBorderMargin = undefined,
-        insets: ValueTree.Insets = undefined,
+        z_index: ValueTree.ZIndex = undefined,
     } = .{},
 };
 
@@ -262,7 +263,7 @@ const Inputs = struct {
     }
 
     fn setElement(self: *Self, element: ElementIndex) void {
-        self.this_element.element = element;
+        self.this_element = .{ .element = element };
 
         const all_seeker = &self.seekers.all;
         if (all_seeker.seekBinary(element)) {
@@ -288,8 +289,6 @@ const Inputs = struct {
                 try @field(self.computed_value_stack, field_info.name).append(self.allocator, value);
             }
         }
-
-        self.this_element = .{};
     }
 
     fn popElement(self: *Self) void {
@@ -324,13 +323,13 @@ const Inputs = struct {
         }
 
         inline for (fields) |field_info| {
-            const value = &@field(result, field_info.name);
-            switch (value.*) {
+            const sub_property = &@field(result, field_info.name);
+            switch (sub_property.*) {
                 .inherit => @panic("TODO: Get specified value via inheritance"),
-                .initial => value.* = field_info.default_value.?,
+                .initial => sub_property.* = field_info.default_value.?,
                 .unset => switch (inheritance_type) {
                     .inherited => @panic("TODO: Get specified value via inheritance"),
-                    .not_inherited => value.* = field_info.default_value.?,
+                    .not_inherited => sub_property.* = field_info.default_value.?,
                     .neither => unreachable,
                 },
                 else => {},
@@ -389,9 +388,9 @@ const Inputs = struct {
         }
     }
 
-    fn getText(self: *Self, element: ElementIndex) zss.value.Text {
+    fn getText(self: *Self) zss.value.Text {
         const seeker = &self.seekers.text;
-        if (seeker.seekBinary(element)) {
+        if (seeker.seekBinary(self.this_element.element)) {
             return seeker.get().text;
         } else {
             return "";
@@ -525,16 +524,6 @@ fn createInitialContainingBlock(doc: *Document, context: *BlockLayoutContext) !v
     try pushFlowLayout(context, interval, block.used_id, width, logical_heights, null);
 }
 
-/// Given a specified value for 'display', returns the computed value according to the table found in section 9.7 of CSS2.2.
-fn @"CSS2.2Section9.7Table"(display: zss.value.Display) zss.value.Display {
-    // TODO: This is incomplete, fill in the rest when more values of the 'display' property are supported.
-    // TODO: There should be a slightly different version of this switch table for the root element. (See rule 4 of secion 9.7)
-    return switch (display) {
-        .inline_, .inline_block, .text => .block,
-        else => display,
-    };
-}
-
 fn processElement(doc: *Document, context: *BlockLayoutContext) !void {
     const layout_mode = context.layout_mode.items[context.layout_mode.items.len - 1];
     switch (layout_mode) {
@@ -543,32 +532,14 @@ fn processElement(doc: *Document, context: *BlockLayoutContext) !void {
             if (interval.begin != interval.end) {
                 context.inputs.setElement(interval.begin);
                 const specified = context.inputs.getSpecifiedValue(.display_position_float);
-                var computed: ValueTree.DisplayPositionFloat = .{
-                    .display = undefined,
-                    .position = specified.position,
-                    .float = specified.float,
-                };
-                if (specified.display == .none) {
-                    computed.display = .none;
-                } else if (specified.position == .absolute or specified.position == .fixed) {
-                    computed.display = @"CSS2.2Section9.7Table"(specified.display);
-                    computed.float = .none;
-                } else if (specified.float != .none) {
-                    computed.display = @"CSS2.2Section9.7Table"(specified.display);
-                } else if (interval.begin == root_box_id) {
-                    // TODO: There should be a slightly different version of this function for the root element. (See rule 4 of secion 9.7)
-                    computed.display = @"CSS2.2Section9.7Table"(specified.display);
-                } else {
-                    computed.display = specified.display;
-                }
+                const computed = solveDisplayPositionFloat(specified, interval.begin == root_box_id);
                 context.inputs.setComputedValue(.display_position_float, computed);
 
                 switch (computed.display) {
                     .block => return processFlowBlock(doc, context, interval),
                     .inline_, .inline_block, .text => {
-                        @panic("TODO Inline layout");
-                        //const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
-                        //return processInlineContainer(doc, context, interval, containing_block_logical_width, .Normal);
+                        const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
+                        return processInlineContainer(doc, context, interval, containing_block_logical_width, .Normal);
                     },
                     .none => return skipElement(context, interval),
                     .initial, .inherit, .unset => unreachable,
@@ -1189,7 +1160,10 @@ fn flowBlockFinishLayout(doc: *Document, context: *BlockLayoutContext, box_offse
     const auto_logical_height = context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 1];
     const logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
     const logical_height = flowBlockSolveBlockSizesPart2(box_offsets, used_logical_heights, auto_logical_height);
-    blockBoxApplyRelativePositioningToChildren(doc, context, logical_width, logical_height);
+    _ = doc;
+    _ = logical_width;
+    _ = logical_height;
+    //blockBoxApplyRelativePositioningToChildren(doc, context, logical_width, logical_height);
 }
 
 fn processShrinkToFit1stPassBlock(doc: *Document, context: *BlockLayoutContext, interval: *Interval) !void {
@@ -1452,16 +1426,18 @@ fn processInlineContainer(
     containing_block_logical_width: ZssUnit,
     mode: enum { Normal, ShrinkToFit },
 ) !void {
-    var continuation_blocks = ArrayListUnmanaged(ContinuationBlock){};
-    errdefer continuation_blocks.deinit(context.inputs.allocator);
+    assert(containing_block_logical_width >= 0);
 
-    var inline_blocks = ArrayListUnmanaged(InlineBlock){};
-    errdefer inline_blocks.deinit(context.inputs.allocator);
+    const percentage_base_unit: ZssUnit = switch (mode) {
+        .Normal => containing_block_logical_width,
+        .ShrinkToFit => 0,
+    };
 
-    var used_id_to_element_index = ArrayListUnmanaged(BoxId){};
-    errdefer used_id_to_element_index.deinit(context.inputs.allocator);
-
-    var inline_context = InlineLayoutContext.init(context, interval.*, &continuation_blocks, &inline_blocks, &used_id_to_element_index);
+    var inline_context = InlineLayoutContext{
+        .inputs = context.inputs,
+        .root_interval = interval.*,
+        .percentage_base_unit = percentage_base_unit,
+    };
     defer inline_context.deinit();
 
     const inline_values_ptr = try doc.allocator.create(InlineLevelUsedValues);
@@ -1471,55 +1447,67 @@ fn processInlineContainer(
 
     try createInlineLevelUsedValues(doc, &inline_context, inline_values_ptr);
 
-    if (continuation_blocks.items.len > 0) {
-        @panic("TODO Continuation blocks");
-    }
     interval.begin = inline_context.next_element;
+    context.used_subtree_size.items[context.used_subtree_size.items.len - 1] += inline_context.block_skip;
     try doc.inlines.append(doc.allocator, inline_values_ptr);
+
+    const info = try splitIntoLineBoxes(doc, inline_values_ptr, containing_block_logical_width);
+    const used_logical_width = switch (mode) {
+        .Normal => containing_block_logical_width,
+        .ShrinkToFit => info.longest_line_box_length,
+    };
+    const used_logical_height = info.logical_height;
 
     // Create an "anonymous block box" to contain this inline formatting context.
     const block = try createBlock(doc, context, reserved_box_id);
-    block.structure.* = undefined;
+    block.structure.* = inline_context.block_skip;
     block.properties.* = .{ .inline_context_index = try std.math.cast(InlineId, doc.inlines.items.len - 1) };
-    block.box_offsets.* = undefined;
-    block.borders.* = undefined;
-    block.margins.* = undefined;
-
-    const is_shrink_to_fit = switch (mode) {
-        .Normal => false,
-        .ShrinkToFit => true,
+    block.box_offsets.* = .{
+        .border_start = .{ .x = 0, .y = 0 },
+        .content_start = .{ .x = 0, .y = 0 },
+        .content_end = .{ .x = used_logical_width, .y = used_logical_height },
+        .border_end = .{ .x = used_logical_width, .y = used_logical_height },
     };
-    try pushInlineContainerLayout(context, inline_values_ptr, block.used_id, &inline_blocks, &used_id_to_element_index, containing_block_logical_width, is_shrink_to_fit);
+    block.borders.* = .{};
+    block.margins.* = .{};
+
+    const parent_layout_mode = context.layout_mode.items[context.layout_mode.items.len - 1];
+    switch (parent_layout_mode) {
+        .Flow => {
+            const parent_auto_logical_height = &context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 1];
+            addBlockToFlow(block.box_offsets, 0, parent_auto_logical_height);
+        },
+        .ShrinkToFit1stPass => {
+            const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
+            parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, used_logical_width);
+        },
+        .ShrinkToFit2ndPass => @panic("unimplemented"),
+        .InlineContainer => unreachable,
+    }
+
+    //try inlineValuesFinishLayout(doc, context, containing_block_logical_width, is_shrink_to_fit);
+    //try pushInlineContainerLayout(context, inline_values_ptr, block.used_id, &inline_blocks, &used_id_to_element_index, containing_block_logical_width, is_shrink_to_fit);
 }
 
-fn pushInlineContainerLayout(
-    context: *BlockLayoutContext,
-    values: *InlineLevelUsedValues,
-    used_id: UsedId,
-    inline_blocks_list: *ArrayListUnmanaged(InlineBlock),
-    used_id_to_element_index_list: *ArrayListUnmanaged(BoxId),
-    containing_block_logical_width: ZssUnit,
-    shrink_to_fit: bool,
-) !void {
-    const inline_blocks = inline_blocks_list.toOwnedSlice(context.inputs.allocator);
-    errdefer context.inputs.allocator.free(inline_blocks);
-
-    const used_id_to_element_index = used_id_to_element_index_list.toOwnedSlice(context.inputs.allocator);
-    errdefer context.inputs.allocator.free(used_id_to_element_index);
-
-    // The allocations here must have corresponding deallocations in popInlineContainer.
-    try context.layout_mode.append(context.inputs.allocator, .InlineContainer);
-    try context.used_id.append(context.inputs.allocator, used_id);
-    try context.used_subtree_size.append(context.inputs.allocator, 1);
-    try context.inline_container.append(context.inputs.allocator, .{
-        .values = values,
-        .inline_blocks = inline_blocks,
-        .used_id_to_element_index = used_id_to_element_index,
-        .next_inline_block = 0,
-        .containing_block_logical_width = containing_block_logical_width,
-        .shrink_to_fit = shrink_to_fit,
-    });
-}
+//fn pushInlineContainerLayout(
+//    context: *BlockLayoutContext,
+//    values: *InlineLevelUsedValues,
+//    used_id: UsedId,
+//    inline_blocks_list: *ArrayListUnmanaged(InlineBlock),
+//    used_id_to_element_index_list: *ArrayListUnmanaged(BoxId),
+//    containing_block_logical_width: ZssUnit,
+//    shrink_to_fit: bool,
+//) !void {
+//    const inline_blocks = inline_blocks_list.toOwnedSlice(context.inputs.allocator);
+//    errdefer context.inputs.allocator.free(inline_blocks);
+//
+//    const used_id_to_element_index = used_id_to_element_index_list.toOwnedSlice(context.inputs.allocator);
+//    errdefer context.inputs.allocator.free(used_id_to_element_index);
+//
+//    // The allocations here must have corresponding deallocations in popInlineContainer.
+//    try context.used_id.append(context.inputs.allocator, used_id);
+//    try context.used_subtree_size.append(context.inputs.allocator, 1);
+//}
 
 fn popInlineContainer(doc: *Document, context: *BlockLayoutContext) !void {
     const used_id = context.used_id.items[context.used_id.items.len - 1];
@@ -1870,6 +1858,7 @@ fn blockBoxApplyRelativePositioningToChildren(doc: *Document, context: *BlockLay
     while (i < count) : (i += 1) {
         const used_id = context.relative_positioned_descendants_ids.items[context.relative_positioned_descendants_ids.items.len - 1 - i];
         const element = context.used_id_to_element_index.items[used_id];
+        _ = element;
         // TODO: Also use the logical properties ('inset-inline-start', 'inset-block-end', etc.) to determine lengths.
         // TODO: Any relative units must be converted to absolute units to form the computed value.
         const specified = .{
@@ -1919,33 +1908,13 @@ const InlineLayoutContext = struct {
 
     inputs: *Inputs,
     root_interval: Interval,
+    percentage_base_unit: ZssUnit,
 
-    intervals: ArrayListUnmanaged(Interval),
-    used_ids: ArrayListUnmanaged(UsedId),
+    next_element: ElementIndex = undefined,
+    block_skip: UsedId = 1,
 
-    continuation_blocks: *ArrayListUnmanaged(ContinuationBlock),
-    inline_blocks: *ArrayListUnmanaged(InlineBlock),
-    used_id_to_element_index: *ArrayListUnmanaged(BoxId),
-    next_element: ElementIndex,
-
-    fn init(
-        context: *const BlockLayoutContext,
-        block_container_interval: Interval,
-        continuation_blocks: *ArrayListUnmanaged(ContinuationBlock),
-        inline_blocks: *ArrayListUnmanaged(InlineBlock),
-        used_id_to_element_index: *ArrayListUnmanaged(BoxId),
-    ) Self {
-        return Self{
-            .inputs = context.inputs,
-            .root_interval = Interval{ .begin = block_container_interval.begin, .end = block_container_interval.end },
-            .intervals = .{},
-            .used_ids = .{},
-            .continuation_blocks = continuation_blocks,
-            .inline_blocks = inline_blocks,
-            .used_id_to_element_index = used_id_to_element_index,
-            .next_element = block_container_interval.end,
-        };
-    }
+    intervals: ArrayListUnmanaged(Interval) = .{},
+    used_ids: ArrayListUnmanaged(UsedId) = .{},
 
     fn deinit(self: *Self) void {
         self.intervals.deinit(self.inputs.allocator);
@@ -1953,57 +1922,87 @@ const InlineLayoutContext = struct {
     }
 };
 
+pub fn createInlineBox(doc: *Document, values: *InlineLevelUsedValues) !UsedId {
+    const old_size = values.inline_start.items.len;
+    _ = try values.inline_start.addOne(doc.allocator);
+    _ = try values.inline_end.addOne(doc.allocator);
+    _ = try values.block_start.addOne(doc.allocator);
+    _ = try values.block_end.addOne(doc.allocator);
+    _ = try values.margins.addOne(doc.allocator);
+    return @intCast(UsedId, old_size);
+}
+
 fn createInlineLevelUsedValues(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues) Error!void {
     const root_interval = context.root_interval;
 
+    values.font = context.inputs.font.font;
+    values.font_color_rgba = colorProperty(context.inputs.font.color);
     values.ensureTotalCapacity(doc.allocator, root_interval.end - root_interval.begin + 1) catch {};
 
-    try inlineLevelRootElementPush(doc, context, values, root_interval);
+    try inlineLevelRootElementPush(doc, context, values);
 
     while (context.intervals.items.len > 0) {
         const interval = &context.intervals.items[context.intervals.items.len - 1];
         if (interval.begin != interval.end) {
-            const should_break = try inlineLevelElementPush(doc, context, values, interval);
-            if (should_break) break;
+            if (try inlineLevelElementPush(doc, context, values, interval)) |terminating_element| {
+                context.next_element = terminating_element;
+                break;
+            }
         } else {
             try inlineLevelElementPop(doc, context, values);
         }
+    } else {
+        context.next_element = root_interval.end;
     }
+
+    try values.metrics.resize(doc.allocator, values.glyph_indeces.items.len);
+    inlineValuesSolveMetrics(doc, values);
+
+    // TODO: Delete this
+    try values.background1.resize(doc.allocator, values.inline_start.items.len);
+    std.mem.set(used_values.Background1, values.background1.items, .{});
 }
 
-fn inlineLevelRootElementPush(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues, root_interval: Interval) !void {
-    const root_used_id = try std.math.cast(UsedId, context.used_id_to_element_index.items.len);
-    try context.used_id_to_element_index.append(context.inputs.allocator, reserved_box_id);
-    try addBoxStart(doc, values, root_used_id);
+fn inlineLevelRootElementPush(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues) !void {
+    const root_interval = context.root_interval;
+
+    const used_id = try createInlineBox(doc, values);
+    setRootInlineBoxUsedData(values, used_id);
+
+    try addBoxStart(doc, values, used_id);
 
     if (root_interval.begin != root_interval.end) {
         try context.intervals.append(context.inputs.allocator, root_interval);
-        try context.used_ids.append(context.inputs.allocator, root_used_id);
+        try context.used_ids.append(context.inputs.allocator, used_id);
     } else {
-        try addBoxEnd(doc, values, root_used_id);
+        try addBoxEnd(doc, values, used_id);
     }
 }
 
-fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues, interval: *Interval) !bool {
+/// A non-null return value means that a terminating block box was encountered.
+fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues, interval: *Interval) !?ElementIndex {
     const element = interval.begin;
     const skip = context.inputs.element_tree_skips[element];
     interval.begin += skip;
 
-    const dps = context.inputs.getSpecifiedValue(.display_position_float, element);
-    // TODO: Use the computed value of display.
-    switch (dps.display) {
+    context.inputs.setElement(element);
+    const specified = context.inputs.getSpecifiedValue(.display_position_float);
+    const computed = solveDisplayPositionFloat(specified, element == root_box_id);
+    switch (computed.display) {
         .text => {
             assert(skip == 1);
-            const text = context.inputs.getText(element);
+            const text = context.inputs.getText();
             // TODO: Do proper font matching.
             try addText(doc, values, text, context.inputs.font);
         },
         .inline_ => {
-            const used_id = try std.math.cast(UsedId, context.used_id_to_element_index.items.len);
-            try context.used_id_to_element_index.append(context.inputs.allocator, element);
+            const used_id = try createInlineBox(doc, values);
+            try setInlineBoxUsedData(context, values, used_id);
+
             try addBoxStart(doc, values, used_id);
 
             if (skip != 1) {
+                try context.inputs.pushElement();
                 try context.intervals.append(context.inputs.allocator, .{ .begin = element + 1, .end = element + skip });
                 try context.used_ids.append(context.inputs.allocator, used_id);
             } else {
@@ -2012,34 +2011,33 @@ fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values:
             }
         },
         .inline_block => {
-            try values.glyph_indeces.appendSlice(doc.allocator, &.{ 0, undefined });
-            try context.inline_blocks.append(context.inputs.allocator, .{ .element = element, .index = values.glyph_indeces.items.len - 2 });
+            @panic("TODO: Inline blocks");
+            //try values.glyph_indeces.appendSlice(doc.allocator, &.{ 0, undefined });
         },
         .block => {
-            const is_top_level = context.used_ids.items.len == 1;
-            if (is_top_level) {
-                context.next_element = element;
-                var i = context.used_ids.items.len;
-                while (i > 0) : (i -= 1) {
-                    try addBoxEnd(doc, values, context.used_ids.items[i - 1]);
-                }
-                return true;
+            const is_terminating = context.used_ids.items.len == 1;
+            if (is_terminating) {
+                try addBoxEnd(doc, values, 0);
+                return element;
             } else {
-                try values.glyph_indeces.appendSlice(doc.allocator, &.{ 0, undefined });
-                try context.continuation_blocks.append(context.inputs.allocator, .{ .element = element, .index = values.glyph_indeces.items.len - 2 });
+                @panic("TODO: Blocks within inline contexts");
+                //try values.glyph_indeces.appendSlice(doc.allocator, &.{ 0, undefined });
             }
         },
         .none => {},
         .initial, .inherit, .unset => unreachable,
     }
 
-    return false;
+    return null;
 }
 
 fn inlineLevelElementPop(doc: *Document, context: *InlineLayoutContext, values: *InlineLevelUsedValues) !void {
     const used_id = context.used_ids.items[context.used_ids.items.len - 1];
     try addBoxEnd(doc, values, used_id);
 
+    if (used_id != 0) {
+        context.inputs.popElement();
+    }
     _ = context.intervals.pop();
     _ = context.used_ids.pop();
 }
@@ -2147,7 +2145,7 @@ fn inlineValuesFinishLayout(doc: *Document, context: *BlockLayoutContext, contai
     values.font = context.inputs.font.font;
     values.font_color_rgba = colorProperty(context.inputs.font.color);
 
-    // Set the used values for all inline elements
+    // Set the used values for all inline boxes
     assert(container.used_id_to_element_index[0] == reserved_box_id);
     setRootInlineBoxUsedData(values, 0);
     for (container.used_id_to_element_index[1..]) |box_id, used_id| {
@@ -2194,97 +2192,244 @@ fn setRootInlineBoxUsedData(values: *InlineLevelUsedValues, used_id: UsedId) voi
     values.block_start.items[used_id] = .{ .border = 0, .padding = 0, .border_color_rgba = 0 };
     values.block_end.items[used_id] = .{ .border = 0, .padding = 0, .border_color_rgba = 0 };
     values.margins.items[used_id] = .{ .start = 0, .end = 0 };
-    values.background1.items[used_id] = .{};
 }
 
-fn setInlineBoxUsedData(context: *BlockLayoutContext, values: *InlineLevelUsedValues, element: ElementIndex, used_id: UsedId, containing_block_logical_width: ZssUnit) !void {
-    assert(containing_block_logical_width >= 0);
+fn setInlineBoxUsedData(context: *InlineLayoutContext, values: *InlineLevelUsedValues, used_id: UsedId) !void {
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
     // TODO: Border/Background colors don't affect layout, solve for them later.
     const specified = .{
-        .horizontal_sizes = context.inputs.getSpecifiedValue(.horizontal_sizes, element),
-        .vertical_sizes = context.inputs.getSpecifiedValue(.vertical_sizes, element),
-        .border_colors = context.inputs.getSpecifiedValue(.border_colors, element),
-        .color = context.inputs.getSpecifiedValue(.color, element),
-        .background1 = context.inputs.getSpecifiedValue(.background1, element),
+        .horizontal_sizes = context.inputs.getSpecifiedValue(.horizontal_sizes),
+        .vertical_sizes = context.inputs.getSpecifiedValue(.vertical_sizes),
     };
 
-    const margin_inline_start = switch (specified.horizontal_sizes.margin_start) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
-        .auto => 0,
-        .initial, .inherit, .unset => unreachable,
-    };
-    const border_inline_start = switch (specified.horizontal_sizes.border_start) {
-        .px => |value| try positiveLength(.px, value),
-        .thin => borderWidth(.thin),
-        .medium => borderWidth(.medium),
-        .thick => borderWidth(.thick),
-        .initial, .inherit, .unset => unreachable,
-    };
-    const padding_inline_start = switch (specified.horizontal_sizes.padding_start) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
-        .initial, .inherit, .unset => unreachable,
-    };
-    const margin_inline_end = switch (specified.horizontal_sizes.margin_end) {
-        .px => |value| length(.px, value),
-        .percentage => |value| percentage(value, containing_block_logical_width),
-        .auto => 0,
-        .initial, .inherit, .unset => unreachable,
-    };
-    const border_inline_end = switch (specified.horizontal_sizes.border_end) {
-        .px => |value| try positiveLength(.px, value),
-        .thin => borderWidth(.thin),
-        .medium => borderWidth(.medium),
-        .thick => borderWidth(.thick),
-        .initial, .inherit, .unset => unreachable,
-    };
-    const padding_inline_end = switch (specified.horizontal_sizes.padding_end) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
-        .initial, .inherit, .unset => unreachable,
-    };
+    var computed: struct {
+        horizontal_sizes: ValueTree.PaddingBorderMargin,
+        vertical_sizes: ValueTree.PaddingBorderMargin,
+    } = undefined;
 
-    const border_block_start = switch (specified.vertical_sizes.border_start) {
-        .px => |value| try positiveLength(.px, value),
-        .thin => borderWidth(.thin),
-        .medium => borderWidth(.medium),
-        .thick => borderWidth(.thick),
-        .initial, .inherit, .unset => unreachable,
-    };
-    const padding_block_start = switch (specified.vertical_sizes.padding_start) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
-        .initial, .inherit, .unset => unreachable,
-    };
-    const border_block_end = switch (specified.vertical_sizes.border_end) {
-        .px => |value| try positiveLength(.px, value),
-        .thin => borderWidth(.thin),
-        .medium => borderWidth(.medium),
-        .thick => borderWidth(.thick),
-        .initial, .inherit, .unset => unreachable,
-    };
-    const padding_block_end = switch (specified.vertical_sizes.padding_end) {
-        .px => |value| try positiveLength(.px, value),
-        .percentage => |value| try positivePercentage(value, containing_block_logical_width),
-        .initial, .inherit, .unset => unreachable,
-    };
+    var used: struct {
+        margin_inline_start: ZssUnit,
+        border_inline_start: ZssUnit,
+        padding_inline_start: ZssUnit,
+        margin_inline_end: ZssUnit,
+        border_inline_end: ZssUnit,
+        padding_inline_end: ZssUnit,
+        border_block_start: ZssUnit,
+        padding_block_start: ZssUnit,
+        border_block_end: ZssUnit,
+        padding_block_end: ZssUnit,
+    } = undefined;
 
-    const current_color = colorProperty(specified.color.color);
-    const border_inline_start_color = color(specified.border_colors.left, current_color);
-    const border_inline_end_color = color(specified.border_colors.right, current_color);
-    const border_block_start_color = color(specified.border_colors.top, current_color);
-    const border_block_end_color = color(specified.border_colors.bottom, current_color);
+    switch (specified.horizontal_sizes.margin_start) {
+        .px => |value| {
+            computed.horizontal_sizes.margin_start = .{ .px = value };
+            used.margin_inline_start = length(.px, value);
+        },
+        .percentage => |value| {
+            computed.horizontal_sizes.margin_start = .{ .percentage = value };
+            used.margin_inline_start = percentage(value, context.percentage_base_unit);
+        },
+        .auto => {
+            computed.horizontal_sizes.margin_start = .auto;
+            used.margin_inline_start = 0;
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.horizontal_sizes.border_start) {
+        .px => |value| {
+            computed.horizontal_sizes.border_start = .{ .px = value };
+            used.border_inline_start = try positiveLength(.px, value);
+        },
+        .thin => {
+            const width = borderWidthPx(.thin);
+            computed.horizontal_sizes.border_start = .{ .px = width };
+            used.border_inline_start = length(.px, width);
+        },
+        .medium => {
+            const width = borderWidthPx(.medium);
+            computed.horizontal_sizes.border_start = .{ .px = width };
+            used.border_inline_start = length(.px, width);
+        },
+        .thick => {
+            const width = borderWidthPx(.thick);
+            computed.horizontal_sizes.border_start = .{ .px = width };
+            used.border_inline_start = length(.px, width);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.horizontal_sizes.padding_start) {
+        .px => |value| {
+            computed.horizontal_sizes.padding_start = .{ .px = value };
+            used.padding_inline_start = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.horizontal_sizes.padding_start = .{ .percentage = value };
+            used.padding_inline_start = try positivePercentage(value, context.percentage_base_unit);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.horizontal_sizes.margin_end) {
+        .px => |value| {
+            computed.horizontal_sizes.margin_end = .{ .px = value };
+            used.margin_inline_end = length(.px, value);
+        },
+        .percentage => |value| {
+            computed.horizontal_sizes.margin_end = .{ .percentage = value };
+            used.margin_inline_end = percentage(value, context.percentage_base_unit);
+        },
+        .auto => {
+            computed.horizontal_sizes.margin_end = .auto;
+            used.margin_inline_end = 0;
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.horizontal_sizes.border_end) {
+        .px => |value| {
+            computed.horizontal_sizes.border_end = .{ .px = value };
+            used.border_inline_end = try positiveLength(.px, value);
+        },
+        .thin => {
+            const width = borderWidthPx(.thin);
+            computed.horizontal_sizes.border_end = .{ .px = width };
+            used.border_inline_end = length(.px, width);
+        },
+        .medium => {
+            const width = borderWidthPx(.medium);
+            computed.horizontal_sizes.border_end = .{ .px = width };
+            used.border_inline_end = length(.px, width);
+        },
+        .thick => {
+            const width = borderWidthPx(.thick);
+            computed.horizontal_sizes.border_end = .{ .px = width };
+            used.border_inline_end = length(.px, width);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.horizontal_sizes.padding_end) {
+        .px => |value| {
+            computed.horizontal_sizes.padding_end = .{ .px = value };
+            used.padding_inline_end = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.horizontal_sizes.padding_end = .{ .percentage = value };
+            used.padding_inline_end = try positivePercentage(value, context.percentage_base_unit);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
 
-    values.inline_start.items[used_id] = .{ .border = border_inline_start, .padding = padding_inline_start, .border_color_rgba = border_inline_start_color };
-    values.inline_end.items[used_id] = .{ .border = border_inline_end, .padding = padding_inline_end, .border_color_rgba = border_inline_end_color };
-    values.block_start.items[used_id] = .{ .border = border_block_start, .padding = padding_block_start, .border_color_rgba = border_block_start_color };
-    values.block_end.items[used_id] = .{ .border = border_block_end, .padding = padding_block_end, .border_color_rgba = border_block_end_color };
-    values.margins.items[used_id] = .{ .start = margin_inline_start, .end = margin_inline_end };
-    values.background1.items[used_id] = solveBackground1(specified.background1, current_color);
+    switch (specified.vertical_sizes.border_start) {
+        .px => |value| {
+            computed.vertical_sizes.border_start = .{ .px = value };
+            used.border_block_start = try positiveLength(.px, value);
+        },
+        .thin => {
+            const width = borderWidthPx(.thin);
+            computed.vertical_sizes.border_start = .{ .px = width };
+            used.border_block_start = length(.px, width);
+        },
+        .medium => {
+            const width = borderWidthPx(.medium);
+            computed.vertical_sizes.border_start = .{ .px = width };
+            used.border_block_start = length(.px, width);
+        },
+        .thick => {
+            const width = borderWidthPx(.thick);
+            computed.vertical_sizes.border_start = .{ .px = width };
+            used.border_block_start = length(.px, width);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.vertical_sizes.padding_start) {
+        .px => |value| {
+            computed.vertical_sizes.padding_start = .{ .px = value };
+            used.padding_block_start = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.vertical_sizes.padding_start = .{ .percentage = value };
+            used.padding_block_start = try positivePercentage(value, context.percentage_base_unit);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.vertical_sizes.border_end) {
+        .px => |value| {
+            computed.vertical_sizes.border_end = .{ .px = value };
+            used.border_block_end = try positiveLength(.px, value);
+        },
+        .thin => {
+            const width = borderWidthPx(.thin);
+            computed.vertical_sizes.border_end = .{ .px = width };
+            used.border_block_end = length(.px, width);
+        },
+        .medium => {
+            const width = borderWidthPx(.medium);
+            computed.vertical_sizes.border_end = .{ .px = width };
+            used.border_block_end = length(.px, width);
+        },
+        .thick => {
+            const width = borderWidthPx(.thick);
+            computed.vertical_sizes.border_end = .{ .px = width };
+            used.border_block_end = length(.px, width);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+    switch (specified.vertical_sizes.padding_end) {
+        .px => |value| {
+            computed.vertical_sizes.padding_end = .{ .px = value };
+            used.padding_block_end = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.vertical_sizes.padding_end = .{ .percentage = value };
+            used.padding_block_end = try positivePercentage(value, context.percentage_base_unit);
+        },
+        .initial, .inherit, .unset => unreachable,
+    }
+
+    computed.vertical_sizes.margin_start = specified.vertical_sizes.margin_start;
+    computed.vertical_sizes.margin_end = specified.vertical_sizes.margin_end;
+
+    context.inputs.setComputedValue(.horizontal_sizes, computed.horizontal_sizes);
+    context.inputs.setComputedValue(.vertical_sizes, computed.vertical_sizes);
+
+    values.inline_start.items[used_id] = .{ .border = used.border_inline_start, .padding = used.padding_inline_start };
+    values.inline_end.items[used_id] = .{ .border = used.border_inline_end, .padding = used.padding_inline_end };
+    values.block_start.items[used_id] = .{ .border = used.border_block_start, .padding = used.padding_block_start };
+    values.block_end.items[used_id] = .{ .border = used.border_block_end, .padding = used.padding_block_end };
+    values.margins.items[used_id] = .{ .start = used.margin_inline_start, .end = used.margin_inline_end };
 }
 
+fn inlineValuesSolveMetrics(doc: *Document, values: *InlineLevelUsedValues) void {
+    const num_glyphs = values.glyph_indeces.items.len;
+    var i: usize = 0;
+    while (i < num_glyphs) : (i += 1) {
+        const glyph_index = values.glyph_indeces.items[i];
+        const metrics = &values.metrics.items[i];
+
+        if (glyph_index == 0) {
+            i += 1;
+            const special = InlineLevelUsedValues.Special.decode(values.glyph_indeces.items[i]);
+            const kind = @intToEnum(InlineLevelUsedValues.Special.LayoutInternalKind, @enumToInt(special.kind));
+            switch (kind) {
+                .ZeroGlyphIndex => setMetricsGlyph(metrics, values.font, 0),
+                .BoxStart => {
+                    const used_id = special.data;
+                    setMetricsBoxStart(metrics, values, used_id);
+                },
+                .BoxEnd => {
+                    const used_id = special.data;
+                    setMetricsBoxEnd(metrics, values, used_id);
+                },
+                .InlineBlock => {
+                    const used_id = special.data;
+                    setMetricsInlineBlock(metrics, doc, used_id);
+                },
+                .LineBreak => setMetricsLineBreak(metrics),
+                .ContinuationBlock => @panic("TODO Continuation block metrics"),
+            }
+        } else {
+            setMetricsGlyph(metrics, values.font, glyph_index);
+        }
+    }
+}
 fn setMetricsGlyph(metrics: *InlineLevelUsedValues.Metrics, font: *hb.hb_font_t, glyph_index: GlyphIndex) void {
     var extents: hb.hb_glyph_extents_t = undefined;
     const extents_result = hb.hb_font_get_glyph_extents(font, glyph_index, &extents);
@@ -2418,6 +2563,38 @@ fn splitIntoLineBoxes(doc: *Document, values: *InlineLevelUsedValues, containing
     }
 
     return result;
+}
+
+fn solveDisplayPositionFloat(specified: ValueTree.DisplayPositionFloat, root: bool) ValueTree.DisplayPositionFloat {
+    var computed: ValueTree.DisplayPositionFloat = .{
+        .display = undefined,
+        .position = specified.position,
+        .float = specified.float,
+    };
+    if (specified.display == .none) {
+        computed.display = .none;
+    } else if (specified.position == .absolute or specified.position == .fixed) {
+        computed.display = @"CSS2.2Section9.7Table"(specified.display);
+        computed.float = .none;
+    } else if (specified.float != .none) {
+        computed.display = @"CSS2.2Section9.7Table"(specified.display);
+    } else if (root) {
+        // TODO: There should be a slightly different version of this function for the root element. (See rule 4 of secion 9.7)
+        computed.display = @"CSS2.2Section9.7Table"(specified.display);
+    } else {
+        computed.display = specified.display;
+    }
+    return computed;
+}
+
+/// Given a specified value for 'display', returns the computed value according to the table found in section 9.7 of CSS2.2.
+fn @"CSS2.2Section9.7Table"(display: zss.value.Display) zss.value.Display {
+    // TODO: This is incomplete, fill in the rest when more values of the 'display' property are supported.
+    // TODO: There should be a slightly different version of this switch table for the root element. (See rule 4 of secion 9.7)
+    return switch (display) {
+        .inline_, .inline_block, .text => .block,
+        else => display,
+    };
 }
 
 fn solveBorderColors(border_colors: ValueTree.BorderColors, current_color: u32) used_values.BorderColor {
