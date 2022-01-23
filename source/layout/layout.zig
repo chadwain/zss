@@ -14,7 +14,6 @@ const ElementIndex = ElementTree.Index;
 const BoxTree = zss.BoxTree;
 const BoxId = BoxTree.BoxId;
 const root_box_id = BoxTree.root_box_id;
-const reserved_box_id = BoxTree.reserved_box_id;
 const maximum_box_id = BoxTree.maximum_box_id;
 
 const used_values = @import("./used_values.zig");
@@ -117,16 +116,12 @@ fn clampSize(size: ZssUnit, min_size: ZssUnit, max_size: ZssUnit) ZssUnit {
 
 const BorderThickness = enum { thin, medium, thick };
 
-fn borderWidthPx(comptime thickness: BorderThickness) f32 {
+fn borderWidth(comptime thickness: BorderThickness) f32 {
     return switch (thickness) {
         .thin => 1,
         .medium => 3,
         .thick => 5,
     };
-}
-
-fn borderWidth(comptime thickness: BorderThickness) ZssUnit {
-    return length(.px, thickness);
 }
 
 fn color(col: zss.value.Color, current_color: used_values.Color) used_values.Color {
@@ -137,7 +132,7 @@ fn color(col: zss.value.Color, current_color: used_values.Color) used_values.Col
     };
 }
 
-fn colorProperty(col: zss.value.Color) used_values.Color {
+fn getCurrentColor(col: zss.value.Color) used_values.Color {
     return switch (col) {
         .rgba => |rgba| rgba,
         .current_color => unreachable,
@@ -266,6 +261,15 @@ const BoxGenComptutedValueFlags = struct {
     z_index: bool = false,
 };
 
+const BoxGenFlagsStack = struct {
+    box_style: ArrayListUnmanaged(bool) = .{},
+    widths: ArrayListUnmanaged(bool) = .{},
+    horizontal_sizes: ArrayListUnmanaged(bool) = .{},
+    heights: ArrayListUnmanaged(bool) = .{},
+    vertical_sizes: ArrayListUnmanaged(bool) = .{},
+    z_index: ArrayListUnmanaged(bool) = .{},
+};
+
 const CosmeticSeekers = struct {
     const fields = std.meta.fields(ValueTree.Values);
     const Enum = std.meta.FieldEnum(ValueTree.Values);
@@ -305,6 +309,13 @@ const CosmeticComptutedValueFlags = struct {
     color: bool = false,
 };
 
+const CosmeticFlagsStack = struct {
+    border_colors: ArrayListUnmanaged(bool) = .{},
+    background1: ArrayListUnmanaged(bool) = .{},
+    background2: ArrayListUnmanaged(bool) = .{},
+    color: ArrayListUnmanaged(bool) = .{},
+};
+
 const ThisElement = struct {
     element: ElementIndex = undefined,
     all: ?zss.value.All = undefined,
@@ -334,14 +345,14 @@ const Inputs = struct {
             current_values: BoxGenCurrentValues = undefined,
             current_flags: BoxGenComptutedValueFlags = .{},
             value_stack: BoxGenComputedValueStack = .{},
-            flags_stack: ArrayListUnmanaged(BoxGenComptutedValueFlags) = .{},
+            flags_stack: BoxGenFlagsStack = .{},
         },
         cosmetic: struct {
             seekers: CosmeticSeekers,
             current_values: CosmeticCurrentValues = undefined,
             current_flags: CosmeticComptutedValueFlags = .{},
             value_stack: CosmeticComputedValueStack = .{},
-            flags_stack: ArrayListUnmanaged(CosmeticComptutedValueFlags) = .{},
+            flags_stack: CosmeticFlagsStack = .{},
         },
     },
     current_stage: Stage,
@@ -362,16 +373,16 @@ const Inputs = struct {
         assert(self.current_stage == stage);
         assert(self.element_stack.items.len == 0);
         const current_stage = &@field(self.stage, @tagName(stage));
-        assert(current_stage.flags_stack.items.len == 0);
         inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
+            assert(@field(current_stage.flags_stack, field_info.name).items.len == 0);
             assert(@field(current_stage.value_stack, field_info.name).items.len == 0);
         }
     }
 
     fn deinitStage(self: *Self, comptime stage: Stage) void {
         const current_stage = &@field(self.stage, @tagName(stage));
-        current_stage.flags_stack.deinit(self.allocator);
         inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
+            @field(current_stage.flags_stack, field_info.name).deinit(self.allocator);
             @field(current_stage.value_stack, field_info.name).deinit(self.allocator);
         }
     }
@@ -409,9 +420,10 @@ const Inputs = struct {
         const values = current_stage.current_values;
         const flags = current_stage.current_flags;
 
-        try current_stage.flags_stack.append(self.allocator, flags);
         inline for (std.meta.fields(@TypeOf(flags))) |field_info| {
-            if (@field(flags, field_info.name)) {
+            const flag = @field(flags, field_info.name);
+            try @field(current_stage.flags_stack, field_info.name).append(self.allocator, flag);
+            if (flag) {
                 const value = @field(values, field_info.name);
                 try @field(current_stage.value_stack, field_info.name).append(self.allocator, value);
             }
@@ -423,10 +435,10 @@ const Inputs = struct {
         self.element_stack.shrinkRetainingCapacity(self.element_stack.items.len - 1);
 
         const current_stage = &@field(self.stage, @tagName(stage));
-        const flags = current_stage.flags_stack.pop();
 
-        inline for (std.meta.fields(@TypeOf(flags))) |field_info| {
-            if (@field(flags, field_info.name)) {
+        inline for (std.meta.fields(@TypeOf(current_stage.flags_stack))) |field_info| {
+            const flag = @field(current_stage.flags_stack, field_info.name).pop();
+            if (flag) {
                 _ = @field(current_stage.value_stack, field_info.name).pop();
             }
         }
@@ -438,35 +450,119 @@ const Inputs = struct {
         const fields = std.meta.fields(Value);
         const inheritance_type = comptime property.inheritanceType();
 
-        var result: Value = undefined;
-        switch (getCascadedValue(self, stage, property)) {
-            .value => |value| result = value,
-            // TODO: Just copy the inherited value and return
-            .all_inherit => result = comptime blk: {
-                var v: Value = undefined;
-                inline for (fields) |field_info| {
-                    @field(v, field_info.name) = .inherit;
+        switch (inheritance_type) {
+            .inherited => {
+                const cascaded_value = getCascadedValue(self, stage, property);
+                if (cascaded_value == .all_initial) return Value{};
+
+                if (cascaded_value == .all_inherit) {
+                    return initInheritedValue(self, stage, property);
                 }
-                break :blk v;
+
+                var inherited_value: ?Value = null;
+                var result: Value = cascaded_value.value;
+                inline for (fields) |field_info| {
+                    const sub_property = &@field(result, field_info.name);
+                    switch (sub_property.*) {
+                        .inherit, .unset => {
+                            if (inherited_value == null) inherited_value = initInheritedValue(self, stage, property);
+                            sub_property.* = @field(inherited_value.?, field_info.name);
+                        },
+                        .initial => sub_property.* = field_info.default_value.?,
+                        else => {},
+                    }
+                }
+
+                return result;
             },
+            .not_inherited => {
+                const cascaded_value = getCascadedValue(self, stage, property);
+                if (cascaded_value == .all_initial) return Value{};
+
+                const current_stage = @field(self.stage, @tagName(stage));
+                const inherited_value = getInheritedValueOfNonInheritedProperty(
+                    property,
+                    @field(current_stage.flags_stack, @tagName(property)).items,
+                    @field(current_stage.value_stack, @tagName(property)).items,
+                );
+                if (cascaded_value == .all_inherit) return inherited_value.*;
+
+                var result: Value = cascaded_value.value;
+                inline for (fields) |field_info| {
+                    const sub_property = &@field(result, field_info.name);
+                    switch (sub_property.*) {
+                        .inherit => sub_property.* = @field(inherited_value, field_info.name),
+                        .initial, .unset => sub_property.* = field_info.default_value.?,
+                        else => {},
+                    }
+                }
+
+                return result;
+            },
+            .neither => @compileError("Cannot get specified value of '" ++ @tagName(property) ++ "'"),
+        }
+    }
+
+    fn initInheritedValue(self: *Self, comptime stage: Stage, comptime property: ValueTree.AggregatePropertyEnum) property.Value() {
+        const inheritance_type = comptime property.inheritanceType();
+        comptime assert(inheritance_type == .inherited);
+
+        const current_stage = @field(self.stage, @tagName(stage));
+        return getInheritedValueOfInheritedProperty(
+            property,
+            @field(current_stage.flags_stack, @tagName(property)).items,
+            @field(current_stage.value_stack, @tagName(property)).items,
+        );
+    }
+
+    fn getInheritedValueOfNonInheritedProperty(
+        comptime property: ValueTree.AggregatePropertyEnum,
+        flags_stack: []const bool,
+        value_stack: []const property.Value(),
+    ) *const property.Value() {
+        const Value = property.Value();
+        const inheritance_type = comptime property.inheritanceType();
+        comptime assert(inheritance_type == .not_inherited);
+
+        if (flags_stack.len > 0 and flags_stack[flags_stack.len - 1]) {
+            return &value_stack[value_stack.len - 1];
+        } else {
+            const static = struct {
+                const default_value = Value{};
+            };
+            return &static.default_value;
+        }
+    }
+
+    fn getInheritedValueOfInheritedProperty(
+        comptime property: ValueTree.AggregatePropertyEnum,
+        flags_stack: []const bool,
+        value_stack: []const property.Value(),
+    ) property.Value() {
+        const Value = property.Value();
+        switch (findInheritableValueOfInheritedProperty(flags_stack)) {
+            .last_stack_item => return value_stack[value_stack.len - 1],
             .all_initial => return Value{},
+            .index_of_inheritable_element_from_end => @panic("TODO: Get inherited value of inherited property"),
         }
+    }
 
-        inline for (fields) |field_info| {
-            const sub_property = &@field(result, field_info.name);
-            switch (sub_property.*) {
-                .inherit => @panic("TODO: Get specified value via inheritance"),
-                .initial => sub_property.* = field_info.default_value.?,
-                .unset => switch (inheritance_type) {
-                    .inherited => @panic("TODO: Get specified value via inheritance"),
-                    .not_inherited => sub_property.* = field_info.default_value.?,
-                    .neither => unreachable,
-                },
-                else => {},
-            }
+    fn findInheritableValueOfInheritedProperty(
+        flags_stack: []const bool,
+    ) union(enum) {
+        last_stack_item,
+        all_initial,
+        index_of_inheritable_element_from_end: usize,
+    } {
+        if (flags_stack.len == 0) return .all_initial;
+        if (flags_stack[flags_stack.len - 1]) return .last_stack_item;
+
+        var index_of_inheritable_element_from_end: usize = 1;
+        while (index_of_inheritable_element_from_end < flags_stack.len) : (index_of_inheritable_element_from_end += 1) {
+            const flag = flags_stack[flags_stack.len - 1 - index_of_inheritable_element_from_end];
+            if (flag) break;
         }
-
-        return result;
+        return .{ .index_of_inheritable_element_from_end = index_of_inheritable_element_from_end };
     }
 
     fn getCascadedValue(
@@ -488,8 +584,8 @@ const Inputs = struct {
         }
 
         // Find the value using the cascaded value tree.
-        const seekers = &@field(self.stage, @tagName(stage)).seekers;
-        const seeker = &@field(seekers, @tagName(property));
+        const current_stage = &@field(self.stage, @tagName(stage));
+        const seeker = &@field(current_stage.seekers, @tagName(property));
         // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do seeking.
         if (seeker.seekBinary(self.this_element.element)) {
             const value = seeker.get();
@@ -537,7 +633,6 @@ const BlockLayoutContext = struct {
 
     metadata: ArrayListUnmanaged(Metadata) = .{},
     stacking_context_id: ArrayListUnmanaged(StackingContextId) = .{},
-    used_id_to_element_index: ArrayListUnmanaged(ElementIndex) = .{},
 
     intervals: ArrayListUnmanaged(Interval) = .{},
     used_id: ArrayListUnmanaged(UsedId) = .{},
@@ -564,7 +659,6 @@ const BlockLayoutContext = struct {
         self.used_id.deinit(self.inputs.allocator);
         self.used_subtree_size.deinit(self.inputs.allocator);
         self.stacking_context_id.deinit(self.inputs.allocator);
-        self.used_id_to_element_index.deinit(self.inputs.allocator);
         self.flow_block_used_logical_width.deinit(self.inputs.allocator);
         self.flow_block_auto_logical_height.deinit(self.inputs.allocator);
         self.flow_block_used_logical_heights.deinit(self.inputs.allocator);
@@ -665,7 +759,7 @@ fn createInitialContainingBlock(doc: *Document, context: *BlockLayoutContext) !v
     const width = context.inputs.viewport_size.w;
     const height = context.inputs.viewport_size.h;
 
-    const block = try createBlock(doc, context, reserved_box_id);
+    const block = try createBlock(doc);
     block.structure.* = undefined;
     block.properties.* = .{};
     block.box_offsets.* = .{
@@ -769,7 +863,7 @@ fn processFlowBlock(doc: *Document, context: *BlockLayoutContext, interval: *Int
     const skip = context.inputs.element_tree_skips[element];
     interval.begin += skip;
 
-    const block = try createBlock(doc, context, element);
+    const block = try createBlock(doc);
     context.inputs.element_index_to_box[element] = .{ .block_box = block.used_id };
 
     block.structure.* = undefined;
@@ -927,17 +1021,17 @@ fn flowBlockSolveInlineSizes(
             used.border_start = try positiveLength(.px, value);
         },
         .thin => {
-            const width = borderWidthPx(.thin);
+            const width = borderWidth(.thin);
             computed.horizontal_sizes.border_start = .{ .px = width };
             used.border_start = length(.px, width);
         },
         .medium => {
-            const width = borderWidthPx(.medium);
+            const width = borderWidth(.medium);
             computed.horizontal_sizes.border_start = .{ .px = width };
             used.border_start = length(.px, width);
         },
         .thick => {
-            const width = borderWidthPx(.thick);
+            const width = borderWidth(.thick);
             computed.horizontal_sizes.border_start = .{ .px = width };
             used.border_start = length(.px, width);
         },
@@ -949,17 +1043,17 @@ fn flowBlockSolveInlineSizes(
             used.border_end = try positiveLength(.px, value);
         },
         .thin => {
-            const width = borderWidthPx(.thin);
+            const width = borderWidth(.thin);
             computed.horizontal_sizes.border_end = .{ .px = width };
             used.border_end = length(.px, width);
         },
         .medium => {
-            const width = borderWidthPx(.medium);
+            const width = borderWidth(.medium);
             computed.horizontal_sizes.border_end = .{ .px = width };
             used.border_end = length(.px, width);
         },
         .thick => {
-            const width = borderWidthPx(.thick);
+            const width = borderWidth(.thick);
             computed.horizontal_sizes.border_end = .{ .px = width };
             used.border_end = length(.px, width);
         },
@@ -1153,17 +1247,17 @@ fn flowBlockSolveBlockSizesPart1(
             used.border_start = try positiveLength(.px, value);
         },
         .thin => {
-            const width = borderWidthPx(.thin);
+            const width = borderWidth(.thin);
             computed.vertical_sizes.border_start = .{ .px = width };
             used.border_start = length(.px, width);
         },
         .medium => {
-            const width = borderWidthPx(.medium);
+            const width = borderWidth(.medium);
             computed.vertical_sizes.border_start = .{ .px = width };
             used.border_start = length(.px, width);
         },
         .thick => {
-            const width = borderWidthPx(.thick);
+            const width = borderWidth(.thick);
             computed.vertical_sizes.border_start = .{ .px = width };
             used.border_start = length(.px, width);
         },
@@ -1175,17 +1269,17 @@ fn flowBlockSolveBlockSizesPart1(
             used.border_end = try positiveLength(.px, value);
         },
         .thin => {
-            const width = borderWidthPx(.thin);
+            const width = borderWidth(.thin);
             computed.vertical_sizes.border_end = .{ .px = width };
             used.border_end = length(.px, width);
         },
         .medium => {
-            const width = borderWidthPx(.medium);
+            const width = borderWidth(.medium);
             computed.vertical_sizes.border_end = .{ .px = width };
             used.border_end = length(.px, width);
         },
         .thick => {
-            const width = borderWidthPx(.thick);
+            const width = borderWidth(.thick);
             computed.vertical_sizes.border_end = .{ .px = width };
             used.border_end = length(.px, width);
         },
@@ -1631,7 +1725,7 @@ fn processInlineContainer(
     const used_logical_height = info.logical_height;
 
     // Create an "anonymous block box" to contain this inline formatting context.
-    const block = try createBlock(doc, context, reserved_box_id);
+    const block = try createBlock(doc);
     try context.inputs.anonymous_block_boxes.append(context.inputs.allocator, block.used_id);
 
     block.structure.* = inline_context.block_skip;
@@ -1974,10 +2068,8 @@ const Block = struct {
     properties: *BlockLevelUsedValues.BoxProperties,
 };
 
-fn createBlock(doc: *Document, context: *BlockLayoutContext, box_id: BoxId) !Block {
-    assert(doc.blocks.structure.items.len == context.used_id_to_element_index.items.len);
+fn createBlock(doc: *Document) !Block {
     const used_id = try std.math.cast(UsedId, doc.blocks.structure.items.len);
-    try context.used_id_to_element_index.append(context.inputs.allocator, box_id);
     return Block{
         .used_id = used_id,
         .structure = try doc.blocks.structure.addOne(doc.allocator),
@@ -1996,7 +2088,7 @@ fn blockBoxSolveOtherProperties(doc: *Document, inputs: *Inputs, used_id: UsedId
         .background1 = inputs.getSpecifiedValue(.cosmetic, .background1),
         .background2 = inputs.getSpecifiedValue(.cosmetic, .background2),
     };
-    const current_color = colorProperty(specified.color.color);
+    const current_color = getCurrentColor(specified.color.color);
 
     const box_offsets_ptr = &doc.blocks.box_offsets.items[used_id];
     const borders_ptr = &doc.blocks.borders.items[used_id];
@@ -2023,7 +2115,7 @@ fn inlineBoxSolveOtherProperties(values: *InlineLevelUsedValues, inputs: *Inputs
         .border_colors = inputs.getSpecifiedValue(.cosmetic, .border_colors),
         .background1 = inputs.getSpecifiedValue(.cosmetic, .background1),
     };
-    const current_color = colorProperty(specified.color.color);
+    const current_color = getCurrentColor(specified.color.color);
 
     const border_colors = solveBorderColors(specified.border_colors, current_color);
     values.inline_start.items[used_id].border_color_rgba = border_colors.inline_start_rgba;
@@ -2145,7 +2237,7 @@ fn createInlineLevelUsedValues(doc: *Document, context: *InlineLayoutContext, va
     const root_interval = context.root_interval;
 
     values.font = context.inputs.font.font;
-    values.font_color_rgba = colorProperty(context.inputs.font.color);
+    values.font_color_rgba = getCurrentColor(context.inputs.font.color);
     values.ensureTotalCapacity(doc.allocator, root_interval.end - root_interval.begin + 1) catch {};
 
     try inlineLevelRootElementPush(doc, context, values);
@@ -2350,10 +2442,10 @@ fn inlineValuesFinishLayout(doc: *Document, context: *BlockLayoutContext, contai
     try values.background1.resize(doc.allocator, num_boxes);
 
     values.font = context.inputs.font.font;
-    values.font_color_rgba = colorProperty(context.inputs.font.color);
+    values.font_color_rgba = getCurrentColor(context.inputs.font.color);
 
     // Set the used values for all inline boxes
-    assert(container.used_id_to_element_index[0] == reserved_box_id);
+    assert(container.used_id_to_element_index[0] == 420);
     setRootInlineBoxUsedData(values, 0);
     for (container.used_id_to_element_index[1..]) |box_id, used_id| {
         try setInlineBoxUsedData(context, values, box_id, @intCast(UsedId, used_id + 1), percentage_base_unit);
@@ -2448,17 +2540,17 @@ fn setInlineBoxUsedData(context: *InlineLayoutContext, values: *InlineLevelUsedV
             used.border_inline_start = try positiveLength(.px, value);
         },
         .thin => {
-            const width = borderWidthPx(.thin);
+            const width = borderWidth(.thin);
             computed.horizontal_sizes.border_start = .{ .px = width };
             used.border_inline_start = length(.px, width);
         },
         .medium => {
-            const width = borderWidthPx(.medium);
+            const width = borderWidth(.medium);
             computed.horizontal_sizes.border_start = .{ .px = width };
             used.border_inline_start = length(.px, width);
         },
         .thick => {
-            const width = borderWidthPx(.thick);
+            const width = borderWidth(.thick);
             computed.horizontal_sizes.border_start = .{ .px = width };
             used.border_inline_start = length(.px, width);
         },
@@ -2496,17 +2588,17 @@ fn setInlineBoxUsedData(context: *InlineLayoutContext, values: *InlineLevelUsedV
             used.border_inline_end = try positiveLength(.px, value);
         },
         .thin => {
-            const width = borderWidthPx(.thin);
+            const width = borderWidth(.thin);
             computed.horizontal_sizes.border_end = .{ .px = width };
             used.border_inline_end = length(.px, width);
         },
         .medium => {
-            const width = borderWidthPx(.medium);
+            const width = borderWidth(.medium);
             computed.horizontal_sizes.border_end = .{ .px = width };
             used.border_inline_end = length(.px, width);
         },
         .thick => {
-            const width = borderWidthPx(.thick);
+            const width = borderWidth(.thick);
             computed.horizontal_sizes.border_end = .{ .px = width };
             used.border_inline_end = length(.px, width);
         },
@@ -2530,17 +2622,17 @@ fn setInlineBoxUsedData(context: *InlineLayoutContext, values: *InlineLevelUsedV
             used.border_block_start = try positiveLength(.px, value);
         },
         .thin => {
-            const width = borderWidthPx(.thin);
+            const width = borderWidth(.thin);
             computed.vertical_sizes.border_start = .{ .px = width };
             used.border_block_start = length(.px, width);
         },
         .medium => {
-            const width = borderWidthPx(.medium);
+            const width = borderWidth(.medium);
             computed.vertical_sizes.border_start = .{ .px = width };
             used.border_block_start = length(.px, width);
         },
         .thick => {
-            const width = borderWidthPx(.thick);
+            const width = borderWidth(.thick);
             computed.vertical_sizes.border_start = .{ .px = width };
             used.border_block_start = length(.px, width);
         },
@@ -2563,17 +2655,17 @@ fn setInlineBoxUsedData(context: *InlineLayoutContext, values: *InlineLevelUsedV
             used.border_block_end = try positiveLength(.px, value);
         },
         .thin => {
-            const width = borderWidthPx(.thin);
+            const width = borderWidth(.thin);
             computed.vertical_sizes.border_end = .{ .px = width };
             used.border_block_end = length(.px, width);
         },
         .medium => {
-            const width = borderWidthPx(.medium);
+            const width = borderWidth(.medium);
             computed.vertical_sizes.border_end = .{ .px = width };
             used.border_block_end = length(.px, width);
         },
         .thick => {
-            const width = borderWidthPx(.thick);
+            const width = borderWidth(.thick);
             computed.vertical_sizes.border_end = .{ .px = width };
             used.border_block_end = length(.px, width);
         },

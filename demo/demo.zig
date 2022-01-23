@@ -224,7 +224,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         } },
         .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
     });
-    v.color.insertAssumeCapacity(root, skips, .{});
+    v.color.insertAssumeCapacity(root, skips, .{ .color = .inherit });
 
     // Large element with display: none
     v.box_style.insertAssumeCapacity(root_0, skips, .{ .display = .none });
@@ -272,7 +272,9 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     // Footer block
     v.box_style.insertAssumeCapacity(root_3, skips, .{ .display = .block });
     v.heights.insertAssumeCapacity(root_3, skips, .{ .size = .{ .px = 50 } });
-    v.vertical_sizes.insertAssumeCapacity(root_3, skips, .{ .margin_start = .{ .px = 10 } });
+    v.horizontal_sizes.insertAssumeCapacity(root_3, skips, .{ .border_start = .inherit, .border_end = .inherit });
+    v.vertical_sizes.insertAssumeCapacity(root_3, skips, .{ .margin_start = .{ .px = 10 }, .border_start = .inherit, .border_end = .inherit });
+    v.border_colors.insertAssumeCapacity(root_3, skips, .{ .top = root_border_color, .right = root_border_color, .bottom = root_border_color, .left = root_border_color });
     v.color.insertAssumeCapacity(root_3, skips, .{});
     v.background2.insertAssumeCapacity(root_3, skips, .{
         .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(zig_png) },
