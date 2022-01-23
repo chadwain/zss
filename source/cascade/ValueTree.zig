@@ -67,8 +67,8 @@ pub const AggregatePropertyEnum = enum {
 };
 
 pub const Values = struct {
-    all: SparseSkipTree(Index, struct { all: value.All }) = .{},
-    text: SparseSkipTree(Index, struct { text: value.Text }) = .{},
+    all: SparseSkipTree(Index, All) = .{},
+    text: SparseSkipTree(Index, Text) = .{},
 
     box_style: SparseSkipTree(Index, BoxStyle) = .{},
 
@@ -102,6 +102,14 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
         @field(self.values, f.name).deinit(allocator);
     }
 }
+
+pub const All = struct {
+    all: value.All,
+};
+
+pub const Text = struct {
+    text: value.Text,
+};
 
 pub const BoxStyle = struct {
     display: value.Display = .inline_,

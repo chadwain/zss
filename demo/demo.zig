@@ -224,7 +224,6 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         } },
         .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
     });
-    v.color.insertAssumeCapacity(root, skips, .{ .color = .inherit });
 
     // Large element with display: none
     v.box_style.insertAssumeCapacity(root_0, skips, .{ .display = .none });
@@ -236,35 +235,29 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     v.vertical_sizes.insertAssumeCapacity(root_1, skips, .{ .border_end = .{ .px = 2 }, .margin_end = .{ .px = 24 } });
     v.z_index.insertAssumeCapacity(root_1, skips, .{ .z_index = .{ .integer = -1 } });
     v.border_colors.insertAssumeCapacity(root_1, skips, .{ .bottom = .{ .rgba = 0x202020ff } });
-    v.color.insertAssumeCapacity(root_1, skips, .{});
 
     // Title inline box
     v.box_style.insertAssumeCapacity(root_1_0, skips, .{ .display = .inline_ });
     v.horizontal_sizes.insertAssumeCapacity(root_1_0, skips, .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } });
     v.vertical_sizes.insertAssumeCapacity(root_1_0, skips, .{ .padding_end = .{ .px = 5 } });
-    v.color.insertAssumeCapacity(root_1_0, skips, .{});
     v.background1.insertAssumeCapacity(root_1_0, skips, .{ .color = .{ .rgba = 0xfa58007f } });
 
     // Title text
     v.box_style.insertAssumeCapacity(root_1_0_0, skips, .{ .display = .text });
     v.text.insertAssumeCapacity(root_1_0_0, skips, .{ .text = args.filename });
-    v.color.insertAssumeCapacity(root_1_0_0, skips, .{});
 
     //v.box_style.insertAssumeCapacity(root_1_0, skips, .{ .display = .none });
     //v.box_style.insertAssumeCapacity(root_1_0_0, skips, .{ .display = .none });
 
     // Body block box
     v.box_style.insertAssumeCapacity(root_2, skips, .{ .display = .block, .position = .relative });
-    v.color.insertAssumeCapacity(root_2, skips, .{});
 
     // Body inline box
     v.box_style.insertAssumeCapacity(root_2_0, skips, .{ .display = .inline_ });
-    v.color.insertAssumeCapacity(root_2_0, skips, .{});
 
     // Body text
     v.box_style.insertAssumeCapacity(root_2_0_0, skips, .{ .display = .text });
     v.text.insertAssumeCapacity(root_2_0_0, skips, .{ .text = bytes });
-    v.color.insertAssumeCapacity(root_2_0_0, skips, .{});
 
     //v.box_style.insertAssumeCapacity(root_2_0, skips, .{ .display = .none });
     //v.box_style.insertAssumeCapacity(root_2_0_0, skips, .{ .display = .none });
@@ -275,7 +268,6 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     v.horizontal_sizes.insertAssumeCapacity(root_3, skips, .{ .border_start = .inherit, .border_end = .inherit });
     v.vertical_sizes.insertAssumeCapacity(root_3, skips, .{ .margin_start = .{ .px = 10 }, .border_start = .inherit, .border_end = .inherit });
     v.border_colors.insertAssumeCapacity(root_3, skips, .{ .top = root_border_color, .right = root_border_color, .bottom = root_border_color, .left = root_border_color });
-    v.color.insertAssumeCapacity(root_3, skips, .{});
     v.background2.insertAssumeCapacity(root_3, skips, .{
         .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(zig_png) },
         .position = .{ .position = .{

@@ -388,19 +388,15 @@ const Inputs = struct {
     }
 
     fn setElement(self: *Self, comptime stage: Stage, element: ElementIndex) void {
-        self.this_element = .{ .element = element };
+        self.this_element = .{
+            .element = element,
+            .all = if (self.seekers.all.getBinary(element)) |value| value.all else null,
+        };
 
         assert(self.current_stage == stage);
         const current_stage = &@field(self.stage, @tagName(stage));
         current_stage.current_flags = .{};
         current_stage.current_values = undefined;
-
-        const all_seeker = &self.seekers.all;
-        if (all_seeker.seekBinary(element)) {
-            self.this_element.all = all_seeker.get().all;
-        } else {
-            self.this_element.all = null;
-        }
     }
 
     fn setComputedValue(self: *Self, comptime stage: Stage, comptime property: ValueTree.AggregatePropertyEnum, value: property.Value()) void {
@@ -444,7 +440,15 @@ const Inputs = struct {
         }
     }
 
-    fn getSpecifiedValue(self: *Self, comptime stage: Stage, comptime property: ValueTree.AggregatePropertyEnum) property.Value() {
+    fn getSpecifiedValue(
+        self: *Self,
+        comptime stage: Stage,
+        comptime property: ValueTree.AggregatePropertyEnum,
+    ) switch (property.inheritanceType()) {
+        .inherited => Allocator.Error!property.Value(),
+        .not_inherited => property.Value(),
+        .neither => @compileError("Cannot get specified value of '" ++ @tagName(property) ++ "'"),
+    } {
         assert(self.current_stage == stage);
         const Value = property.Value();
         const fields = std.meta.fields(Value);
@@ -455,17 +459,18 @@ const Inputs = struct {
                 const cascaded_value = getCascadedValue(self, stage, property);
                 if (cascaded_value == .all_initial) return Value{};
 
+                var inherited_value: ?*const Value = null;
                 if (cascaded_value == .all_inherit) {
-                    return initInheritedValue(self, stage, property);
+                    inherited_value = try initInheritedValue(self, stage, property);
+                    return inherited_value.?.*;
                 }
 
-                var inherited_value: ?Value = null;
                 var result: Value = cascaded_value.value;
                 inline for (fields) |field_info| {
                     const sub_property = &@field(result, field_info.name);
                     switch (sub_property.*) {
                         .inherit, .unset => {
-                            if (inherited_value == null) inherited_value = initInheritedValue(self, stage, property);
+                            if (inherited_value == null) inherited_value = try initInheritedValue(self, stage, property);
                             sub_property.* = @field(inherited_value.?, field_info.name);
                         },
                         .initial => sub_property.* = field_info.default_value.?,
@@ -499,19 +504,22 @@ const Inputs = struct {
 
                 return result;
             },
-            .neither => @compileError("Cannot get specified value of '" ++ @tagName(property) ++ "'"),
+            .neither => unreachable,
         }
     }
 
-    fn initInheritedValue(self: *Self, comptime stage: Stage, comptime property: ValueTree.AggregatePropertyEnum) property.Value() {
+    fn initInheritedValue(self: *Self, comptime stage: Stage, comptime property: ValueTree.AggregatePropertyEnum) !*const property.Value() {
         const inheritance_type = comptime property.inheritanceType();
         comptime assert(inheritance_type == .inherited);
 
-        const current_stage = @field(self.stage, @tagName(stage));
+        const current_stage = &@field(self.stage, @tagName(stage));
         return getInheritedValueOfInheritedProperty(
             property,
+            self.element_stack.items,
+            @field(current_stage.seekers, @tagName(property)),
             @field(current_stage.flags_stack, @tagName(property)).items,
-            @field(current_stage.value_stack, @tagName(property)).items,
+            &@field(current_stage.value_stack, @tagName(property)),
+            self.allocator,
         );
     }
 
@@ -536,14 +544,53 @@ const Inputs = struct {
 
     fn getInheritedValueOfInheritedProperty(
         comptime property: ValueTree.AggregatePropertyEnum,
-        flags_stack: []const bool,
-        value_stack: []const property.Value(),
-    ) property.Value() {
+        element_stack: []const ElementIndex,
+        seeker: anytype,
+        flags_stack: []bool,
+        value_stack: *ArrayListUnmanaged(property.Value()),
+        allocator: Allocator,
+    ) !*const property.Value() {
         const Value = property.Value();
+        const fields = std.meta.fields(Value);
+        const static = struct {
+            const default_value = Value{};
+        };
+
         switch (findInheritableValueOfInheritedProperty(flags_stack)) {
-            .last_stack_item => return value_stack[value_stack.len - 1],
-            .all_initial => return Value{},
-            .index_of_inheritable_element_from_end => @panic("TODO: Get inherited value of inherited property"),
+            .last_stack_item => return &value_stack.items[value_stack.items.len - 1],
+            .all_initial => return &static.default_value,
+            .index_of_inheritable_element_from_end => |index| {
+                var i: usize = value_stack.items.len;
+                try value_stack.resize(allocator, i + index);
+
+                const make_these_true = if (index == flags_stack.len) flags_stack else flags_stack[flags_stack.len - 1 - index ..];
+                std.mem.set(bool, make_these_true, true);
+
+                var inherited_value = if (index == flags_stack.len) &static.default_value else &value_stack.items[i - 1];
+                var element_stack_index = element_stack.len - index;
+                while (i < value_stack.items.len) : ({
+                    i += 1;
+                    element_stack_index += 1;
+                }) {
+                    const computed_value = &value_stack.items[i];
+                    const element = element_stack[element_stack_index];
+                    if (seeker.getBinary(element)) |cascaded_value| {
+                        inline for (fields) |field_info| {
+                            const sub_property = @field(cascaded_value, field_info.name);
+                            @field(computed_value, field_info.name) = switch (sub_property) {
+                                .inherit, .unset => @field(inherited_value, field_info.name),
+                                .initial => @field(static.default_value, field_info.name),
+                                else => |value| value,
+                            };
+                        }
+                    } else {
+                        computed_value.* = inherited_value.*;
+                    }
+                    inherited_value = computed_value;
+                }
+
+                return inherited_value;
+            },
         }
     }
 
@@ -587,8 +634,7 @@ const Inputs = struct {
         const current_stage = &@field(self.stage, @tagName(stage));
         const seeker = &@field(current_stage.seekers, @tagName(property));
         // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do seeking.
-        if (seeker.seekBinary(self.this_element.element)) {
-            const value = seeker.get();
+        if (seeker.getBinary(self.this_element.element)) |value| {
             if (property == .color) {
                 // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
                 comptime assert(fields.len == 1);
@@ -617,12 +663,7 @@ const Inputs = struct {
     }
 
     fn getText(self: *Self) zss.value.Text {
-        const seeker = &self.seekers.text;
-        if (seeker.seekBinary(self.this_element.element)) {
-            return seeker.get().text;
-        } else {
-            return "";
-        }
+        return if (self.seekers.text.getBinary(self.this_element.element)) |value| value.text else "";
     }
 };
 
@@ -734,7 +775,7 @@ fn doCosmeticLayout(doc: *Document, inputs: *Inputs) !void {
                 .block_box => |used_id| try blockBoxSolveOtherProperties(doc, inputs, used_id),
                 .inline_box => |box_spec| {
                     const inline_values = doc.inlines.items[box_spec.inline_id];
-                    inlineBoxSolveOtherProperties(inline_values, inputs, box_spec.used_id);
+                    try inlineBoxSolveOtherProperties(inline_values, inputs, box_spec.used_id);
                 },
             }
 
@@ -2083,7 +2124,7 @@ fn createBlock(doc: *Document) !Block {
 fn blockBoxSolveOtherProperties(doc: *Document, inputs: *Inputs, used_id: UsedId) !void {
     // TODO: Set the computed values for the element
     const specified = .{
-        .color = inputs.getSpecifiedValue(.cosmetic, .color),
+        .color = try inputs.getSpecifiedValue(.cosmetic, .color),
         .border_colors = inputs.getSpecifiedValue(.cosmetic, .border_colors),
         .background1 = inputs.getSpecifiedValue(.cosmetic, .background1),
         .background2 = inputs.getSpecifiedValue(.cosmetic, .background2),
@@ -2108,10 +2149,10 @@ fn blockBoxFillOtherPropertiesWithDefaults(doc: *Document, used_id: UsedId) void
     doc.blocks.background2.items[used_id] = .{};
 }
 
-fn inlineBoxSolveOtherProperties(values: *InlineLevelUsedValues, inputs: *Inputs, used_id: UsedId) void {
+fn inlineBoxSolveOtherProperties(values: *InlineLevelUsedValues, inputs: *Inputs, used_id: UsedId) !void {
     // TODO: Set the computed values for the element
     const specified = .{
-        .color = inputs.getSpecifiedValue(.cosmetic, .color),
+        .color = try inputs.getSpecifiedValue(.cosmetic, .color),
         .border_colors = inputs.getSpecifiedValue(.cosmetic, .border_colors),
         .background1 = inputs.getSpecifiedValue(.cosmetic, .background1),
     };
