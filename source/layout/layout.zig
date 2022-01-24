@@ -453,17 +453,19 @@ const Inputs = struct {
         const Value = property.Value();
         const fields = std.meta.fields(Value);
         const inheritance_type = comptime property.inheritanceType();
+        const current_stage = @field(self.stage, @tagName(stage));
+        const seeker = @field(current_stage.seekers, @tagName(property));
+        const cascaded_value = getCascadedValue(property, self.this_element.element, seeker, self.this_element.all);
+        if (cascaded_value == .all_initial) return Value{};
 
         switch (inheritance_type) {
             .inherited => {
-                const cascaded_value = getCascadedValue(self, stage, property);
-                if (cascaded_value == .all_initial) return Value{};
-
-                var inherited_value: ?*const Value = null;
+                var inherited_value: ?*const Value = undefined;
                 if (cascaded_value == .all_inherit) {
                     inherited_value = try initInheritedValue(self, stage, property);
                     return inherited_value.?.*;
                 }
+                inherited_value = null;
 
                 var result: Value = cascaded_value.value;
                 inline for (fields) |field_info| {
@@ -481,10 +483,6 @@ const Inputs = struct {
                 return result;
             },
             .not_inherited => {
-                const cascaded_value = getCascadedValue(self, stage, property);
-                if (cascaded_value == .all_initial) return Value{};
-
-                const current_stage = @field(self.stage, @tagName(stage));
                 const inherited_value = getInheritedValueOfNonInheritedProperty(
                     property,
                     @field(current_stage.flags_stack, @tagName(property)).items,
@@ -508,21 +506,6 @@ const Inputs = struct {
         }
     }
 
-    fn initInheritedValue(self: *Self, comptime stage: Stage, comptime property: ValueTree.AggregatePropertyEnum) !*const property.Value() {
-        const inheritance_type = comptime property.inheritanceType();
-        comptime assert(inheritance_type == .inherited);
-
-        const current_stage = &@field(self.stage, @tagName(stage));
-        return getInheritedValueOfInheritedProperty(
-            property,
-            self.element_stack.items,
-            @field(current_stage.seekers, @tagName(property)),
-            @field(current_stage.flags_stack, @tagName(property)).items,
-            &@field(current_stage.value_stack, @tagName(property)),
-            self.allocator,
-        );
-    }
-
     fn getInheritedValueOfNonInheritedProperty(
         comptime property: ValueTree.AggregatePropertyEnum,
         flags_stack: []const bool,
@@ -542,13 +525,30 @@ const Inputs = struct {
         }
     }
 
-    fn getInheritedValueOfInheritedProperty(
+    fn initInheritedValue(
+        self: *Self,
+        comptime stage: Stage,
         comptime property: ValueTree.AggregatePropertyEnum,
-        element_stack: []const ElementIndex,
+    ) !*const property.Value() {
+        const inheritance_type = comptime property.inheritanceType();
+        comptime assert(inheritance_type == .inherited);
+
+        const current_stage = &@field(self.stage, @tagName(stage));
+        return getInheritedValueOfInheritedProperty(
+            self,
+            property,
+            @field(current_stage.seekers, @tagName(property)),
+            @field(current_stage.flags_stack, @tagName(property)).items,
+            &@field(current_stage.value_stack, @tagName(property)),
+        );
+    }
+
+    fn getInheritedValueOfInheritedProperty(
+        self: *Self,
+        comptime property: ValueTree.AggregatePropertyEnum,
         seeker: anytype,
         flags_stack: []bool,
         value_stack: *ArrayListUnmanaged(property.Value()),
-        allocator: Allocator,
     ) !*const property.Value() {
         const Value = property.Value();
         const fields = std.meta.fields(Value);
@@ -561,30 +561,34 @@ const Inputs = struct {
             .all_initial => return &static.default_value,
             .index_of_inheritable_element_from_end => |index| {
                 var i: usize = value_stack.items.len;
-                try value_stack.resize(allocator, i + index);
+                try value_stack.resize(self.allocator, i + index);
 
                 const make_these_true = if (index == flags_stack.len) flags_stack else flags_stack[flags_stack.len - 1 - index ..];
                 std.mem.set(bool, make_these_true, true);
 
                 var inherited_value = if (index == flags_stack.len) &static.default_value else &value_stack.items[i - 1];
-                var element_stack_index = element_stack.len - index;
+                var element_stack_index = self.element_stack.items.len - index;
                 while (i < value_stack.items.len) : ({
                     i += 1;
                     element_stack_index += 1;
                 }) {
+                    const element = self.element_stack.items[element_stack_index];
+                    const all = if (self.seekers.all.getBinary(element)) |value| value.all else null;
                     const computed_value = &value_stack.items[i];
-                    const element = element_stack[element_stack_index];
-                    if (seeker.getBinary(element)) |cascaded_value| {
-                        inline for (fields) |field_info| {
-                            const sub_property = @field(cascaded_value, field_info.name);
-                            @field(computed_value, field_info.name) = switch (sub_property) {
-                                .inherit, .unset => @field(inherited_value, field_info.name),
-                                .initial => @field(static.default_value, field_info.name),
-                                else => |value| value,
-                            };
-                        }
-                    } else {
-                        computed_value.* = inherited_value.*;
+                    // TODO: This is not actually the computed value. It is only the specified value.
+                    switch (getCascadedValue(property, element, seeker, all)) {
+                        .value => |cascaded_value| {
+                            inline for (fields) |field_info| {
+                                const sub_property = @field(cascaded_value, field_info.name);
+                                @field(computed_value, field_info.name) = switch (sub_property) {
+                                    .inherit, .unset => @field(inherited_value, field_info.name),
+                                    .initial => @field(static.default_value, field_info.name),
+                                    else => |value| value,
+                                };
+                            }
+                        },
+                        .all_inherit => computed_value.* = inherited_value.*,
+                        .all_initial => computed_value.* = Value{},
                     }
                     inherited_value = computed_value;
                 }
@@ -613,9 +617,10 @@ const Inputs = struct {
     }
 
     fn getCascadedValue(
-        self: *Self,
-        comptime stage: Stage,
         comptime property: ValueTree.AggregatePropertyEnum,
+        element: ElementIndex,
+        seeker: anytype,
+        all: ?zss.value.All,
     ) union(enum) {
         value: property.Value(),
         all_inherit,
@@ -631,10 +636,8 @@ const Inputs = struct {
         }
 
         // Find the value using the cascaded value tree.
-        const current_stage = &@field(self.stage, @tagName(stage));
-        const seeker = &@field(current_stage.seekers, @tagName(property));
         // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do seeking.
-        if (seeker.getBinary(self.this_element.element)) |value| {
+        if (seeker.getBinary(element)) |value| {
             if (property == .color) {
                 // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
                 comptime assert(fields.len == 1);
@@ -647,7 +650,7 @@ const Inputs = struct {
 
         // Use the value of the 'all' property, if it is set.
         if (property != .direction and property != .unicode_bidi and property != .custom) {
-            if (self.this_element.all) |all| switch (all) {
+            if (all) |value| switch (value) {
                 .inherit => return .all_inherit,
                 .initial => return .all_initial,
                 .unset => {},
