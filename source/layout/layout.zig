@@ -234,15 +234,6 @@ const BoxGenSeekers = struct {
     }
 };
 
-const BoxGenCurrentValues = struct {
-    box_style: ValueTree.BoxStyle,
-    widths: ValueTree.Sizes,
-    horizontal_sizes: ValueTree.PaddingBorderMargin,
-    heights: ValueTree.Sizes,
-    vertical_sizes: ValueTree.PaddingBorderMargin,
-    z_index: ValueTree.ZIndex,
-};
-
 const BoxGenComputedValueStack = struct {
     box_style: ArrayListUnmanaged(ValueTree.BoxStyle) = .{},
     widths: ArrayListUnmanaged(ValueTree.Sizes) = .{},
@@ -252,6 +243,15 @@ const BoxGenComputedValueStack = struct {
     z_index: ArrayListUnmanaged(ValueTree.ZIndex) = .{},
 };
 
+const BoxGenCurrentValues = struct {
+    box_style: ValueTree.BoxStyle,
+    widths: ValueTree.Sizes,
+    horizontal_sizes: ValueTree.PaddingBorderMargin,
+    heights: ValueTree.Sizes,
+    vertical_sizes: ValueTree.PaddingBorderMargin,
+    z_index: ValueTree.ZIndex,
+};
+
 const BoxGenComptutedValueFlags = struct {
     box_style: bool = false,
     widths: bool = false,
@@ -259,15 +259,6 @@ const BoxGenComptutedValueFlags = struct {
     heights: bool = false,
     vertical_sizes: bool = false,
     z_index: bool = false,
-};
-
-const BoxGenFlagsStack = struct {
-    box_style: ArrayListUnmanaged(bool) = .{},
-    widths: ArrayListUnmanaged(bool) = .{},
-    horizontal_sizes: ArrayListUnmanaged(bool) = .{},
-    heights: ArrayListUnmanaged(bool) = .{},
-    vertical_sizes: ArrayListUnmanaged(bool) = .{},
-    z_index: ArrayListUnmanaged(bool) = .{},
 };
 
 const CosmeticSeekers = struct {
@@ -288,13 +279,6 @@ const CosmeticSeekers = struct {
     }
 };
 
-const CosmeticCurrentValues = struct {
-    border_colors: ValueTree.BorderColors,
-    background1: ValueTree.Background1,
-    background2: ValueTree.Background2,
-    color: ValueTree.Color,
-};
-
 const CosmeticComputedValueStack = struct {
     border_colors: ArrayListUnmanaged(ValueTree.BorderColors) = .{},
     background1: ArrayListUnmanaged(ValueTree.Background1) = .{},
@@ -302,18 +286,18 @@ const CosmeticComputedValueStack = struct {
     color: ArrayListUnmanaged(ValueTree.Color) = .{},
 };
 
+const CosmeticCurrentValues = struct {
+    border_colors: ValueTree.BorderColors,
+    background1: ValueTree.Background1,
+    background2: ValueTree.Background2,
+    color: ValueTree.Color,
+};
+
 const CosmeticComptutedValueFlags = struct {
     border_colors: bool = false,
     background1: bool = false,
     background2: bool = false,
     color: bool = false,
-};
-
-const CosmeticFlagsStack = struct {
-    border_colors: ArrayListUnmanaged(bool) = .{},
-    background1: ArrayListUnmanaged(bool) = .{},
-    background2: ArrayListUnmanaged(bool) = .{},
-    color: ArrayListUnmanaged(bool) = .{},
 };
 
 const ThisElement = struct {
@@ -337,7 +321,7 @@ const Inputs = struct {
     font: ValueTree.Font,
 
     this_element: ThisElement = .{},
-    element_stack: ArrayListUnmanaged(ElementIndex) = .{},
+    element_stack: ArrayListUnmanaged(ThisElement) = .{},
 
     stage: union {
         box_gen: struct {
@@ -345,14 +329,12 @@ const Inputs = struct {
             current_values: BoxGenCurrentValues = undefined,
             current_flags: BoxGenComptutedValueFlags = .{},
             value_stack: BoxGenComputedValueStack = .{},
-            flags_stack: BoxGenFlagsStack = .{},
         },
         cosmetic: struct {
             seekers: CosmeticSeekers,
             current_values: CosmeticCurrentValues = undefined,
             current_flags: CosmeticComptutedValueFlags = .{},
             value_stack: CosmeticComputedValueStack = .{},
-            flags_stack: CosmeticFlagsStack = .{},
         },
     },
     current_stage: Stage,
@@ -374,7 +356,6 @@ const Inputs = struct {
         assert(self.element_stack.items.len == 0);
         const current_stage = &@field(self.stage, @tagName(stage));
         inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
-            assert(@field(current_stage.flags_stack, field_info.name).items.len == 0);
             assert(@field(current_stage.value_stack, field_info.name).items.len == 0);
         }
     }
@@ -382,7 +363,6 @@ const Inputs = struct {
     fn deinitStage(self: *Self, comptime stage: Stage) void {
         const current_stage = &@field(self.stage, @tagName(stage));
         inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
-            @field(current_stage.flags_stack, field_info.name).deinit(self.allocator);
             @field(current_stage.value_stack, field_info.name).deinit(self.allocator);
         }
     }
@@ -410,7 +390,7 @@ const Inputs = struct {
 
     fn pushElement(self: *Self, comptime stage: Stage) !void {
         assert(self.current_stage == stage);
-        try self.element_stack.append(self.allocator, self.this_element.element);
+        try self.element_stack.append(self.allocator, self.this_element);
 
         const current_stage = &@field(self.stage, @tagName(stage));
         const values = current_stage.current_values;
@@ -418,25 +398,20 @@ const Inputs = struct {
 
         inline for (std.meta.fields(@TypeOf(flags))) |field_info| {
             const flag = @field(flags, field_info.name);
-            try @field(current_stage.flags_stack, field_info.name).append(self.allocator, flag);
-            if (flag) {
-                const value = @field(values, field_info.name);
-                try @field(current_stage.value_stack, field_info.name).append(self.allocator, value);
-            }
+            assert(flag);
+            const value = @field(values, field_info.name);
+            try @field(current_stage.value_stack, field_info.name).append(self.allocator, value);
         }
     }
 
     fn popElement(self: *Self, comptime stage: Stage) void {
         assert(self.current_stage == stage);
-        self.element_stack.shrinkRetainingCapacity(self.element_stack.items.len - 1);
+        _ = self.element_stack.pop();
 
         const current_stage = &@field(self.stage, @tagName(stage));
 
-        inline for (std.meta.fields(@TypeOf(current_stage.flags_stack))) |field_info| {
-            const flag = @field(current_stage.flags_stack, field_info.name).pop();
-            if (flag) {
-                _ = @field(current_stage.value_stack, field_info.name).pop();
-            }
+        inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
+            _ = @field(current_stage.value_stack, field_info.name).pop();
         }
     }
 
@@ -444,183 +419,45 @@ const Inputs = struct {
         self: *Self,
         comptime stage: Stage,
         comptime property: ValueTree.AggregatePropertyEnum,
-    ) switch (property.inheritanceType()) {
-        .inherited => Allocator.Error!property.Value(),
-        .not_inherited => property.Value(),
-        .neither => @compileError("Cannot get specified value of '" ++ @tagName(property) ++ "'"),
-    } {
+    ) property.Value() {
         assert(self.current_stage == stage);
         const Value = property.Value();
         const fields = std.meta.fields(Value);
         const inheritance_type = comptime property.inheritanceType();
         const current_stage = @field(self.stage, @tagName(stage));
         const seeker = @field(current_stage.seekers, @tagName(property));
-        const cascaded_value = getCascadedValue(property, self.this_element.element, seeker, self.this_element.all);
-        if (cascaded_value == .all_initial) return Value{};
+        var cascaded_value = getCascadedValue(property, self.this_element, seeker);
 
-        switch (inheritance_type) {
-            .inherited => {
-                var inherited_value: ?*const Value = undefined;
-                if (cascaded_value == .all_inherit) {
-                    inherited_value = try initInheritedValue(self, stage, property);
-                    return inherited_value.?.*;
-                }
-                inherited_value = null;
+        const initial_value = Value{};
+        if (cascaded_value == .all_initial) return initial_value;
 
-                var result: Value = cascaded_value.value;
-                inline for (fields) |field_info| {
-                    const sub_property = &@field(result, field_info.name);
-                    switch (sub_property.*) {
-                        .inherit, .unset => {
-                            if (inherited_value == null) inherited_value = try initInheritedValue(self, stage, property);
-                            sub_property.* = @field(inherited_value.?, field_info.name);
-                        },
-                        .initial => sub_property.* = field_info.default_value.?,
-                        else => {},
-                    }
-                }
+        const value_stack = @field(current_stage.value_stack, @tagName(property));
+        const inherited_value = if (value_stack.items.len > 0)
+            value_stack.items[value_stack.items.len - 1]
+        else
+            Value{};
+        if (cascaded_value == .all_inherit) return inherited_value;
 
-                return result;
-            },
-            .not_inherited => {
-                const inherited_value = getInheritedValueOfNonInheritedProperty(
-                    property,
-                    @field(current_stage.flags_stack, @tagName(property)).items,
-                    @field(current_stage.value_stack, @tagName(property)).items,
-                );
-                if (cascaded_value == .all_inherit) return inherited_value.*;
-
-                var result: Value = cascaded_value.value;
-                inline for (fields) |field_info| {
-                    const sub_property = &@field(result, field_info.name);
-                    switch (sub_property.*) {
-                        .inherit => sub_property.* = @field(inherited_value, field_info.name),
-                        .initial, .unset => sub_property.* = field_info.default_value.?,
-                        else => {},
-                    }
-                }
-
-                return result;
-            },
-            .neither => unreachable,
+        inline for (fields) |field_info| {
+            const sub_property = &@field(cascaded_value.value, field_info.name);
+            switch (sub_property.*) {
+                .inherit => sub_property.* = @field(inherited_value, field_info.name),
+                .initial => sub_property.* = @field(initial_value, field_info.name),
+                .unset => switch (inheritance_type) {
+                    .inherited => sub_property.* = @field(inherited_value, field_info.name),
+                    .not_inherited => sub_property.* = @field(initial_value, field_info.name),
+                    .neither => unreachable,
+                },
+                else => {},
+            }
         }
-    }
-
-    fn getInheritedValueOfNonInheritedProperty(
-        comptime property: ValueTree.AggregatePropertyEnum,
-        flags_stack: []const bool,
-        value_stack: []const property.Value(),
-    ) *const property.Value() {
-        const Value = property.Value();
-        const inheritance_type = comptime property.inheritanceType();
-        comptime assert(inheritance_type == .not_inherited);
-
-        if (flags_stack.len > 0 and flags_stack[flags_stack.len - 1]) {
-            return &value_stack[value_stack.len - 1];
-        } else {
-            const static = struct {
-                const default_value = Value{};
-            };
-            return &static.default_value;
-        }
-    }
-
-    fn initInheritedValue(
-        self: *Self,
-        comptime stage: Stage,
-        comptime property: ValueTree.AggregatePropertyEnum,
-    ) !*const property.Value() {
-        const inheritance_type = comptime property.inheritanceType();
-        comptime assert(inheritance_type == .inherited);
-
-        const current_stage = &@field(self.stage, @tagName(stage));
-        return getInheritedValueOfInheritedProperty(
-            self,
-            property,
-            @field(current_stage.seekers, @tagName(property)),
-            @field(current_stage.flags_stack, @tagName(property)).items,
-            &@field(current_stage.value_stack, @tagName(property)),
-        );
-    }
-
-    fn getInheritedValueOfInheritedProperty(
-        self: *Self,
-        comptime property: ValueTree.AggregatePropertyEnum,
-        seeker: anytype,
-        flags_stack: []bool,
-        value_stack: *ArrayListUnmanaged(property.Value()),
-    ) !*const property.Value() {
-        const Value = property.Value();
-        const fields = std.meta.fields(Value);
-        const static = struct {
-            const default_value = Value{};
-        };
-
-        switch (findInheritableValueOfInheritedProperty(flags_stack)) {
-            .last_stack_item => return &value_stack.items[value_stack.items.len - 1],
-            .all_initial => return &static.default_value,
-            .index_of_inheritable_element_from_end => |index| {
-                var i: usize = value_stack.items.len;
-                try value_stack.resize(self.allocator, i + index);
-
-                const make_these_true = if (index == flags_stack.len) flags_stack else flags_stack[flags_stack.len - 1 - index ..];
-                std.mem.set(bool, make_these_true, true);
-
-                var inherited_value = if (index == flags_stack.len) &static.default_value else &value_stack.items[i - 1];
-                var element_stack_index = self.element_stack.items.len - index;
-                while (i < value_stack.items.len) : ({
-                    i += 1;
-                    element_stack_index += 1;
-                }) {
-                    const element = self.element_stack.items[element_stack_index];
-                    const all = if (self.seekers.all.getBinary(element)) |value| value.all else null;
-                    const computed_value = &value_stack.items[i];
-                    // TODO: This is not actually the computed value. It is only the specified value.
-                    switch (getCascadedValue(property, element, seeker, all)) {
-                        .value => |cascaded_value| {
-                            inline for (fields) |field_info| {
-                                const sub_property = @field(cascaded_value, field_info.name);
-                                @field(computed_value, field_info.name) = switch (sub_property) {
-                                    .inherit, .unset => @field(inherited_value, field_info.name),
-                                    .initial => @field(static.default_value, field_info.name),
-                                    else => |value| value,
-                                };
-                            }
-                        },
-                        .all_inherit => computed_value.* = inherited_value.*,
-                        .all_initial => computed_value.* = Value{},
-                    }
-                    inherited_value = computed_value;
-                }
-
-                return inherited_value;
-            },
-        }
-    }
-
-    fn findInheritableValueOfInheritedProperty(
-        flags_stack: []const bool,
-    ) union(enum) {
-        last_stack_item,
-        all_initial,
-        index_of_inheritable_element_from_end: usize,
-    } {
-        if (flags_stack.len == 0) return .all_initial;
-        if (flags_stack[flags_stack.len - 1]) return .last_stack_item;
-
-        var index_of_inheritable_element_from_end: usize = 1;
-        while (index_of_inheritable_element_from_end < flags_stack.len) : (index_of_inheritable_element_from_end += 1) {
-            const flag = flags_stack[flags_stack.len - 1 - index_of_inheritable_element_from_end];
-            if (flag) break;
-        }
-        return .{ .index_of_inheritable_element_from_end = index_of_inheritable_element_from_end };
+        return cascaded_value.value;
     }
 
     fn getCascadedValue(
         comptime property: ValueTree.AggregatePropertyEnum,
-        element: ElementIndex,
+        element: ThisElement,
         seeker: anytype,
-        all: ?zss.value.All,
     ) union(enum) {
         value: property.Value(),
         all_inherit,
@@ -636,8 +473,8 @@ const Inputs = struct {
         }
 
         // Find the value using the cascaded value tree.
-        // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do seeking.
-        if (seeker.getBinary(element)) |value| {
+        // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do this.
+        if (seeker.getBinary(element.element)) |value| {
             if (property == .color) {
                 // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
                 comptime assert(fields.len == 1);
@@ -650,7 +487,7 @@ const Inputs = struct {
 
         // Use the value of the 'all' property, if it is set.
         if (property != .direction and property != .unicode_bidi and property != .custom) {
-            if (all) |value| switch (value) {
+            if (element.all) |value| switch (value) {
                 .inherit => return .all_inherit,
                 .initial => return .all_initial,
                 .unset => {},
@@ -890,8 +727,9 @@ fn processElement(doc: *Document, context: *BlockLayoutContext) !void {
 
 fn skipElement(context: *BlockLayoutContext, interval: *Interval) void {
     const element = interval.begin;
-    interval.begin += context.inputs.element_tree_skips[element];
-    context.inputs.element_index_to_box[element] = .none;
+    const skip = context.inputs.element_tree_skips[element];
+    interval.begin += skip;
+    std.mem.set(BoxType, context.inputs.element_index_to_box[element .. element + skip], .none);
 }
 
 fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_end: ZssUnit, parent_auto_logical_height: *ZssUnit) void {
@@ -916,6 +754,9 @@ fn processFlowBlock(doc: *Document, context: *BlockLayoutContext, interval: *Int
     const logical_width = try flowBlockSolveInlineSizes(context, block.box_offsets, block.borders, block.margins);
     const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, block.box_offsets, block.borders, block.margins);
 
+    // TODO: Move z-index computation to the cosmetic stage
+    const specified_z_index = context.inputs.getSpecifiedValue(.box_gen, .z_index);
+    context.inputs.setComputedValue(.box_gen, .z_index, specified_z_index);
     const position = context.inputs.stage.box_gen.current_values.box_style.position;
     const stacking_context_id = switch (position) {
         .static => null,
@@ -929,8 +770,6 @@ fn processFlowBlock(doc: *Document, context: *BlockLayoutContext, interval: *Int
             context.relative_positioned_descendants_count.items[context.relative_positioned_descendants_count.items.len - 1] += 1;
             try context.relative_positioned_descendants_ids.append(context.inputs.allocator, block.used_id);
 
-            const specified_z_index = context.inputs.getSpecifiedValue(.box_gen, .z_index);
-            context.inputs.setComputedValue(.box_gen, .z_index, specified_z_index);
             switch (specified_z_index.z_index) {
                 .integer => |z_index| break :blk try createStackingContext(doc, context, block.used_id, z_index),
                 .auto => {
@@ -946,6 +785,7 @@ fn processFlowBlock(doc: *Document, context: *BlockLayoutContext, interval: *Int
         .initial, .inherit, .unset => unreachable,
     };
 
+    try context.inputs.pushElement(.box_gen);
     try pushFlowLayout(context, Interval{ .begin = element + 1, .end = element + skip }, block.used_id, logical_width, used_logical_heights, stacking_context_id);
 }
 
@@ -957,8 +797,6 @@ fn pushFlowLayout(
     logical_heights: UsedLogicalHeights,
     stacking_context_id: ?StackingContextId,
 ) !void {
-    try context.inputs.pushElement(.box_gen);
-
     // The allocations here must have corresponding deallocations in popFlowBlock.
     try context.layout_mode.append(context.inputs.allocator, .Flow);
     try context.intervals.append(context.inputs.allocator, interval);
@@ -992,6 +830,7 @@ fn popFlowBlock(doc: *Document, context: *BlockLayoutContext) void {
             flowBlockFinishLayout(doc, context, box_offsets);
             const parent_auto_logical_height = &context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 2];
             addBlockToFlow(box_offsets, margins.block_end, parent_auto_logical_height);
+            context.inputs.popElement(.box_gen);
         },
         .InitialContainingBlock => {},
         .ShrinkToFit1stPass => {
@@ -1003,10 +842,9 @@ fn popFlowBlock(doc: *Document, context: *BlockLayoutContext) void {
             inlineBlockFinishLayout(doc, context, box_offsets);
             const container = &context.inline_container.items[context.inline_container.items.len - 1];
             addBlockToInlineContainer(container);
+            context.inputs.popElement(.box_gen);
         },
     }
-
-    context.inputs.popElement(.box_gen);
 
     // The deallocations here must correspond to allocations in pushFlowLayout.
     _ = context.layout_mode.pop();
@@ -2125,13 +1963,19 @@ fn createBlock(doc: *Document) !Block {
 }
 
 fn blockBoxSolveOtherProperties(doc: *Document, inputs: *Inputs, used_id: UsedId) !void {
-    // TODO: Set the computed values for the element
     const specified = .{
-        .color = try inputs.getSpecifiedValue(.cosmetic, .color),
+        .color = inputs.getSpecifiedValue(.cosmetic, .color),
         .border_colors = inputs.getSpecifiedValue(.cosmetic, .border_colors),
         .background1 = inputs.getSpecifiedValue(.cosmetic, .background1),
         .background2 = inputs.getSpecifiedValue(.cosmetic, .background2),
     };
+
+    // TODO: Pretending that specified values are computed values...
+    inputs.setComputedValue(.cosmetic, .color, specified.color);
+    inputs.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
+    inputs.setComputedValue(.cosmetic, .background1, specified.background1);
+    inputs.setComputedValue(.cosmetic, .background2, specified.background2);
+
     const current_color = getCurrentColor(specified.color.color);
 
     const box_offsets_ptr = &doc.blocks.box_offsets.items[used_id];
@@ -2155,10 +1999,18 @@ fn blockBoxFillOtherPropertiesWithDefaults(doc: *Document, used_id: UsedId) void
 fn inlineBoxSolveOtherProperties(values: *InlineLevelUsedValues, inputs: *Inputs, used_id: UsedId) !void {
     // TODO: Set the computed values for the element
     const specified = .{
-        .color = try inputs.getSpecifiedValue(.cosmetic, .color),
+        .color = inputs.getSpecifiedValue(.cosmetic, .color),
         .border_colors = inputs.getSpecifiedValue(.cosmetic, .border_colors),
         .background1 = inputs.getSpecifiedValue(.cosmetic, .background1),
+        .background2 = inputs.getSpecifiedValue(.cosmetic, .background2), // TODO: Inline boxes don't need background2
     };
+
+    // TODO: Pretending that specified values are computed values...
+    inputs.setComputedValue(.cosmetic, .color, specified.color);
+    inputs.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
+    inputs.setComputedValue(.cosmetic, .background1, specified.background1);
+    inputs.setComputedValue(.cosmetic, .background2, specified.background2);
+
     const current_color = getCurrentColor(specified.color.color);
 
     const border_colors = solveBorderColors(specified.border_colors, current_color);
@@ -2340,7 +2192,18 @@ fn inlineLevelElementPush(doc: *Document, context: *InlineLayoutContext, values:
         .inline_ => {
             const used_id = try createInlineBox(doc, values);
             context.inputs.element_index_to_box[element] = .{ .inline_box = .{ .inline_id = context.inline_id, .used_id = used_id } };
+            context.inputs.setComputedValue(.box_gen, .box_style, computed);
             try setInlineBoxUsedData(context, values, used_id);
+            { // TODO: Grabbing useless data to satisfy inheritance...
+                const data = .{
+                    .widths = context.inputs.getSpecifiedValue(.box_gen, .widths),
+                    .heights = context.inputs.getSpecifiedValue(.box_gen, .heights),
+                    .z_index = context.inputs.getSpecifiedValue(.box_gen, .z_index),
+                };
+                context.inputs.setComputedValue(.box_gen, .widths, data.widths);
+                context.inputs.setComputedValue(.box_gen, .heights, data.heights);
+                context.inputs.setComputedValue(.box_gen, .z_index, data.z_index);
+            }
 
             try addBoxStart(doc, values, used_id);
 
