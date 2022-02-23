@@ -45,10 +45,6 @@ pub fn doLayout(
     allocator: Allocator,
     viewport_size: ZssSize,
 ) Error!Document {
-    const size = element_tree.size();
-    // TODO: Decide if `size == 0` should be an error or not.
-    if (size == 0 or size > maximum_box_id) return error.Overflow;
-
     var inputs = Inputs{
         .element_tree_skips = element_tree.skips(),
         .seekers = Seekers.init(cascaded_value_tree),
@@ -59,7 +55,7 @@ pub fn doLayout(
         .current_stage = .box_gen,
         .allocator = allocator,
         .viewport_size = viewport_size,
-        .element_index_to_box = try allocator.alloc(BoxType, size),
+        .element_index_to_box = try allocator.alloc(BoxType, element_tree.size()),
     };
     defer inputs.deinit();
 
@@ -557,13 +553,18 @@ const BlockLayoutContext = struct {
 };
 
 fn doBoxGeneration(doc: *Document, context: *BlockLayoutContext) !void {
-    doc.blocks.ensureTotalCapacity(doc.allocator, context.inputs.element_tree_skips[0] + 1) catch {};
+    if (context.inputs.element_tree_skips.len > 0) {
+        doc.blocks.ensureTotalCapacity(doc.allocator, context.inputs.element_tree_skips[0] + 1) catch {};
+    } else {
+        try doc.blocks.ensureTotalCapacity(doc.allocator, 1);
+    }
 
     // Initialize the context with some data.
     try context.layout_mode.append(context.inputs.allocator, .InitialContainingBlock);
 
     // Create the initial containing block.
     try createInitialContainingBlock(doc, context);
+    if (context.inputs.element_tree_skips.len == 0) return;
 
     // Process the root element.
     try processElement(doc, context);
@@ -598,7 +599,9 @@ fn doCosmeticLayout(doc: *Document, inputs: *Inputs) !void {
 
     var interval_stack = ArrayListUnmanaged(Interval){};
     defer interval_stack.deinit(inputs.allocator);
-    try interval_stack.append(inputs.allocator, .{ .begin = root_box_id, .end = root_box_id + inputs.element_tree_skips[root_box_id] });
+    if (inputs.element_tree_skips.len > 0) {
+        try interval_stack.append(inputs.allocator, .{ .begin = root_box_id, .end = root_box_id + inputs.element_tree_skips[root_box_id] });
+    }
 
     while (interval_stack.items.len > 0) {
         const interval = &interval_stack.items[interval_stack.items.len - 1];
@@ -653,6 +656,7 @@ fn createInitialContainingBlock(doc: *Document, context: *BlockLayoutContext) !v
     block.margins.* = .{};
 
     try context.inputs.anonymous_block_boxes.append(context.inputs.allocator, block.used_id);
+    if (context.inputs.element_tree_skips.len == 0) return;
 
     const interval = Interval{ .begin = root_box_id, .end = root_box_id + context.inputs.element_tree_skips[root_box_id] };
     const logical_heights = UsedLogicalHeights{

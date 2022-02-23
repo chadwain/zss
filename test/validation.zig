@@ -12,18 +12,29 @@ const cases = @import("./test_cases.zig");
 const hb = @import("harfbuzz");
 
 test "validation" {
+    var all_test_data = try cases.getTestData();
+    defer {
+        for (all_test_data.items) |*data| data.deinit();
+        all_test_data.deinit();
+    }
+
     var library: hb.FT_Library = undefined;
     assert(hb.FT_Init_FreeType(&library) == 0);
     defer _ = hb.FT_Done_FreeType(library);
 
     std.debug.print("\n", .{});
-    for (cases.tree_data) |_, i| {
+    for (all_test_data.items) |data, i| {
         std.debug.print("validate document {}... ", .{i});
         defer std.debug.print("\n", .{});
 
-        var test_case = cases.get(i, library);
+        var test_case = data.toTestCase(library);
         defer test_case.deinit();
-        var document = try zss.layout.doLayout(&test_case.tree, allocator, .{ .w = test_case.width, .h = test_case.height });
+        var document = try zss.layout.doLayout(
+            &test_case.element_tree,
+            &test_case.cascaded_value_tree,
+            allocator,
+            .{ .w = test_case.width, .h = test_case.height },
+        );
         defer document.deinit();
 
         try validateStackingContexts(&document);
@@ -61,6 +72,7 @@ fn validateStackingContexts(document: *zss.used_values.Document) !void {
     const StackingContextTree = used.StackingContextTree;
     const ZIndex = used.ZIndex;
 
+    if (document.stacking_context_tree.subtree.items.len == 0) return;
     var stack = std.ArrayList(StackingContextTree.Range).init(allocator);
     defer stack.deinit();
     stack.append(document.stacking_context_tree.range()) catch unreachable;

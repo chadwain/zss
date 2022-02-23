@@ -82,6 +82,7 @@ pub fn renderDocument(
     };
 
     const sc_tree = &doc.stacking_context_tree;
+    if (sc_tree.subtree.items.len == 0) return;
     const root_range = sc_tree.range();
     var stacking_context_stack = ArrayList(StackItem).init(allocator);
     defer stacking_context_stack.deinit();

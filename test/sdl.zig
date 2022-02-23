@@ -72,24 +72,36 @@ test "sdl" {
     assert(hb.FT_Init_FreeType(&library) == 0);
     defer _ = hb.FT_Done_FreeType(library);
 
+    const all_test_data = try cases.getTestData();
+    defer {
+        for (all_test_data.items) |*data| data.deinit();
+        all_test_data.deinit();
+    }
+
     const results_path = "test/sdl_results";
     try std.fs.cwd().makePath(results_path);
 
     std.debug.print("\n", .{});
-    for (cases.tree_data) |_, i| {
+    for (all_test_data.items) |data, i| {
         std.debug.print("sdl test {}... ", .{i});
         defer std.debug.print("\n", .{});
 
-        var case = cases.get(i, library);
+        var case = data.toTestCase(library);
         defer case.deinit();
         var atlas = try r.GlyphAtlas.init(case.face, renderer.?, pixel_format, allocator);
         defer atlas.deinit(allocator);
-        var doc = try zss.layout.doLayout(&case.tree, allocator, .{ .w = case.width, .h = case.height });
+        var doc = try zss.layout.doLayout(&case.element_tree, &case.cascaded_value_tree, allocator, .{ .w = case.width, .h = case.height });
         defer doc.deinit();
-        const root_sizes = doc.blocks.box_offsets.items[1];
-        const root_width = r.zssUnitToPixel(root_sizes.border_end.x - root_sizes.border_start.x);
-        const root_height = r.zssUnitToPixel(root_sizes.border_end.y - root_sizes.border_start.y);
-        const surface = try drawToSurface(&doc, root_width, root_height, sdl.SDL_Point{ .x = 0, .y = 0 }, renderer.?, pixel_format, &atlas);
+
+        const root_sizes: struct { width: i32, height: i32 } = if (doc.blocks.structure.items.len > 1) blk: {
+            // TODO: Find the used_id of root a better way
+            const root_box_offsets = doc.blocks.box_offsets.items[1];
+            break :blk .{
+                .width = r.zssUnitToPixel(root_box_offsets.border_end.x - root_box_offsets.border_start.x),
+                .height = r.zssUnitToPixel(root_box_offsets.border_end.y - root_box_offsets.border_start.y),
+            };
+        } else .{ .width = 0, .height = 0 };
+        const surface = try drawToSurface(&doc, root_sizes.width, root_sizes.height, sdl.SDL_Point{ .x = 0, .y = 0 }, renderer.?, pixel_format, &atlas);
         defer sdl.SDL_FreeSurface(surface);
         const filename = try std.fmt.allocPrintZ(allocator, results_path ++ "/{:0>2}.bmp", .{i});
         defer allocator.free(filename);
