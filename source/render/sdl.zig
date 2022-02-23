@@ -131,15 +131,15 @@ pub fn renderDocument(
 }
 
 pub fn zssUnitToPixel(unit: ZssUnit) c_int {
-    return @divFloor(unit, zss.used_values.unitsPerPixel);
+    return @divFloor(unit, zss.used_values.units_per_pixel);
 }
 
 pub fn zssUnitToPixelRatio(unit: ZssUnit) zss.util.Ratio(c_int) {
-    return zss.util.Ratio(c_int).initReduce(unit, zss.used_values.unitsPerPixel);
+    return zss.util.Ratio(c_int).initReduce(unit, zss.used_values.units_per_pixel);
 }
 
 pub fn pixelToZssUnit(pixels: c_int) ZssUnit {
-    return pixels * zss.used_values.unitsPerPixel;
+    return pixels * zss.used_values.units_per_pixel;
 }
 
 pub fn sdlPointToZssVector(point: sdl.SDL_Point) ZssVector {

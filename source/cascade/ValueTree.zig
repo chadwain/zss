@@ -9,9 +9,6 @@ const Allocator = std.mem.Allocator;
 const Self = @This();
 
 pub const AggregatePropertyEnum = enum {
-    all,
-    text,
-
     box_style,
     widths,
     horizontal_sizes,
@@ -37,14 +34,10 @@ pub const AggregatePropertyEnum = enum {
         return field.field_type.Value;
     }
 
-    pub const InheritanceType = enum { inherited, not_inherited, neither };
+    pub const InheritanceType = enum { inherited, not_inherited };
 
     pub fn inheritanceType(self: @This()) InheritanceType {
         return switch (self) {
-            .all,
-            .text,
-            => .neither,
-
             .box_style,
             .widths,
             .horizontal_sizes,

@@ -19,7 +19,7 @@ const maximum_box_id = BoxTree.maximum_box_id;
 const used_values = @import("./used_values.zig");
 const ZssUnit = used_values.ZssUnit;
 const ZssSize = used_values.ZssSize;
-const unitsPerPixel = used_values.unitsPerPixel;
+const units_per_pixel = used_values.units_per_pixel;
 const UsedId = used_values.UsedId;
 const UsedSubtreeSize = used_values.UsedSubtreeSize;
 const UsedBoxCount = used_values.UsedBoxCount;
@@ -49,37 +49,40 @@ pub fn doLayout(
         .element_tree_skips = element_tree.skips(),
         .seekers = Seekers.init(cascaded_value_tree),
         .font = cascaded_value_tree.font,
-        .stage = .{ .box_gen = .{
-            .seekers = BoxGenSeekers.init(cascaded_value_tree),
-        } },
-        .current_stage = .box_gen,
+        .stage = undefined,
+        .current_stage = undefined,
         .allocator = allocator,
         .viewport_size = viewport_size,
         .element_index_to_box = try allocator.alloc(BoxType, element_tree.size()),
     };
     defer inputs.deinit();
 
-    defer switch (inputs.current_stage) {
-        .box_gen => inputs.deinitStage(.box_gen),
-        .cosmetic => inputs.deinitStage(.cosmetic),
-    };
-
     var context = BlockLayoutContext{ .inputs = &inputs };
     defer context.deinit();
     var doc = Document{ .allocator = allocator };
     errdefer doc.deinit();
 
-    try doBoxGeneration(&doc, &context);
-    inputs.assertEmptyStage(.box_gen);
-    inputs.deinitStage(.box_gen);
+    {
+        inputs.current_stage = .box_gen;
+        inputs.stage = .{ .box_gen = .{
+            .seekers = BoxGenSeekers.init(cascaded_value_tree),
+        } };
+        defer inputs.deinitStage(.box_gen);
 
-    inputs.current_stage = .cosmetic;
-    inputs.stage = .{ .cosmetic = .{
-        .seekers = CosmeticSeekers.init(cascaded_value_tree),
-    } };
+        try doBoxGeneration(&doc, &context);
+        inputs.assertEmptyStage(.box_gen);
+    }
 
-    try doCosmeticLayout(&doc, &inputs);
-    inputs.assertEmptyStage(.cosmetic);
+    {
+        inputs.current_stage = .cosmetic;
+        inputs.stage = .{ .cosmetic = .{
+            .seekers = CosmeticSeekers.init(cascaded_value_tree),
+        } };
+        defer inputs.deinitStage(.cosmetic);
+
+        try doCosmeticLayout(&doc, &inputs);
+        inputs.assertEmptyStage(.cosmetic);
+    }
 
     return doc;
 }
@@ -88,7 +91,7 @@ const LengthUnit = enum { px };
 
 fn length(comptime unit: LengthUnit, value: f32) ZssUnit {
     return switch (unit) {
-        .px => @floatToInt(ZssUnit, @round(value * unitsPerPixel)),
+        .px => @floatToInt(ZssUnit, @round(value * units_per_pixel)),
     };
 }
 
@@ -341,13 +344,14 @@ const Inputs = struct {
     element_index_to_box: []BoxType,
     anonymous_block_boxes: ArrayListUnmanaged(UsedId) = .{},
 
+    // Does not do deinitStage.
     fn deinit(self: *Self) void {
         self.element_stack.deinit(self.allocator);
         self.allocator.free(self.element_index_to_box);
         self.anonymous_block_boxes.deinit(self.allocator);
     }
 
-    fn assertEmptyStage(self: *Self, comptime stage: Stage) void {
+    fn assertEmptyStage(self: Self, comptime stage: Stage) void {
         assert(self.current_stage == stage);
         assert(self.element_stack.items.len == 0);
         const current_stage = &@field(self.stage, @tagName(stage));
@@ -411,8 +415,12 @@ const Inputs = struct {
         }
     }
 
+    fn getText(self: Self) zss.value.Text {
+        return if (self.seekers.text.getBinary(self.this_element.element)) |value| value.text else "";
+    }
+
     fn getSpecifiedValue(
-        self: *Self,
+        self: Self,
         comptime stage: Stage,
         comptime property: ValueTree.AggregatePropertyEnum,
     ) property.Value() {
@@ -442,7 +450,6 @@ const Inputs = struct {
                 .unset => switch (inheritance_type) {
                     .inherited => sub_property.* = @field(inherited_value, field_info.name),
                     .not_inherited => sub_property.* = @field(initial_value, field_info.name),
-                    .neither => unreachable,
                 },
                 else => {},
             }
@@ -461,12 +468,6 @@ const Inputs = struct {
     } {
         const Value = property.Value();
         const fields = std.meta.fields(Value);
-        const inheritance_type = comptime property.inheritanceType();
-
-        switch (inheritance_type) {
-            .inherited, .not_inherited => {},
-            .neither => @compileError("Cannot get cascaded value of '" ++ @tagName(property) ++ "'"),
-        }
 
         // Find the value using the cascaded value tree.
         // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do this.
@@ -478,12 +479,15 @@ const Inputs = struct {
                     return .all_inherit;
                 }
             }
+
             return .{ .value = value };
         }
 
-        // Use the value of the 'all' property, if it is set.
+        // Use the value of the 'all' property.
+        // CSS-CASCADE-4§3.2: The all property is a shorthand that resets all CSS properties except direction and unicode-bidi.
+        //                    [...] It does not reset custom properties.
         if (property != .direction and property != .unicode_bidi and property != .custom) {
-            if (element.all) |value| switch (value) {
+            if (element.all) |all| switch (all) {
                 .inherit => return .all_inherit,
                 .initial => return .all_initial,
                 .unset => {},
@@ -491,15 +495,10 @@ const Inputs = struct {
         }
 
         // Just use the inheritance type.
-        switch (inheritance_type) {
+        switch (comptime property.inheritanceType()) {
             .inherited => return .all_inherit,
             .not_inherited => return .all_initial,
-            .neither => unreachable,
         }
-    }
-
-    fn getText(self: *Self) zss.value.Text {
-        return if (self.seekers.text.getBinary(self.this_element.element)) |value| value.text else "";
     }
 };
 
@@ -2648,9 +2647,9 @@ fn setMetricsGlyph(metrics: *InlineLevelUsedValues.Metrics, font: *hb.hb_font_t,
         extents.x_bearing = 0;
     }
     metrics.* = .{
-        .offset = @divFloor(extents.x_bearing * unitsPerPixel, 64),
-        .advance = @divFloor(hb.hb_font_get_glyph_h_advance(font, glyph_index) * unitsPerPixel, 64),
-        .width = @divFloor(extents.width * unitsPerPixel, 64),
+        .offset = @divFloor(extents.x_bearing * units_per_pixel, 64),
+        .advance = @divFloor(hb.hb_font_get_glyph_h_advance(font, glyph_index) * units_per_pixel, 64),
+        .width = @divFloor(extents.width * units_per_pixel, 64),
     };
 }
 
@@ -2694,10 +2693,10 @@ fn splitIntoLineBoxes(doc: *Document, values: *InlineLevelUsedValues, containing
     var font_extents: hb.hb_font_extents_t = undefined;
     // TODO assuming ltr direction
     assert(hb.hb_font_get_h_extents(values.font, &font_extents) != 0);
-    values.ascender = @divFloor(font_extents.ascender * unitsPerPixel, 64);
-    values.descender = @divFloor(font_extents.descender * unitsPerPixel, 64);
-    const top_height: ZssUnit = @divFloor((font_extents.ascender + @divFloor(font_extents.line_gap, 2) + @mod(font_extents.line_gap, 2)) * unitsPerPixel, 64);
-    const bottom_height: ZssUnit = @divFloor((-font_extents.descender + @divFloor(font_extents.line_gap, 2)) * unitsPerPixel, 64);
+    values.ascender = @divFloor(font_extents.ascender * units_per_pixel, 64);
+    values.descender = @divFloor(font_extents.descender * units_per_pixel, 64);
+    const top_height: ZssUnit = @divFloor((font_extents.ascender + @divFloor(font_extents.line_gap, 2) + @mod(font_extents.line_gap, 2)) * units_per_pixel, 64);
+    const bottom_height: ZssUnit = @divFloor((-font_extents.descender + @divFloor(font_extents.line_gap, 2)) * units_per_pixel, 64);
 
     var cursor: ZssUnit = 0;
     var line_box = InlineLevelUsedValues.LineBox{ .baseline = 0, .elements = [2]usize{ 0, 0 } };

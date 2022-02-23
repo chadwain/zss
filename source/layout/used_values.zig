@@ -9,7 +9,7 @@ const zss = @import("../../zss.zig");
 pub const ZssUnit = i32;
 
 /// The number of ZssUnits contained wthin 1 screen pixel.
-pub const unitsPerPixel = 1;
+pub const units_per_pixel = 1;
 
 /// A floating point number usually between 0 and 1, but it can
 /// exceed these values.
@@ -354,6 +354,7 @@ pub const InlineLevelUsedValues = struct {
     }
 };
 
+// TODO: Make this a SkipTree.
 pub const StackingContextTree = struct {
     subtree: ArrayListUnmanaged(StackingContextId) = .{},
     stacking_contexts: ArrayListUnmanaged(StackingContext) = .{},
