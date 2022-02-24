@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
+const SkipTree = zss.SkipTree;
 
 /// The fundamental unit of space used for all CSS layout computations in zss.
 pub const ZssUnit = i32;
@@ -354,54 +355,13 @@ pub const InlineLevelUsedValues = struct {
     }
 };
 
-// TODO: Make this a SkipTree.
-pub const StackingContextTree = struct {
-    subtree: ArrayListUnmanaged(StackingContextId) = .{},
-    stacking_contexts: ArrayListUnmanaged(StackingContext) = .{},
-
-    const Self = @This();
-
-    pub const StackingContext = struct {
-        z_index: ZIndex,
-        used_id: UsedId,
-    };
-
-    pub fn deinit(self: *Self, allocator: Allocator) void {
-        self.subtree.deinit(allocator);
-        self.stacking_contexts.deinit(allocator);
-    }
-
-    pub const Range = struct {
-        current: StackingContextId,
-        end: StackingContextId,
-
-        pub fn get(self: Range, sc_tree: StackingContextTree) StackingContext {
-            return sc_tree.stacking_contexts.items[self.current];
-        }
-
-        pub fn empty(self: Range) bool {
-            return self.current == self.end;
-        }
-
-        pub fn next(self: *Range, sc_tree: StackingContextTree) void {
-            self.current += sc_tree.subtree.items[self.current];
-        }
-
-        pub fn children(self: Range, sc_tree: StackingContextTree) Range {
-            return Range{
-                .current = self.current + 1,
-                .end = self.current + sc_tree.subtree.items[self.current],
-            };
-        }
-    };
-
-    pub fn range(self: Self) Range {
-        return Range{
-            .current = 0,
-            .end = self.subtree.items[0],
-        };
-    }
+pub const StackingContext = struct {
+    z_index: ZIndex,
+    used_id: UsedId,
 };
+
+// NOTE: This might benefit from being a SparseSkipTree instead.
+pub const StackingContextTree = SkipTree(StackingContextId, StackingContext);
 
 /// The final result of layout.
 pub const Document = struct {

@@ -72,19 +72,26 @@ fn validateStackingContexts(document: *zss.used_values.Document) !void {
     const StackingContextTree = used.StackingContextTree;
     const ZIndex = used.ZIndex;
 
-    if (document.stacking_context_tree.subtree.items.len == 0) return;
-    var stack = std.ArrayList(StackingContextTree.Range).init(allocator);
+    const root_iterator = document.stacking_context_tree.iterator() orelse return;
+
+    const slice = document.stacking_context_tree.slice();
+    const skips = slice.items(.__skip);
+    const z_index = slice.items(.z_index);
+    try expect(z_index[root_iterator.index] == 0);
+
+    var stack = std.ArrayList(StackingContextTree.Iterator).init(allocator);
     defer stack.deinit();
-    stack.append(document.stacking_context_tree.range()) catch unreachable;
+
+    stack.append(root_iterator) catch unreachable;
     while (stack.items.len > 0) {
         const parent = stack.pop();
-        var range = parent.children(document.stacking_context_tree);
-        var last: ZIndex = std.math.minInt(ZIndex);
-        while (!range.empty()) : (range.next(document.stacking_context_tree)) {
-            const current = range.get(document.stacking_context_tree).z_index;
-            try expect(last <= current);
-            last = current;
-            stack.append(range) catch unreachable;
+        var child = parent.firstChild(skips);
+        var previous: ZIndex = std.math.minInt(ZIndex);
+        while (!child.empty()) : (child = child.nextSibling(skips)) {
+            const current = z_index[child.index];
+            try expect(previous <= current);
+            previous = current;
+            stack.append(child) catch unreachable;
         }
     }
 }

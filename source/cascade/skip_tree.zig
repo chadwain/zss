@@ -58,12 +58,30 @@ pub fn SkipTree(comptime IndexType: type, comptime ValueSpec: type) type {
     }.f;
 
     return struct {
-        multi_list: MultiArrayList(MultiElem) = .{},
+        multi_list: MultiList = .{},
 
         pub const Index = IndexType;
         pub const Value = ValueSpec;
+        pub const MultiList = MultiArrayList(MultiElem);
 
         const Self = @This();
+
+        pub const Iterator = struct {
+            index: Index,
+            end: Index,
+
+            pub fn empty(self: Iterator) bool {
+                return self.index == self.end;
+            }
+
+            pub fn firstChild(self: Iterator, skip: []const Index) Iterator {
+                return Iterator{ .index = self.index + 1, .end = self.index + skip[self.index] };
+            }
+
+            pub fn nextSibling(self: Iterator, skip: []const Index) Iterator {
+                return Iterator{ .index = self.index + skip[self.index], .end = self.end };
+            }
+        };
 
         pub fn deinit(self: *Self, allocator: Allocator) void {
             self.multi_list.deinit(allocator);
@@ -74,8 +92,18 @@ pub fn SkipTree(comptime IndexType: type, comptime ValueSpec: type) type {
             return self.multi_list.items(.__skip);
         }
 
+        pub fn slice(self: Self) MultiList.Slice {
+            return self.multi_list.slice();
+        }
+
         pub fn size(self: Self) Index {
             return @intCast(Index, self.multi_list.len);
+        }
+
+        pub fn iterator(self: Self) ?Iterator {
+            if (self.size() == 0) return null;
+            const skip = self.skips();
+            return Iterator{ .index = 0, .end = skip[0] };
         }
 
         pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: Index) !void {

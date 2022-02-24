@@ -11,6 +11,7 @@ const ZssRect = zss.used_values.ZssRect;
 const ZssVector = zss.used_values.ZssVector;
 const ZssLogicalVector = zss.used_values.ZssLogicalVector;
 const UsedId = zss.used_values.UsedId;
+const ZIndex = zss.used_values.ZIndex;
 const BlockLevelUsedValues = zss.used_values.BlockLevelUsedValues;
 const InlineLevelUsedValues = zss.used_values.InlineLevelUsedValues;
 const StackingContextTree = zss.used_values.StackingContextTree;
@@ -31,7 +32,7 @@ const RenderState = struct {
         var result = Self{};
         try result.inlines_list.ensureTotalCapacity(allocator, doc.inlines.items.len);
         errdefer result.inlines_list.deinit(allocator);
-        try result.stacking_context_inlines_count.ensureTotalCapacity(allocator, doc.stacking_context_tree.subtree.items.len);
+        try result.stacking_context_inlines_count.ensureTotalCapacity(allocator, doc.stacking_context_tree.size());
         errdefer result.stacking_context_inlines_count.deinit(allocator);
         return result;
     }
@@ -56,13 +57,20 @@ pub fn renderDocument(
     const clip_rect_zss = sdlRectToZssRect(clip_rect);
 
     const StackItem = struct {
-        range: StackingContextTree.Range,
+        child_iterator: StackingContextTree.Iterator,
         used_id: UsedId,
         translation: ZssVector,
         state: enum { DrawRoot, DrawChildren },
 
-        fn addToStack(stack: *ArrayList(@This()), top: @This(), index: usize, doc_: *const Document) !void {
-            const child_used_id = top.range.get(doc_.stacking_context_tree).used_id;
+        fn addToStack(
+            stack: *ArrayList(@This()),
+            insertion_index: usize,
+            top: @This(),
+            doc_: *const Document,
+            sc_tree_skips: []const StackingContextTree.Index,
+            sc_tree_used_id: []const UsedId,
+        ) !void {
+            const child_used_id = sc_tree_used_id[top.child_iterator.index];
             const translation_ = blk: {
                 var tr = top.translation;
                 var it = zss.util.StructureArray(UsedId).treeIterator(doc_.blocks.structure.items, top.used_id, child_used_id);
@@ -72,8 +80,8 @@ pub fn renderDocument(
                 }
                 break :blk tr;
             };
-            try stack.insert(index, .{
-                .range = top.range.children(doc_.stacking_context_tree),
+            try stack.insert(insertion_index, .{
+                .child_iterator = top.child_iterator.firstChild(sc_tree_skips),
                 .used_id = child_used_id,
                 .translation = translation_,
                 .state = .DrawRoot,
@@ -81,14 +89,18 @@ pub fn renderDocument(
         }
     };
 
-    const sc_tree = &doc.stacking_context_tree;
-    if (sc_tree.subtree.items.len == 0) return;
-    const root_range = sc_tree.range();
+    const sc_tree = doc.stacking_context_tree;
+    const sc_tree_root_iterator = sc_tree.iterator() orelse return;
+    const sc_tree_slice = sc_tree.slice();
+    const sc_tree_skips: []const StackingContextTree.Index = sc_tree_slice.items(.__skip);
+    const sc_tree_z_index: []const ZIndex = sc_tree_slice.items(.z_index);
+    const sc_tree_used_id: []const UsedId = sc_tree_slice.items(.used_id);
+
     var stacking_context_stack = ArrayList(StackItem).init(allocator);
     defer stacking_context_stack.deinit();
     try stacking_context_stack.append(.{
-        .range = root_range.children(sc_tree.*),
-        .used_id = root_range.get(sc_tree.*).used_id,
+        .child_iterator = sc_tree_root_iterator.firstChild(sc_tree_skips),
+        .used_id = sc_tree_used_id[sc_tree_root_iterator.index],
         .translation = sdlPointToZssVector(translation),
         .state = .DrawRoot,
     });
@@ -99,9 +111,9 @@ pub fn renderDocument(
         switch (top.state) {
             .DrawRoot => {
                 top.state = .DrawChildren;
-                while (!top.range.empty()) : (top.range.next(sc_tree.*)) {
-                    if (top.range.get(sc_tree.*).z_index >= 0) break;
-                    try StackItem.addToStack(&stacking_context_stack, top, old_len, doc);
+                while (!top.child_iterator.empty()) : (top.child_iterator = top.child_iterator.nextSibling(sc_tree_skips)) {
+                    if (sc_tree_z_index[top.child_iterator.index] >= 0) break;
+                    try StackItem.addToStack(&stacking_context_stack, old_len, top, doc, sc_tree_skips, sc_tree_used_id);
                 }
                 stacking_context_stack.items[old_len - 1] = top;
 
@@ -110,8 +122,8 @@ pub fn renderDocument(
             },
             .DrawChildren => {
                 _ = stacking_context_stack.pop();
-                while (!top.range.empty()) : (top.range.next(sc_tree.*)) {
-                    try StackItem.addToStack(&stacking_context_stack, top, old_len - 1, doc);
+                while (!top.child_iterator.empty()) : (top.child_iterator = top.child_iterator.nextSibling(sc_tree_skips)) {
+                    try StackItem.addToStack(&stacking_context_stack, old_len - 1, top, doc, sc_tree_skips, sc_tree_used_id);
                 }
                 try drawBlockValuesChildren(&s, &doc.blocks, top.used_id, allocator, top.translation, clip_rect_zss, renderer, pixel_format);
 

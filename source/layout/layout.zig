@@ -563,7 +563,7 @@ fn doBoxGeneration(doc: *Document, context: *BlockLayoutContext) !void {
 
     // Create the initial containing block.
     try createInitialContainingBlock(doc, context);
-    if (context.inputs.element_tree_skips.len == 0) return;
+    if (context.layout_mode.items.len == 1) return;
 
     // Process the root element.
     try processElement(doc, context);
@@ -574,10 +574,10 @@ fn doBoxGeneration(doc: *Document, context: *BlockLayoutContext) !void {
     };
 
     // Create the root stacking context.
-    try doc.stacking_context_tree.subtree.append(doc.allocator, 1);
-    try doc.stacking_context_tree.stacking_contexts.append(doc.allocator, .{ .z_index = 0, .used_id = root_used_id });
+    try doc.stacking_context_tree.ensureTotalCapacity(doc.allocator, 1);
+    const root_stacking_context_id = doc.stacking_context_tree.createRootAssumeCapacity(.{ .z_index = 0, .used_id = root_used_id });
     doc.blocks.properties.items[root_used_id].creates_stacking_context = true;
-    try context.stacking_context_id.append(context.inputs.allocator, 0);
+    try context.stacking_context_id.append(context.inputs.allocator, root_stacking_context_id);
 
     // Process all other elements.
     while (context.layout_mode.items.len > 1) {
@@ -2036,17 +2036,23 @@ fn inlineRootBoxSolveOtherProperties(values: *InlineLevelUsedValues) void {
 }
 
 fn createStackingContext(doc: *Document, context: *BlockLayoutContext, used_id: UsedId, z_index: ZIndex) !StackingContextId {
-    const sc_tree = &doc.stacking_context_tree;
+    try doc.stacking_context_tree.ensureTotalCapacity(doc.allocator, doc.stacking_context_tree.size() + 1);
+    const sc_tree_slice = &doc.stacking_context_tree.multi_list.slice();
+    const sc_tree_skips = sc_tree_slice.items(.__skip);
+    const sc_tree_z_index = sc_tree_slice.items(.z_index);
+
     const parent_stacking_context_id = context.stacking_context_id.items[context.stacking_context_id.items.len - 1];
     var current = parent_stacking_context_id + 1;
-    const end = parent_stacking_context_id + sc_tree.subtree.items[parent_stacking_context_id];
-    while (current < end and z_index >= sc_tree.stacking_contexts.items[current].z_index) : (current += sc_tree.subtree.items[current]) {}
+    const end = parent_stacking_context_id + sc_tree_skips[parent_stacking_context_id];
+    while (current < end and z_index >= sc_tree_z_index[current]) {
+        current += sc_tree_skips[current];
+    }
 
     for (context.stacking_context_id.items) |index| {
-        sc_tree.subtree.items[index] += 1;
+        sc_tree_skips[index] += 1;
     }
-    try sc_tree.subtree.insert(doc.allocator, current, 1);
-    try sc_tree.stacking_contexts.insert(doc.allocator, current, .{ .z_index = z_index, .used_id = used_id });
+
+    doc.stacking_context_tree.multi_list.insertAssumeCapacity(current, .{ .__skip = 1, .z_index = z_index, .used_id = used_id });
     doc.blocks.properties.items[used_id].creates_stacking_context = true;
     return current;
 }
