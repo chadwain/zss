@@ -142,8 +142,6 @@ pub const ZIndex = i32;
 /// Block boxes form a hierarchy, and therefore a tree structure, which is represented here.
 pub const BlockLevelUsedValues = struct {
     // A "used id" is an index into the following arrays.
-    // To know how to use the "structure" field and the group of fields following it,
-    // see the explanation in BoxTree. It works in exactly the same way.
     structure: ArrayListUnmanaged(UsedId) = .{},
     box_offsets: ArrayListUnmanaged(BoxOffsets) = .{},
     borders: ArrayListUnmanaged(Borders) = .{},
