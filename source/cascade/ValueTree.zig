@@ -10,10 +10,10 @@ const Self = @This();
 
 pub const AggregatePropertyEnum = enum {
     box_style,
-    widths,
-    horizontal_sizes,
-    heights,
-    vertical_sizes,
+    content_width,
+    horizontal_edges,
+    content_height,
+    vertical_edges,
     z_index,
     insets,
     border_colors,
@@ -39,10 +39,10 @@ pub const AggregatePropertyEnum = enum {
     pub fn inheritanceType(self: @This()) InheritanceType {
         return switch (self) {
             .box_style,
-            .widths,
-            .horizontal_sizes,
-            .heights,
-            .vertical_sizes,
+            .content_width,
+            .horizontal_edges,
+            .content_height,
+            .vertical_edges,
             .z_index,
             .insets,
             .border_colors,
@@ -65,11 +65,11 @@ pub const Values = struct {
 
     box_style: SparseSkipTree(Index, BoxStyle) = .{},
 
-    widths: SparseSkipTree(Index, Sizes) = .{},
-    horizontal_sizes: SparseSkipTree(Index, PaddingBorderMargin) = .{},
+    content_width: SparseSkipTree(Index, ContentSize) = .{},
+    horizontal_edges: SparseSkipTree(Index, BoxEdges) = .{},
 
-    heights: SparseSkipTree(Index, Sizes) = .{},
-    vertical_sizes: SparseSkipTree(Index, PaddingBorderMargin) = .{},
+    content_height: SparseSkipTree(Index, ContentSize) = .{},
+    vertical_edges: SparseSkipTree(Index, BoxEdges) = .{},
 
     z_index: SparseSkipTree(Index, ZIndex) = .{},
     insets: SparseSkipTree(Index, Insets) = .{},
@@ -110,13 +110,13 @@ pub const BoxStyle = struct {
     float: value.Float = .none,
 };
 
-pub const Sizes = struct {
+pub const ContentSize = struct {
     size: value.Size = .auto,
     min_size: value.MinSize = .{ .px = 0 },
     max_size: value.MaxSize = .none,
 };
 
-pub const PaddingBorderMargin = struct {
+pub const BoxEdges = struct {
     padding_start: value.Padding = .{ .px = 0 },
     padding_end: value.Padding = .{ .px = 0 },
     border_start: value.BorderWidth = .{ .px = 0 },

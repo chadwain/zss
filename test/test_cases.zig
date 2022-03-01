@@ -185,17 +185,17 @@ pub fn getTestData() !ArrayList(TreeData) {
         break :blk tree_data;
     });
     try list.append(blk: {
-        var tree_data = try TreeData.init(2, &.{ .box_style, .widths, .heights, .horizontal_sizes, .background1 });
+        var tree_data = try TreeData.init(2, &.{ .box_style, .content_width, .content_height, .horizontal_edges, .background1 });
         const root = tree_data.createRoot();
         const root_0 = tree_data.insertChild(root);
 
         tree_data.set(.box_style, root, .{ .display = .block });
-        tree_data.set(.heights, root, .{ .size = .{ .px = 50 } });
+        tree_data.set(.content_height, root, .{ .size = .{ .px = 50 } });
 
         tree_data.set(.box_style, root_0, .{ .display = .block });
-        tree_data.set(.widths, root_0, .{ .size = .{ .px = 50 } });
-        tree_data.set(.heights, root_0, .{ .size = .{ .px = 50 } });
-        tree_data.set(.horizontal_sizes, root_0, .{ .margin_start = .auto, .margin_end = .auto });
+        tree_data.set(.content_width, root_0, .{ .size = .{ .px = 50 } });
+        tree_data.set(.content_height, root_0, .{ .size = .{ .px = 50 } });
+        tree_data.set(.horizontal_edges, root_0, .{ .margin_start = .auto, .margin_end = .auto });
         tree_data.set(.background1, root_0, .{ .color = .{ .rgba = 0x404070ff } });
         break :blk tree_data;
     });
@@ -220,7 +220,7 @@ pub fn getTestData() !ArrayList(TreeData) {
         break :blk tree_data;
     });
     try list.append(blk: {
-        var tree_data = try TreeData.init(7, &.{ .box_style, .heights, .background1, .text });
+        var tree_data = try TreeData.init(7, &.{ .box_style, .content_height, .background1, .text });
         const root = tree_data.createRoot();
         const root_0 = tree_data.insertChild(root);
         const root_1 = tree_data.insertChild(root);
@@ -232,14 +232,14 @@ pub fn getTestData() !ArrayList(TreeData) {
         tree_data.set(.box_style, root, .{ .display = .block });
 
         tree_data.set(.box_style, root_0, .{ .display = .block });
-        tree_data.set(.heights, root_0, .{ .size = .{ .px = 50 } });
+        tree_data.set(.content_height, root_0, .{ .size = .{ .px = 50 } });
         tree_data.set(.background1, root_0, .{ .color = .{ .rgba = 0x508020ff } });
 
         tree_data.set(.box_style, root_1, .{ .display = .text });
         tree_data.set(.text, root_1, .{ .text = "stuff 1" });
 
         tree_data.set(.box_style, root_2, .{ .display = .block });
-        tree_data.set(.heights, root_2, .{ .size = .{ .px = 50 } });
+        tree_data.set(.content_height, root_2, .{ .size = .{ .px = 50 } });
         tree_data.set(.background1, root_2, .{ .color = .{ .rgba = 0x472658ff } });
 
         tree_data.set(.box_style, root_3, .{ .display = .inline_ });
@@ -249,19 +249,65 @@ pub fn getTestData() !ArrayList(TreeData) {
         tree_data.set(.text, root_3_0, .{ .text = "stuff 2" });
 
         tree_data.set(.box_style, root_4, .{ .display = .block });
-        tree_data.set(.heights, root_4, .{ .size = .{ .px = 50 } });
+        tree_data.set(.content_height, root_4, .{ .size = .{ .px = 50 } });
         tree_data.set(.background1, root_4, .{ .color = .{ .rgba = 0xd5ad81ff } });
         break :blk tree_data;
     });
+    //    try list.append(blk: {
+    //        var tree_data = try TreeData.init(2, &.{ .box_style, .content_width });
+    //        const root = tree_data.createRoot();
+    //        const root_0 = tree_data.insertChild(root);
+    //
+    //        tree_data.set(.box_style, root_0, .{ .display = .inline_block });
+    //        tree_data.set(.content_width, root_0, .{ .size = .{ .px = 50 } });
+    //        break :blk tree_data;
+    //    });
+    //    try list.append(blk: {
+    //        var tree_data = try TreeData.init(9, &.{ .box_style, .vertical_edges, .text, .background1 });
+    //        const root = tree_data.createRoot();
+    //        const inline_block_1 = tree_data.insertChild(root);
+    //        const text_1 = tree_data.insertChild(inline_block_1);
+    //        const inline_block_2 = tree_data.insertChild(inline_block_1);
+    //        const text_2 = tree_data.insertChild(inline_block_2);
+    //        const inline_block_3 = tree_data.insertChild(inline_block_2);
+    //        const text_3 = tree_data.insertChild(inline_block_3);
+    //        const inline_block_4 = tree_data.insertChild(inline_block_3);
+    //        const text_4 = tree_data.insertChild(inline_block_4);
+    //
+    //        tree_data.set(.box_style, inline_block_1, .{ .display = .inline_block });
+    //        tree_data.set(.vertical_edges, inline_block_1, .{ .padding_start = .{ .px = 10 } });
+    //        tree_data.set(.background1, inline_block_1, .{ .color = .{ .rgba = 0x508020ff } });
+    //
+    //        tree_data.set(.box_style, inline_block_2, .{ .display = .inline_block });
+    //        tree_data.set(.vertical_edges, inline_block_2, .{ .padding_start = .{ .px = 10 } });
+    //        tree_data.set(.background1, inline_block_2, .{ .color = .{ .rgba = 0x805020ff } });
+    //
+    //        tree_data.set(.box_style, inline_block_3, .{ .display = .inline_block });
+    //        tree_data.set(.vertical_edges, inline_block_3, .{ .padding_start = .{ .px = 10 } });
+    //        tree_data.set(.background1, inline_block_3, .{ .color = .{ .rgba = 0x802050ff } });
+    //
+    //        tree_data.set(.box_style, inline_block_4, .{ .display = .inline_block });
+    //        tree_data.set(.vertical_edges, inline_block_4, .{ .padding_start = .{ .px = 10 } });
+    //        tree_data.set(.background1, inline_block_4, .{ .color = .{ .rgba = 0x208050ff } });
+    //
+    //        tree_data.set(.box_style, text_1, .{ .display = .text });
+    //        tree_data.set(.text, text_1, .{ .text = "nested inline blocks  1 " });
+    //
+    //        tree_data.set(.box_style, text_2, .{ .display = .text });
+    //        tree_data.set(.text, text_2, .{ .text = "2 " });
+    //
+    //        tree_data.set(.box_style, text_3, .{ .display = .text });
+    //        tree_data.set(.text, text_3, .{ .text = "3 " });
+    //
+    //        tree_data.set(.box_style, text_4, .{ .display = .text });
+    //        tree_data.set(.text, text_4, .{ .text = "4 " });
+    //
+    //        break :blk tree_data;
+    //    });
     return list;
 }
 
 pub const tree_data_old = [_]TreeData{
-    .{
-        .structure = &.{1},
-        .display = &.{.{ .inline_block = {} }},
-        .inline_size = &.{.{ .size = .{ .px = 50 } }},
-    },
     .{
         .structure = &.{ 7, 2, 1, 1, 2, 1, 1 },
         .display = &.{ .{ .block = {} }, .{ .block = {} }, .{ .text = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .text = {} } },
@@ -271,13 +317,6 @@ pub const tree_data_old = [_]TreeData{
         .background = &.{ .{}, .{ .color = .{ .rgba = 0x9f2034ff } }, .{}, .{}, .{ .color = .{ .rgba = 0x208420ff } }, .{}, .{} },
         .position = &.{ .{}, .{ .style = .{ .relative = {} } }, .{}, .{}, .{}, .{}, .{} },
         .insets = &.{ .{}, .{ .block_start = .{ .px = 20 } }, .{}, .{}, .{}, .{}, .{} },
-    },
-    .{
-        .structure = &.{ 9, 8, 1, 6, 1, 4, 1, 2, 1 },
-        .display = &.{ .{ .block = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} } },
-        .block_size = &.{ .{}, .{ .padding_start = .{ .px = 10 } }, .{}, .{ .padding_start = .{ .px = 10 } }, .{}, .{ .padding_start = .{ .px = 10 } }, .{}, .{ .padding_start = .{ .px = 10 } }, .{} },
-        .latin1_text = &.{ .{}, .{}, .{ .text = "nested inline blocks  1 " }, .{}, .{ .text = "2 " }, .{}, .{ .text = "3 " }, .{}, .{ .text = "4 " } },
-        .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{}, .{ .color = .{ .rgba = 0x805020ff } }, .{}, .{ .color = .{ .rgba = 0x802050ff } }, .{}, .{ .color = .{ .rgba = 0x208050ff } }, .{} },
     },
     .{
         .structure = &.{ 6, 5, 1, 1, 2, 1 },

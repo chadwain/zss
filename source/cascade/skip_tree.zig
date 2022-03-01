@@ -64,24 +64,9 @@ pub fn SkipTree(comptime IndexType: type, comptime ValueSpec: type) type {
         pub const Value = ValueSpec;
         pub const MultiList = MultiArrayList(MultiElem);
 
+        pub const Iterator = SkipTreeIterator(Index);
+
         const Self = @This();
-
-        pub const Iterator = struct {
-            index: Index,
-            end: Index,
-
-            pub fn empty(self: Iterator) bool {
-                return self.index == self.end;
-            }
-
-            pub fn firstChild(self: Iterator, skip: []const Index) Iterator {
-                return Iterator{ .index = self.index + 1, .end = self.index + skip[self.index] };
-            }
-
-            pub fn nextSibling(self: Iterator, skip: []const Index) Iterator {
-                return Iterator{ .index = self.index + skip[self.index], .end = self.end };
-            }
-        };
 
         pub fn deinit(self: *Self, allocator: Allocator) void {
             self.multi_list.deinit(allocator);
@@ -102,8 +87,7 @@ pub fn SkipTree(comptime IndexType: type, comptime ValueSpec: type) type {
 
         pub fn iterator(self: Self) ?Iterator {
             if (self.size() == 0) return null;
-            const skip = self.skips();
-            return Iterator{ .index = 0, .end = skip[0] };
+            return Iterator.init(0, self.skips());
         }
 
         pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: Index) !void {
@@ -140,6 +124,34 @@ pub fn SkipTree(comptime IndexType: type, comptime ValueSpec: type) type {
 
             self.multi_list.insertAssumeCapacity(parent_next_sibling, valueToMultiElem(1, value));
             return parent_next_sibling;
+        }
+    };
+}
+
+pub fn SkipTreeIterator(comptime Index: type) type {
+    return struct {
+        index: Index,
+        end: Index,
+
+        const Self = @This();
+
+        pub fn init(index: Index, skips: []const Index) Self {
+            return Self{
+                .index = index,
+                .end = index + skips[index],
+            };
+        }
+
+        pub fn empty(self: Self) bool {
+            return self.index == self.end;
+        }
+
+        pub fn firstChild(self: Self, skips: []const Index) Self {
+            return Self{ .index = self.index + 1, .end = self.index + skips[self.index] };
+        }
+
+        pub fn nextSibling(self: Self, skips: []const Index) Self {
+            return Self{ .index = self.index + skips[self.index], .end = self.end };
         }
     };
 }

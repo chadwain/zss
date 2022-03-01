@@ -93,7 +93,7 @@ test "sdl" {
         var doc = try zss.layout.doLayout(&case.element_tree, &case.cascaded_value_tree, allocator, .{ .w = case.width, .h = case.height });
         defer doc.deinit();
 
-        const root_sizes: struct { width: i32, height: i32 } = if (doc.blocks.structure.items.len > 1) blk: {
+        const root_sizes: struct { width: i32, height: i32 } = if (doc.blocks.skips.items.len > 1) blk: {
             // TODO: Find the used_id of root a better way
             const root_box_offsets = doc.blocks.box_offsets.items[1];
             break :blk .{

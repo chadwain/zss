@@ -46,19 +46,19 @@ test "validation" {
     }
 }
 
-fn validateInline(inl: *used.InlineLevelUsedValues) !void {
+fn validateInline(inl: *used.InlineFormattingContext) !void {
     @setRuntimeSafety(true);
-    const UsedId = used.UsedId;
+    const InlineBoxIndex = used.InlineBoxIndex;
 
-    var stack = std.ArrayList(UsedId).init(allocator);
+    var stack = std.ArrayList(InlineBoxIndex).init(allocator);
     defer stack.deinit();
     var i: usize = 0;
     while (i < inl.glyph_indeces.items.len) : (i += 1) {
         if (inl.glyph_indeces.items[i] == 0) {
             i += 1;
-            const special = used.InlineLevelUsedValues.Special.decode(inl.glyph_indeces.items[i]);
+            const special = used.InlineFormattingContext.Special.decode(inl.glyph_indeces.items[i]);
             switch (special.kind) {
-                .BoxStart => stack.append(special.data) catch unreachable,
+                .BoxStart => stack.append(@as(InlineBoxIndex, special.data)) catch unreachable,
                 .BoxEnd => _ = stack.pop(),
                 else => {},
             }
@@ -72,9 +72,9 @@ fn validateStackingContexts(document: *zss.used_values.Document) !void {
     const StackingContextTree = used.StackingContextTree;
     const ZIndex = used.ZIndex;
 
-    const root_iterator = document.stacking_context_tree.iterator() orelse return;
+    const root_iterator = document.stacking_contexts.iterator() orelse return;
 
-    const slice = document.stacking_context_tree.slice();
+    const slice = document.stacking_contexts.slice();
     const skips = slice.items(.__skip);
     const z_index = slice.items(.z_index);
     try expect(z_index[root_iterator.index] == 0);

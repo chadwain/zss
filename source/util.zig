@@ -138,6 +138,7 @@ test "roundUp" {
     try expect(roundUp(62, 7) == 63);
 }
 
+// TODO: Delete this in favor of zss.SkipTreeIterator
 pub fn StructureArray(comptime T: type) type {
     return struct {
         pub const TreeIterator = struct {
