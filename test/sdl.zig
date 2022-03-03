@@ -1,5 +1,5 @@
 const zss = @import("zss");
-const Document = zss.used_values.Document;
+const Boxes = zss.used_values.Boxes;
 const r = zss.render.sdl;
 
 const std = @import("std");
@@ -12,7 +12,7 @@ const sdl = @import("SDL2");
 const cases = @import("./test_cases.zig");
 
 pub fn drawToSurface(
-    doc: *Document,
+    boxes: Boxes,
     width: c_int,
     height: c_int,
     translation: sdl.SDL_Point,
@@ -41,7 +41,7 @@ pub fn drawToSurface(
             const vp = sdl.SDL_Rect{ .x = 0, .y = 0, .w = std.math.min(width - tr.x, tw), .h = std.math.min(height - tr.y, th) };
             assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0) == 0);
             assert(sdl.SDL_RenderClear(renderer) == 0);
-            try r.renderDocument(doc, renderer, pixel_format, glyph_atlas, allocator, vp, tr);
+            try r.renderBoxes(boxes, renderer, pixel_format, glyph_atlas, allocator, vp, tr);
             sdl.SDL_RenderPresent(renderer);
             assert(sdl.SDL_RenderReadPixels(renderer, &vp, buffer.*.format.*.format, buffer.*.pixels, buffer.*.pitch) == 0);
             assert(sdl.SDL_BlitSurface(buffer, null, surface, &.{ .x = i * tw, .y = j * th, .w = tw, .h = th }) == 0);
@@ -90,18 +90,18 @@ test "sdl" {
         defer case.deinit();
         var atlas = try r.GlyphAtlas.init(case.face, renderer.?, pixel_format, allocator);
         defer atlas.deinit(allocator);
-        var doc = try zss.layout.doLayout(&case.element_tree, &case.cascaded_value_tree, allocator, .{ .w = case.width, .h = case.height });
-        defer doc.deinit();
+        var boxes = try zss.layout.doLayout(&case.element_tree, &case.cascaded_value_tree, allocator, .{ .w = case.width, .h = case.height });
+        defer boxes.deinit();
 
-        const root_sizes: struct { width: i32, height: i32 } = if (doc.blocks.skips.items.len > 1) blk: {
+        const root_sizes: struct { width: i32, height: i32 } = if (boxes.blocks.skips.items.len > 1) blk: {
             // TODO: Find the used_id of root a better way
-            const root_box_offsets = doc.blocks.box_offsets.items[1];
+            const root_box_offsets = boxes.blocks.box_offsets.items[1];
             break :blk .{
                 .width = r.zssUnitToPixel(root_box_offsets.border_end.x - root_box_offsets.border_start.x),
                 .height = r.zssUnitToPixel(root_box_offsets.border_end.y - root_box_offsets.border_start.y),
             };
         } else .{ .width = 0, .height = 0 };
-        const surface = try drawToSurface(&doc, root_sizes.width, root_sizes.height, sdl.SDL_Point{ .x = 0, .y = 0 }, renderer.?, pixel_format, &atlas);
+        const surface = try drawToSurface(boxes, root_sizes.width, root_sizes.height, sdl.SDL_Point{ .x = 0, .y = 0 }, renderer.?, pixel_format, &atlas);
         defer sdl.SDL_FreeSurface(surface);
         const filename = try std.fmt.allocPrintZ(allocator, results_path ++ "/{:0>2}.bmp", .{i});
         defer allocator.free(filename);

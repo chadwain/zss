@@ -149,7 +149,7 @@ pub const BlockBoxTree = struct {
 
     pub const BoxProperties = struct {
         creates_stacking_context: bool = false,
-        inline_context_index: ?InlineFormattingContextIndex = null,
+        ifc_index: ?InlineFormattingContextIndex = null,
     };
 
     pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -359,7 +359,8 @@ pub const StackingContext = struct {
 // NOTE: This might benefit from being a SparseSkipTree instead.
 pub const StackingContextTree = SkipTree(StackingContextIndex, StackingContext);
 
-pub const Document = struct {
+/// The result of layout.
+pub const Boxes = struct {
     blocks: BlockBoxTree = .{},
     inlines: ArrayListUnmanaged(*InlineFormattingContext) = .{},
     stacking_contexts: StackingContextTree = .{},
@@ -369,9 +370,9 @@ pub const Document = struct {
 
     pub fn deinit(self: *Self) void {
         self.blocks.deinit(self.allocator);
-        for (self.inlines.items) |inl| {
-            inl.deinit(self.allocator);
-            self.allocator.destroy(inl);
+        for (self.inlines.items) |ifc| {
+            ifc.deinit(self.allocator);
+            self.allocator.destroy(ifc);
         }
         self.inlines.deinit(self.allocator);
         self.stacking_contexts.deinit(self.allocator);
