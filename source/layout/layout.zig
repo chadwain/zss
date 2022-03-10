@@ -140,6 +140,8 @@ const LayoutMode = enum {
     InitialContainingBlock,
     Flow,
     InlineFormattingContext,
+    ShrinkToFit1stPass,
+    ShrinkToFit2ndPass,
 };
 
 const Interval = struct {
@@ -275,6 +277,8 @@ const GeneratedBox = union(enum) {
     none,
     /// The element generated a single block box.
     block_box: BlockBoxIndex,
+    /// The element generated a single shrink-to-fit block box.
+    shrink_to_fit_block: BlockBoxIndex,
     /// The element generated a single inline box.
     inline_box: struct { ifc_index: InlineFormattingContextIndex, index: InlineBoxIndex },
 };
@@ -492,7 +496,7 @@ const BlockLayoutContext = struct {
 
     shrink_to_fit_available_width: ArrayListUnmanaged(ZssUnit) = .{},
     shrink_to_fit_auto_width: ArrayListUnmanaged(ZssUnit) = .{},
-    shrink_to_fit_base_width: ArrayListUnmanaged(ZssUnit) = .{},
+    shrink_to_fit_edge_width: ArrayListUnmanaged(ZssUnit) = .{},
     used_id_intervals: ArrayListUnmanaged(UsedIdInterval) = .{},
 
     fn deinit(self: *BlockLayoutContext) void {
@@ -509,7 +513,7 @@ const BlockLayoutContext = struct {
         self.relative_positioned_descendants_count.deinit(self.inputs.allocator);
         self.shrink_to_fit_available_width.deinit(self.inputs.allocator);
         self.shrink_to_fit_auto_width.deinit(self.inputs.allocator);
-        self.shrink_to_fit_base_width.deinit(self.inputs.allocator);
+        self.shrink_to_fit_edge_width.deinit(self.inputs.allocator);
         self.used_id_intervals.deinit(self.inputs.allocator);
     }
 };
@@ -533,7 +537,7 @@ fn doBoxGeneration(boxes: *Boxes, context: *BlockLayoutContext) !void {
     const root_block_box_index = switch (context.inputs.element_index_to_generated_box[root_element]) {
         .none => return,
         .block_box => |block_box_index| block_box_index,
-        .inline_box => unreachable,
+        .inline_box, .shrink_to_fit_block => unreachable,
     };
 
     // Create the root stacking context.
@@ -577,7 +581,7 @@ fn doCosmeticLayout(boxes: *Boxes, inputs: *Inputs) !void {
             const box_type = inputs.element_index_to_generated_box[element];
             switch (box_type) {
                 .none => continue,
-                .block_box => |index| try blockBoxSolveOtherProperties(boxes, inputs, index),
+                .block_box, .shrink_to_fit_block => |index| try blockBoxSolveOtherProperties(boxes, inputs, index),
                 .inline_box => |box_spec| {
                     const inline_values = boxes.inlines.items[box_spec.ifc_index];
                     try inlineBoxSolveOtherProperties(inline_values, inputs, box_spec.index);
@@ -621,12 +625,30 @@ fn createInitialContainingBlock(boxes: *Boxes, context: *BlockLayoutContext) !vo
     if (context.inputs.element_tree_skips.len == 0) return;
 
     const interval = Interval{ .begin = root_element, .end = root_element + context.inputs.element_tree_skips[root_element] };
-    const logical_heights = UsedLogicalHeights{
-        .height = height,
-        .min_height = height,
-        .max_height = height,
+    const used_sizes = FlowBlockUsedSizes{
+        .border_inline_start = 0,
+        .border_inline_end = 0,
+        .padding_inline_start = 0,
+        .padding_inline_end = 0,
+        .margin_inline_start = 0,
+        .margin_inline_end = 0,
+        .inline_size = width,
+        .min_inline_size = width,
+        .max_inline_size = width,
+
+        .border_block_start = 0,
+        .border_block_end = 0,
+        .padding_block_start = 0,
+        .padding_block_end = 0,
+        .margin_block_start = 0,
+        .margin_block_end = 0,
+        .block_size = height,
+        .min_block_size = height,
+        .max_block_size = height,
+
+        .auto_bitfield = .{ .bits = 0 },
     };
-    try pushFlowLayout(context, interval, block.index, width, logical_heights, null);
+    try pushFlowLayout(context, interval, block.index, used_sizes, null);
 }
 
 fn processElement(boxes: *Boxes, context: *BlockLayoutContext) !void {
@@ -654,22 +676,27 @@ fn processElement(boxes: *Boxes, context: *BlockLayoutContext) !void {
                 popFlowBlock(boxes, context);
             }
         },
-        //        .ShrinkToFit1stPass => {
-        //            const interval = &context.intervals.items[context.intervals.items.len - 1];
-        //            if (interval.begin != interval.end) {
-        //                const display = context.box_tree.display[interval.begin];
-        //                return switch (display) {
-        //                    .block => processShrinkToFit1stPassBlock(boxes, context, interval),
-        //                    .inline_, .inline_block, .text => {
-        //                        const available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
-        //                        return processInlineContainer(boxes, context, interval, available_width, .ShrinkToFit);
-        //                    },
-        //                    .none => skipElement(context, interval),
-        //                };
-        //            } else {
-        //                try popShrinkToFit1stPassBlock(boxes, context);
-        //            }
-        //        },
+        .ShrinkToFit1stPass => {
+            const interval = &context.intervals.items[context.intervals.items.len - 1];
+            if (interval.begin != interval.end) {
+                context.inputs.setElement(.box_gen, interval.begin);
+                const specified = context.inputs.getSpecifiedValue(.box_gen, .box_style);
+                const computed = solveBoxStyle(specified, interval.begin == root_element);
+                context.inputs.setComputedValue(.box_gen, .box_style, computed);
+
+                switch (computed.display) {
+                    .block => return processShrinkToFit1stPassBlock(boxes, context, interval),
+                    .inline_, .inline_block, .text => {
+                        const available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
+                        return processInlineContainer(boxes, context, interval, available_width, .ShrinkToFit);
+                    },
+                    .none => return skipElement(context, interval),
+                    .initial, .inherit, .unset => unreachable,
+                }
+            } else {
+                try popShrinkToFit1stPassBlock(boxes, context);
+            }
+        },
         //        .ShrinkToFit2ndPass => {
         //            const used_id_interval = &context.used_id_intervals.items[context.used_id_intervals.items.len - 1];
         //            if (used_id_interval.begin != used_id_interval.end) {
@@ -689,14 +716,6 @@ fn skipElement(context: *BlockLayoutContext, interval: *Interval) void {
     std.mem.set(GeneratedBox, context.inputs.element_index_to_generated_box[element .. element + skip], .none);
 }
 
-fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_end: ZssUnit, parent_auto_logical_height: *ZssUnit) void {
-    box_offsets.border_start.y += parent_auto_logical_height.*;
-    box_offsets.content_start.y += parent_auto_logical_height.*;
-    box_offsets.content_end.y += parent_auto_logical_height.*;
-    box_offsets.border_end.y += parent_auto_logical_height.*;
-    parent_auto_logical_height.* = box_offsets.border_end.y + margin_end;
-}
-
 fn processFlowBlock(boxes: *Boxes, context: *BlockLayoutContext, interval: *Interval) !void {
     const element = interval.begin;
     const skip = context.inputs.element_tree_skips[element];
@@ -708,8 +727,26 @@ fn processFlowBlock(boxes: *Boxes, context: *BlockLayoutContext, interval: *Inte
     block.skip.* = undefined;
     block.properties.* = .{};
 
-    const logical_width = try flowBlockSolveInlineSizes(context, block.box_offsets, block.borders, block.margins);
-    const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, block.box_offsets, block.borders, block.margins);
+    const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
+    const containing_block_logical_height = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1].height;
+
+    const specified_sizes = FlowBlockComputedSizes{
+        .content_width = context.inputs.getSpecifiedValue(.box_gen, .content_width),
+        .horizontal_edges = context.inputs.getSpecifiedValue(.box_gen, .horizontal_edges),
+        .content_height = context.inputs.getSpecifiedValue(.box_gen, .content_height),
+        .vertical_edges = context.inputs.getSpecifiedValue(.box_gen, .vertical_edges),
+    };
+    var computed_sizes: FlowBlockComputedSizes = undefined;
+    var used_sizes: FlowBlockUsedSizes = undefined;
+    try flowBlockSolveWidths(specified_sizes, containing_block_logical_width, &computed_sizes, &used_sizes);
+    try flowBlockSolveHeights(specified_sizes, containing_block_logical_width, containing_block_logical_height, &computed_sizes, &used_sizes);
+    flowBlockAdjustWidthAndMargins(&used_sizes, containing_block_logical_width);
+    flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
+
+    context.inputs.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
+    context.inputs.setComputedValue(.box_gen, .horizontal_edges, computed_sizes.horizontal_edges);
+    context.inputs.setComputedValue(.box_gen, .content_height, computed_sizes.content_height);
+    context.inputs.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
 
     // TODO: Move z-index computation to the cosmetic stage
     const specified_z_index = context.inputs.getSpecifiedValue(.box_gen, .z_index);
@@ -743,15 +780,14 @@ fn processFlowBlock(boxes: *Boxes, context: *BlockLayoutContext, interval: *Inte
     };
 
     try context.inputs.pushElement(.box_gen);
-    try pushFlowLayout(context, Interval{ .begin = element + 1, .end = element + skip }, block.index, logical_width, used_logical_heights, stacking_context_index);
+    try pushFlowLayout(context, Interval{ .begin = element + 1, .end = element + skip }, block.index, used_sizes, stacking_context_index);
 }
 
 fn pushFlowLayout(
     context: *BlockLayoutContext,
     interval: Interval,
     block_box_index: BlockBoxIndex,
-    logical_width: ZssUnit,
-    logical_heights: UsedLogicalHeights,
+    used_sizes: FlowBlockUsedSizes,
     stacking_context_index: ?StackingContextIndex,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowBlock.
@@ -759,11 +795,16 @@ fn pushFlowLayout(
     try context.intervals.append(context.inputs.allocator, interval);
     try context.index.append(context.inputs.allocator, block_box_index);
     try context.skip.append(context.inputs.allocator, 1);
-    try context.flow_block_used_logical_width.append(context.inputs.allocator, logical_width);
+    try context.flow_block_used_logical_width.append(context.inputs.allocator, used_sizes.inline_size);
     try context.flow_block_auto_logical_height.append(context.inputs.allocator, 0);
     // TODO don't need used_logical_heights
-    try context.flow_block_used_logical_heights.append(context.inputs.allocator, logical_heights);
+    try context.flow_block_used_logical_heights.append(context.inputs.allocator, UsedLogicalHeights{
+        .height = used_sizes.block_size,
+        .min_height = used_sizes.min_block_size,
+        .max_height = used_sizes.max_block_size,
+    });
     try context.relative_positioned_descendants_count.append(context.inputs.allocator, 0);
+    // TODO: Delete 'context.metadata'
     if (stacking_context_index) |id| {
         try context.stacking_context_index.append(context.inputs.allocator, id);
         try context.metadata.append(context.inputs.allocator, .{ .is_stacking_context_parent = true });
@@ -795,11 +836,12 @@ fn popFlowBlock(boxes: *Boxes, context: *BlockLayoutContext) void {
             inlineBlockFinishLayout(boxes, context, box_offsets);
             context.inputs.popElement(.box_gen);
         },
-        //.ShrinkToFit1stPass => {
-        //    context.skip.items[context.skip.items.len - 2] += skip;
-        //    flowBlockFinishLayout(boxes, context, box_offsets);
-        //},
-        //.ShrinkToFit2ndPass => unreachable,
+        .ShrinkToFit1stPass => {
+            context.skip.items[context.skip.items.len - 2] += skip;
+            flowBlockFinishLayout(boxes, context, box_offsets);
+            context.inputs.popElement(.box_gen);
+        },
+        .ShrinkToFit2ndPass => unreachable,
     }
 
     // The deallocations here must correspond to allocations in pushFlowLayout.
@@ -818,104 +860,121 @@ fn popFlowBlock(boxes: *Boxes, context: *BlockLayoutContext) void {
     context.relative_positioned_descendants_indeces.shrinkRetainingCapacity(context.relative_positioned_descendants_indeces.items.len - relative_positioned_descendants_count);
 }
 
-/// This is an implementation of CSS2§10.2, CSS2§10.3.3, and CSS2§10.4.
-fn flowBlockSolveInlineSizes(
-    context: *BlockLayoutContext,
-    box_offsets: *used_values.BoxOffsets,
-    borders: *used_values.Borders,
-    margins: *used_values.Margins,
-) !ZssUnit {
-    const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
-    assert(containing_block_logical_width >= 0);
+const FlowBlockComputedSizes = struct {
+    content_width: ValueTree.ContentSize,
+    horizontal_edges: ValueTree.BoxEdges,
+    content_height: ValueTree.ContentSize,
+    vertical_edges: ValueTree.BoxEdges,
+};
 
+const FlowBlockUsedSizes = struct {
+    border_inline_start: ZssUnit,
+    border_inline_end: ZssUnit,
+    padding_inline_start: ZssUnit,
+    padding_inline_end: ZssUnit,
+    margin_inline_start: ZssUnit,
+    margin_inline_end: ZssUnit,
+    inline_size: ZssUnit,
+    min_inline_size: ZssUnit,
+    max_inline_size: ZssUnit,
+
+    border_block_start: ZssUnit,
+    border_block_end: ZssUnit,
+    padding_block_start: ZssUnit,
+    padding_block_end: ZssUnit,
+    margin_block_start: ZssUnit,
+    margin_block_end: ZssUnit,
+    block_size: ?ZssUnit,
+    min_block_size: ZssUnit,
+    max_block_size: ZssUnit,
+
+    auto_bitfield: AutoBitfield,
+
+    const AutoBitfield = struct {
+        const inline_size_bit = 4;
+        const margin_inline_start_bit = 2;
+        const margin_inline_end_bit = 1;
+
+        bits: u3,
+    };
+};
+
+/// This is an implementation of CSS2§10.2, CSS2§10.3.3, and CSS2§10.4.
+fn flowBlockSolveWidths(
+    specified: FlowBlockComputedSizes,
+    containing_block_logical_width: ZssUnit,
+    computed: *FlowBlockComputedSizes,
+    used: *FlowBlockUsedSizes,
+) !void {
     // TODO: Also use the logical properties ('inline-size', 'border-inline-start', etc.) to determine lengths.
     // TODO: Any relative units must be converted to absolute units to form the computed value.
-    const specified = .{
-        .content_width = context.inputs.getSpecifiedValue(.box_gen, .content_width),
-        .horizontal_edges = context.inputs.getSpecifiedValue(.box_gen, .horizontal_edges),
-    };
-
-    var computed: struct {
-        content_width: ValueTree.ContentSize,
-        horizontal_edges: ValueTree.BoxEdges,
-    } = undefined;
-
-    var used: struct {
-        border_start: ZssUnit,
-        border_end: ZssUnit,
-        padding_start: ZssUnit,
-        padding_end: ZssUnit,
-        margin_start: ZssUnit,
-        margin_end: ZssUnit,
-        size: ZssUnit,
-        min_size: ZssUnit,
-        max_size: ZssUnit,
-    } = undefined;
-
     // TODO: Border widths are '0' if the value of 'border-style' is 'none' or 'hidden'
+
+    assert(containing_block_logical_width >= 0);
+
     switch (specified.horizontal_edges.border_start) {
         .px => |value| {
             computed.horizontal_edges.border_start = .{ .px = value };
-            used.border_start = try positiveLength(.px, value);
+            used.border_inline_start = try positiveLength(.px, value);
         },
         .thin => {
             const width = borderWidth(.thin);
             computed.horizontal_edges.border_start = .{ .px = width };
-            used.border_start = positiveLength(.px, width) catch unreachable;
+            used.border_inline_start = positiveLength(.px, width) catch unreachable;
         },
         .medium => {
             const width = borderWidth(.medium);
             computed.horizontal_edges.border_start = .{ .px = width };
-            used.border_start = positiveLength(.px, width) catch unreachable;
+            used.border_inline_start = positiveLength(.px, width) catch unreachable;
         },
         .thick => {
             const width = borderWidth(.thick);
             computed.horizontal_edges.border_start = .{ .px = width };
-            used.border_start = positiveLength(.px, width) catch unreachable;
+            used.border_inline_start = positiveLength(.px, width) catch unreachable;
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.horizontal_edges.border_end) {
         .px => |value| {
             computed.horizontal_edges.border_end = .{ .px = value };
-            used.border_end = try positiveLength(.px, value);
+            used.border_inline_end = try positiveLength(.px, value);
         },
         .thin => {
             const width = borderWidth(.thin);
             computed.horizontal_edges.border_end = .{ .px = width };
-            used.border_end = positiveLength(.px, width) catch unreachable;
+            used.border_inline_end = positiveLength(.px, width) catch unreachable;
         },
         .medium => {
             const width = borderWidth(.medium);
             computed.horizontal_edges.border_end = .{ .px = width };
-            used.border_end = positiveLength(.px, width) catch unreachable;
+            used.border_inline_end = positiveLength(.px, width) catch unreachable;
         },
         .thick => {
             const width = borderWidth(.thick);
             computed.horizontal_edges.border_end = .{ .px = width };
-            used.border_end = positiveLength(.px, width) catch unreachable;
+            used.border_inline_end = positiveLength(.px, width) catch unreachable;
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.horizontal_edges.padding_start) {
         .px => |value| {
             computed.horizontal_edges.padding_start = .{ .px = value };
-            used.padding_start = try positiveLength(.px, value);
+            used.padding_inline_start = try positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_start = .{ .percentage = value };
-            used.padding_start = try positivePercentage(value, containing_block_logical_width);
+            used.padding_inline_start = try positivePercentage(value, containing_block_logical_width);
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.horizontal_edges.padding_end) {
         .px => |value| {
             computed.horizontal_edges.padding_end = .{ .px = value };
-            used.padding_end = try positiveLength(.px, value);
+            used.padding_inline_end = try positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_end = .{ .percentage = value };
-            used.padding_end = try positivePercentage(value, containing_block_logical_width);
+            used.padding_inline_end = try positivePercentage(value, containing_block_logical_width);
         },
         .initial, .inherit, .unset => unreachable,
     }
@@ -923,255 +982,191 @@ fn flowBlockSolveInlineSizes(
     switch (specified.content_width.min_size) {
         .px => |value| {
             computed.content_width.min_size = .{ .px = value };
-            used.min_size = try positiveLength(.px, value);
+            used.min_inline_size = try positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.content_width.min_size = .{ .percentage = value };
-            used.min_size = try positivePercentage(value, containing_block_logical_width);
+            used.min_inline_size = try positivePercentage(value, containing_block_logical_width);
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.content_width.max_size) {
         .px => |value| {
             computed.content_width.max_size = .{ .px = value };
-            used.max_size = try positiveLength(.px, value);
+            used.max_inline_size = try positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.content_width.max_size = .{ .percentage = value };
-            used.max_size = try positivePercentage(value, containing_block_logical_width);
+            used.max_inline_size = try positivePercentage(value, containing_block_logical_width);
         },
         .none => {
             computed.content_width.max_size = .none;
-            used.max_size = std.math.maxInt(ZssUnit);
+            used.max_inline_size = std.math.maxInt(ZssUnit);
         },
         .initial, .inherit, .unset => unreachable,
     }
 
-    var auto_bitfield: u3 = 0;
-    const size_bit = 4;
-    const margin_start_bit = 2;
-    const margin_end_bit = 1;
+    const BF = FlowBlockUsedSizes.AutoBitfield;
+    used.auto_bitfield.bits = 0;
 
     switch (specified.content_width.size) {
         .px => |value| {
             computed.content_width.size = .{ .px = value };
-            used.size = try positiveLength(.px, value);
+            used.inline_size = try positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.content_width.size = .{ .percentage = value };
-            used.size = try positivePercentage(value, containing_block_logical_width);
+            used.inline_size = try positivePercentage(value, containing_block_logical_width);
         },
         .auto => {
             computed.content_width.size = .auto;
-            auto_bitfield |= size_bit;
-            used.size = 0;
+            used.auto_bitfield.bits |= BF.inline_size_bit;
+            used.inline_size = 0;
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.horizontal_edges.margin_start) {
         .px => |value| {
             computed.horizontal_edges.margin_start = .{ .px = value };
-            used.margin_start = length(.px, value);
+            used.margin_inline_start = length(.px, value);
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_start = .{ .percentage = value };
-            used.margin_start = percentage(value, containing_block_logical_width);
+            used.margin_inline_start = percentage(value, containing_block_logical_width);
         },
         .auto => {
             computed.horizontal_edges.margin_start = .auto;
-            auto_bitfield |= margin_start_bit;
-            used.margin_start = 0;
+            used.auto_bitfield.bits |= BF.margin_inline_start_bit;
+            used.margin_inline_start = 0;
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.horizontal_edges.margin_end) {
         .px => |value| {
             computed.horizontal_edges.margin_end = .{ .px = value };
-            used.margin_end = length(.px, value);
+            used.margin_inline_end = length(.px, value);
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_end = .{ .percentage = value };
-            used.margin_end = percentage(value, containing_block_logical_width);
+            used.margin_inline_end = percentage(value, containing_block_logical_width);
         },
         .auto => {
             computed.horizontal_edges.margin_end = .auto;
-            auto_bitfield |= margin_end_bit;
-            used.margin_end = 0;
+            used.auto_bitfield.bits |= BF.margin_inline_end_bit;
+            used.margin_inline_end = 0;
         },
         .initial, .inherit, .unset => unreachable,
     }
-
-    context.inputs.setComputedValue(.box_gen, .content_width, computed.content_width);
-    context.inputs.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
-
-    const content_margin_space = containing_block_logical_width - (used.border_start + used.border_end + used.padding_start + used.padding_end);
-    if (auto_bitfield == 0) {
-        // None of the values were auto, so one of the margins must be set according to the other values.
-        // TODO the margin that gets set is determined by the 'direction' property
-        used.size = clampSize(used.size, used.min_size, used.max_size);
-        used.margin_end = content_margin_space - used.size - used.margin_start;
-    } else if (auto_bitfield & size_bit == 0) {
-        // 'inline-size' is not auto, but at least one of 'margin-inline-start' and 'margin-inline-end' is.
-        // If there is only one "auto", then that value gets the remaining margin space.
-        // Else, there are 2 "auto"s, and both values get half the remaining margin space.
-        const start = auto_bitfield & margin_start_bit;
-        const end = auto_bitfield & margin_end_bit;
-        const shr_amount = @boolToInt(start | end == margin_start_bit | margin_end_bit);
-        used.size = clampSize(used.size, used.min_size, used.max_size);
-        const leftover_margin = std.math.max(0, content_margin_space - (used.size + used.margin_start + used.margin_end));
-        // TODO the margin that gets the extra 1 unit shall be determined by the 'direction' property
-        if (start != 0) used.margin_start = leftover_margin >> shr_amount;
-        if (end != 0) used.margin_end = (leftover_margin >> shr_amount) + @mod(leftover_margin, 2);
-    } else {
-        // 'inline-size' is auto, so it is set according to the other values.
-        // The margin values don't need to change.
-        used.size = clampSize(content_margin_space - used.margin_start - used.margin_end, used.min_size, used.max_size);
-    }
-
-    box_offsets.border_start.x = used.margin_start;
-    box_offsets.content_start.x = used.margin_start + used.border_start + used.padding_start;
-    box_offsets.content_end.x = box_offsets.content_start.x + used.size;
-    box_offsets.border_end.x = box_offsets.content_end.x + used.padding_end + used.border_end;
-
-    borders.inline_start = used.border_start;
-    borders.inline_end = used.border_end;
-
-    margins.inline_start = used.margin_start;
-    margins.inline_end = used.margin_end;
-
-    return used.size;
 }
 
 /// This is an implementation of CSS2§10.5 and CSS2§10.6.3.
-fn flowBlockSolveBlockSizesPart1(
-    context: *BlockLayoutContext,
-    box_offsets: *used_values.BoxOffsets,
-    borders: *used_values.Borders,
-    margins: *used_values.Margins,
-) !UsedLogicalHeights {
-    const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
-    const containing_block_logical_height = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1].height;
+fn flowBlockSolveHeights(
+    specified: FlowBlockComputedSizes,
+    containing_block_logical_width: ZssUnit,
+    containing_block_logical_height: ?ZssUnit,
+    computed: *FlowBlockComputedSizes,
+    used: *FlowBlockUsedSizes,
+) !void {
+    // TODO: Also use the logical properties ('block-size', 'border-block-start', etc.) to determine lengths.
+    // TODO: Any relative units must be converted to absolute units to form the computed value.
+    // TODO: Border widths are '0' if the value of 'border-style' is 'none' or 'hidden'
+
     assert(containing_block_logical_width >= 0);
     if (containing_block_logical_height) |h| assert(h >= 0);
 
-    // TODO: Also use the logical properties ('block-size', 'border-block-end', etc.) to determine lengths.
-    // TODO: Any relative units must be converted to absolute units to form the computed value.
-    const specified = .{
-        .content_height = context.inputs.getSpecifiedValue(.box_gen, .content_height),
-        .vertical_edges = context.inputs.getSpecifiedValue(.box_gen, .vertical_edges),
-    };
-
-    var computed: struct {
-        content_height: ValueTree.ContentSize,
-        vertical_edges: ValueTree.BoxEdges,
-    } = undefined;
-
-    var used: struct {
-        border_start: ZssUnit,
-        border_end: ZssUnit,
-        padding_start: ZssUnit,
-        padding_end: ZssUnit,
-        margin_start: ZssUnit,
-        margin_end: ZssUnit,
-        size: ?ZssUnit,
-        min_size: ZssUnit,
-        max_size: ZssUnit,
-    } = undefined;
-
-    // TODO: Border widths are '0' if the value of 'border-style' is 'none' or 'hidden'
     switch (specified.vertical_edges.border_start) {
         .px => |value| {
             computed.vertical_edges.border_start = .{ .px = value };
-            used.border_start = try positiveLength(.px, value);
+            used.border_block_start = try positiveLength(.px, value);
         },
         .thin => {
             const width = borderWidth(.thin);
             computed.vertical_edges.border_start = .{ .px = width };
-            used.border_start = positiveLength(.px, width) catch unreachable;
+            used.border_block_start = positiveLength(.px, width) catch unreachable;
         },
         .medium => {
             const width = borderWidth(.medium);
             computed.vertical_edges.border_start = .{ .px = width };
-            used.border_start = positiveLength(.px, width) catch unreachable;
+            used.border_block_start = positiveLength(.px, width) catch unreachable;
         },
         .thick => {
             const width = borderWidth(.thick);
             computed.vertical_edges.border_start = .{ .px = width };
-            used.border_start = positiveLength(.px, width) catch unreachable;
+            used.border_block_start = positiveLength(.px, width) catch unreachable;
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.vertical_edges.border_end) {
         .px => |value| {
             computed.vertical_edges.border_end = .{ .px = value };
-            used.border_end = try positiveLength(.px, value);
+            used.border_block_end = try positiveLength(.px, value);
         },
         .thin => {
             const width = borderWidth(.thin);
             computed.vertical_edges.border_end = .{ .px = width };
-            used.border_end = positiveLength(.px, width) catch unreachable;
+            used.border_block_end = positiveLength(.px, width) catch unreachable;
         },
         .medium => {
             const width = borderWidth(.medium);
             computed.vertical_edges.border_end = .{ .px = width };
-            used.border_end = positiveLength(.px, width) catch unreachable;
+            used.border_block_end = positiveLength(.px, width) catch unreachable;
         },
         .thick => {
             const width = borderWidth(.thick);
             computed.vertical_edges.border_end = .{ .px = width };
-            used.border_end = positiveLength(.px, width) catch unreachable;
+            used.border_block_end = positiveLength(.px, width) catch unreachable;
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.vertical_edges.padding_start) {
         .px => |value| {
             computed.vertical_edges.padding_start = .{ .px = value };
-            used.padding_start = try positiveLength(.px, value);
+            used.padding_block_start = try positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.vertical_edges.padding_start = .{ .percentage = value };
-            used.padding_start = try positivePercentage(value, containing_block_logical_width);
+            used.padding_block_start = try positivePercentage(value, containing_block_logical_width);
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.vertical_edges.padding_end) {
         .px => |value| {
             computed.vertical_edges.padding_end = .{ .px = value };
-            used.padding_end = try positiveLength(.px, value);
+            used.padding_block_end = try positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.vertical_edges.padding_end = .{ .percentage = value };
-            used.padding_end = try positivePercentage(value, containing_block_logical_width);
+            used.padding_block_end = try positivePercentage(value, containing_block_logical_width);
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.vertical_edges.margin_start) {
         .px => |value| {
             computed.vertical_edges.margin_start = .{ .px = value };
-            used.margin_start = length(.px, value);
+            used.margin_block_start = length(.px, value);
         },
         .percentage => |value| {
             computed.vertical_edges.margin_start = .{ .percentage = value };
-            used.margin_start = percentage(value, containing_block_logical_width);
+            used.margin_block_start = percentage(value, containing_block_logical_width);
         },
         .auto => {
             computed.vertical_edges.margin_start = .auto;
-            used.margin_start = 0;
+            used.margin_block_start = 0;
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.vertical_edges.margin_end) {
         .px => |value| {
             computed.vertical_edges.margin_end = .{ .px = value };
-            used.margin_end = length(.px, value);
+            used.margin_block_end = length(.px, value);
         },
         .percentage => |value| {
             computed.vertical_edges.margin_end = .{ .percentage = value };
-            used.margin_end = percentage(value, containing_block_logical_width);
+            used.margin_block_end = percentage(value, containing_block_logical_width);
         },
         .auto => {
             computed.vertical_edges.margin_end = .auto;
-            used.margin_end = 0;
+            used.margin_block_end = 0;
         },
         .initial, .inherit, .unset => unreachable,
     }
@@ -1179,11 +1174,11 @@ fn flowBlockSolveBlockSizesPart1(
     switch (specified.content_height.min_size) {
         .px => |value| {
             computed.content_height.min_size = .{ .px = value };
-            used.min_size = try positiveLength(.px, value);
+            used.min_block_size = try positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.content_height.min_size = .{ .percentage = value };
-            used.min_size = if (containing_block_logical_height) |s|
+            used.min_block_size = if (containing_block_logical_height) |s|
                 try positivePercentage(value, s)
             else
                 0;
@@ -1193,61 +1188,103 @@ fn flowBlockSolveBlockSizesPart1(
     switch (specified.content_height.max_size) {
         .px => |value| {
             computed.content_height.max_size = .{ .px = value };
-            used.max_size = try positiveLength(.px, value);
+            used.max_block_size = try positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.content_height.max_size = .{ .percentage = value };
-            used.max_size = if (containing_block_logical_height) |s|
+            used.max_block_size = if (containing_block_logical_height) |s|
                 try positivePercentage(value, s)
             else
                 std.math.maxInt(ZssUnit);
         },
         .none => {
             computed.content_height.max_size = .none;
-            used.max_size = std.math.maxInt(ZssUnit);
+            used.max_block_size = std.math.maxInt(ZssUnit);
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.content_height.size) {
         .px => |value| {
             computed.content_height.size = .{ .px = value };
-            used.size = clampSize(try positiveLength(.px, value), used.min_size, used.max_size);
+            used.block_size = clampSize(try positiveLength(.px, value), used.min_block_size, used.max_block_size);
         },
         .percentage => |value| {
             computed.content_height.size = .{ .percentage = value };
-            used.size = if (containing_block_logical_height) |h|
-                clampSize(try positivePercentage(value, h), used.min_size, used.max_size)
+            used.block_size = if (containing_block_logical_height) |h|
+                clampSize(try positivePercentage(value, h), used.min_block_size, used.max_block_size)
             else
                 null;
         },
         .auto => {
             computed.content_height.size = .auto;
-            used.size = null;
+            used.block_size = null;
         },
         .initial, .inherit, .unset => unreachable,
     }
+}
 
-    context.inputs.setComputedValue(.box_gen, .content_height, computed.content_height);
-    context.inputs.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
+/// This function expects that if 'inline-size', 'margin-inline-start', or 'margin-inline-end' computed to 'auto',
+/// the corresponding field has been initialized to 0.
+fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_logical_width: ZssUnit) void {
+    const BF = FlowBlockUsedSizes.AutoBitfield;
 
-    // NOTE These are not the actual offsets, just some values that can be
-    // determined without knowing 'size'. The offsets are properly filled in
-    // in 'flowBlockSolveSizesPart2'.
-    box_offsets.border_start.y = used.margin_start;
-    box_offsets.content_start.y = used.margin_start + used.border_start + used.padding_start;
-    box_offsets.border_end.y = used.padding_end + used.border_end;
+    if (used.auto_bitfield.bits & BF.inline_size_bit != 0) assert(used.inline_size == 0);
+    if (used.auto_bitfield.bits & BF.margin_inline_start_bit != 0) assert(used.margin_inline_start == 0);
+    if (used.auto_bitfield.bits & BF.margin_inline_end_bit != 0) assert(used.margin_inline_end == 0);
 
-    borders.block_start = used.border_start;
-    borders.block_end = used.border_end;
+    const content_margin_space = containing_block_logical_width - (used.border_inline_start + used.border_inline_end + used.padding_inline_start + used.padding_inline_end);
+    if (used.auto_bitfield.bits == 0) {
+        // None of the values were auto, so one of the margins must be set according to the other values.
+        // TODO the margin that gets set is determined by the 'direction' property
+        used.inline_size = clampSize(used.inline_size, used.min_inline_size, used.max_inline_size);
+        used.margin_inline_end = content_margin_space - used.inline_size - used.margin_inline_start;
+    } else if (used.auto_bitfield.bits & BF.inline_size_bit == 0) {
+        // 'inline-size' is not auto, but at least one of 'margin-inline-start' and 'margin-inline-end' is.
+        // If there is only one "auto", then that value gets the remaining margin space.
+        // Else, there are 2 "auto"s, and both values get half the remaining margin space.
+        const start = used.auto_bitfield.bits & BF.margin_inline_start_bit;
+        const end = used.auto_bitfield.bits & BF.margin_inline_end_bit;
+        const shr_amount = @boolToInt(start | end == BF.margin_inline_start_bit | BF.margin_inline_end_bit);
+        used.inline_size = clampSize(used.inline_size, used.min_inline_size, used.max_inline_size);
+        const leftover_margin = std.math.max(0, content_margin_space - (used.inline_size + used.margin_inline_start + used.margin_inline_end));
+        // TODO the margin that gets the extra 1 unit shall be determined by the 'direction' property
+        if (start != 0) used.margin_inline_start = leftover_margin >> shr_amount;
+        if (end != 0) used.margin_inline_end = (leftover_margin >> shr_amount) + @mod(leftover_margin, 2);
+    } else {
+        // 'inline-size' is auto, so it is set according to the other values.
+        // The margin values don't need to change.
+        used.inline_size = clampSize(content_margin_space - used.margin_inline_start - used.margin_inline_end, used.min_inline_size, used.max_inline_size);
+    }
+}
 
-    margins.block_start = used.margin_start;
-    margins.block_end = used.margin_end;
+fn flowBlockSetData(
+    used: FlowBlockUsedSizes,
+    box_offsets: *used_values.BoxOffsets,
+    borders: *used_values.Borders,
+    margins: *used_values.Margins,
+) void {
+    // inline
+    box_offsets.border_start.x = used.margin_inline_start;
+    box_offsets.content_start.x = used.margin_inline_start + used.border_inline_start + used.padding_inline_start;
+    box_offsets.content_end.x = box_offsets.content_start.x + used.inline_size;
+    box_offsets.border_end.x = box_offsets.content_end.x + used.padding_inline_end + used.border_inline_end;
 
-    return UsedLogicalHeights{
-        .height = used.size,
-        .min_height = used.min_size,
-        .max_height = used.max_size,
-    };
+    borders.inline_start = used.border_inline_start;
+    borders.inline_end = used.border_inline_end;
+
+    margins.inline_start = used.margin_inline_start;
+    margins.inline_end = used.margin_inline_end;
+
+    // block
+    box_offsets.border_start.y = used.margin_block_start;
+    box_offsets.content_start.y = used.margin_block_start + used.border_block_start + used.padding_block_start;
+    box_offsets.border_end.y = used.padding_block_end + used.border_block_end;
+
+    borders.block_start = used.border_block_start;
+    borders.block_end = used.border_block_end;
+
+    margins.block_start = used.margin_block_start;
+    margins.block_end = used.margin_block_end;
 }
 
 fn flowBlockSolveBlockSizesPart2(box_offsets: *used_values.BoxOffsets, used_logical_heights: UsedLogicalHeights, auto_logical_height: ZssUnit) ZssUnit {
@@ -1268,52 +1305,100 @@ fn flowBlockFinishLayout(boxes: *Boxes, context: *BlockLayoutContext, box_offset
     //blockBoxApplyRelativePositioningToChildren(boxes, context, logical_width, logical_height);
 }
 
+fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_end: ZssUnit, parent_auto_logical_height: *ZssUnit) void {
+    box_offsets.border_start.y += parent_auto_logical_height.*;
+    box_offsets.content_start.y += parent_auto_logical_height.*;
+    box_offsets.content_end.y += parent_auto_logical_height.*;
+    box_offsets.border_end.y += parent_auto_logical_height.*;
+    parent_auto_logical_height.* = box_offsets.border_end.y + margin_end;
+}
+
 fn processShrinkToFit1stPassBlock(boxes: *Boxes, context: *BlockLayoutContext, interval: *Interval) !void {
     const element = interval.begin;
-    const skip = context.box_tree.structure[element];
+    const skip = context.inputs.element_tree_skips[element];
     interval.begin += skip;
 
-    const block = try createBlock(boxes, context, element);
+    const block = try createBlock(boxes);
     block.skip.* = undefined;
     block.properties.* = .{};
 
-    const width_info = try shrinkToFit1stPassGetWidth(context);
+    const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
+    const containing_block_logical_height = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1].height;
 
-    if (width_info.width) |width| {
+    const specified_sizes = FlowBlockComputedSizes{
+        .content_width = context.inputs.getSpecifiedValue(.box_gen, .content_width),
+        .horizontal_edges = context.inputs.getSpecifiedValue(.box_gen, .horizontal_edges),
+        .content_height = context.inputs.getSpecifiedValue(.box_gen, .content_height),
+        .vertical_edges = context.inputs.getSpecifiedValue(.box_gen, .vertical_edges),
+    };
+    var computed_sizes: FlowBlockComputedSizes = undefined;
+    var used_sizes: FlowBlockUsedSizes = undefined;
+    try shrinkToFit1stPassSolveWidths(specified_sizes, &computed_sizes, &used_sizes);
+    try flowBlockSolveHeights(specified_sizes, containing_block_logical_width, containing_block_logical_height, &computed_sizes, &used_sizes);
+    flowBlockAdjustWidthAndMargins(&used_sizes, containing_block_logical_width);
+
+    context.inputs.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
+    context.inputs.setComputedValue(.box_gen, .horizontal_edges, computed_sizes.horizontal_edges);
+    context.inputs.setComputedValue(.box_gen, .content_height, computed_sizes.content_height);
+    context.inputs.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
+
+    const edge_width =
+        used_sizes.margin_inline_start + used_sizes.margin_inline_end +
+        used_sizes.border_inline_start + used_sizes.border_inline_end +
+        used_sizes.padding_inline_start + used_sizes.padding_inline_end;
+
+    const BF = FlowBlockUsedSizes.AutoBitfield;
+    if (used_sizes.auto_bitfield.bits & BF.inline_size_bit == 0) {
+        context.inputs.element_index_to_generated_box[element] = .{ .block_box = block.index };
+        flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
         const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
-        parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, width + width_info.base_width);
-
-        const logical_width = try flowBlockSolveInlineSizes(context, element, block.box_offsets, block.borders, block.margins);
-        assert(logical_width == width);
-        const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, element, block.box_offsets, block.borders, block.margins);
-        try pushFlowLayout(context, Interval{ .begin = element + 1, .end = element + skip }, block.index, logical_width, used_logical_heights, null);
+        parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, used_sizes.inline_size + edge_width);
+        try pushFlowLayout(context, Interval{ .begin = element + 1, .end = element + skip }, block.index, used_sizes, null);
     } else {
-        block.properties.uses_shrink_to_fit_sizing = true;
-        const parent_available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
-        const available_width = std.math.max(0, parent_available_width - width_info.base_width);
-        const used_logical_heights = try shrinkToFit1stPassGetHeights(context, element);
-        try pushShrinkToFit1stPassLayout(context, element, block.index, available_width, width_info.base_width, used_logical_heights);
+        context.inputs.element_index_to_generated_box[element] = .{ .shrink_to_fit_block = block.index };
+        @panic("hmmm");
+        //shrinkToFit1stPassSetData();
+        //const parent_available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
+        //const available_width = std.math.max(0, parent_available_width - edge_width);
+        //try pushShrinkToFit1stPassLayout(
+        //    context,
+        //    Interval{ .begin = element + 1, .end = element + skip },
+        //    block.index,
+        //    used_sizes,
+        //    available_width,
+        //    edge_width,
+        //    .{ .principal = element },
+        //);
     }
+    try context.inputs.pushElement(.box_gen);
 }
 
 fn pushShrinkToFit1stPassLayout(
     context: *BlockLayoutContext,
-    element: ElementIndex,
+    interval: Interval,
     block_box_index: BlockBoxIndex,
+    used_sizes: FlowBlockUsedSizes,
     available_width: ZssUnit,
-    base_width: ZssUnit,
-    used_logical_heights: UsedLogicalHeights,
+    edge_width: ZssUnit,
+    is_principal_block: union(enum) { principal: ElementIndex, not_principal },
 ) !void {
-    const skip = context.inputs.element_tree_skips[element];
     // The allocations here must have corresponding deallocations in popShrinkToFit1stPassBlock.
     try context.layout_mode.append(context.inputs.allocator, .ShrinkToFit1stPass);
-    try context.intervals.append(context.inputs.allocator, .{ .begin = element + 1, .end = element + skip });
+    try context.intervals.append(context.inputs.allocator, interval);
     try context.index.append(context.inputs.allocator, block_box_index);
     try context.skip.append(context.inputs.allocator, 1);
     try context.shrink_to_fit_available_width.append(context.inputs.allocator, available_width);
     try context.shrink_to_fit_auto_width.append(context.inputs.allocator, 0);
-    try context.shrink_to_fit_base_width.append(context.inputs.allocator, base_width);
-    try context.flow_block_used_logical_heights.append(context.inputs.allocator, used_logical_heights);
+    try context.shrink_to_fit_edge_width.append(context.inputs.allocator, edge_width);
+    try context.flow_block_used_logical_heights.append(context.inputs.allocator, UsedLogicalHeights{
+        .height = used_sizes.block_size,
+        .min_height = used_sizes.min_block_size,
+        .max_height = used_sizes.max_block_size,
+    });
+    switch (is_principal_block) {
+        .principal => |element| try context.shrink_to_fit_principal_box.append(context.allocator, .{ .index = block_box_index, .element = element }),
+        .not_principal => {},
+    }
 }
 
 fn popShrinkToFit1stPassBlock(boxes: *Boxes, context: *BlockLayoutContext) !void {
@@ -1326,266 +1411,194 @@ fn popShrinkToFit1stPassBlock(boxes: *Boxes, context: *BlockLayoutContext) !void
     var go_to_2nd_pass = false;
     const parent_layout_mode = context.layout_mode.items[context.layout_mode.items.len - 2];
     switch (parent_layout_mode) {
-        // Valid as long as flow blocks cannot directly contain shrink-to-fit blocks.
-        // This might change when absolute blocks or floats are implemented.
-        .Flow => unreachable,
+        .InitialContainingBlock => unreachable,
+        .Flow => {
+            // NOTE: Valid as long as flow blocks cannot directly contain shrink-to-fit blocks.
+            // This might change when absolute blocks or floats are implemented.
+            unreachable;
+        },
+        .InlineFormattingContext => {
+            context.skip.items[context.skip.items.len - 2] += skip;
+            context.inputs.popElement(.box_gen);
+            go_to_2nd_pass = true;
+        },
         .ShrinkToFit1stPass => {
             context.skip.items[context.skip.items.len - 2] += skip;
             const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 2];
-            const base_width = context.shrink_to_fit_base_width.items[context.shrink_to_fit_base_width.items.len - 1];
-            parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, shrink_to_fit_width + base_width);
+            const edge_width = context.shrink_to_fit_edge_width.items[context.shrink_to_fit_edge_width.items.len - 1];
+            parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, shrink_to_fit_width + edge_width);
+            context.inputs.popElement(.box_gen); // TODO: Only if principal box
         },
-        .ShrinkToFit2ndPass => @panic("unimplemented"),
-        .InlineContainer => {
-            context.skip.items[context.skip.items.len - 2] += skip;
-            go_to_2nd_pass = true;
-        },
+        .ShrinkToFit2ndPass => unreachable,
     }
 
     _ = context.layout_mode.pop();
     _ = context.intervals.pop();
-    _ = context.shrink_to_fit_available_width.pop();
-    _ = context.shrink_to_fit_auto_width.pop();
-    _ = context.shrink_to_fit_base_width.pop();
     _ = context.index.pop();
     _ = context.skip.pop();
-    const used_logical_heights = context.flow_block_used_logical_heights.pop();
+    _ = context.shrink_to_fit_available_width.pop();
+    _ = context.shrink_to_fit_auto_width.pop();
+    _ = context.shrink_to_fit_edge_width.pop();
+    _ = context.flow_block_used_logical_heights.pop();
 
     if (go_to_2nd_pass) {
-        const used_id_interval = UsedIdInterval{ .begin = block_box_index + 1, .end = block_box_index + boxes.blocks.skips.items[block_box_index] };
-        try pushShrinkToFit2ndPassLayout(context, block_box_index, used_id_interval, shrink_to_fit_width, used_logical_heights);
+        @panic("TODO 2nd pass");
+        //const element = context.inputs.element_stack.items[context.inputs.element_stack.items.len - 1];
+        //const interval = Interval{ .begin = element, .end = element + context.inputs.element_tree_skips[element] };
+        //try pushShrinkToFit2ndPassLayout(context, block_box_index, interval, shrink_to_fit_width, used_logical_heights);
     }
 }
 
-const ShrinkToFit1stPassGetWidthResult = struct {
-    /// The sum of the widths of all horizontal borders, padding, and margins.
-    base_width: ZssUnit,
-    width: ?ZssUnit,
-};
-
-fn shrinkToFit1stPassGetWidth(
-    context: *BlockLayoutContext,
-) !ShrinkToFit1stPassGetWidthResult {
-    const specified = .{
-        .content_width = context.inputs.getSpecifiedValue(.box_gen, .content_width),
-        .horizontal_edges = context.inputs.getSpecifiedValue(.box_gen, .horizontal_edges),
-    };
-
-    var computed: struct {
-        content_width: ValueTree.ContentSize,
-        horizontal_edges: ValueTree.BoxEdges,
-    } = undefined;
-
-    var used: struct {
-        min_size: ZssUnit,
-        max_size: ZssUnit,
-    } = undefined;
-
-    var result = ShrinkToFit1stPassGetWidthResult{ .base_width = 0, .width = undefined };
+fn shrinkToFit1stPassSolveWidths(
+    specified: FlowBlockComputedSizes,
+    computed: *FlowBlockComputedSizes,
+    used: *FlowBlockUsedSizes,
+) !void {
+    const BF = FlowBlockUsedSizes.AutoBitfield;
 
     switch (specified.horizontal_edges.border_start) {
         .px => |value| {
             computed.horizontal_edges.border_start = .{ .px = value };
-            result.base_width += try positiveLength(.px, value);
+            used.border_inline_start = try positiveLength(.px, value);
         },
         .thin => {
             const width = borderWidth(.thin);
             computed.horizontal_edges.border_start = .{ .px = width };
-            result.base_width += positiveLength(.px, width) catch unreachable;
+            used.border_inline_start = positiveLength(.px, width) catch unreachable;
         },
         .medium => {
             const width = borderWidth(.medium);
             computed.horizontal_edges.border_start = .{ .px = width };
-            result.base_width += positiveLength(.px, width) catch unreachable;
+            used.border_inline_start = positiveLength(.px, width) catch unreachable;
         },
         .thick => {
             const width = borderWidth(.thick);
             computed.horizontal_edges.border_start = .{ .px = width };
-            result.base_width += positiveLength(.px, width) catch unreachable;
+            used.border_inline_start = positiveLength(.px, width) catch unreachable;
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.horizontal_edges.border_end) {
         .px => |value| {
             computed.horizontal_edges.border_end = .{ .px = value };
-            result.base_width += try positiveLength(.px, value);
+            used.border_inline_end = try positiveLength(.px, value);
         },
         .thin => {
             const width = borderWidth(.thin);
             computed.horizontal_edges.border_end = .{ .px = width };
-            result.base_width += positiveLength(.px, width) catch unreachable;
+            used.border_inline_end = positiveLength(.px, width) catch unreachable;
         },
         .medium => {
             const width = borderWidth(.medium);
             computed.horizontal_edges.border_end = .{ .px = width };
-            result.base_width += positiveLength(.px, width) catch unreachable;
+            used.border_inline_end = positiveLength(.px, width) catch unreachable;
         },
         .thick => {
             const width = borderWidth(.thick);
             computed.horizontal_edges.border_end = .{ .px = width };
-            result.base_width += positiveLength(.px, width) catch unreachable;
+            used.border_inline_end = positiveLength(.px, width) catch unreachable;
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.horizontal_edges.padding_start) {
         .px => |value| {
             computed.horizontal_edges.padding_start = .{ .px = value };
-            result.base_width += try positiveLength(.px, value);
+            used.padding_inline_start = try positiveLength(.px, value);
         },
-        .percentage => |value| computed.horizontal_edges.padding_start = .{ .percentage = value },
+        .percentage => |value| {
+            computed.horizontal_edges.padding_start = .{ .percentage = value };
+            used.padding_inline_start = 0;
+        },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.horizontal_edges.padding_end) {
         .px => |value| {
             computed.horizontal_edges.padding_end = .{ .px = value };
-            result.base_width += try positiveLength(.px, value);
+            used.padding_inline_end = try positiveLength(.px, value);
         },
-        .percentage => |value| computed.horizontal_edges.padding_end = .{ .percentage = value },
+        .percentage => |value| {
+            computed.horizontal_edges.padding_end = .{ .percentage = value };
+            used.padding_inline_end = 0;
+        },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.horizontal_edges.margin_start) {
         .px => |value| {
             computed.horizontal_edges.margin_start = .{ .px = value };
-            result.base_width += length(.px, value);
+            used.margin_inline_start = length(.px, value);
         },
-        .percentage => |value| computed.horizontal_edges.margin_start = .{ .percentage = value },
-        .auto => computed.horizontal_edges.margin_start = .auto,
+        .percentage => |value| {
+            computed.horizontal_edges.margin_start = .{ .percentage = value };
+            used.margin_inline_start = 0;
+        },
+        .auto => {
+            computed.horizontal_edges.margin_start = .auto;
+            used.margin_inline_start = 0;
+            used.auto_bitfield.bits |= BF.margin_inline_start_bit;
+        },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.horizontal_edges.margin_end) {
         .px => |value| {
             computed.horizontal_edges.margin_end = .{ .px = value };
-            result.base_width += length(.px, value);
+            used.margin_inline_end = length(.px, value);
         },
-        .percentage => |value| computed.horizontal_edges.margin_end = .{ .percentage = value },
-        .auto => computed.horizontal_edges.margin_end = .auto,
+        .percentage => |value| {
+            computed.horizontal_edges.margin_end = .{ .percentage = value };
+            used.margin_inline_end = 0;
+        },
+        .auto => {
+            computed.horizontal_edges.margin_end = .auto;
+            used.margin_inline_end = 0;
+            used.auto_bitfield.bits |= BF.margin_inline_end_bit;
+        },
         .initial, .inherit, .unset => unreachable,
     }
 
     switch (specified.content_width.min_size) {
         .px => |value| {
             computed.content_width.min_size = .{ .px = value };
-            used.min_size = try positiveLength(.px, value);
+            used.min_inline_size = try positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.content_width.min_size = .{ .percentage = value };
-            used.min_size = 0;
+            used.min_inline_size = 0;
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.content_width.max_size) {
         .px => |value| {
             computed.content_width.max_size = .{ .px = value };
-            used.max_size = try positiveLength(.px, value);
+            used.max_inline_size = try positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.content_width.max_size = .{ .percentage = value };
-            used.max_size = std.math.maxInt(ZssUnit);
+            used.max_inline_size = std.math.maxInt(ZssUnit);
         },
         .none => {
             computed.content_width.max_size = .none;
-            used.max_size = std.math.maxInt(ZssUnit);
+            used.max_inline_size = std.math.maxInt(ZssUnit);
         },
         .initial, .inherit, .unset => unreachable,
     }
     switch (specified.content_width.size) {
-        // TODO: Should min_size/max_size affect the base_width if size is percentage/auto?
+        // TODO: Should min_size/max_size affect the edge_width if size is percentage/auto?
         .px => |value| {
             computed.content_width.size = .{ .px = value };
-            result.size = clampSize(try positiveLength(.px, value), used.min_size, used.max_size);
+            used.inline_size = clampSize(try positiveLength(.px, value), used.min_inline_size, used.max_inline_size);
         },
         .percentage => |value| {
             computed.content_width.size = .{ .percentage = value };
-            result.size = null;
+            used.inline_size = 0;
+            used.auto_bitfield.bits |= BF.inline_size_bit;
         },
         .auto => {
             computed.content_width.size = .auto;
-            result.size = null;
+            used.inline_size = 0;
+            used.auto_bitfield.bits |= BF.inline_size_bit;
         },
         .initial, .inherit, .unset => unreachable,
     }
-
-    context.inputs.setComputedValue(.box_gen, .content_width, specified.content_width);
-    context.inputs.setComputedValue(.box_gen, .horizontal_edges, specified.horizontal_edges);
-
-    return result;
-}
-
-fn shrinkToFit1stPassGetHeights(context: *BlockLayoutContext) !UsedLogicalHeights {
-    const containing_block_logical_height = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1].height;
-    if (containing_block_logical_height) |h| assert(h >= 0);
-
-    const specified = .{
-        .content_height = context.getSpecifiedValue(.box_gen, .content_height),
-    };
-
-    var computed: struct {
-        content_height: ValueTree.ContentSize,
-    } = undefined;
-
-    var used: struct {
-        size: ?ZssUnit,
-        min_size: ZssUnit,
-        max_size: ZssUnit,
-    } = undefined;
-
-    switch (specified.content_height.min_size) {
-        .px => |value| {
-            computed.content_height.min_size = .{ .px = value };
-            used.min_size = try positiveLength(.px, value);
-        },
-        .percentage => |value| {
-            computed.content_height.min_size = .{ .percentage = value };
-            used.min_size = if (containing_block_logical_height) |s|
-                try positivePercentage(value, s)
-            else
-                0;
-        },
-        .initial, .inherit, .unset => unreachable,
-    }
-    switch (specified.content_height.max_size) {
-        .px => |value| {
-            computed.content_height.max_size = .{ .px = value };
-            used.max_size = try positiveLength(.px, value);
-        },
-        .percentage => |value| {
-            computed.content_height.max_size = .{ .percentage = value };
-            used.max_size = if (containing_block_logical_height) |s|
-                try positivePercentage(value, s)
-            else
-                std.math.maxInt(ZssUnit);
-        },
-        .none => {
-            computed.content_height.max_size = .none;
-            used.max_size = std.math.maxInt(ZssUnit);
-        },
-        .initial, .inherit, .unset => unreachable,
-    }
-    switch (specified.content_height.size) {
-        .px => |value| {
-            computed.content_height.size = .{ .px = value };
-            used.size = clampSize(try positiveLength(.px, value), used.min_size, used.max_size);
-        },
-        .percentage => |value| {
-            computed.content_height.size = .{ .percentage = value };
-            used.size = if (containing_block_logical_height) |h|
-                clampSize(try positivePercentage(value, h), used.min_size, used.max_size)
-            else
-                null;
-        },
-        .auto => {
-            computed.content_height.size = .auto;
-            used.size = null;
-        },
-    }
-
-    context.setComputedValue(.box_gen, .content_height, computed.content_height);
-
-    return UsedLogicalHeights{
-        .height = used.size,
-        .min_height = used.min_size,
-        .max_height = used.max_size,
-    };
 }
 
 fn processShrinkToFit2ndPassBlock(boxes: *Boxes, context: *BlockLayoutContext, used_id_interval: *UsedIdInterval) !void {
@@ -1603,8 +1616,8 @@ fn processShrinkToFit2ndPassBlock(boxes: *Boxes, context: *BlockLayoutContext, u
         addBlockToFlow(box_offsets, margins.block_end, parent_auto_logical_height);
     } else {
         const element = context.used_id_to_element_index.items[block_box_index];
-        const logical_width = try flowBlockSolveInlineSizes(context, element, box_offsets, borders, margins);
-        const used_logical_heights = try flowBlockSolveBlockSizesPart1(context, element, box_offsets, borders, margins);
+        const logical_width = try flowBlockSolveWidths(context, element, box_offsets, borders, margins);
+        const used_logical_heights = try flowBlockSolveHeights(context, element, box_offsets, borders, margins);
         const new_interval = UsedIdInterval{ .begin = block_box_index + 1, .end = block_box_index + skip };
         try pushShrinkToFit2ndPassLayout(context, block_box_index, new_interval, logical_width, used_logical_heights);
     }
@@ -1613,14 +1626,14 @@ fn processShrinkToFit2ndPassBlock(boxes: *Boxes, context: *BlockLayoutContext, u
 fn pushShrinkToFit2ndPassLayout(
     context: *BlockLayoutContext,
     block_box_index: BlockBoxIndex,
-    used_id_interval: UsedIdInterval,
+    interval: Interval,
     logical_width: ZssUnit,
     logical_heights: UsedLogicalHeights,
 ) !void {
     // The allocations here must correspond to deallocations in popShrinkToFit2ndPassBlock.
     try context.layout_mode.append(context.inputs.allocator, .ShrinkToFit2ndPass);
     try context.index.append(context.inputs.allocator, block_box_index);
-    try context.used_id_intervals.append(context.inputs.allocator, used_id_interval);
+    try context.intervals.append(context.inputs.allocator, interval);
     try context.flow_block_used_logical_width.append(context.inputs.allocator, logical_width);
     try context.flow_block_auto_logical_height.append(context.inputs.allocator, 0);
     try context.flow_block_used_logical_heights.append(context.inputs.allocator, logical_heights);
@@ -1650,11 +1663,11 @@ fn popShrinkToFit2ndPassBlock(boxes: *Boxes, context: *BlockLayoutContext) void 
     }
 
     _ = context.layout_mode.pop();
+    _ = context.index.pop();
+    _ = context.intervals.pop();
     _ = context.flow_block_used_logical_width.pop();
     _ = context.flow_block_auto_logical_height.pop();
     _ = context.flow_block_used_logical_heights.pop();
-    _ = context.index.pop();
-    _ = context.used_id_intervals.pop();
 }
 
 fn processInlineContainer(
@@ -1731,12 +1744,12 @@ fn processInlineContainer(
             addBlockToFlow(block.box_offsets, 0, parent_auto_logical_height);
         },
         .InlineFormattingContext => unreachable,
-        //.ShrinkToFit1stPass => {
-        //    context.skip.items[context.skip.items.len - 1] += inline_context.block_skip;
-        //    const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
-        //    parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, used_logical_width);
-        //},
-        //.ShrinkToFit2ndPass => @panic("unimplemented"),
+        .ShrinkToFit1stPass => {
+            context.skip.items[context.skip.items.len - 1] += block.skip.*;
+            const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
+            parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, used_logical_width);
+        },
+        .ShrinkToFit2ndPass => unreachable,
     }
 }
 
@@ -1781,9 +1794,23 @@ fn processInlineBlock(boxes: *Boxes, context: *BlockLayoutContext) !void {
     block.skip.* = undefined;
     block.properties.* = .{};
 
-    context.inputs.element_index_to_generated_box[element] = .{ .block_box = block.index };
+    const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
+    const containing_block_logical_height = context.flow_block_used_logical_heights.items[context.flow_block_used_logical_heights.items.len - 1].height;
 
-    const sizes = try inlineBlockSolveSizesPart1(context, block.box_offsets, block.borders, block.margins);
+    const specified_sizes = FlowBlockComputedSizes{
+        .content_width = context.inputs.getSpecifiedValue(.box_gen, .content_width),
+        .horizontal_edges = context.inputs.getSpecifiedValue(.box_gen, .horizontal_edges),
+        .content_height = context.inputs.getSpecifiedValue(.box_gen, .content_height),
+        .vertical_edges = context.inputs.getSpecifiedValue(.box_gen, .vertical_edges),
+    };
+    var computed_sizes: FlowBlockComputedSizes = undefined;
+    var used_sizes: FlowBlockUsedSizes = undefined;
+    try inlineBlockSolveSizesPart1(specified_sizes, containing_block_logical_width, containing_block_logical_height, &computed_sizes, &used_sizes);
+
+    context.inputs.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
+    context.inputs.setComputedValue(.box_gen, .horizontal_edges, computed_sizes.horizontal_edges);
+    context.inputs.setComputedValue(.box_gen, .content_height, computed_sizes.content_height);
+    context.inputs.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
 
     // TODO: Move z-index computation to the cosmetic stage
     const specified_z_index = context.inputs.getSpecifiedValue(.box_gen, .z_index);
@@ -1818,67 +1845,30 @@ fn processInlineBlock(boxes: *Boxes, context: *BlockLayoutContext) !void {
 
     try context.inputs.pushElement(.box_gen);
 
-    if (sizes.logical_width) |logical_width| {
-        try pushFlowLayout(context, Interval{ .begin = element + 1, .end = element + skip }, block.index, logical_width, sizes.logical_heights, stacking_context_index);
+    const BF = FlowBlockUsedSizes.AutoBitfield;
+    if (used_sizes.auto_bitfield.bits & BF.inline_size_bit == 0) {
+        context.inputs.element_index_to_generated_box[element] = .{ .block_box = block.index };
+        inlineBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins); // TODO: Use flowBlockSetData instead
+        try pushFlowLayout(context, Interval{ .begin = element + 1, .end = element + skip }, block.index, used_sizes, stacking_context_index);
     } else {
         @panic("TODO inline block shrink to fit");
-        //const base_width = (block.box_offsets.content_start.x - block.box_offsets.border_start.x) + (block.box_offsets.border_end.x - block.box_offsets.content_end.x) + block.margins.inline_start + block.margins.inline_end;
-        //const available_width = std.math.max(0, container.containing_block_logical_width - base_width);
-        //try pushShrinkToFit1stPassLayout(context, element, block.index, available_width, base_width, sizes.logical_heights);
+        //const edge_width = (block.box_offsets.content_start.x - block.box_offsets.border_start.x) + (block.box_offsets.border_end.x - block.box_offsets.content_end.x) + block.margins.inline_start + block.margins.inline_end;
+        //const available_width = std.math.max(0, container.containing_block_logical_width - edge_width);
+        //try pushShrinkToFit1stPassLayout(context, element, block.index, available_width, edge_width, sizes.logical_heights);
     }
 }
 
-const InlineBlockSolveSizesResult = struct {
-    logical_width: ?ZssUnit,
-    logical_heights: UsedLogicalHeights,
-};
-
 fn inlineBlockSolveSizesPart1(
-    context: *BlockLayoutContext,
-    box_offsets: *used_values.BoxOffsets,
-    borders: *used_values.Borders,
-    margins: *used_values.Margins,
-) !InlineBlockSolveSizesResult {
-    const max = std.math.max;
-    const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
+    specified: FlowBlockComputedSizes,
+    containing_block_logical_width: ZssUnit,
+    containing_block_logical_height: ?ZssUnit,
+    computed: *FlowBlockComputedSizes,
+    used: *FlowBlockUsedSizes,
+) !void {
     assert(containing_block_logical_width >= 0);
+    if (containing_block_logical_height) |h| assert(h >= 0);
 
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
-    const specified = .{
-        .content_width = context.inputs.getSpecifiedValue(.box_gen, .content_width),
-        .horizontal_edges = context.inputs.getSpecifiedValue(.box_gen, .horizontal_edges),
-        .content_height = context.inputs.getSpecifiedValue(.box_gen, .content_height),
-        .vertical_edges = context.inputs.getSpecifiedValue(.box_gen, .vertical_edges),
-    };
-
-    var computed: struct {
-        content_width: ValueTree.ContentSize,
-        horizontal_edges: ValueTree.BoxEdges,
-        content_height: ValueTree.ContentSize,
-        vertical_edges: ValueTree.BoxEdges,
-    } = undefined;
-
-    var used: struct {
-        border_inline_start: ZssUnit,
-        border_inline_end: ZssUnit,
-        padding_inline_start: ZssUnit,
-        padding_inline_end: ZssUnit,
-        margin_inline_start: ZssUnit,
-        margin_inline_end: ZssUnit,
-        min_inline_size: ZssUnit,
-        max_inline_size: ZssUnit,
-        inline_size: ?ZssUnit,
-        border_block_start: ZssUnit,
-        border_block_end: ZssUnit,
-        padding_block_start: ZssUnit,
-        padding_block_end: ZssUnit,
-        margin_block_start: ZssUnit,
-        margin_block_end: ZssUnit,
-        min_block_size: ZssUnit,
-        max_block_size: ZssUnit,
-        block_size: ?ZssUnit,
-    } = undefined;
-
     switch (specified.horizontal_edges.border_start) {
         .px => |value| {
             computed.horizontal_edges.border_start = .{ .px = value };
@@ -1982,7 +1972,7 @@ fn inlineBlockSolveSizesPart1(
         },
         .percentage => |value| {
             computed.content_width.min_size = .{ .percentage = value };
-            used.min_inline_size = try positivePercentage(value, max(0, containing_block_logical_width));
+            used.min_inline_size = try positivePercentage(value, containing_block_logical_width);
         },
         .initial, .inherit, .unset => unreachable,
     }
@@ -1993,7 +1983,7 @@ fn inlineBlockSolveSizesPart1(
         },
         .percentage => |value| {
             computed.content_width.max_size = .{ .percentage = value };
-            used.max_inline_size = try positivePercentage(value, max(0, containing_block_logical_width));
+            used.max_inline_size = try positivePercentage(value, containing_block_logical_width);
         },
         .none => {
             computed.content_width.max_size = .none;
@@ -2011,8 +2001,10 @@ fn inlineBlockSolveSizesPart1(
             used.inline_size = clampSize(try positivePercentage(value, containing_block_logical_width), used.min_inline_size, used.max_inline_size);
         },
         .auto => {
+            const BF = FlowBlockUsedSizes.AutoBitfield;
             computed.content_width.size = .auto;
-            used.inline_size = null;
+            used.inline_size = 0;
+            used.auto_bitfield.bits |= BF.inline_size_bit;
         },
         .initial, .inherit, .unset => unreachable,
     }
@@ -2120,7 +2112,10 @@ fn inlineBlockSolveSizesPart1(
         },
         .percentage => |value| {
             computed.content_height.min_size = .{ .percentage = value };
-            used.min_block_size = try positivePercentage(value, max(0, containing_block_logical_width));
+            used.min_block_size = if (containing_block_logical_height) |h|
+                try positivePercentage(value, h)
+            else
+                0;
         },
         .initial, .inherit, .unset => unreachable,
     }
@@ -2131,7 +2126,10 @@ fn inlineBlockSolveSizesPart1(
         },
         .percentage => |value| {
             computed.content_height.max_size = .{ .percentage = value };
-            used.max_block_size = try positivePercentage(value, max(0, containing_block_logical_width));
+            used.max_block_size = if (containing_block_logical_height) |h|
+                try positivePercentage(value, h)
+            else
+                std.math.maxInt(ZssUnit);
         },
         .none => {
             computed.content_height.max_size = .none;
@@ -2146,7 +2144,10 @@ fn inlineBlockSolveSizesPart1(
         },
         .percentage => |value| {
             computed.content_height.size = .{ .percentage = value };
-            used.block_size = clampSize(try positivePercentage(value, containing_block_logical_width), used.min_block_size, used.max_block_size);
+            used.block_size = if (containing_block_logical_height) |h|
+                clampSize(try positivePercentage(value, h), used.min_block_size, used.max_block_size)
+            else
+                null;
         },
         .auto => {
             computed.content_height.size = .auto;
@@ -2154,12 +2155,9 @@ fn inlineBlockSolveSizesPart1(
         },
         .initial, .inherit, .unset => unreachable,
     }
+}
 
-    context.inputs.setComputedValue(.box_gen, .content_width, computed.content_width);
-    context.inputs.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
-    context.inputs.setComputedValue(.box_gen, .content_height, computed.content_height);
-    context.inputs.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
-
+fn inlineBlockSetData(used: FlowBlockUsedSizes, box_offsets: *used_values.BoxOffsets, borders: *used_values.Borders, margins: *used_values.Margins) void {
     box_offsets.border_start = .{ .x = used.margin_inline_start, .y = used.margin_block_start };
     box_offsets.content_start = .{
         .x = used.margin_inline_start + used.border_inline_start + used.padding_inline_start,
@@ -2172,15 +2170,6 @@ fn inlineBlockSolveSizesPart1(
     };
     borders.* = .{ .inline_start = used.border_inline_start, .inline_end = used.border_inline_end, .block_start = used.border_block_start, .block_end = used.border_block_end };
     margins.* = .{ .inline_start = used.margin_inline_start, .inline_end = used.margin_inline_end, .block_start = used.margin_block_start, .block_end = used.margin_block_end };
-
-    return InlineBlockSolveSizesResult{
-        .logical_width = used.inline_size,
-        .logical_heights = UsedLogicalHeights{
-            .height = used.block_size,
-            .min_height = used.min_block_size,
-            .max_height = used.max_block_size,
-        },
-    };
 }
 
 fn inlineBlockSolveSizesPart2(box_offsets: *used_values.BoxOffsets, used_logical_width: ZssUnit, used_logical_heights: UsedLogicalHeights, auto_logical_height: ZssUnit) ZssUnit {
@@ -2495,7 +2484,7 @@ fn inlineLevelElementPush(boxes: *Boxes, context: *InlineLayoutContext, ifc: *In
             }
             switch (context.inputs.element_index_to_generated_box[element]) {
                 .none => {},
-                .block_box => |block_box_index| try addInlineBlock(boxes, ifc, block_box_index),
+                .block_box, .shrink_to_fit_block => |block_box_index| try addInlineBlock(boxes, ifc, block_box_index),
                 .inline_box => unreachable,
             }
         },

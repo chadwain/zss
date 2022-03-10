@@ -253,15 +253,17 @@ pub fn getTestData() !ArrayList(TreeData) {
         tree_data.set(.background1, root_4, .{ .color = .{ .rgba = 0xd5ad81ff } });
         break :blk tree_data;
     });
-    //    try list.append(blk: {
-    //        var tree_data = try TreeData.init(2, &.{ .box_style, .content_width });
-    //        const root = tree_data.createRoot();
-    //        const root_0 = tree_data.insertChild(root);
-    //
-    //        tree_data.set(.box_style, root_0, .{ .display = .inline_block });
-    //        tree_data.set(.content_width, root_0, .{ .size = .{ .px = 50 } });
-    //        break :blk tree_data;
-    //    });
+    try list.append(blk: {
+        var tree_data = try TreeData.init(2, &.{ .box_style, .content_width, .content_height, .background1 });
+        const root = tree_data.createRoot();
+        const root_0 = tree_data.insertChild(root);
+
+        tree_data.set(.box_style, root_0, .{ .display = .inline_block });
+        tree_data.set(.content_width, root_0, .{ .size = .{ .px = 50 } });
+        tree_data.set(.content_height, root_0, .{ .size = .{ .px = 50 } });
+        tree_data.set(.background1, root_0, .{ .color = .{ .rgba = 0x48728fff } });
+        break :blk tree_data;
+    });
     //    try list.append(blk: {
     //        var tree_data = try TreeData.init(9, &.{ .box_style, .vertical_edges, .text, .background1 });
     //        const root = tree_data.createRoot();
