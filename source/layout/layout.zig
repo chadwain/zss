@@ -294,6 +294,7 @@ const Inputs = struct {
 
     this_element: ThisElement = .{},
     element_stack: ArrayListUnmanaged(ThisElement) = .{},
+    intervals: ArrayListUnmanaged(Interval) = .{},
 
     stage: union {
         box_gen: struct {
@@ -320,6 +321,7 @@ const Inputs = struct {
     // Does not do deinitStage.
     fn deinit(self: *Self) void {
         self.element_stack.deinit(self.allocator);
+        self.intervals.deinit(self.allocator);
         self.allocator.free(self.element_index_to_generated_box);
         self.anonymous_block_boxes.deinit(self.allocator);
     }
@@ -327,6 +329,7 @@ const Inputs = struct {
     fn assertEmptyStage(self: Self, comptime stage: Stage) void {
         assert(self.current_stage == stage);
         assert(self.element_stack.items.len == 0);
+        assert(self.intervals.items.len == 0);
         const current_stage = &@field(self.stage, @tagName(stage));
         inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
             assert(@field(current_stage.value_stack, field_info.name).items.len == 0);
@@ -363,7 +366,10 @@ const Inputs = struct {
 
     fn pushElement(self: *Self, comptime stage: Stage) !void {
         assert(self.current_stage == stage);
+        const element = self.this_element.element;
+        const skip = self.element_tree_skips[element];
         try self.element_stack.append(self.allocator, self.this_element);
+        try self.intervals.append(self.allocator, Interval{ .begin = element + 1, .end = element + skip });
 
         const current_stage = &@field(self.stage, @tagName(stage));
         const values = current_stage.current_values;
@@ -380,6 +386,7 @@ const Inputs = struct {
     fn popElement(self: *Self, comptime stage: Stage) void {
         assert(self.current_stage == stage);
         _ = self.element_stack.pop();
+        _ = self.intervals.pop();
 
         const current_stage = &@field(self.stage, @tagName(stage));
 
@@ -479,7 +486,6 @@ const BlockLayoutContext = struct {
     inputs: *Inputs,
 
     layout_mode: ArrayListUnmanaged(LayoutMode) = .{},
-    intervals: ArrayListUnmanaged(Interval) = .{},
 
     metadata: ArrayListUnmanaged(Metadata) = .{},
     stacking_context_index: ArrayListUnmanaged(StackingContextIndex) = .{},
@@ -500,7 +506,6 @@ const BlockLayoutContext = struct {
     used_id_intervals: ArrayListUnmanaged(UsedIdInterval) = .{},
 
     fn deinit(self: *BlockLayoutContext) void {
-        self.intervals.deinit(self.inputs.allocator);
         self.metadata.deinit(self.inputs.allocator);
         self.layout_mode.deinit(self.inputs.allocator);
         self.index.deinit(self.inputs.allocator);
@@ -525,12 +530,9 @@ fn doBoxGeneration(boxes: *Boxes, context: *BlockLayoutContext) !void {
         try boxes.blocks.ensureTotalCapacity(boxes.allocator, 1);
     }
 
-    // Initialize the context with some data.
-    try context.layout_mode.append(context.inputs.allocator, .InitialContainingBlock);
-
     // Create the initial containing block.
     try createInitialContainingBlock(boxes, context);
-    if (context.layout_mode.items.len == 1) return;
+    if (context.layout_mode.items.len == 0) return;
 
     // Process the root element.
     try processElement(boxes, context);
@@ -550,6 +552,8 @@ fn doBoxGeneration(boxes: *Boxes, context: *BlockLayoutContext) !void {
     while (context.layout_mode.items.len > 1) {
         try processElement(boxes, context);
     }
+
+    popInitialContainingBlock(context);
 }
 
 fn doCosmeticLayout(boxes: *Boxes, inputs: *Inputs) !void {
@@ -624,77 +628,115 @@ fn createInitialContainingBlock(boxes: *Boxes, context: *BlockLayoutContext) !vo
     try context.inputs.anonymous_block_boxes.append(context.inputs.allocator, block.index);
     if (context.inputs.element_tree_skips.len == 0) return;
 
-    const interval = Interval{ .begin = root_element, .end = root_element + context.inputs.element_tree_skips[root_element] };
-    const used_sizes = FlowBlockUsedSizes{
-        .border_inline_start = 0,
-        .border_inline_end = 0,
-        .padding_inline_start = 0,
-        .padding_inline_end = 0,
-        .margin_inline_start = 0,
-        .margin_inline_end = 0,
-        .inline_size = width,
-        .min_inline_size = width,
-        .max_inline_size = width,
+    try context.layout_mode.append(context.inputs.allocator, .InitialContainingBlock);
+    try context.index.append(context.inputs.allocator, block.index);
+    try context.skip.append(context.inputs.allocator, 1);
+    try context.flow_block_used_logical_width.append(context.inputs.allocator, width);
+    try context.flow_block_used_logical_heights.append(context.inputs.allocator, UsedLogicalHeights{
+        .height = height,
+        .min_height = height,
+        .max_height = height,
+    });
+}
 
-        .border_block_start = 0,
-        .border_block_end = 0,
-        .padding_block_start = 0,
-        .padding_block_end = 0,
-        .margin_block_start = 0,
-        .margin_block_end = 0,
-        .block_size = height,
-        .min_block_size = height,
-        .max_block_size = height,
-
-        .auto_bitfield = .{ .bits = 0 },
-    };
-    try pushFlowLayout(context, interval, block.index, used_sizes, null);
+fn popInitialContainingBlock(context: *BlockLayoutContext) void {
+    _ = context.layout_mode.pop();
+    _ = context.index.pop();
+    _ = context.skip.pop();
+    _ = context.flow_block_used_logical_width.pop();
+    _ = context.flow_block_used_logical_heights.pop();
 }
 
 fn processElement(boxes: *Boxes, context: *BlockLayoutContext) !void {
     const layout_mode = context.layout_mode.items[context.layout_mode.items.len - 1];
     switch (layout_mode) {
-        .InitialContainingBlock => unreachable,
+        .InitialContainingBlock => {
+            const element = root_element;
+            const skip = context.inputs.element_tree_skips[element];
+            context.inputs.setElement(.box_gen, element);
+
+            const specified = context.inputs.getSpecifiedValue(.box_gen, .box_style);
+            const computed = solveBoxStyle(specified, true);
+            context.inputs.setComputedValue(.box_gen, .box_style, computed);
+
+            switch (computed.display) {
+                .block => {
+                    const box = try processFlowBlock(boxes, context, true);
+                    context.inputs.element_index_to_generated_box[element] = box;
+                    try context.inputs.pushElement(.box_gen);
+                },
+                .none => std.mem.set(GeneratedBox, context.inputs.element_index_to_generated_box[element .. element + skip], .none),
+                .inline_, .inline_block, .text => unreachable,
+                .initial, .inherit, .unset => unreachable,
+            }
+        },
         .Flow => {
-            const interval = &context.intervals.items[context.intervals.items.len - 1];
+            const interval = &context.inputs.intervals.items[context.inputs.intervals.items.len - 1];
             if (interval.begin != interval.end) {
-                context.inputs.setElement(.box_gen, interval.begin);
+                const element = interval.begin;
+                const skip = context.inputs.element_tree_skips[element];
+                context.inputs.setElement(.box_gen, element);
+
                 const specified = context.inputs.getSpecifiedValue(.box_gen, .box_style);
-                const computed = solveBoxStyle(specified, interval.begin == root_element);
+                // TODO: (element == root_element) might always be false
+                const computed = solveBoxStyle(specified, element == root_element);
                 context.inputs.setComputedValue(.box_gen, .box_style, computed);
 
                 switch (computed.display) {
-                    .block => return processFlowBlock(boxes, context, interval),
+                    .block => {
+                        // TODO: (element == root_element) might always be false
+                        const box = try processFlowBlock(boxes, context, element == root_element);
+                        context.inputs.element_index_to_generated_box[element] = box;
+                        interval.begin += skip;
+                        try context.inputs.pushElement(.box_gen);
+                    },
                     .inline_, .inline_block, .text => {
                         const containing_block_logical_width = context.flow_block_used_logical_width.items[context.flow_block_used_logical_width.items.len - 1];
-                        return processInlineContainer(boxes, context, interval, containing_block_logical_width, .Normal);
+                        return processInlineFormattingContext(boxes, context, interval, containing_block_logical_width, .Normal);
                     },
-                    .none => return skipElement(context, interval),
+                    .none => {
+                        std.mem.set(GeneratedBox, context.inputs.element_index_to_generated_box[element .. element + skip], .none);
+                        interval.begin += skip;
+                    },
                     .initial, .inherit, .unset => unreachable,
                 }
             } else {
                 popFlowBlock(boxes, context);
+                context.inputs.popElement(.box_gen);
             }
         },
         .ShrinkToFit1stPass => {
-            const interval = &context.intervals.items[context.intervals.items.len - 1];
+            const interval = &context.inputs.intervals.items[context.inputs.intervals.items.len - 1];
             if (interval.begin != interval.end) {
+                const element = interval.begin;
+                const skip = context.inputs.element_tree_skips[element];
                 context.inputs.setElement(.box_gen, interval.begin);
+
                 const specified = context.inputs.getSpecifiedValue(.box_gen, .box_style);
-                const computed = solveBoxStyle(specified, interval.begin == root_element);
+                // TODO: (element == root_element) might always be false
+                const computed = solveBoxStyle(specified, element == root_element);
                 context.inputs.setComputedValue(.box_gen, .box_style, computed);
 
                 switch (computed.display) {
-                    .block => return processShrinkToFit1stPassBlock(boxes, context, interval),
+                    .block => {
+                        const box = try processShrinkToFit1stPassBlock(boxes, context);
+                        context.inputs.element_index_to_generated_box[element] = box;
+                        interval.begin += skip;
+                        try context.inputs.pushElement(.box_gen);
+                    },
                     .inline_, .inline_block, .text => {
                         const available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
-                        return processInlineContainer(boxes, context, interval, available_width, .ShrinkToFit);
+                        return processInlineFormattingContext(boxes, context, interval, available_width, .ShrinkToFit);
                     },
-                    .none => return skipElement(context, interval),
+                    .none => {
+                        std.mem.set(GeneratedBox, context.inputs.element_index_to_generated_box[element .. element + skip], .none);
+                        interval.begin += skip;
+                    },
                     .initial, .inherit, .unset => unreachable,
                 }
             } else {
-                try popShrinkToFit1stPassBlock(boxes, context);
+                popShrinkToFit1stPassBlock(boxes, context);
+                context.inputs.popElement(.box_gen);
             }
         },
         //        .ShrinkToFit2ndPass => {
@@ -709,21 +751,8 @@ fn processElement(boxes: *Boxes, context: *BlockLayoutContext) !void {
     }
 }
 
-fn skipElement(context: *BlockLayoutContext, interval: *Interval) void {
-    const element = interval.begin;
-    const skip = context.inputs.element_tree_skips[element];
-    interval.begin += skip;
-    std.mem.set(GeneratedBox, context.inputs.element_index_to_generated_box[element .. element + skip], .none);
-}
-
-fn processFlowBlock(boxes: *Boxes, context: *BlockLayoutContext, interval: *Interval) !void {
-    const element = interval.begin;
-    const skip = context.inputs.element_tree_skips[element];
-    interval.begin += skip;
-
+fn processFlowBlock(boxes: *Boxes, context: *BlockLayoutContext, is_root_element: bool) !GeneratedBox {
     const block = try createBlock(boxes);
-    context.inputs.element_index_to_generated_box[element] = .{ .block_box = block.index };
-
     block.skip.* = undefined;
     block.properties.* = .{};
 
@@ -755,7 +784,7 @@ fn processFlowBlock(boxes: *Boxes, context: *BlockLayoutContext, interval: *Inte
     const stacking_context_index = switch (position) {
         .static => null,
         .relative => blk: {
-            if (element == root_element) {
+            if (is_root_element) {
                 // TODO: Should maybe just treat position as static
                 // This is the root element. Position must be 'static'.
                 return error.InvalidValue;
@@ -779,20 +808,18 @@ fn processFlowBlock(boxes: *Boxes, context: *BlockLayoutContext, interval: *Inte
         .initial, .inherit, .unset => unreachable,
     };
 
-    try context.inputs.pushElement(.box_gen);
-    try pushFlowLayout(context, Interval{ .begin = element + 1, .end = element + skip }, block.index, used_sizes, stacking_context_index);
+    try pushFlowLayout(context, block.index, used_sizes, stacking_context_index);
+    return GeneratedBox{ .block_box = block.index };
 }
 
 fn pushFlowLayout(
     context: *BlockLayoutContext,
-    interval: Interval,
     block_box_index: BlockBoxIndex,
     used_sizes: FlowBlockUsedSizes,
     stacking_context_index: ?StackingContextIndex,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowBlock.
     try context.layout_mode.append(context.inputs.allocator, .Flow);
-    try context.intervals.append(context.inputs.allocator, interval);
     try context.index.append(context.inputs.allocator, block_box_index);
     try context.skip.append(context.inputs.allocator, 1);
     try context.flow_block_used_logical_width.append(context.inputs.allocator, used_sizes.inline_size);
@@ -823,30 +850,29 @@ fn popFlowBlock(boxes: *Boxes, context: *BlockLayoutContext) void {
 
     const parent_layout_mode = context.layout_mode.items[context.layout_mode.items.len - 2];
     switch (parent_layout_mode) {
-        .InitialContainingBlock => {},
+        .InitialContainingBlock => {
+            context.skip.items[context.skip.items.len - 2] += skip;
+            flowBlockFinishLayout(boxes, context, box_offsets);
+        },
         .Flow => {
             context.skip.items[context.skip.items.len - 2] += skip;
             flowBlockFinishLayout(boxes, context, box_offsets);
             const parent_auto_logical_height = &context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 2];
             addBlockToFlow(box_offsets, margins.block_end, parent_auto_logical_height);
-            context.inputs.popElement(.box_gen);
         },
         .InlineFormattingContext => {
             context.skip.items[context.skip.items.len - 2] += skip;
             inlineBlockFinishLayout(boxes, context, box_offsets);
-            context.inputs.popElement(.box_gen);
         },
         .ShrinkToFit1stPass => {
             context.skip.items[context.skip.items.len - 2] += skip;
             flowBlockFinishLayout(boxes, context, box_offsets);
-            context.inputs.popElement(.box_gen);
         },
         .ShrinkToFit2ndPass => unreachable,
     }
 
     // The deallocations here must correspond to allocations in pushFlowLayout.
     _ = context.layout_mode.pop();
-    _ = context.intervals.pop();
     _ = context.index.pop();
     _ = context.skip.pop();
     _ = context.flow_block_used_logical_width.pop();
@@ -884,7 +910,7 @@ const FlowBlockUsedSizes = struct {
     padding_block_end: ZssUnit,
     margin_block_start: ZssUnit,
     margin_block_end: ZssUnit,
-    block_size: ?ZssUnit,
+    block_size: ?ZssUnit, // TODO: Make this non-optional
     min_block_size: ZssUnit,
     max_block_size: ZssUnit,
 
@@ -1313,10 +1339,8 @@ fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_end: ZssUnit, par
     parent_auto_logical_height.* = box_offsets.border_end.y + margin_end;
 }
 
-fn processShrinkToFit1stPassBlock(boxes: *Boxes, context: *BlockLayoutContext, interval: *Interval) !void {
-    const element = interval.begin;
-    const skip = context.inputs.element_tree_skips[element];
-    interval.begin += skip;
+fn processShrinkToFit1stPassBlock(boxes: *Boxes, context: *BlockLayoutContext) !GeneratedBox {
+    // TODO: Check for z-index here?
 
     const block = try createBlock(boxes);
     block.skip.* = undefined;
@@ -1349,14 +1373,14 @@ fn processShrinkToFit1stPassBlock(boxes: *Boxes, context: *BlockLayoutContext, i
 
     const BF = FlowBlockUsedSizes.AutoBitfield;
     if (used_sizes.auto_bitfield.bits & BF.inline_size_bit == 0) {
-        context.inputs.element_index_to_generated_box[element] = .{ .block_box = block.index };
         flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
         const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
         parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, used_sizes.inline_size + edge_width);
-        try pushFlowLayout(context, Interval{ .begin = element + 1, .end = element + skip }, block.index, used_sizes, null);
+        try pushFlowLayout(context, block.index, used_sizes, null);
+        return GeneratedBox{ .block_box = block.index };
     } else {
-        context.inputs.element_index_to_generated_box[element] = .{ .shrink_to_fit_block = block.index };
         @panic("hmmm");
+        //return GeneratedBox{ .shrink_to_fit_block = block.index };
         //shrinkToFit1stPassSetData();
         //const parent_available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
         //const available_width = std.math.max(0, parent_available_width - edge_width);
@@ -1370,12 +1394,10 @@ fn processShrinkToFit1stPassBlock(boxes: *Boxes, context: *BlockLayoutContext, i
         //    .{ .principal = element },
         //);
     }
-    try context.inputs.pushElement(.box_gen);
 }
 
 fn pushShrinkToFit1stPassLayout(
     context: *BlockLayoutContext,
-    interval: Interval,
     block_box_index: BlockBoxIndex,
     used_sizes: FlowBlockUsedSizes,
     available_width: ZssUnit,
@@ -1384,7 +1406,6 @@ fn pushShrinkToFit1stPassLayout(
 ) !void {
     // The allocations here must have corresponding deallocations in popShrinkToFit1stPassBlock.
     try context.layout_mode.append(context.inputs.allocator, .ShrinkToFit1stPass);
-    try context.intervals.append(context.inputs.allocator, interval);
     try context.index.append(context.inputs.allocator, block_box_index);
     try context.skip.append(context.inputs.allocator, 1);
     try context.shrink_to_fit_available_width.append(context.inputs.allocator, available_width);
@@ -1401,7 +1422,7 @@ fn pushShrinkToFit1stPassLayout(
     }
 }
 
-fn popShrinkToFit1stPassBlock(boxes: *Boxes, context: *BlockLayoutContext) !void {
+fn popShrinkToFit1stPassBlock(boxes: *Boxes, context: *BlockLayoutContext) void {
     const block_box_index = context.index.items[context.index.items.len - 1];
     const skip = context.skip.items[context.skip.items.len - 1];
     boxes.blocks.skips.items[block_box_index] = skip;
@@ -1419,7 +1440,6 @@ fn popShrinkToFit1stPassBlock(boxes: *Boxes, context: *BlockLayoutContext) !void
         },
         .InlineFormattingContext => {
             context.skip.items[context.skip.items.len - 2] += skip;
-            context.inputs.popElement(.box_gen);
             go_to_2nd_pass = true;
         },
         .ShrinkToFit1stPass => {
@@ -1427,13 +1447,11 @@ fn popShrinkToFit1stPassBlock(boxes: *Boxes, context: *BlockLayoutContext) !void
             const parent_shrink_to_fit_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 2];
             const edge_width = context.shrink_to_fit_edge_width.items[context.shrink_to_fit_edge_width.items.len - 1];
             parent_shrink_to_fit_width.* = std.math.max(parent_shrink_to_fit_width.*, shrink_to_fit_width + edge_width);
-            context.inputs.popElement(.box_gen); // TODO: Only if principal box
         },
         .ShrinkToFit2ndPass => unreachable,
     }
 
     _ = context.layout_mode.pop();
-    _ = context.intervals.pop();
     _ = context.index.pop();
     _ = context.skip.pop();
     _ = context.shrink_to_fit_available_width.pop();
@@ -1655,10 +1673,10 @@ fn popShrinkToFit2ndPassBlock(boxes: *Boxes, context: *BlockLayoutContext) void 
             const parent_auto_logical_height = &context.flow_block_auto_logical_height.items[context.flow_block_auto_logical_height.items.len - 2];
             addBlockToFlow(box_offsets, margins.block_end, parent_auto_logical_height);
         },
-        .InlineContainer => {
+        .InlineFormattingContext => {
             inlineBlockFinishLayout(boxes, context, box_offsets);
             //const container = &context.inline_container.items[context.inline_container.items.len - 1];
-            //addBlockToInlineContainer(container);
+            //addBlockToInlineFormattingContext(container);
         },
     }
 
@@ -1670,7 +1688,7 @@ fn popShrinkToFit2ndPassBlock(boxes: *Boxes, context: *BlockLayoutContext) void 
     _ = context.flow_block_used_logical_heights.pop();
 }
 
-fn processInlineContainer(
+fn processInlineFormattingContext(
     boxes: *Boxes,
     context: *BlockLayoutContext,
     interval: *Interval,
@@ -1786,10 +1804,7 @@ fn inlineFormattingContextPositionInlineBlocks(boxes: *Boxes, values: *InlineFor
     }
 }
 
-fn processInlineBlock(boxes: *Boxes, context: *BlockLayoutContext) !void {
-    const element = context.inputs.this_element.element;
-    const skip = context.inputs.element_tree_skips[element];
-
+fn processInlineBlock(boxes: *Boxes, context: *BlockLayoutContext, is_root_element: bool) !GeneratedBox {
     const block = try createBlock(boxes);
     block.skip.* = undefined;
     block.properties.* = .{};
@@ -1819,7 +1834,8 @@ fn processInlineBlock(boxes: *Boxes, context: *BlockLayoutContext) !void {
     const stacking_context_index = switch (position) {
         .static => try createStackingContext(boxes, context, block.index, 0),
         .relative => blk: {
-            if (element == root_element) {
+            // TODO: This is always false.
+            if (is_root_element) {
                 // TODO: Should maybe just treat position as static
                 // This is the root element. Position must be 'static'.
                 return error.InvalidValue;
@@ -1843,13 +1859,11 @@ fn processInlineBlock(boxes: *Boxes, context: *BlockLayoutContext) !void {
         .initial, .inherit, .unset => unreachable,
     };
 
-    try context.inputs.pushElement(.box_gen);
-
     const BF = FlowBlockUsedSizes.AutoBitfield;
     if (used_sizes.auto_bitfield.bits & BF.inline_size_bit == 0) {
-        context.inputs.element_index_to_generated_box[element] = .{ .block_box = block.index };
         inlineBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins); // TODO: Use flowBlockSetData instead
-        try pushFlowLayout(context, Interval{ .begin = element + 1, .end = element + skip }, block.index, used_sizes, stacking_context_index);
+        try pushFlowLayout(context, block.index, used_sizes, stacking_context_index);
+        return GeneratedBox{ .block_box = block.index };
     } else {
         @panic("TODO inline block shrink to fit");
         //const edge_width = (block.box_offsets.content_start.x - block.box_offsets.border_start.x) + (block.box_offsets.border_end.x - block.box_offsets.content_end.x) + block.margins.inline_start + block.margins.inline_end;
@@ -1991,6 +2005,9 @@ fn inlineBlockSolveSizesPart1(
         },
         .initial, .inherit, .unset => unreachable,
     }
+
+    used.auto_bitfield.bits = 0;
+
     switch (specified.content_width.size) {
         .px => |value| {
             computed.content_width.size = .{ .px = value };
@@ -2477,12 +2494,14 @@ fn inlineLevelElementPush(boxes: *Boxes, context: *InlineLayoutContext, ifc: *In
             const block_context = context.block_context;
             const layout_mode_old_len = block_context.layout_mode.items.len;
             context.inputs.setComputedValue(.box_gen, .box_style, computed);
-            try processInlineBlock(boxes, block_context);
+            const box = try processInlineBlock(boxes, block_context, element == root_element);
+            context.inputs.element_index_to_generated_box[element] = box;
+            try context.inputs.pushElement(.box_gen);
             while (context.block_context.layout_mode.items.len > layout_mode_old_len) {
                 // TODO: Recursive call
                 try processElement(boxes, block_context);
             }
-            switch (context.inputs.element_index_to_generated_box[element]) {
+            switch (box) {
                 .none => {},
                 .block_box, .shrink_to_fit_block => |block_box_index| try addInlineBlock(boxes, ifc, block_box_index),
                 .inline_box => unreachable,
