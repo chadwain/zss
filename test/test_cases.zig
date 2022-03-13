@@ -254,14 +254,18 @@ pub fn getTestData() !ArrayList(TreeData) {
         break :blk tree_data;
     });
     try list.append(blk: {
-        var tree_data = try TreeData.init(2, &.{ .box_style, .content_width, .content_height, .background1 });
+        var tree_data = try TreeData.init(2, &.{ .box_style, .content_width, .content_height, .background1, .text });
         const root = tree_data.createRoot();
         const root_0 = tree_data.insertChild(root);
+        const root_1 = tree_data.insertChild(root_0);
 
         tree_data.set(.box_style, root_0, .{ .display = .inline_block });
         tree_data.set(.content_width, root_0, .{ .size = .{ .px = 50 } });
         tree_data.set(.content_height, root_0, .{ .size = .{ .px = 50 } });
         tree_data.set(.background1, root_0, .{ .color = .{ .rgba = 0x48728fff } });
+
+        tree_data.set(.box_style, root_1, .{ .display = .text });
+        tree_data.set(.text, root_1, .{ .text = "abc\ndef" });
         break :blk tree_data;
     });
     //    try list.append(blk: {

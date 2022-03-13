@@ -551,9 +551,7 @@ fn doBoxGeneration(boxes: *Boxes, context: *BlockLayoutContext) !void {
     try context.stacking_context_index.append(context.inputs.allocator, root_stacking_context_index);
 
     // Process all other elements.
-    while (context.layout_mode.items.len > 1) {
-        try processElement(boxes, context);
-    }
+    try processUntilStackIsRestored(boxes, context);
 
     popInitialContainingBlock(context);
 }
@@ -647,6 +645,13 @@ fn popInitialContainingBlock(context: *BlockLayoutContext) void {
     _ = context.skip.pop();
     _ = context.flow_block_used_logical_width.pop();
     _ = context.flow_block_used_logical_heights.pop();
+}
+
+fn processUntilStackIsRestored(boxes: *Boxes, context: *BlockLayoutContext) !void {
+    const stack_size = context.layout_mode.items.len;
+    while (context.layout_mode.items.len >= stack_size) {
+        try processElement(boxes, context);
+    }
 }
 
 fn processElement(boxes: *Boxes, context: *BlockLayoutContext) !void {
@@ -864,6 +869,7 @@ fn popFlowBlock(boxes: *Boxes, context: *BlockLayoutContext) void {
         },
         .InlineFormattingContext => {
             context.skip.items[context.skip.items.len - 2] += skip;
+            // TODO: Incorrectly assumes that this is an inline-block, when it could be a normal flow block.
             inlineBlockFinishLayout(boxes, context, box_offsets);
         },
         .ShrinkToFit1stPass => {
@@ -2386,9 +2392,20 @@ const InlineLayoutContext = struct {
 
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
+    processUntilStackIsRestored_frame: ?*@Frame(processUntilStackIsRestored) = null,
 
     fn deinit(self: *Self) void {
         self.index.deinit(self.inputs.allocator);
+        if (self.processUntilStackIsRestored_frame) |frame| {
+            self.inputs.allocator.destroy(frame);
+        }
+    }
+
+    fn getFrame(self: *Self) !*@Frame(processUntilStackIsRestored) {
+        if (self.processUntilStackIsRestored_frame == null) {
+            self.processUntilStackIsRestored_frame = try self.inputs.allocator.create(@Frame(processUntilStackIsRestored));
+        }
+        return self.processUntilStackIsRestored_frame.?;
     }
 };
 
@@ -2505,16 +2522,16 @@ fn ifcProcessElement(
         },
         .inline_block => {
             interval.begin += skip;
-            const block_context = context.block_context;
-            const layout_mode_old_len = block_context.layout_mode.items.len;
             context.inputs.setComputedValue(.box_gen, .box_style, computed);
+            const block_context = context.block_context;
             const box = try processInlineBlock(boxes, block_context, element == root_element);
             context.inputs.element_index_to_generated_box[element] = box;
             try context.inputs.pushElement(.box_gen);
-            while (context.block_context.layout_mode.items.len > layout_mode_old_len) {
-                // TODO: Recursive call
-                try processElement(boxes, block_context);
-            }
+
+            const frame = try context.getFrame();
+            frame.* = async processUntilStackIsRestored(boxes, block_context);
+            try await frame.*;
+
             switch (box) {
                 .block_box, .shrink_to_fit_block => |block_box_index| try addInlineBlock(boxes, ifc, block_box_index),
                 .inline_box, .none, .text => unreachable,
