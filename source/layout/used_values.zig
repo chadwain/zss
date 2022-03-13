@@ -333,10 +333,6 @@ pub const InlineFormattingContext = struct {
     }
 
     pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: usize) !void {
-        try self.glyph_indeces.ensureTotalCapacity(allocator, count);
-        try self.metrics.ensureTotalCapacity(allocator, count);
-        try self.line_boxes.ensureTotalCapacity(allocator, count);
-
         try self.inline_start.ensureTotalCapacity(allocator, count);
         try self.inline_end.ensureTotalCapacity(allocator, count);
         try self.block_start.ensureTotalCapacity(allocator, count);

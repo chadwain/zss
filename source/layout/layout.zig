@@ -281,6 +281,8 @@ const GeneratedBox = union(enum) {
     shrink_to_fit_block: BlockBoxIndex,
     /// The element generated a single inline box.
     inline_box: struct { ifc_index: InlineFormattingContextIndex, index: InlineBoxIndex },
+    /// The element generated text.
+    text,
 };
 
 const Inputs = struct {
@@ -539,7 +541,7 @@ fn doBoxGeneration(boxes: *Boxes, context: *BlockLayoutContext) !void {
     const root_block_box_index = switch (context.inputs.element_index_to_generated_box[root_element]) {
         .none => return,
         .block_box => |block_box_index| block_box_index,
-        .inline_box, .shrink_to_fit_block => unreachable,
+        .inline_box, .shrink_to_fit_block, .text => unreachable,
     };
 
     // Create the root stacking context.
@@ -584,7 +586,7 @@ fn doCosmeticLayout(boxes: *Boxes, inputs: *Inputs) !void {
             inputs.setElement(.cosmetic, element);
             const box_type = inputs.element_index_to_generated_box[element];
             switch (box_type) {
-                .none => continue,
+                .none, .text => continue,
                 .block_box, .shrink_to_fit_block => |index| try blockBoxSolveOtherProperties(boxes, inputs, index),
                 .inline_box => |box_spec| {
                     const inline_values = boxes.inlines.items[box_spec.ifc_index];
@@ -1720,7 +1722,6 @@ fn processInlineFormattingContext(
     var inline_context = InlineLayoutContext{
         .inputs = context.inputs,
         .block_context = context,
-        .root_interval = interval.*,
         .percentage_base_unit = percentage_base_unit,
         .ifc_index = ifc_index,
     };
@@ -2376,19 +2377,20 @@ fn blockBoxApplyRelativePositioningToChildren(boxes: *Boxes, context: *BlockLayo
 const InlineLayoutContext = struct {
     const Self = @This();
 
+    const InlineLayoutMode = enum { RootInlineBox, InlineBox };
+
     inputs: *Inputs,
     block_context: *BlockLayoutContext,
-    root_interval: Interval,
     percentage_base_unit: ZssUnit,
     ifc_index: InlineFormattingContextIndex,
 
     next_element: ElementIndex = undefined,
 
-    intervals: ArrayListUnmanaged(Interval) = .{},
+    layout_mode: ArrayListUnmanaged(InlineLayoutMode) = .{},
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
 
     fn deinit(self: *Self) void {
-        self.intervals.deinit(self.inputs.allocator);
+        self.layout_mode.deinit(self.inputs.allocator);
         self.index.deinit(self.inputs.allocator);
     }
 };
@@ -2404,26 +2406,40 @@ pub fn createInlineBox(boxes: *Boxes, ifc: *InlineFormattingContext) !InlineBoxI
 }
 
 fn createInlineFormattingContext(boxes: *Boxes, context: *InlineLayoutContext, ifc: *InlineFormattingContext) Error!void {
-    const root_interval = context.root_interval;
-
     ifc.font = context.inputs.font.font;
     ifc.font_color_rgba = getCurrentColor(context.inputs.font.color);
-    ifc.ensureTotalCapacity(boxes.allocator, root_interval.end - root_interval.begin + 1) catch {};
+    {
+        const initial_interval = context.inputs.intervals.items[context.inputs.intervals.items.len - 1];
+        ifc.ensureTotalCapacity(boxes.allocator, initial_interval.end - initial_interval.begin + 1) catch {};
+    }
 
     try inlineLevelRootElementPush(boxes, context, ifc);
-
-    while (context.intervals.items.len > 0) {
-        const interval = &context.intervals.items[context.intervals.items.len - 1];
-        if (interval.begin != interval.end) {
-            if (try inlineLevelElementPush(boxes, context, ifc, interval)) |terminating_element| {
-                context.next_element = terminating_element;
-                break;
-            }
-        } else {
-            try inlineLevelElementPop(boxes, context, ifc);
+    while (context.layout_mode.items.len > 0) {
+        const layout_mode = context.layout_mode.items[context.layout_mode.items.len - 1];
+        switch (layout_mode) {
+            .RootInlineBox => {
+                const interval = &context.inputs.intervals.items[context.inputs.intervals.items.len - 1];
+                if (interval.begin != interval.end) {
+                    const should_terminate = try inlineLevelElementPush(boxes, context, ifc, interval, true);
+                    if (should_terminate) {
+                        context.next_element = interval.begin;
+                        try inlineLevelRootElementPop(boxes, context, ifc);
+                    }
+                } else {
+                    context.next_element = interval.end;
+                    try inlineLevelRootElementPop(boxes, context, ifc);
+                }
+            },
+            .InlineBox => {
+                const interval = &context.inputs.intervals.items[context.inputs.intervals.items.len - 1];
+                if (interval.begin != interval.end) {
+                    const should_terminate = try inlineLevelElementPush(boxes, context, ifc, interval, false);
+                    assert(!should_terminate);
+                } else {
+                    try inlineLevelElementPop(boxes, context, ifc);
+                }
+            },
         }
-    } else {
-        context.next_element = root_interval.end;
     }
 
     try ifc.metrics.resize(boxes.allocator, ifc.glyph_indeces.items.len);
@@ -2431,26 +2447,29 @@ fn createInlineFormattingContext(boxes: *Boxes, context: *InlineLayoutContext, i
 }
 
 fn inlineLevelRootElementPush(boxes: *Boxes, context: *InlineLayoutContext, ifc: *InlineFormattingContext) !void {
-    const root_interval = context.root_interval;
-
-    const inline_box_index = try createInlineBox(boxes, ifc);
-    setRootInlineBoxUsedData(ifc, inline_box_index);
-
-    try addBoxStart(boxes, ifc, inline_box_index);
-
-    if (root_interval.begin != root_interval.end) {
-        try context.intervals.append(context.inputs.allocator, root_interval);
-        try context.index.append(context.inputs.allocator, inline_box_index);
-    } else {
-        try addBoxEnd(boxes, ifc, inline_box_index);
-    }
+    const root_inline_box_index = try createInlineBox(boxes, ifc);
+    setRootInlineBoxUsedData(ifc, root_inline_box_index);
+    try addBoxStart(boxes, ifc, root_inline_box_index);
+    try context.layout_mode.append(context.inputs.allocator, .RootInlineBox);
+    try context.index.append(context.inputs.allocator, root_inline_box_index);
 }
 
-/// A non-null return value means that a terminating block box was encountered.
-fn inlineLevelElementPush(boxes: *Boxes, context: *InlineLayoutContext, ifc: *InlineFormattingContext, interval: *Interval) !?ElementIndex {
+fn inlineLevelRootElementPop(boxes: *Boxes, context: *InlineLayoutContext, ifc: *InlineFormattingContext) !void {
+    assert(context.layout_mode.pop() == .RootInlineBox);
+    const root_inline_box_index = context.index.pop();
+    try addBoxEnd(boxes, ifc, root_inline_box_index);
+}
+
+/// A return value of true means that a terminating element was encountered.
+fn inlineLevelElementPush(
+    boxes: *Boxes,
+    context: *InlineLayoutContext,
+    ifc: *InlineFormattingContext,
+    interval: *Interval,
+    is_top_level_element: bool,
+) !bool {
     const element = interval.begin;
     const skip = context.inputs.element_tree_skips[element];
-    interval.begin += skip;
 
     context.inputs.setElement(.box_gen, element);
     const specified = context.inputs.getSpecifiedValue(.box_gen, .box_style);
@@ -2458,16 +2477,19 @@ fn inlineLevelElementPush(boxes: *Boxes, context: *InlineLayoutContext, ifc: *In
     switch (computed.display) {
         .text => {
             assert(skip == 1);
-            context.inputs.element_index_to_generated_box[element] = .none;
+            interval.begin += skip;
+            context.inputs.element_index_to_generated_box[element] = .text;
             const text = context.inputs.getText();
             // TODO: Do proper font matching.
             try addText(boxes, ifc, text, context.inputs.font);
         },
         .inline_ => {
+            interval.begin += skip;
             const inline_box_index = try createInlineBox(boxes, ifc);
+            try setInlineBoxUsedData(context, ifc, inline_box_index);
+
             context.inputs.element_index_to_generated_box[element] = .{ .inline_box = .{ .ifc_index = context.ifc_index, .index = inline_box_index } };
             context.inputs.setComputedValue(.box_gen, .box_style, computed);
-            try setInlineBoxUsedData(context, ifc, inline_box_index);
             { // TODO: Grabbing useless data to satisfy inheritance...
                 const data = .{
                     .content_width = context.inputs.getSpecifiedValue(.box_gen, .content_width),
@@ -2482,15 +2504,17 @@ fn inlineLevelElementPush(boxes: *Boxes, context: *InlineLayoutContext, ifc: *In
             try addBoxStart(boxes, ifc, inline_box_index);
 
             if (skip != 1) {
-                try context.inputs.pushElement(.box_gen);
-                try context.intervals.append(context.inputs.allocator, .{ .begin = element + 1, .end = element + skip });
+                try context.layout_mode.append(context.inputs.allocator, .InlineBox);
                 try context.index.append(context.inputs.allocator, inline_box_index);
+                try context.inputs.pushElement(.box_gen);
             } else {
-                // Optimized path for elements that have no children. It is like a shorter version of inlineLevelElementPop.
+                // Optimized path for inline boxes with no children.
+                // It is a shorter version of inlineLevelElementPop.
                 try addBoxEnd(boxes, ifc, inline_box_index);
             }
         },
         .inline_block => {
+            interval.begin += skip;
             const block_context = context.block_context;
             const layout_mode_old_len = block_context.layout_mode.items.len;
             context.inputs.setComputedValue(.box_gen, .box_style, computed);
@@ -2502,37 +2526,33 @@ fn inlineLevelElementPush(boxes: *Boxes, context: *InlineLayoutContext, ifc: *In
                 try processElement(boxes, block_context);
             }
             switch (box) {
-                .none => {},
                 .block_box, .shrink_to_fit_block => |block_box_index| try addInlineBlock(boxes, ifc, block_box_index),
-                .inline_box => unreachable,
+                .inline_box, .none, .text => unreachable,
             }
         },
         .block => {
-            const is_terminating = context.index.items.len == 1;
-            if (is_terminating) {
-                try addBoxEnd(boxes, ifc, 0);
-                return element;
+            if (is_top_level_element) {
+                return true;
             } else {
                 @panic("TODO: Blocks within inline contexts");
                 //try ifc.glyph_indeces.appendSlice(boxes.allocator, &.{ 0, undefined });
             }
         },
-        .none => {},
+        .none => {
+            interval.begin += skip;
+            std.mem.set(GeneratedBox, context.inputs.element_index_to_generated_box[element .. element + skip], .none);
+        },
         .initial, .inherit, .unset => unreachable,
     }
 
-    return null;
+    return false;
 }
 
 fn inlineLevelElementPop(boxes: *Boxes, context: *InlineLayoutContext, ifc: *InlineFormattingContext) !void {
-    const inline_box_index = context.index.items[context.index.items.len - 1];
+    assert(context.layout_mode.pop() == .InlineBox);
+    const inline_box_index = context.index.pop();
     try addBoxEnd(boxes, ifc, inline_box_index);
-
-    if (inline_box_index != 0) {
-        context.inputs.popElement(.box_gen);
-    }
-    _ = context.intervals.pop();
-    _ = context.index.pop();
+    context.inputs.popElement(.box_gen);
 }
 
 fn addBoxStart(boxes: *Boxes, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
