@@ -54,6 +54,21 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
     const validation_tests_step = b.step("test-validation", "Run validation tests");
     validation_tests_step.dependOn(&validation_tests.step);
 
+    var memory_tests = b.addTest("test/memory.zig");
+    memory_tests.setBuildMode(mode);
+    memory_tests.setTarget(target);
+    memory_tests.linkLibC();
+    memory_tests.linkSystemLibrary("harfbuzz");
+    memory_tests.linkSystemLibrary("freetype2");
+    memory_tests.addPackage(pkgs.harfbuzz);
+    memory_tests.addPackage(Pkg{
+        .name = "zss",
+        .path = .{ .path = "zss.zig" },
+        .dependencies = &[_]Pkg{pkgs.harfbuzz},
+    });
+    const memory_tests_step = b.step("test-memory", "Run memory tests");
+    memory_tests_step.dependOn(&memory_tests.step);
+
     var sdl_tests = b.addTest("test/sdl.zig");
     sdl_tests.setBuildMode(mode);
     sdl_tests.setTarget(target);
@@ -73,6 +88,7 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
 
     all_tests_step.dependOn(&lib_tests.step);
     all_tests_step.dependOn(&validation_tests.step);
+    all_tests_step.dependOn(&memory_tests.step);
     all_tests_step.dependOn(&sdl_tests.step);
 }
 

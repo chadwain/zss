@@ -1738,6 +1738,7 @@ fn processInlineFormattingContext(
 
     interval.begin = inline_layout.next_element;
     try boxes.inlines.append(boxes.allocator, ifc);
+    errdefer _ = boxes.inlines.pop();
 
     const info = try splitIntoLineBoxes(boxes, ifc, containing_block_logical_width);
     const used_logical_width = switch (mode) {

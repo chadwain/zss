@@ -19,7 +19,7 @@ pub const TestCase = struct {
     height: ZssUnit,
     face: hb.FT_Face,
 
-    pub fn deinit(self: *@This()) void {
+    pub fn deinit(self: @This()) void {
         hb.hb_font_destroy(self.cascaded_value_tree.font.font);
         _ = hb.FT_Done_Face(self.face);
     }

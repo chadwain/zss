@@ -24,10 +24,10 @@ test "validation" {
 
     std.debug.print("\n", .{});
     for (all_test_data.items) |data, i| {
-        std.debug.print("validate boxes {}... ", .{i});
+        std.debug.print("validate box tree {}... ", .{i});
         defer std.debug.print("\n", .{});
 
-        var test_case = data.toTestCase(library);
+        const test_case = data.toTestCase(library);
         defer test_case.deinit();
         var boxes = try zss.layout.doLayout(
             &test_case.element_tree,

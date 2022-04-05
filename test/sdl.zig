@@ -83,10 +83,10 @@ test "sdl" {
 
     std.debug.print("\n", .{});
     for (all_test_data.items) |data, i| {
-        std.debug.print("sdl test {}... ", .{i});
+        std.debug.print("sdl render {}... ", .{i});
         defer std.debug.print("\n", .{});
 
-        var case = data.toTestCase(library);
+        const case = data.toTestCase(library);
         defer case.deinit();
         var atlas = try r.GlyphAtlas.init(case.face, renderer.?, pixel_format, allocator);
         defer atlas.deinit(allocator);
