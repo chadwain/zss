@@ -1,7 +1,5 @@
 const zss = @import("zss");
-const used = zss.used_values;
-const ZssUnit = used.ZssUnit;
-const ZssSize = used.ZssSize;
+const ZssSize = zss.used_values.ZssSize;
 const ElementTree = zss.ElementTree;
 const ValueTree = zss.ValueTree;
 

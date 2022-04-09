@@ -15,6 +15,7 @@ const sstSeeker = zss.sstSeeker;
 const used_values = @import("./used_values.zig");
 const ZssUnit = used_values.ZssUnit;
 const ZssSize = used_values.ZssSize;
+const ZssVector = used_values.ZssVector;
 const units_per_pixel = used_values.units_per_pixel;
 const BlockBoxIndex = used_values.BlockBoxIndex;
 const BlockBoxSkip = used_values.BlockBoxSkip;
@@ -152,7 +153,14 @@ const UsedLogicalHeights = struct {
 };
 
 const Metadata = struct {
-    is_stacking_context_parent: bool,
+    stacking_context_info: StackingContextInfoTag,
+
+    const StackingContextInfoTag = enum { none, is_parent, is_non_parent };
+    const StackingContextInfo = union(StackingContextInfoTag) {
+        none: void,
+        is_parent: StackingContextIndex,
+        is_non_parent: StackingContextIndex,
+    };
 };
 
 const Seekers = struct {
@@ -469,10 +477,12 @@ const LayoutContext = struct {
 const BlockLayoutContext = struct {
     allocator: Allocator,
 
+    processed_root_element: bool = false,
     layout_mode: ArrayListUnmanaged(LayoutMode) = .{},
 
     metadata: ArrayListUnmanaged(Metadata) = .{},
     stacking_context_index: ArrayListUnmanaged(StackingContextIndex) = .{},
+    current_stacking_context: StackingContextIndex = undefined,
 
     index: ArrayListUnmanaged(BlockBoxIndex) = .{},
     skip: ArrayListUnmanaged(BlockBoxSkip) = .{},
@@ -480,9 +490,6 @@ const BlockLayoutContext = struct {
     flow_block_used_logical_width: ArrayListUnmanaged(ZssUnit) = .{},
     flow_block_auto_logical_height: ArrayListUnmanaged(ZssUnit) = .{},
     flow_block_used_logical_heights: ArrayListUnmanaged(UsedLogicalHeights) = .{},
-
-    relative_positioned_descendants_indeces: ArrayListUnmanaged(BlockBoxIndex) = .{},
-    relative_positioned_descendants_count: ArrayListUnmanaged(BlockBoxCount) = .{},
 
     fn deinit(self: *BlockLayoutContext) void {
         self.layout_mode.deinit(self.allocator);
@@ -496,43 +503,18 @@ const BlockLayoutContext = struct {
         self.flow_block_used_logical_width.deinit(self.allocator);
         self.flow_block_auto_logical_height.deinit(self.allocator);
         self.flow_block_used_logical_heights.deinit(self.allocator);
-
-        self.relative_positioned_descendants_indeces.deinit(self.allocator);
-        self.relative_positioned_descendants_count.deinit(self.allocator);
     }
 };
 
 fn doBoxGeneration(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) !void {
     if (context.element_tree_skips.len > 0) {
-        boxes.blocks.ensureTotalCapacity(boxes.allocator, context.element_tree_skips[0] + 1) catch {};
-    } else {
-        try boxes.blocks.ensureTotalCapacity(boxes.allocator, 1);
+        boxes.blocks.ensureTotalCapacity(boxes.allocator, context.element_tree_skips[root_element] + 1) catch {};
     }
 
-    // Create the initial containing block.
-    try createInitialContainingBlock(layout, context, boxes);
+    try makeInitialContainingBlock(layout, context, boxes);
     if (layout.layout_mode.items.len == 0) return;
 
-    // Process the root element.
-    try processElement(layout, context, boxes);
-    // TODO: In the future, an element may not have a generated box after only 1 call to processElement, which would cause
-    // the array access of context.element_index_to_generated_box to read an undefined value.
-    const root_block_box_index = switch (context.element_index_to_generated_box[root_element]) {
-        .none => return,
-        .block_box => |block_box_index| block_box_index,
-        .inline_box, .text => unreachable,
-    };
-
-    // Create the root stacking layout.
-    try boxes.stacking_contexts.ensureTotalCapacity(boxes.allocator, 1);
-    const root_stacking_context_index = boxes.stacking_contexts.createRootAssumeCapacity(.{ .z_index = 0, .block_box = root_block_box_index });
-    boxes.blocks.properties.items[root_block_box_index].creates_stacking_context = true;
-    try layout.stacking_context_index.append(layout.allocator, root_stacking_context_index);
-
-    // Process all other elements.
-    try processUntilStackSizeIsRestored(layout, context, boxes);
-
-    popInitialContainingBlock(layout);
+    try runUntilStackSizeIsRestored(layout, context, boxes);
 }
 
 fn doCosmeticLayout(context: *LayoutContext, boxes: *Boxes) !void {
@@ -588,7 +570,82 @@ fn doCosmeticLayout(context: *LayoutContext, boxes: *Boxes) !void {
     }
 }
 
-fn createInitialContainingBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) !void {
+fn runUntilStackSizeIsRestored(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) !void {
+    const stack_size = layout.layout_mode.items.len;
+    while (layout.layout_mode.items.len >= stack_size) {
+        try runOnce(layout, context, boxes);
+    }
+}
+
+fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) !void {
+    const layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
+    switch (layout_mode) {
+        .InitialContainingBlock => {
+            if (!layout.processed_root_element) {
+                layout.processed_root_element = true;
+
+                const element = root_element;
+                const skip = context.element_tree_skips[element];
+                context.setElement(.box_gen, element);
+
+                const specified = context.getSpecifiedValue(.box_gen, .box_style);
+                const computed = solveBoxStyle(specified, true);
+                context.setComputedValue(.box_gen, .box_style, computed);
+
+                switch (computed.display) {
+                    .block => {
+                        const box = try makeFlowBlock(layout, context, boxes, true);
+                        context.element_index_to_generated_box[element] = box;
+                        try context.pushElement(.box_gen);
+                    },
+                    .none => std.mem.set(GeneratedBox, context.element_index_to_generated_box[element .. element + skip], .none),
+                    .inline_, .inline_block, .text => unreachable,
+                    .initial, .inherit, .unset => unreachable,
+                }
+            } else {
+                popInitialContainingBlock(layout);
+            }
+        },
+        .Flow => {
+            const interval = &context.intervals.items[context.intervals.items.len - 1];
+            if (interval.begin != interval.end) {
+                const element = interval.begin;
+                const skip = context.element_tree_skips[element];
+                context.setElement(.box_gen, element);
+
+                const specified = context.getSpecifiedValue(.box_gen, .box_style);
+                // TODO: (element == root_element) might always be false
+                const computed = solveBoxStyle(specified, element == root_element);
+                context.setComputedValue(.box_gen, .box_style, computed);
+
+                switch (computed.display) {
+                    .block => {
+                        // TODO: (element == root_element) might always be false
+                        const box = try makeFlowBlock(layout, context, boxes, element == root_element);
+                        context.element_index_to_generated_box[element] = box;
+                        interval.begin += skip;
+                        try context.pushElement(.box_gen);
+                    },
+                    .inline_, .inline_block, .text => {
+                        const containing_block_logical_width = layout.flow_block_used_logical_width.items[layout.flow_block_used_logical_width.items.len - 1];
+                        return makeInlineFormattingContext(layout, context, boxes, interval, containing_block_logical_width, .Normal);
+                    },
+                    .none => {
+                        std.mem.set(GeneratedBox, context.element_index_to_generated_box[element .. element + skip], .none);
+                        interval.begin += skip;
+                    },
+                    .initial, .inherit, .unset => unreachable,
+                }
+            } else {
+                popFlowBlock(layout, boxes);
+                context.popElement(.box_gen);
+            }
+        },
+        .InlineFormattingContext => unreachable,
+    }
+}
+
+fn makeInitialContainingBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) !void {
     const width = context.viewport_size.w;
     const height = context.viewport_size.h;
 
@@ -619,83 +676,14 @@ fn createInitialContainingBlock(layout: *BlockLayoutContext, context: *LayoutCon
 }
 
 fn popInitialContainingBlock(layout: *BlockLayoutContext) void {
-    _ = layout.layout_mode.pop();
+    assert(layout.layout_mode.pop() == .InitialContainingBlock);
     _ = layout.index.pop();
     _ = layout.skip.pop();
     _ = layout.flow_block_used_logical_width.pop();
     _ = layout.flow_block_used_logical_heights.pop();
 }
 
-fn processUntilStackSizeIsRestored(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) !void {
-    const stack_size = layout.layout_mode.items.len;
-    while (layout.layout_mode.items.len >= stack_size) {
-        try processElement(layout, context, boxes);
-    }
-}
-
-fn processElement(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) !void {
-    const layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
-    switch (layout_mode) {
-        .InitialContainingBlock => {
-            const element = root_element;
-            const skip = context.element_tree_skips[element];
-            context.setElement(.box_gen, element);
-
-            const specified = context.getSpecifiedValue(.box_gen, .box_style);
-            const computed = solveBoxStyle(specified, true);
-            context.setComputedValue(.box_gen, .box_style, computed);
-
-            switch (computed.display) {
-                .block => {
-                    const box = try processFlowBlock(layout, context, boxes, true);
-                    context.element_index_to_generated_box[element] = box;
-                    try context.pushElement(.box_gen);
-                },
-                .none => std.mem.set(GeneratedBox, context.element_index_to_generated_box[element .. element + skip], .none),
-                .inline_, .inline_block, .text => unreachable,
-                .initial, .inherit, .unset => unreachable,
-            }
-        },
-        .Flow => {
-            const interval = &context.intervals.items[context.intervals.items.len - 1];
-            if (interval.begin != interval.end) {
-                const element = interval.begin;
-                const skip = context.element_tree_skips[element];
-                context.setElement(.box_gen, element);
-
-                const specified = context.getSpecifiedValue(.box_gen, .box_style);
-                // TODO: (element == root_element) might always be false
-                const computed = solveBoxStyle(specified, element == root_element);
-                context.setComputedValue(.box_gen, .box_style, computed);
-
-                switch (computed.display) {
-                    .block => {
-                        // TODO: (element == root_element) might always be false
-                        const box = try processFlowBlock(layout, context, boxes, element == root_element);
-                        context.element_index_to_generated_box[element] = box;
-                        interval.begin += skip;
-                        try context.pushElement(.box_gen);
-                    },
-                    .inline_, .inline_block, .text => {
-                        const containing_block_logical_width = layout.flow_block_used_logical_width.items[layout.flow_block_used_logical_width.items.len - 1];
-                        return processInlineFormattingContext(layout, context, boxes, interval, containing_block_logical_width, .Normal);
-                    },
-                    .none => {
-                        std.mem.set(GeneratedBox, context.element_index_to_generated_box[element .. element + skip], .none);
-                        interval.begin += skip;
-                    },
-                    .initial, .inherit, .unset => unreachable,
-                }
-            } else {
-                popFlowBlock(layout, boxes);
-                context.popElement(.box_gen);
-            }
-        },
-        .InlineFormattingContext => unreachable,
-    }
-}
-
-fn processFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes, is_root_element: bool) !GeneratedBox {
+fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes, is_root_element: bool) !GeneratedBox {
     const block = try createBlock(boxes);
     block.skip.* = undefined;
     block.properties.* = .{};
@@ -725,8 +713,8 @@ fn processFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes:
     const specified_z_index = context.getSpecifiedValue(.box_gen, .z_index);
     context.setComputedValue(.box_gen, .z_index, specified_z_index);
     const position = context.stage.box_gen.current_values.box_style.position;
-    const stacking_context_index = switch (position) {
-        .static => null,
+    const stacking_context_info: Metadata.StackingContextInfo = switch (position) {
+        .static => if (is_root_element) Metadata.StackingContextInfo{ .is_parent = try createRootStackingContext(boxes, block.index, 0) } else Metadata.StackingContextInfo{ .none = {} },
         .relative => blk: {
             if (is_root_element) {
                 // TODO: Should maybe just treat position as static
@@ -734,15 +722,11 @@ fn processFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes:
                 return error.InvalidValue;
             }
 
-            layout.relative_positioned_descendants_count.items[layout.relative_positioned_descendants_count.items.len - 1] += 1;
-            try layout.relative_positioned_descendants_indeces.append(layout.allocator, block.index);
+            // TODO: Position the block using the values of the 'inset' family of properties.
 
             switch (specified_z_index.z_index) {
-                .integer => |z_index| break :blk try createStackingContext(layout, boxes, block.index, z_index),
-                .auto => {
-                    _ = try createStackingContext(layout, boxes, block.index, 0);
-                    break :blk null;
-                },
+                .integer => |z_index| break :blk Metadata.StackingContextInfo{ .is_parent = try createStackingContext(layout, boxes, block.index, z_index) },
+                .auto => break :blk Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, boxes, block.index, 0) },
                 .initial, .inherit, .unset => unreachable,
             }
         },
@@ -752,7 +736,7 @@ fn processFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes:
         .initial, .inherit, .unset => unreachable,
     };
 
-    try pushFlowLayout(layout, block.index, used_sizes, stacking_context_index);
+    try pushFlowLayout(layout, block.index, used_sizes, stacking_context_info);
     return GeneratedBox{ .block_box = block.index };
 }
 
@@ -760,7 +744,7 @@ fn pushFlowLayout(
     layout: *BlockLayoutContext,
     block_box_index: BlockBoxIndex,
     used_sizes: FlowBlockUsedSizes,
-    stacking_context_index: ?StackingContextIndex,
+    stacking_context_index: Metadata.StackingContextInfo,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowBlock.
     try layout.layout_mode.append(layout.allocator, .Flow);
@@ -768,58 +752,62 @@ fn pushFlowLayout(
     try layout.skip.append(layout.allocator, 1);
     try layout.flow_block_used_logical_width.append(layout.allocator, used_sizes.inline_size);
     try layout.flow_block_auto_logical_height.append(layout.allocator, 0);
-    // TODO don't need used_logical_heights
     try layout.flow_block_used_logical_heights.append(layout.allocator, used_sizes.getUsedLogicalHeights());
-    try layout.relative_positioned_descendants_count.append(layout.allocator, 0);
-    // TODO: Delete 'layout.metadata'
-    if (stacking_context_index) |id| {
-        try layout.stacking_context_index.append(layout.allocator, id);
-        try layout.metadata.append(layout.allocator, .{ .is_stacking_context_parent = true });
-    } else {
-        try layout.metadata.append(layout.allocator, .{ .is_stacking_context_parent = false });
+    switch (stacking_context_index) {
+        .none => try layout.metadata.append(layout.allocator, .{ .stacking_context_info = .none }),
+        .is_parent => |sc_index| {
+            try layout.metadata.append(layout.allocator, .{ .stacking_context_info = .is_parent });
+            layout.current_stacking_context = sc_index;
+            try layout.stacking_context_index.append(layout.allocator, sc_index);
+        },
+        .is_non_parent => |sc_index| {
+            try layout.metadata.append(layout.allocator, .{ .stacking_context_info = .is_non_parent });
+            layout.current_stacking_context = sc_index;
+        },
     }
 }
 
 fn popFlowBlock(layout: *BlockLayoutContext, boxes: *Boxes) void {
-    const block_box_index = layout.index.items[layout.index.items.len - 1];
-    const skip = layout.skip.items[layout.skip.items.len - 1];
-    boxes.blocks.skips.items[block_box_index] = skip;
-
-    const box_offsets = &boxes.blocks.box_offsets.items[block_box_index];
-    const margins = boxes.blocks.margins.items[block_box_index];
-
-    const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 2];
-    switch (parent_layout_mode) {
-        .InitialContainingBlock => {
-            layout.skip.items[layout.skip.items.len - 2] += skip;
-            flowBlockFinishLayout(boxes, layout, box_offsets);
-        },
-        .Flow => {
-            layout.skip.items[layout.skip.items.len - 2] += skip;
-            flowBlockFinishLayout(boxes, layout, box_offsets);
-            const parent_auto_logical_height = &layout.flow_block_auto_logical_height.items[layout.flow_block_auto_logical_height.items.len - 2];
-            addBlockToFlow(box_offsets, margins.block_end, parent_auto_logical_height);
-        },
-        .InlineFormattingContext => {
-            // TODO: There is no way to tell if we are a flow block or an inline block.
-            layout.skip.items[layout.skip.items.len - 2] += skip;
-            flowBlockFinishLayout(boxes, layout, box_offsets);
-        },
-    }
-
     // The deallocations here must correspond to allocations in pushFlowLayout.
-    _ = layout.layout_mode.pop();
-    _ = layout.index.pop();
-    _ = layout.skip.pop();
-    _ = layout.flow_block_used_logical_width.pop();
-    _ = layout.flow_block_auto_logical_height.pop();
-    _ = layout.flow_block_used_logical_heights.pop();
+    assert(layout.layout_mode.pop() == .Flow);
+    const block_box_index = layout.index.pop();
+    const skip = layout.skip.pop();
+    const used_logical_width = layout.flow_block_used_logical_width.pop();
+    const auto_logical_height = layout.flow_block_auto_logical_height.pop();
+    const used_logical_heights = layout.flow_block_used_logical_heights.pop();
     const metadata = layout.metadata.pop();
-    if (metadata.is_stacking_context_parent) {
-        _ = layout.stacking_context_index.pop();
+
+    boxes.blocks.skips.items[block_box_index] = skip;
+    const box_offsets = &boxes.blocks.box_offsets.items[block_box_index];
+    assert(box_offsets.content_end.x - box_offsets.content_start.x == used_logical_width);
+    flowBlockFinishLayout(box_offsets, used_logical_heights, auto_logical_height);
+
+    const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
+    switch (parent_layout_mode) {
+        .InitialContainingBlock => layout.skip.items[layout.skip.items.len - 1] += skip,
+        .Flow => {
+            layout.skip.items[layout.skip.items.len - 1] += skip;
+            const parent_auto_logical_height = &layout.flow_block_auto_logical_height.items[layout.flow_block_auto_logical_height.items.len - 1];
+            const margin_block_end = boxes.blocks.margins.items[block_box_index].block_end;
+            addBlockToFlow(box_offsets, margin_block_end, parent_auto_logical_height);
+        },
+        .InlineFormattingContext => layout.skip.items[layout.skip.items.len - 1] += skip,
     }
-    const relative_positioned_descendants_count = layout.relative_positioned_descendants_count.pop();
-    layout.relative_positioned_descendants_indeces.shrinkRetainingCapacity(layout.relative_positioned_descendants_indeces.items.len - relative_positioned_descendants_count);
+
+    switch (metadata.stacking_context_info) {
+        .none => {},
+        .is_parent => {
+            _ = layout.stacking_context_index.pop();
+            if (parent_layout_mode != .InitialContainingBlock) {
+                layout.current_stacking_context = layout.stacking_context_index.items[layout.stacking_context_index.items.len - 1];
+            } else {
+                layout.current_stacking_context = undefined;
+            }
+        },
+        .is_non_parent => {
+            layout.current_stacking_context = layout.stacking_context_index.items[layout.stacking_context_index.items.len - 1];
+        },
+    }
 }
 
 const FlowBlockComputedSizes = struct {
@@ -1257,22 +1245,10 @@ fn flowBlockSetData(
     margins.block_end = used.margin_block_end;
 }
 
-fn flowBlockSolveBlockSizesPart2(box_offsets: *used_values.BoxOffsets, used_logical_heights: UsedLogicalHeights, auto_logical_height: ZssUnit) ZssUnit {
+fn flowBlockFinishLayout(box_offsets: *used_values.BoxOffsets, used_logical_heights: UsedLogicalHeights, auto_logical_height: ZssUnit) void {
     const used_logical_height = used_logical_heights.height orelse clampSize(auto_logical_height, used_logical_heights.min_height, used_logical_heights.max_height);
     box_offsets.content_end.y = box_offsets.content_start.y + used_logical_height;
     box_offsets.border_end.y += box_offsets.content_end.y;
-    return used_logical_height;
-}
-
-fn flowBlockFinishLayout(boxes: *Boxes, layout: *BlockLayoutContext, box_offsets: *used_values.BoxOffsets) void {
-    const used_logical_heights = layout.flow_block_used_logical_heights.items[layout.flow_block_used_logical_heights.items.len - 1];
-    const auto_logical_height = layout.flow_block_auto_logical_height.items[layout.flow_block_auto_logical_height.items.len - 1];
-    const logical_width = layout.flow_block_used_logical_width.items[layout.flow_block_used_logical_width.items.len - 1];
-    const logical_height = flowBlockSolveBlockSizesPart2(box_offsets, used_logical_heights, auto_logical_height);
-    _ = boxes;
-    _ = logical_width;
-    _ = logical_height;
-    //blockBoxApplyRelativePositioningToChildren(boxes, layout, logical_width, logical_height);
 }
 
 fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_end: ZssUnit, parent_auto_logical_height: *ZssUnit) void {
@@ -1283,7 +1259,11 @@ fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_end: ZssUnit, par
     parent_auto_logical_height.* = box_offsets.border_end.y + margin_end;
 }
 
-fn processInlineFormattingContext(
+fn advanceFlow(parent_auto_logical_height: *ZssUnit, height: ZssUnit) void {
+    parent_auto_logical_height.* += height;
+}
+
+fn makeInlineFormattingContext(
     layout: *BlockLayoutContext,
     context: *LayoutContext,
     boxes: *Boxes,
@@ -1293,20 +1273,22 @@ fn processInlineFormattingContext(
 ) !void {
     assert(containing_block_logical_width >= 0);
 
-    // Create an anonymous block box to contain this inline formatting layout.
-    const block = try createBlock(boxes);
-    try context.anonymous_block_boxes.append(context.allocator, block.index);
-
     try layout.layout_mode.append(layout.allocator, .InlineFormattingContext);
-    try layout.index.append(layout.allocator, block.index);
-    try layout.skip.append(layout.allocator, 1);
 
-    const ifc = try boxes.allocator.create(InlineFormattingContext);
-    errdefer boxes.allocator.destroy(ifc);
-    ifc.* = .{};
-    errdefer ifc.deinit(boxes.allocator);
     const ifc_index = try std.math.cast(InlineFormattingContextIndex, boxes.inlines.items.len);
-    block.properties.* = .{ .ifc_index = ifc_index };
+    const ifc = ifc: {
+        const result_ptr = try boxes.inlines.addOne(boxes.allocator);
+        errdefer _ = boxes.inlines.pop();
+        const result = try boxes.allocator.create(InlineFormattingContext);
+        errdefer boxes.allocator.destroy(result);
+        result.* = .{ .parent_block = layout.index.items[layout.index.items.len - 1], .origin = undefined };
+        errdefer result.deinit(boxes.allocator);
+        result_ptr.* = result;
+        break :ifc result;
+    };
+
+    const sc_ifcs = &boxes.stacking_contexts.multi_list.items(.ifcs)[layout.current_stacking_context];
+    try sc_ifcs.append(boxes.allocator, ifc_index);
 
     const percentage_base_unit: ZssUnit = switch (mode) {
         .Normal => containing_block_logical_width,
@@ -1324,77 +1306,172 @@ fn processInlineFormattingContext(
     try createInlineFormattingContext(&inline_layout, context, boxes, ifc);
 
     assert(layout.layout_mode.pop() == .InlineFormattingContext);
-    assert(layout.index.pop() == block.index);
-    block.skip.* = layout.skip.pop();
 
     interval.begin = inline_layout.next_element;
-    try boxes.inlines.append(boxes.allocator, ifc);
-    errdefer _ = boxes.inlines.pop();
-
-    const info = try splitIntoLineBoxes(boxes, ifc, containing_block_logical_width);
-    const used_logical_width = switch (mode) {
-        .Normal => containing_block_logical_width,
-        .ShrinkToFit => info.longest_line_box_length,
-    };
-    const used_logical_height = info.logical_height;
-
-    inlineFormattingContextPositionInlineBlocks(boxes, ifc);
-
-    block.box_offsets.* = .{
-        .border_start = .{ .x = 0, .y = 0 },
-        .content_start = .{ .x = 0, .y = 0 },
-        .content_end = .{ .x = used_logical_width, .y = used_logical_height },
-        .border_end = .{ .x = used_logical_width, .y = used_logical_height },
-    };
-    block.borders.* = .{};
-    block.margins.* = .{};
 
     const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
     switch (parent_layout_mode) {
         .InitialContainingBlock => unreachable,
         .Flow => {
-            layout.skip.items[layout.skip.items.len - 1] += block.skip.*;
             const parent_auto_logical_height = &layout.flow_block_auto_logical_height.items[layout.flow_block_auto_logical_height.items.len - 1];
-            addBlockToFlow(block.box_offsets, 0, parent_auto_logical_height);
+            ifc.origin = ZssVector{ .x = 0, .y = parent_auto_logical_height.* };
+            const line_split_result = try splitIntoLineBoxes(context, boxes, ifc, containing_block_logical_width);
+            advanceFlow(parent_auto_logical_height, line_split_result.logical_height);
         },
         .InlineFormattingContext => unreachable,
     }
 }
 
-fn inlineFormattingContextPositionInlineBlocks(boxes: *Boxes, ifc: *InlineFormattingContext) void {
-    // TODO: Searching through every glyph to find the inline blocks...
-    for (ifc.line_boxes.items) |line_box| {
-        var distance: ZssUnit = 0;
-        var i = line_box.elements[0];
-        while (i < line_box.elements[1]) : (i += 1) {
-            const advance = ifc.metrics.items[i].advance;
-            defer distance += advance;
+const IFCLineSplitState = struct {
+    cursor: ZssUnit = 0,
+    line_box: InlineFormattingContext.LineBox,
+    inline_blocks_in_this_line_box: ArrayListUnmanaged(InlineBlockInfo),
+    top_height: ZssUnit,
+    max_top_height: ZssUnit,
+    bottom_height: ZssUnit,
+    // longest_line_box_length: ZssUnit,
 
-            const gi = ifc.glyph_indeces.items[i];
-            if (gi != 0) continue;
+    const InlineBlockInfo = struct {
+        box_offsets: *used_values.BoxOffsets,
+        cursor: ZssUnit,
+        height: ZssUnit,
+    };
 
-            i += 1;
-            const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
-            switch (special.kind) {
-                .ZeroGlyphIndex, .BoxStart, .BoxEnd => continue,
-                .InlineBlock => {},
-                _ => continue,
-            }
-            const block_box_index = @as(BlockBoxIndex, special.data);
-            const box_offsets = &boxes.blocks.box_offsets.items[block_box_index];
-            const margins = boxes.blocks.margins.items[block_box_index];
-            const translation_inline = distance + margins.inline_start;
-            const translation_block = line_box.baseline - (box_offsets.border_end.y - box_offsets.border_start.y) - margins.block_start - margins.block_end;
-            inline for (std.meta.fields(used_values.BoxOffsets)) |field| {
-                const v = &@field(box_offsets.*, field.name);
-                v.x += translation_inline;
-                v.y += translation_block;
-            }
+    fn init(top_height: ZssUnit, bottom_height: ZssUnit) IFCLineSplitState {
+        return IFCLineSplitState{
+            .cursor = 0,
+            .line_box = .{ .baseline = 0, .elements = [2]usize{ 0, 0 } },
+            .inline_blocks_in_this_line_box = .{},
+            .top_height = top_height,
+            .max_top_height = top_height,
+            .bottom_height = bottom_height,
+            // .longest_line_box_length = 0,
+        };
+    }
+
+    fn deinit(self: *IFCLineSplitState, allocator: Allocator) void {
+        self.inline_blocks_in_this_line_box.deinit(allocator);
+    }
+
+    fn finishLineBox(self: *IFCLineSplitState, origin: ZssVector) void {
+        self.line_box.baseline += self.max_top_height;
+        // self.longest_line_box_length = std.math.max(self.longest_line_box_length, self.cursor);
+
+        for (self.inline_blocks_in_this_line_box.items) |info| {
+            const offset_x = origin.x + info.cursor;
+            const offset_y = origin.y + self.line_box.baseline - info.height;
+            info.box_offsets.border_start.x += offset_x;
+            info.box_offsets.border_start.y += offset_y;
+            info.box_offsets.border_end.x += offset_x;
+            info.box_offsets.border_end.y += offset_y;
+            info.box_offsets.content_start.x += offset_x;
+            info.box_offsets.content_start.y += offset_y;
+            info.box_offsets.content_end.x += offset_x;
+            info.box_offsets.content_end.y += offset_y;
         }
     }
+
+    fn newLineBox(self: *IFCLineSplitState, skipped_glyphs: usize) void {
+        self.cursor = 0;
+        self.line_box = .{
+            .baseline = self.line_box.baseline + self.bottom_height,
+            .elements = [2]usize{ self.line_box.elements[1] + skipped_glyphs, self.line_box.elements[1] + skipped_glyphs },
+        };
+        self.max_top_height = self.top_height;
+        self.inline_blocks_in_this_line_box.clearRetainingCapacity();
+    }
+};
+
+const IFCLineSplitResult = struct {
+    logical_height: ZssUnit,
+};
+
+fn splitIntoLineBoxes(
+    context: *LayoutContext,
+    boxes: *Boxes,
+    ifc: *InlineFormattingContext,
+    max_line_box_length: ZssUnit,
+) !IFCLineSplitResult {
+    assert(max_line_box_length >= 0);
+
+    var font_extents: hb.hb_font_extents_t = undefined;
+    // TODO assuming ltr direction
+    assert(hb.hb_font_get_h_extents(ifc.font, &font_extents) != 0);
+    ifc.ascender = @divFloor(font_extents.ascender * units_per_pixel, 64);
+    ifc.descender = @divFloor(font_extents.descender * units_per_pixel, 64);
+    const top_height: ZssUnit = @divFloor((font_extents.ascender + @divFloor(font_extents.line_gap, 2) + @mod(font_extents.line_gap, 2)) * units_per_pixel, 64);
+    const bottom_height: ZssUnit = @divFloor((-font_extents.descender + @divFloor(font_extents.line_gap, 2)) * units_per_pixel, 64);
+
+    var s = IFCLineSplitState.init(top_height, bottom_height);
+    defer s.deinit(context.allocator);
+
+    var i: usize = 0;
+    while (i < ifc.glyph_indeces.items.len) : (i += 1) {
+        const gi = ifc.glyph_indeces.items[i];
+        const metrics = ifc.metrics.items[i];
+
+        if (gi == 0) {
+            i += 1;
+            const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
+            switch (@intToEnum(InlineFormattingContext.Special.LayoutInternalKind, @enumToInt(special.kind))) {
+                .LineBreak => {
+                    s.finishLineBox(ifc.origin);
+                    try ifc.line_boxes.append(boxes.allocator, s.line_box);
+                    s.newLineBox(2);
+                    continue;
+                },
+                .ContinuationBlock => @panic("TODO Continuation blocks"),
+                else => {},
+            }
+        }
+
+        // TODO: (Bug) A glyph with a width of zero but an advance that is non-zero may overflow the width of the containing block
+        if (s.cursor > 0 and metrics.width > 0 and s.cursor + metrics.offset + metrics.width > max_line_box_length and s.line_box.elements[1] > s.line_box.elements[0]) {
+            s.finishLineBox(ifc.origin);
+            try ifc.line_boxes.append(boxes.allocator, s.line_box);
+            s.newLineBox(0);
+        }
+
+        if (gi == 0) {
+            const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
+            switch (@intToEnum(InlineFormattingContext.Special.LayoutInternalKind, @enumToInt(special.kind))) {
+                .InlineBlock => {
+                    const block_box_index = @as(BlockBoxIndex, special.data);
+                    const box_offsets = &boxes.blocks.box_offsets.items[block_box_index];
+                    const margins = boxes.blocks.margins.items[block_box_index];
+                    const margin_box_height = box_offsets.border_end.y - box_offsets.border_start.y + margins.block_start + margins.block_end;
+                    s.max_top_height = std.math.max(s.max_top_height, margin_box_height);
+                    try s.inline_blocks_in_this_line_box.append(
+                        context.allocator,
+                        .{ .box_offsets = box_offsets, .cursor = s.cursor, .height = margin_box_height - margins.block_start },
+                    );
+                },
+                .LineBreak => unreachable,
+                .ContinuationBlock => @panic("TODO Continuation blocks"),
+                else => {},
+            }
+            s.line_box.elements[1] += 2;
+        } else {
+            s.line_box.elements[1] += 1;
+        }
+
+        s.cursor += metrics.advance;
+    }
+
+    if (s.line_box.elements[1] > s.line_box.elements[0]) {
+        s.finishLineBox(ifc.origin);
+        try ifc.line_boxes.append(boxes.allocator, s.line_box);
+    }
+
+    return IFCLineSplitResult{
+        .logical_height = if (ifc.line_boxes.items.len > 0)
+            ifc.line_boxes.items[ifc.line_boxes.items.len - 1].baseline + s.bottom_height
+        else
+            0, // TODO This is never reached because the root inline box always creates at least 1 line box.
+    };
 }
 
-fn processInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes, is_root_element: bool) !GeneratedBox {
+fn makeInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes, is_root_element: bool) !GeneratedBox {
     const block = try createBlock(boxes);
     block.skip.* = undefined;
     block.properties.* = .{};
@@ -1421,8 +1498,11 @@ fn processInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxe
     const specified_z_index = context.getSpecifiedValue(.box_gen, .z_index);
     context.setComputedValue(.box_gen, .z_index, specified_z_index);
     const position = context.stage.box_gen.current_values.box_style.position;
-    const stacking_context_index = switch (position) {
-        .static => try createStackingContext(layout, boxes, block.index, 0),
+    const stacking_context_info: Metadata.StackingContextInfo = switch (position) {
+        .static => if (is_root_element)
+            Metadata.StackingContextInfo{ .is_parent = try createRootStackingContext(boxes, block.index, 0) }
+        else
+            Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, boxes, block.index, 0) },
         .relative => blk: {
             // TODO: This is always false.
             if (is_root_element) {
@@ -1431,17 +1511,13 @@ fn processInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxe
                 return error.InvalidValue;
             }
 
-            layout.relative_positioned_descendants_count.items[layout.relative_positioned_descendants_count.items.len - 1] += 1;
-            try layout.relative_positioned_descendants_indeces.append(layout.allocator, block.index);
+            // TODO: Position the block using the values of the 'inset' family of properties.
 
-            switch (specified_z_index.z_index) {
-                .integer => |z_index| break :blk try createStackingContext(layout, boxes, block.index, z_index),
-                .auto => {
-                    _ = try createStackingContext(layout, boxes, block.index, 0);
-                    break :blk null;
-                },
+            break :blk switch (specified_z_index.z_index) {
+                .integer => |z_index| Metadata.StackingContextInfo{ .is_parent = try createStackingContext(layout, boxes, block.index, z_index) },
+                .auto => Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, boxes, block.index, 0) },
                 .initial, .inherit, .unset => unreachable,
-            }
+            };
         },
         .absolute => @panic("TODO: absolute positioning"),
         .fixed => @panic("TODO: fixed positioning"),
@@ -1452,10 +1528,10 @@ fn processInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxe
     const BF = FlowBlockUsedSizes.AutoBitfield;
     if (used_sizes.auto_bitfield.bits & BF.inline_size_bit == 0) {
         flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
-        try pushFlowLayout(layout, block.index, used_sizes, stacking_context_index);
+        try pushFlowLayout(layout, block.index, used_sizes, stacking_context_info);
         return GeneratedBox{ .block_box = block.index };
     } else {
-        @panic("TODO Inline-block with 'width: auto'");
+        @panic("TODO: Inline-block with 'width: auto'");
     }
 }
 
@@ -1852,6 +1928,14 @@ fn inlineRootBoxSolveOtherProperties(ifc: *InlineFormattingContext) void {
     ifc.background1.items[0] = .{};
 }
 
+fn createRootStackingContext(boxes: *Boxes, block_box_index: BlockBoxIndex, z_index: ZIndex) !StackingContextIndex {
+    assert(boxes.stacking_contexts.size() == 0);
+    try boxes.stacking_contexts.ensureTotalCapacity(boxes.allocator, 1);
+    const result = boxes.stacking_contexts.createRootAssumeCapacity(.{ .z_index = z_index, .block_box = block_box_index, .ifcs = .{} });
+    boxes.blocks.properties.items[block_box_index].creates_stacking_context = true;
+    return result;
+}
+
 fn createStackingContext(layout: *BlockLayoutContext, boxes: *Boxes, block_box_index: BlockBoxIndex, z_index: ZIndex) !StackingContextIndex {
     try boxes.stacking_contexts.ensureTotalCapacity(boxes.allocator, boxes.stacking_contexts.size() + 1);
     const sc_tree_slice = &boxes.stacking_contexts.multi_list.slice();
@@ -1869,66 +1953,9 @@ fn createStackingContext(layout: *BlockLayoutContext, boxes: *Boxes, block_box_i
         sc_tree_skips[index] += 1;
     }
 
-    boxes.stacking_contexts.multi_list.insertAssumeCapacity(current, .{ .__skip = 1, .z_index = z_index, .block_box = block_box_index });
+    boxes.stacking_contexts.multi_list.insertAssumeCapacity(current, .{ .__skip = 1, .z_index = z_index, .block_box = block_box_index, .ifcs = .{} });
     boxes.blocks.properties.items[block_box_index].creates_stacking_context = true;
     return current;
-}
-
-fn blockBoxApplyRelativePositioningToChildren(
-    layout: *BlockLayoutContext,
-    context: *LayoutContext,
-    boxes: *Boxes,
-    containing_block_logical_width: ZssUnit,
-    containing_block_logical_height: ZssUnit,
-) void {
-    const count = layout.relative_positioned_descendants_count.items[layout.relative_positioned_descendants_count.items.len - 1];
-    var i: BlockBoxCount = 0;
-    while (i < count) : (i += 1) {
-        const block_box_index = layout.relative_positioned_descendants_indeces.items[layout.relative_positioned_descendants_indeces.items.len - 1 - i];
-        const element = layout.used_id_to_element_index.items[block_box_index];
-        _ = element;
-        // TODO: Also use the logical properties ('inset-inline-start', 'inset-block-end', etc.) to determine lengths.
-        // TODO: Any relative units must be converted to absolute units to form the computed value.
-        const specified = .{
-            .insets = context.getSpecifiedValue(.insets),
-        };
-        const box_offsets = &boxes.blocks.box_offsets.items[block_box_index];
-
-        const inline_start = switch (specified.insets.left) {
-            .px => |value| length(.px, value),
-            .percentage => |value| percentage(value, containing_block_logical_width),
-            .auto => null,
-            .initial, .inherit, .unset => unreachable,
-        };
-        const inline_end = switch (specified.insets.right) {
-            .px => |value| -length(.px, value),
-            .percentage => |value| -percentage(value, containing_block_logical_width),
-            .auto => null,
-            .initial, .inherit, .unset => unreachable,
-        };
-        const block_start = switch (specified.insets.top) {
-            .px => |value| length(.px, value),
-            .percentage => |value| percentage(value, containing_block_logical_height),
-            .auto => null,
-            .initial, .inherit, .unset => unreachable,
-        };
-        const block_end = switch (specified.insets.bottom) {
-            .px => |value| -length(.px, value),
-            .percentage => |value| -percentage(value, containing_block_logical_height),
-            .auto => null,
-            .initial, .inherit, .unset => unreachable,
-        };
-
-        // TODO the value of the 'direction' property matters here
-        const translation_inline = inline_start orelse inline_end orelse 0;
-        const translation_block = block_start orelse block_end orelse 0;
-
-        inline for (std.meta.fields(used_values.BoxOffsets)) |field| {
-            const offset = &@field(box_offsets, field.name);
-            offset.x += translation_inline;
-            offset.y += translation_block;
-        }
-    }
 }
 
 const InlineLayoutContext = struct {
@@ -1943,20 +1970,20 @@ const InlineLayoutContext = struct {
 
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
-    processUntilStackSizeIsRestored_frame: ?*@Frame(processUntilStackSizeIsRestored) = null,
+    runUntilStackSizeIsRestored_frame: ?*@Frame(runUntilStackSizeIsRestored) = null,
 
     fn deinit(self: *Self) void {
         self.index.deinit(self.allocator);
-        if (self.processUntilStackSizeIsRestored_frame) |frame| {
+        if (self.runUntilStackSizeIsRestored_frame) |frame| {
             self.allocator.destroy(frame);
         }
     }
 
-    fn getFrame(self: *Self) !*@Frame(processUntilStackSizeIsRestored) {
-        if (self.processUntilStackSizeIsRestored_frame == null) {
-            self.processUntilStackSizeIsRestored_frame = try self.allocator.create(@Frame(processUntilStackSizeIsRestored));
+    fn getFrame(self: *Self) !*@Frame(runUntilStackSizeIsRestored) {
+        if (self.runUntilStackSizeIsRestored_frame == null) {
+            self.runUntilStackSizeIsRestored_frame = try self.allocator.create(@Frame(runUntilStackSizeIsRestored));
         }
-        return self.processUntilStackSizeIsRestored_frame.?;
+        return self.runUntilStackSizeIsRestored_frame.?;
     }
 };
 
@@ -1983,7 +2010,7 @@ fn createInlineFormattingContext(layout: *InlineLayoutContext, context: *LayoutC
         const interval = &context.intervals.items[context.intervals.items.len - 1];
         if (layout.inline_box_depth == 0) {
             if (interval.begin != interval.end) {
-                const should_terminate = try ifcProcessElement(layout, context, interval, boxes, ifc);
+                const should_terminate = try ifcRunOnce(layout, context, interval, boxes, ifc);
                 if (should_terminate) {
                     break interval.begin;
                 }
@@ -1992,7 +2019,7 @@ fn createInlineFormattingContext(layout: *InlineLayoutContext, context: *LayoutC
             }
         } else {
             if (interval.begin != interval.end) {
-                const should_terminate = try ifcProcessElement(layout, context, interval, boxes, ifc);
+                const should_terminate = try ifcRunOnce(layout, context, interval, boxes, ifc);
                 assert(!should_terminate);
             } else {
                 try ifcPopInlineBox(layout, context, boxes, ifc);
@@ -2020,7 +2047,7 @@ fn ifcPopRootInlineBox(layout: *InlineLayoutContext, boxes: *Boxes, ifc: *Inline
 }
 
 /// A return value of true means that a terminating element was encountered.
-fn ifcProcessElement(
+fn ifcRunOnce(
     layout: *InlineLayoutContext,
     context: *LayoutContext,
     interval: *Interval,
@@ -2076,12 +2103,12 @@ fn ifcProcessElement(
             interval.begin += skip;
             context.setComputedValue(.box_gen, .box_style, computed);
             const block_layout = layout.block_layout;
-            const box = try processInlineBlock(block_layout, context, boxes, element == root_element);
+            const box = try makeInlineBlock(block_layout, context, boxes, element == root_element);
             context.element_index_to_generated_box[element] = box;
             try context.pushElement(.box_gen);
 
             const frame = try layout.getFrame();
-            frame.* = async processUntilStackSizeIsRestored(block_layout, context, boxes);
+            frame.* = async runUntilStackSizeIsRestored(block_layout, context, boxes);
             try await frame.*;
 
             switch (box) {
@@ -2491,98 +2518,6 @@ fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, boxes: *Boxe
     const width = box_offsets.border_end.x - box_offsets.border_start.x;
     const advance = width + margins.inline_start + margins.inline_end;
     metrics.* = .{ .offset = margins.inline_start, .advance = advance, .width = width };
-}
-
-const InlineFormattingInfo = struct {
-    logical_height: ZssUnit,
-    longest_line_box_length: ZssUnit,
-};
-
-fn splitIntoLineBoxes(boxes: *Boxes, ifc: *InlineFormattingContext, containing_block_logical_width: ZssUnit) !InlineFormattingInfo {
-    assert(containing_block_logical_width >= 0);
-
-    var font_extents: hb.hb_font_extents_t = undefined;
-    // TODO assuming ltr direction
-    assert(hb.hb_font_get_h_extents(ifc.font, &font_extents) != 0);
-    ifc.ascender = @divFloor(font_extents.ascender * units_per_pixel, 64);
-    ifc.descender = @divFloor(font_extents.descender * units_per_pixel, 64);
-    const top_height: ZssUnit = @divFloor((font_extents.ascender + @divFloor(font_extents.line_gap, 2) + @mod(font_extents.line_gap, 2)) * units_per_pixel, 64);
-    const bottom_height: ZssUnit = @divFloor((-font_extents.descender + @divFloor(font_extents.line_gap, 2)) * units_per_pixel, 64);
-
-    var cursor: ZssUnit = 0;
-    var line_box = InlineFormattingContext.LineBox{ .baseline = 0, .elements = [2]usize{ 0, 0 } };
-    var max_top_height = top_height;
-    var result = InlineFormattingInfo{ .logical_height = undefined, .longest_line_box_length = 0 };
-
-    var i: usize = 0;
-    while (i < ifc.glyph_indeces.items.len) : (i += 1) {
-        const gi = ifc.glyph_indeces.items[i];
-        const metrics = ifc.metrics.items[i];
-
-        if (gi == 0) {
-            i += 1;
-            const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
-            switch (@intToEnum(InlineFormattingContext.Special.LayoutInternalKind, @enumToInt(special.kind))) {
-                .LineBreak => {
-                    line_box.baseline += max_top_height;
-                    result.longest_line_box_length = std.math.max(result.longest_line_box_length, cursor);
-                    try ifc.line_boxes.append(boxes.allocator, line_box);
-                    cursor = 0;
-                    line_box = .{ .baseline = line_box.baseline + bottom_height, .elements = [2]usize{ line_box.elements[1] + 2, line_box.elements[1] + 2 } };
-                    max_top_height = top_height;
-                    continue;
-                },
-                .ContinuationBlock => @panic("TODO Continuation blocks"),
-                else => {},
-            }
-        }
-
-        // TODO: (Bug) A glyph with a width of zero but an advance that is non-zero may overflow the width of the containing block
-        if (cursor > 0 and metrics.width > 0 and cursor + metrics.offset + metrics.width > containing_block_logical_width and line_box.elements[1] > line_box.elements[0]) {
-            line_box.baseline += max_top_height;
-            result.longest_line_box_length = std.math.max(result.longest_line_box_length, cursor);
-            try ifc.line_boxes.append(boxes.allocator, line_box);
-            cursor = 0;
-            line_box = .{ .baseline = line_box.baseline + bottom_height, .elements = [2]usize{ line_box.elements[1], line_box.elements[1] } };
-            max_top_height = top_height;
-        }
-
-        cursor += metrics.advance;
-
-        if (gi == 0) {
-            const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
-            switch (@intToEnum(InlineFormattingContext.Special.LayoutInternalKind, @enumToInt(special.kind))) {
-                .InlineBlock => {
-                    const block_box_index = @as(BlockBoxIndex, special.data);
-                    const box_offsets = boxes.blocks.box_offsets.items[block_box_index];
-                    const margins = boxes.blocks.margins.items[block_box_index];
-                    const margin_box_height = box_offsets.border_end.y - box_offsets.border_start.y + margins.block_start + margins.block_end;
-                    max_top_height = std.math.max(max_top_height, margin_box_height);
-                },
-                .LineBreak => unreachable,
-                .ContinuationBlock => @panic("TODO Continuation blocks"),
-                else => {},
-            }
-            line_box.elements[1] += 2;
-        } else {
-            line_box.elements[1] += 1;
-        }
-    }
-
-    if (line_box.elements[1] > line_box.elements[0]) {
-        line_box.baseline += max_top_height;
-        result.longest_line_box_length = std.math.max(result.longest_line_box_length, cursor);
-        try ifc.line_boxes.append(boxes.allocator, line_box);
-    }
-
-    if (ifc.line_boxes.items.len > 0) {
-        result.logical_height = ifc.line_boxes.items[ifc.line_boxes.items.len - 1].baseline + bottom_height;
-    } else {
-        // TODO This is never reached because the root inline box always creates at least 1 line box.
-        result.logical_height = 0;
-    }
-
-    return result;
 }
 
 fn solveBoxStyle(specified: ValueTree.BoxStyle, root: bool) ValueTree.BoxStyle {

@@ -149,7 +149,6 @@ pub const BlockBoxTree = struct {
 
     pub const BoxProperties = struct {
         creates_stacking_context: bool = false,
-        ifc_index: ?InlineFormattingContextIndex = null,
     };
 
     pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -188,6 +187,9 @@ pub const InlineFormattingContextIndex = u16;
 /// function to recover and interpret that data. Note that this data still has metrics associated with it.
 /// That metrics data is found in the same array index as that of the first glyph index (the one that was 0).
 pub const InlineFormattingContext = struct {
+    parent_block: BlockBoxIndex,
+    origin: ZssVector,
+
     glyph_indeces: ArrayListUnmanaged(GlyphIndex) = .{},
     metrics: ArrayListUnmanaged(Metrics) = .{},
 
@@ -342,7 +344,7 @@ pub const InlineFormattingContext = struct {
     }
 };
 
-pub const StackingContextIndex = BlockBoxIndex;
+pub const StackingContextIndex = u16;
 pub const ZIndex = i32;
 
 pub const StackingContext = struct {
@@ -350,6 +352,8 @@ pub const StackingContext = struct {
     z_index: ZIndex,
     /// The block box that creates this stacking context.
     block_box: BlockBoxIndex,
+    /// The list of inline formatting contexts in this stacking context.
+    ifcs: ArrayListUnmanaged(InlineFormattingContextIndex),
 };
 
 // NOTE: This might benefit from being a SparseSkipTree instead.
@@ -371,6 +375,9 @@ pub const Boxes = struct {
             self.allocator.destroy(ifc);
         }
         self.inlines.deinit(self.allocator);
+        for (self.stacking_contexts.multi_list.items(.ifcs)) |*ifc_list| {
+            ifc_list.deinit(self.allocator);
+        }
         self.stacking_contexts.deinit(self.allocator);
     }
 };
