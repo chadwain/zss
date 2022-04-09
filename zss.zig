@@ -5,6 +5,7 @@ pub const ValueTree = @import("source/cascade/ValueTree.zig");
 
 const skip_tree = @import("source/cascade/skip_tree.zig");
 pub const SkipTree = skip_tree.SkipTree;
+pub const SkipTreeIterator = skip_tree.SkipTreeIterator;
 pub const SparseSkipTree = skip_tree.SparseSkipTree;
 pub const SSTSeeker = skip_tree.SSTSeeker;
 pub const sstSeeker = skip_tree.sstSeeker;

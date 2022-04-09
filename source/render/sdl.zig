@@ -65,10 +65,11 @@ pub fn renderBoxes(
             const child_block_box = sc_tree_block_box[top.child_iterator.index];
             const translation_ = blk: {
                 var tr = top.translation;
-                var it = zss.util.StructureArray(BlockBoxIndex).treeIterator(boxes_.blocks.skips.items, top.generating_block, child_block_box);
-                while (it.next()) |block_box| {
-                    if (block_box == child_block_box) break;
-                    tr = tr.add(zssLogicalVectorToZssVector(boxes_.blocks.box_offsets.items[block_box].content_start));
+                var it = zss.SkipTreeIterator(BlockBoxIndex).init(top.generating_block, boxes_.blocks.skips.items);
+                while (!it.empty()) : (it = it.firstChild(boxes_.blocks.skips.items)) {
+                    it = it.nextParent(child_block_box, boxes_.blocks.skips.items);
+                    if (it.index == child_block_box) break;
+                    tr = tr.add(zssLogicalVectorToZssVector(boxes_.blocks.box_offsets.items[it.index].content_start));
                 }
                 break :blk tr;
             };
@@ -123,10 +124,12 @@ pub fn renderBoxes(
 
                 for (top.ifcs) |ifc_index| {
                     const ifc = boxes.inlines.items[ifc_index];
-                    var it = zss.util.StructureArray(BlockBoxIndex).treeIterator(boxes.blocks.skips.items, top.generating_block, ifc.parent_block);
                     var tr = top.translation;
-                    while (it.next()) |block_box| {
-                        tr = tr.add(zssLogicalVectorToZssVector(boxes.blocks.box_offsets.items[block_box].content_start));
+                    var it = zss.SkipTreeIterator(BlockBoxIndex).init(top.generating_block, boxes.blocks.skips.items);
+                    while (!it.empty()) : (it = it.firstChild(boxes.blocks.skips.items)) {
+                        it = it.nextParent(ifc.parent_block, boxes.blocks.skips.items);
+                        tr = tr.add(zssLogicalVectorToZssVector(boxes.blocks.box_offsets.items[it.index].content_start));
+                        if (it.index == ifc.parent_block) break;
                     }
                     tr = tr.add(ifc.origin);
                     try drawInlineFormattingContext(ifc, tr, allocator, renderer, pixel_format, glyph_atlas);

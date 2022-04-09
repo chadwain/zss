@@ -153,6 +153,18 @@ pub fn SkipTreeIterator(comptime Index: type) type {
         pub fn nextSibling(self: Self, skips: []const Index) Self {
             return Self{ .index = self.index + skips[self.index], .end = self.end };
         }
+
+        pub fn nextParent(self: Self, child: Index, skips: []const Index) Self {
+            assert(child >= self.index);
+            var current = self.index;
+            var skip: Index = undefined;
+            while (true) {
+                skip = skips[current];
+                if (child < current + skip) break;
+                current += skip;
+            }
+            return Self{ .index = current, .end = current + skip };
+        }
     };
 }
 
