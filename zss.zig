@@ -3,7 +3,7 @@ pub const ElementTree = @import("source/cascade/element_tree.zig").ElementTree;
 pub const value = @import("source/cascade/value.zig");
 pub const ValueTree = @import("source/cascade/ValueTree.zig");
 
-const skip_tree = @import("source/cascade/skip_tree.zig");
+const skip_tree = @import("source/util/skip_tree.zig");
 pub const SkipTree = skip_tree.SkipTree;
 pub const SkipTreeIterator = skip_tree.SkipTreeIterator;
 pub const SparseSkipTree = skip_tree.SparseSkipTree;
@@ -15,7 +15,7 @@ pub const used_values = @import("source/layout/used_values.zig");
 
 pub const render = @import("source/render/render.zig");
 
-pub const util = @import("source/util.zig");
+pub const util = @import("source/util/util.zig");
 
 comptime {
     if (@import("builtin").is_test) {
