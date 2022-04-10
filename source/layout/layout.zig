@@ -2,15 +2,13 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../../zss.zig");
 const ElementTree = zss.ElementTree;
 const ElementIndex = ElementTree.Index;
+const ElementRef = ElementTree.Ref;
 const root_element = @as(ElementIndex, 0);
 const ValueTree = zss.ValueTree;
-const SSTSeeker = zss.SSTSeeker;
-const sstSeeker = zss.sstSeeker;
 
 const used_values = @import("./used_values.zig");
 const ZssUnit = used_values.ZssUnit;
@@ -38,15 +36,16 @@ pub const Error = error{
 };
 
 pub fn doLayout(
-    element_tree: *const ElementTree,
-    cascaded_value_tree: *const ValueTree,
+    element_tree: ElementTree,
+    cascaded_value_tree: ValueTree,
     allocator: Allocator,
-    viewport_size: ZssSize, // TODO: Make this pixels
+    /// The size of the viewport in ZssUnits.
+    viewport_size: ZssSize,
 ) Error!Boxes {
     var context = LayoutContext{
-        .element_tree_skips = element_tree.skips(),
-        .seekers = Seekers.init(cascaded_value_tree),
-        .font = cascaded_value_tree.font,
+        .element_tree_skips = element_tree.list.items(.__skip),
+        .element_tree_refs = element_tree.list.items(.__ref),
+        .cascaded_values = &cascaded_value_tree,
         .stage = undefined,
         .allocator = allocator,
         .viewport_size = viewport_size,
@@ -61,9 +60,7 @@ pub fn doLayout(
         var layout = BlockLayoutContext{ .allocator = allocator };
         defer layout.deinit();
 
-        context.stage = .{ .box_gen = .{
-            .seekers = BoxGenSeekers.init(cascaded_value_tree),
-        } };
+        context.stage = .{ .box_gen = .{} };
         defer context.deinitStage(.box_gen);
 
         try doBoxGeneration(&layout, &context, &boxes);
@@ -71,9 +68,7 @@ pub fn doLayout(
     }
 
     {
-        context.stage = .{ .cosmetic = .{
-            .seekers = CosmeticSeekers.init(cascaded_value_tree),
-        } };
+        context.stage = .{ .cosmetic = .{} };
         defer context.deinitStage(.cosmetic);
 
         try doCosmeticLayout(&context, &boxes);
@@ -163,42 +158,6 @@ const Metadata = struct {
     };
 };
 
-const Seekers = struct {
-    const fields = std.meta.fields(ValueTree.Values);
-    const Enum = std.meta.FieldEnum(ValueTree.Values);
-
-    all: SSTSeeker(fields[@enumToInt(Enum.all)].field_type),
-    text: SSTSeeker(fields[@enumToInt(Enum.text)].field_type),
-
-    fn init(cascaded_value_tree: *const ValueTree) Seekers {
-        var result: Seekers = undefined;
-        inline for (std.meta.fields(Seekers)) |seeker| {
-            @field(result, seeker.name) = sstSeeker(@field(cascaded_value_tree.values, seeker.name));
-        }
-        return result;
-    }
-};
-
-const BoxGenSeekers = struct {
-    const fields = std.meta.fields(ValueTree.Values);
-    const Enum = std.meta.FieldEnum(ValueTree.Values);
-
-    box_style: SSTSeeker(fields[@enumToInt(Enum.box_style)].field_type),
-    content_width: SSTSeeker(fields[@enumToInt(Enum.content_width)].field_type),
-    horizontal_edges: SSTSeeker(fields[@enumToInt(Enum.horizontal_edges)].field_type),
-    content_height: SSTSeeker(fields[@enumToInt(Enum.content_height)].field_type),
-    vertical_edges: SSTSeeker(fields[@enumToInt(Enum.vertical_edges)].field_type),
-    z_index: SSTSeeker(fields[@enumToInt(Enum.z_index)].field_type),
-
-    fn init(cascaded_value_tree: *const ValueTree) BoxGenSeekers {
-        var result: BoxGenSeekers = undefined;
-        inline for (std.meta.fields(BoxGenSeekers)) |seeker| {
-            @field(result, seeker.name) = sstSeeker(@field(cascaded_value_tree.values, seeker.name));
-        }
-        return result;
-    }
-};
-
 const BoxGenComputedValueStack = struct {
     box_style: ArrayListUnmanaged(ValueTree.BoxStyle) = .{},
     content_width: ArrayListUnmanaged(ValueTree.ContentSize) = .{},
@@ -226,24 +185,6 @@ const BoxGenComptutedValueFlags = struct {
     z_index: bool = false,
 };
 
-const CosmeticSeekers = struct {
-    const fields = std.meta.fields(ValueTree.Values);
-    const Enum = std.meta.FieldEnum(ValueTree.Values);
-
-    border_colors: SSTSeeker(fields[@enumToInt(Enum.border_colors)].field_type),
-    background1: SSTSeeker(fields[@enumToInt(Enum.background1)].field_type),
-    background2: SSTSeeker(fields[@enumToInt(Enum.background2)].field_type),
-    color: SSTSeeker(fields[@enumToInt(Enum.color)].field_type),
-
-    fn init(cascaded_value_tree: *const ValueTree) CosmeticSeekers {
-        var result: CosmeticSeekers = undefined;
-        inline for (std.meta.fields(CosmeticSeekers)) |seeker| {
-            @field(result, seeker.name) = sstSeeker(@field(cascaded_value_tree.values, seeker.name));
-        }
-        return result;
-    }
-};
-
 const CosmeticComputedValueStack = struct {
     border_colors: ArrayListUnmanaged(ValueTree.BorderColors) = .{},
     background1: ArrayListUnmanaged(ValueTree.Background1) = .{},
@@ -266,8 +207,9 @@ const CosmeticComptutedValueFlags = struct {
 };
 
 const ThisElement = struct {
-    element: ElementIndex = undefined,
-    all: ?zss.value.All = undefined,
+    index: ElementIndex,
+    ref: ElementRef,
+    all: ?zss.value.All,
 };
 
 /// The type of box(es) that an element generates.
@@ -288,22 +230,20 @@ const LayoutContext = struct {
     const Stage = enum { box_gen, cosmetic };
 
     element_tree_skips: []const ElementIndex,
-    seekers: Seekers,
-    font: ValueTree.Font,
+    element_tree_refs: []const ElementRef,
+    cascaded_values: *const ValueTree,
 
-    this_element: ThisElement = .{},
+    this_element: ThisElement = undefined,
     element_stack: ArrayListUnmanaged(ThisElement) = .{},
     intervals: ArrayListUnmanaged(Interval) = .{},
 
     stage: union {
         box_gen: struct {
-            seekers: BoxGenSeekers,
             current_values: BoxGenCurrentValues = undefined,
             current_flags: BoxGenComptutedValueFlags = .{},
             value_stack: BoxGenComputedValueStack = .{},
         },
         cosmetic: struct {
-            seekers: CosmeticSeekers,
             current_values: CosmeticCurrentValues = undefined,
             current_flags: CosmeticComptutedValueFlags = .{},
             value_stack: CosmeticComputedValueStack = .{},
@@ -340,10 +280,12 @@ const LayoutContext = struct {
         }
     }
 
-    fn setElement(self: *Self, comptime stage: Stage, element: ElementIndex) void {
+    fn setElement(self: *Self, comptime stage: Stage, index: ElementIndex) void {
+        const ref = self.element_tree_refs[index];
         self.this_element = .{
-            .element = element,
-            .all = if (self.seekers.all.getBinary(element)) |value| value.all else null,
+            .index = index,
+            .ref = ref,
+            .all = if (self.cascaded_values.values.all.get(ref)) |value| value.all else null,
         };
 
         const current_stage = &@field(self.stage, @tagName(stage));
@@ -360,10 +302,10 @@ const LayoutContext = struct {
     }
 
     fn pushElement(self: *Self, comptime stage: Stage) !void {
-        const element = self.this_element.element;
-        const skip = self.element_tree_skips[element];
+        const index = self.this_element.index;
+        const skip = self.element_tree_skips[index];
         try self.element_stack.append(self.allocator, self.this_element);
-        try self.intervals.append(self.allocator, Interval{ .begin = element + 1, .end = element + skip });
+        try self.intervals.append(self.allocator, Interval{ .begin = index + 1, .end = index + skip });
 
         const current_stage = &@field(self.stage, @tagName(stage));
         const values = current_stage.current_values;
@@ -389,7 +331,7 @@ const LayoutContext = struct {
     }
 
     fn getText(self: Self) zss.value.Text {
-        return if (self.seekers.text.getBinary(self.this_element.element)) |value| value.text else "";
+        return if (self.cascaded_values.values.text.get(self.this_element.ref)) |value| value.text else "";
     }
 
     fn getSpecifiedValue(
@@ -400,13 +342,13 @@ const LayoutContext = struct {
         const Value = property.Value();
         const fields = std.meta.fields(Value);
         const inheritance_type = comptime property.inheritanceType();
-        const current_stage = @field(self.stage, @tagName(stage));
-        const seeker = @field(current_stage.seekers, @tagName(property));
-        var cascaded_value = getCascadedValue(property, self.this_element, seeker);
+        const store = @field(self.cascaded_values.values, @tagName(property));
+        var cascaded_value = getCascadedValue(property, self.this_element, store);
 
         const initial_value = Value{};
         if (cascaded_value == .all_initial) return initial_value;
 
+        const current_stage = @field(self.stage, @tagName(stage));
         const value_stack = @field(current_stage.value_stack, @tagName(property));
         const inherited_value = if (value_stack.items.len > 0)
             value_stack.items[value_stack.items.len - 1]
@@ -432,7 +374,7 @@ const LayoutContext = struct {
     fn getCascadedValue(
         comptime property: ValueTree.AggregatePropertyEnum,
         element: ThisElement,
-        seeker: anytype,
+        store: anytype,
     ) union(enum) {
         value: property.Value(),
         all_inherit,
@@ -443,7 +385,7 @@ const LayoutContext = struct {
 
         // Find the value using the cascaded value tree.
         // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do this.
-        if (seeker.getBinary(element.element)) |value| {
+        if (store.get(element.ref)) |value| {
             if (property == .color) {
                 // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
                 comptime assert(fields.len == 1);
@@ -603,7 +545,7 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) 
                     .initial, .inherit, .unset => unreachable,
                 }
             } else {
-                popInitialContainingBlock(layout);
+                popInitialContainingBlock(layout, boxes);
             }
         },
         .Flow => {
@@ -675,12 +617,14 @@ fn makeInitialContainingBlock(layout: *BlockLayoutContext, context: *LayoutConte
     });
 }
 
-fn popInitialContainingBlock(layout: *BlockLayoutContext) void {
+fn popInitialContainingBlock(layout: *BlockLayoutContext, boxes: *Boxes) void {
     assert(layout.layout_mode.pop() == .InitialContainingBlock);
-    _ = layout.index.pop();
-    _ = layout.skip.pop();
+    const block_box_index = layout.index.pop();
+    const skip = layout.skip.pop();
     _ = layout.flow_block_used_logical_width.pop();
     _ = layout.flow_block_used_logical_heights.pop();
+
+    boxes.blocks.skips.items[block_box_index] = skip;
 }
 
 fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes, is_root_element: bool) !GeneratedBox {
@@ -1471,7 +1415,7 @@ fn splitIntoLineBoxes(
     };
 }
 
-fn makeInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes, is_root_element: bool) !GeneratedBox {
+fn makeInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) !GeneratedBox {
     const block = try createBlock(boxes);
     block.skip.* = undefined;
     block.properties.* = .{};
@@ -1499,20 +1443,9 @@ fn makeInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: 
     context.setComputedValue(.box_gen, .z_index, specified_z_index);
     const position = context.stage.box_gen.current_values.box_style.position;
     const stacking_context_info: Metadata.StackingContextInfo = switch (position) {
-        .static => if (is_root_element)
-            Metadata.StackingContextInfo{ .is_parent = try createRootStackingContext(boxes, block.index, 0) }
-        else
-            Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, boxes, block.index, 0) },
+        .static => Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, boxes, block.index, 0) },
         .relative => blk: {
-            // TODO: This is always false.
-            if (is_root_element) {
-                // TODO: Should maybe just treat position as static
-                // This is the root element. Position must be 'static'.
-                return error.InvalidValue;
-            }
-
             // TODO: Position the block using the values of the 'inset' family of properties.
-
             break :blk switch (specified_z_index.z_index) {
                 .integer => |z_index| Metadata.StackingContextInfo{ .is_parent = try createStackingContext(layout, boxes, block.index, z_index) },
                 .auto => Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, boxes, block.index, 0) },
@@ -1893,7 +1826,6 @@ fn blockBoxFillOtherPropertiesWithDefaults(boxes: *Boxes, block_box_index: Block
 }
 
 fn inlineBoxSolveOtherProperties(context: *LayoutContext, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
-    // TODO: Set the computed values for the element
     const specified = .{
         .color = context.getSpecifiedValue(.cosmetic, .color),
         .border_colors = context.getSpecifiedValue(.cosmetic, .border_colors),
@@ -1998,8 +1930,8 @@ pub fn createInlineBox(boxes: *Boxes, ifc: *InlineFormattingContext) !InlineBoxI
 }
 
 fn createInlineFormattingContext(layout: *InlineLayoutContext, context: *LayoutContext, boxes: *Boxes, ifc: *InlineFormattingContext) Error!void {
-    ifc.font = context.font.font;
-    ifc.font_color_rgba = getCurrentColor(context.font.color);
+    ifc.font = context.cascaded_values.font.font;
+    ifc.font_color_rgba = getCurrentColor(context.cascaded_values.font.color);
     {
         const initial_interval = context.intervals.items[context.intervals.items.len - 1];
         ifc.ensureTotalCapacity(boxes.allocator, initial_interval.end - initial_interval.begin + 1) catch {};
@@ -2067,7 +1999,7 @@ fn ifcRunOnce(
             context.element_index_to_generated_box[element] = .text;
             const text = context.getText();
             // TODO: Do proper font matching.
-            try addText(boxes, ifc, text, context.font);
+            try addText(boxes, ifc, text, context.cascaded_values.font);
         },
         .inline_ => {
             interval.begin += skip;
@@ -2103,7 +2035,7 @@ fn ifcRunOnce(
             interval.begin += skip;
             context.setComputedValue(.box_gen, .box_style, computed);
             const block_layout = layout.block_layout;
-            const box = try makeInlineBlock(block_layout, context, boxes, element == root_element);
+            const box = try makeInlineBlock(block_layout, context, boxes);
             context.element_index_to_generated_box[element] = box;
             try context.pushElement(.box_gen);
 

@@ -10,6 +10,9 @@ pub const SparseSkipTree = skip_tree.SparseSkipTree;
 pub const SSTSeeker = skip_tree.SSTSeeker;
 pub const sstSeeker = skip_tree.sstSeeker;
 
+const referenced_skip_tree = @import("source/util/referenced_skip_tree.zig");
+pub const ReferencedSkipTree = referenced_skip_tree.ReferencedSkipTree;
+
 pub const layout = @import("source/layout/layout.zig");
 pub const used_values = @import("source/layout/used_values.zig");
 

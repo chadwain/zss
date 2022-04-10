@@ -1,4 +1,4 @@
 const zss = @import("../../zss.zig");
-const SkipTree = zss.SkipTree;
+const ReferencedSkipTree = zss.ReferencedSkipTree;
 
-pub const ElementTree = SkipTree(u16, struct {});
+pub const ElementTree = ReferencedSkipTree(u16, u16, struct {});

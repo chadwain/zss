@@ -41,6 +41,6 @@ test "memory" {
 }
 
 fn testFn(allocator: std.mem.Allocator, element_tree: *const ElementTree, cascaded_value_tree: *const ValueTree, viewport_size: ZssSize) !void {
-    var boxes = try zss.layout.doLayout(element_tree, cascaded_value_tree, allocator, viewport_size);
+    var boxes = try zss.layout.doLayout(element_tree.*, cascaded_value_tree.*, allocator, viewport_size);
     defer boxes.deinit();
 }

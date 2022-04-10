@@ -3,6 +3,7 @@ const ZssUnit = zss.used_values.ZssUnit;
 const units_per_pixel = zss.used_values.units_per_pixel;
 const ElementTree = zss.ElementTree;
 const ElementIndex = ElementTree.Index;
+const ElementRef = ElementTree.Ref;
 const ValueTree = zss.ValueTree;
 
 const std = @import("std");
@@ -56,16 +57,16 @@ pub const TreeData = struct {
         }
     }
 
-    fn createRoot(self: *TreeData) ElementIndex {
+    fn createRoot(self: *TreeData) ElementRef {
         return self.element_tree.createRootAssumeCapacity(.{});
     }
 
-    fn insertChild(self: *TreeData, parent: ElementIndex) ElementIndex {
+    fn insertChild(self: *TreeData, parent: ElementRef) ElementRef {
         return self.element_tree.appendChildAssumeCapacity(parent, .{});
     }
 
-    fn set(self: *TreeData, comptime property: ValueEnum, element_index: ElementIndex, value: ValueFields[@enumToInt(property)].field_type.Value) void {
-        @field(self.cascaded_values, @tagName(property)).insertAssumeCapacity(self.element_tree.skips(), element_index, value);
+    fn set(self: *TreeData, comptime property: ValueEnum, element_ref: ElementRef, value: ValueFields[@enumToInt(property)].field_type.Value) void {
+        @field(self.cascaded_values, @tagName(property)).putAssumeCapacityNoClobber(element_ref, value);
     }
 
     pub fn toTestCase(self: TreeData, library: hb.FT_Library) TestCase {

@@ -1,7 +1,6 @@
 const zss = @import("../../zss.zig");
-const Index = zss.ElementTree.Index;
 const value = zss.value;
-const SparseSkipTree = zss.SparseSkipTree;
+const ElementRef = zss.ElementTree.Ref;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -27,11 +26,24 @@ pub const AggregatePropertyEnum = enum {
     custom, // Custom property
 
     pub fn Value(comptime self: @This()) type {
-        const Enum = std.meta.FieldEnum(Values);
-        const name = @tagName(self);
-        const tag = std.meta.stringToEnum(Enum, name) orelse @compileError("TODO: Value(" ++ name ++ ")");
-        const field = std.meta.fieldInfo(Values, tag);
-        return field.field_type.Value;
+        return switch (self) {
+            .box_style => BoxStyle,
+            .content_width => ContentSize,
+            .horizontal_edges => BoxEdges,
+            .content_height => ContentSize,
+            .vertical_edges => BoxEdges,
+            .z_index => ZIndex,
+            .insets => Insets,
+            .border_colors => BorderColors,
+            .background1 => Background1,
+            .background2 => Background2,
+            .color => Color,
+
+            .direction,
+            .unicode_bidi,
+            .custom,
+            => @compileError("TODO: Value(" ++ @tagName(self) ++ ")"),
+        };
     }
 
     pub const InheritanceType = enum { inherited, not_inherited };
@@ -60,24 +72,50 @@ pub const AggregatePropertyEnum = enum {
 };
 
 pub const Values = struct {
-    all: SparseSkipTree(Index, All) = .{},
-    text: SparseSkipTree(Index, Text) = .{},
+    pub fn Store(comptime ValueType: type) type {
+        return struct {
+            map: Map = .{},
 
-    box_style: SparseSkipTree(Index, BoxStyle) = .{},
+            pub const Key = ElementRef;
+            pub const Value = ValueType;
+            pub const Map = std.AutoHashMapUnmanaged(ElementRef, Value);
 
-    content_width: SparseSkipTree(Index, ContentSize) = .{},
-    horizontal_edges: SparseSkipTree(Index, BoxEdges) = .{},
+            pub fn deinit(self: *@This(), allocator: Allocator) void {
+                self.map.deinit(allocator);
+            }
 
-    content_height: SparseSkipTree(Index, ContentSize) = .{},
-    vertical_edges: SparseSkipTree(Index, BoxEdges) = .{},
+            pub fn ensureTotalCapacity(self: *@This(), allocator: Allocator, count: Map.Size) !void {
+                return self.map.ensureTotalCapacity(allocator, count);
+            }
 
-    z_index: SparseSkipTree(Index, ZIndex) = .{},
-    insets: SparseSkipTree(Index, Insets) = .{},
+            pub fn putAssumeCapacityNoClobber(self: *@This(), key: Key, v: Value) void {
+                return self.map.putAssumeCapacityNoClobber(key, v);
+            }
 
-    color: SparseSkipTree(Index, Color) = .{},
-    border_colors: SparseSkipTree(Index, BorderColors) = .{},
-    background1: SparseSkipTree(Index, Background1) = .{},
-    background2: SparseSkipTree(Index, Background2) = .{},
+            pub fn get(self: @This(), key: Key) ?Value {
+                return self.map.get(key);
+            }
+        };
+    }
+
+    all: Store(All) = .{},
+    text: Store(Text) = .{},
+
+    box_style: Store(BoxStyle) = .{},
+
+    content_width: Store(ContentSize) = .{},
+    horizontal_edges: Store(BoxEdges) = .{},
+
+    content_height: Store(ContentSize) = .{},
+    vertical_edges: Store(BoxEdges) = .{},
+
+    z_index: Store(ZIndex) = .{},
+    insets: Store(Insets) = .{},
+
+    color: Store(Color) = .{},
+    border_colors: Store(BorderColors) = .{},
+    background1: Store(Background1) = .{},
+    background2: Store(Background2) = .{},
 };
 
 pub const Font = struct {
