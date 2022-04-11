@@ -1,10 +1,11 @@
 const zss = @import("zss");
+const properties = zss.properties;
 const ZssUnit = zss.used_values.ZssUnit;
 const units_per_pixel = zss.used_values.units_per_pixel;
 const ElementTree = zss.ElementTree;
 const ElementIndex = ElementTree.Index;
 const ElementRef = ElementTree.Ref;
-const ValueTree = zss.ValueTree;
+const CascadedValueStore = zss.CascadedValueStore;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -15,46 +16,46 @@ const hb = @import("harfbuzz");
 
 pub const TestCase = struct {
     element_tree: ElementTree,
-    cascaded_value_tree: ValueTree,
+    cascaded_values: CascadedValueStore,
     width: ZssUnit,
     height: ZssUnit,
     face: hb.FT_Face,
 
     pub fn deinit(self: @This()) void {
-        hb.hb_font_destroy(self.cascaded_value_tree.font.font);
+        hb.hb_font_destroy(self.cascaded_values.font.font);
         _ = hb.FT_Done_Face(self.face);
     }
 };
 
 pub const TreeData = struct {
     element_tree: ElementTree,
-    cascaded_values: ValueTree.Values,
+    cascaded_values: CascadedValueStore,
     width: u32 = 400,
     height: u32 = 400,
     font: [:0]const u8 = fonts[0],
     font_size: u32 = 12,
     font_color: u32 = 0xffffffff,
 
-    const ValueFields = std.meta.fields(ValueTree.Values);
-    const ValueEnum = std.meta.FieldEnum(ValueTree.Values);
+    const store_fields = std.meta.fields(CascadedValueStore);
+    const FieldEnum = std.meta.FieldEnum(CascadedValueStore);
 
-    fn init(num_elements: ElementIndex, comptime properties: []const ValueEnum) !TreeData {
+    fn init(num_elements: ElementIndex, comptime fields: []const FieldEnum) !TreeData {
         var result: TreeData = .{
             .element_tree = .{},
-            .cascaded_values = .{},
+            .cascaded_values = .{ .font = undefined },
         };
         try result.element_tree.ensureTotalCapacity(allocator, num_elements);
-        inline for (properties) |property| {
-            try @field(result.cascaded_values, @tagName(property)).ensureTotalCapacity(allocator, num_elements);
+        inline for (fields) |field| {
+            if (!std.mem.eql(u8, @tagName(field), "font")) {
+                try @field(result.cascaded_values, @tagName(field)).ensureTotalCapacity(allocator, num_elements);
+            }
         }
         return result;
     }
 
     pub fn deinit(self: *TreeData) void {
         self.element_tree.deinit(allocator);
-        inline for (std.meta.fields(ValueTree.Values)) |field| {
-            @field(self.cascaded_values, field.name).deinit(allocator);
-        }
+        self.cascaded_values.deinit(allocator);
     }
 
     fn createRoot(self: *TreeData) ElementRef {
@@ -65,8 +66,8 @@ pub const TreeData = struct {
         return self.element_tree.appendChildAssumeCapacity(parent, .{});
     }
 
-    fn set(self: *TreeData, comptime property: ValueEnum, element_ref: ElementRef, value: ValueFields[@enumToInt(property)].field_type.Value) void {
-        @field(self.cascaded_values, @tagName(property)).putAssumeCapacityNoClobber(element_ref, value);
+    fn set(self: *TreeData, comptime field: FieldEnum, element_ref: ElementRef, value: store_fields[@enumToInt(field)].field_type.Value) void {
+        @field(self.cascaded_values, @tagName(field)).setAssumeCapacity(element_ref, value);
     }
 
     pub fn toTestCase(self: TreeData, library: hb.FT_Library) TestCase {
@@ -74,23 +75,24 @@ pub const TreeData = struct {
         assert(hb.FT_New_Face(library, self.font, 0, &face) == 0);
         assert(hb.FT_Set_Char_Size(face, 0, @intCast(c_int, self.font_size) * 64, 96, 96) == 0);
 
-        return TestCase{
+        var result = TestCase{
             .element_tree = self.element_tree,
-            .cascaded_value_tree = .{
-                .values = self.cascaded_values,
-                .font = .{
-                    .font = blk: {
-                        const hb_font = hb.hb_ft_font_create_referenced(face).?;
-                        hb.hb_ft_font_set_funcs(hb_font);
-                        break :blk hb_font;
-                    },
-                    .color = .{ .rgba = self.font_color },
-                },
-            },
+            .cascaded_values = self.cascaded_values,
             .width = @intCast(ZssUnit, self.width * units_per_pixel),
             .height = @intCast(ZssUnit, self.height * units_per_pixel),
             .face = face,
         };
+
+        result.cascaded_values.font = .{
+            .font = blk: {
+                const hb_font = hb.hb_ft_font_create_referenced(face).?;
+                hb.hb_ft_font_set_funcs(hb_font);
+                break :blk hb_font;
+            },
+            .color = .{ .rgba = self.font_color },
+        };
+
+        return result;
     }
 };
 
@@ -103,7 +105,7 @@ pub const fonts = [_][:0]const u8{
     "demo/NotoSans-Regular.ttf",
 };
 
-pub const border_color_sets = [_][]const ValueTree.BorderColors{
+pub const border_color_sets = [_][]const properties.BorderColors{
     &.{
         .{ .inline_start_color = .{ .rgba = 0x1e3c7bff }, .inline_end_color = .{ .rgba = 0xc5b6f7ff }, .block_start_color = .{ .rgba = 0x8e5085ff }, .block_end_color = .{ .rgba = 0xfdc409ff } },
         .{ .inline_start_color = .{ .rgba = 0xe5bb0dff }, .inline_end_color = .{ .rgba = 0x46eefcff }, .block_start_color = .{ .rgba = 0xa4504bff }, .block_end_color = .{ .rgba = 0xb43430ff } },

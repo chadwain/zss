@@ -8,7 +8,7 @@ const ElementTree = zss.ElementTree;
 const ElementIndex = ElementTree.Index;
 const ElementRef = ElementTree.Ref;
 const root_element = @as(ElementIndex, 0);
-const ValueTree = zss.ValueTree;
+const CascadedValueStore = zss.CascadedValueStore;
 
 const used_values = @import("./used_values.zig");
 const ZssUnit = used_values.ZssUnit;
@@ -37,7 +37,7 @@ pub const Error = error{
 
 pub fn doLayout(
     element_tree: ElementTree,
-    cascaded_value_tree: ValueTree,
+    cascaded_value_tree: CascadedValueStore,
     allocator: Allocator,
     /// The size of the viewport in ZssUnits.
     viewport_size: ZssSize,
@@ -114,7 +114,7 @@ fn borderWidth(comptime thickness: BorderThickness) f32 {
     };
 }
 
-fn color(col: zss.value.Color, current_color: used_values.Color) used_values.Color {
+fn color(col: zss.values.Color, current_color: used_values.Color) used_values.Color {
     return switch (col) {
         .rgba => |rgba| rgba,
         .current_color => current_color,
@@ -122,7 +122,7 @@ fn color(col: zss.value.Color, current_color: used_values.Color) used_values.Col
     };
 }
 
-fn getCurrentColor(col: zss.value.Color) used_values.Color {
+fn getCurrentColor(col: zss.values.Color) used_values.Color {
     return switch (col) {
         .rgba => |rgba| rgba,
         .current_color => unreachable,
@@ -159,21 +159,21 @@ const Metadata = struct {
 };
 
 const BoxGenComputedValueStack = struct {
-    box_style: ArrayListUnmanaged(ValueTree.BoxStyle) = .{},
-    content_width: ArrayListUnmanaged(ValueTree.ContentSize) = .{},
-    horizontal_edges: ArrayListUnmanaged(ValueTree.BoxEdges) = .{},
-    content_height: ArrayListUnmanaged(ValueTree.ContentSize) = .{},
-    vertical_edges: ArrayListUnmanaged(ValueTree.BoxEdges) = .{},
-    z_index: ArrayListUnmanaged(ValueTree.ZIndex) = .{},
+    box_style: ArrayListUnmanaged(zss.properties.BoxStyle) = .{},
+    content_width: ArrayListUnmanaged(zss.properties.ContentSize) = .{},
+    horizontal_edges: ArrayListUnmanaged(zss.properties.BoxEdges) = .{},
+    content_height: ArrayListUnmanaged(zss.properties.ContentSize) = .{},
+    vertical_edges: ArrayListUnmanaged(zss.properties.BoxEdges) = .{},
+    z_index: ArrayListUnmanaged(zss.properties.ZIndex) = .{},
 };
 
 const BoxGenCurrentValues = struct {
-    box_style: ValueTree.BoxStyle,
-    content_width: ValueTree.ContentSize,
-    horizontal_edges: ValueTree.BoxEdges,
-    content_height: ValueTree.ContentSize,
-    vertical_edges: ValueTree.BoxEdges,
-    z_index: ValueTree.ZIndex,
+    box_style: zss.properties.BoxStyle,
+    content_width: zss.properties.ContentSize,
+    horizontal_edges: zss.properties.BoxEdges,
+    content_height: zss.properties.ContentSize,
+    vertical_edges: zss.properties.BoxEdges,
+    z_index: zss.properties.ZIndex,
 };
 
 const BoxGenComptutedValueFlags = struct {
@@ -186,17 +186,17 @@ const BoxGenComptutedValueFlags = struct {
 };
 
 const CosmeticComputedValueStack = struct {
-    border_colors: ArrayListUnmanaged(ValueTree.BorderColors) = .{},
-    background1: ArrayListUnmanaged(ValueTree.Background1) = .{},
-    background2: ArrayListUnmanaged(ValueTree.Background2) = .{},
-    color: ArrayListUnmanaged(ValueTree.Color) = .{},
+    border_colors: ArrayListUnmanaged(zss.properties.BorderColors) = .{},
+    background1: ArrayListUnmanaged(zss.properties.Background1) = .{},
+    background2: ArrayListUnmanaged(zss.properties.Background2) = .{},
+    color: ArrayListUnmanaged(zss.properties.Color) = .{},
 };
 
 const CosmeticCurrentValues = struct {
-    border_colors: ValueTree.BorderColors,
-    background1: ValueTree.Background1,
-    background2: ValueTree.Background2,
-    color: ValueTree.Color,
+    border_colors: zss.properties.BorderColors,
+    background1: zss.properties.Background1,
+    background2: zss.properties.Background2,
+    color: zss.properties.Color,
 };
 
 const CosmeticComptutedValueFlags = struct {
@@ -209,7 +209,7 @@ const CosmeticComptutedValueFlags = struct {
 const ThisElement = struct {
     index: ElementIndex,
     ref: ElementRef,
-    all: ?zss.value.All,
+    all: ?zss.values.All,
 };
 
 /// The type of box(es) that an element generates.
@@ -231,7 +231,7 @@ const LayoutContext = struct {
 
     element_tree_skips: []const ElementIndex,
     element_tree_refs: []const ElementRef,
-    cascaded_values: *const ValueTree,
+    cascaded_values: *const CascadedValueStore,
 
     this_element: ThisElement = undefined,
     element_stack: ArrayListUnmanaged(ThisElement) = .{},
@@ -285,7 +285,7 @@ const LayoutContext = struct {
         self.this_element = .{
             .index = index,
             .ref = ref,
-            .all = if (self.cascaded_values.values.all.get(ref)) |value| value.all else null,
+            .all = if (self.cascaded_values.all.get(ref)) |value| value.all else null,
         };
 
         const current_stage = &@field(self.stage, @tagName(stage));
@@ -293,7 +293,7 @@ const LayoutContext = struct {
         current_stage.current_values = undefined;
     }
 
-    fn setComputedValue(self: *Self, comptime stage: Stage, comptime property: ValueTree.AggregatePropertyEnum, value: property.Value()) void {
+    fn setComputedValue(self: *Self, comptime stage: Stage, comptime property: zss.properties.AggregatePropertyEnum, value: property.Value()) void {
         const current_stage = &@field(self.stage, @tagName(stage));
         const flag = &@field(current_stage.current_flags, @tagName(property));
         assert(!flag.*);
@@ -330,19 +330,19 @@ const LayoutContext = struct {
         }
     }
 
-    fn getText(self: Self) zss.value.Text {
-        return if (self.cascaded_values.values.text.get(self.this_element.ref)) |value| value.text else "";
+    fn getText(self: Self) zss.values.Text {
+        return if (self.cascaded_values.text.get(self.this_element.ref)) |value| value.text else "";
     }
 
     fn getSpecifiedValue(
         self: Self,
         comptime stage: Stage,
-        comptime property: ValueTree.AggregatePropertyEnum,
+        comptime property: zss.properties.AggregatePropertyEnum,
     ) property.Value() {
         const Value = property.Value();
         const fields = std.meta.fields(Value);
         const inheritance_type = comptime property.inheritanceType();
-        const store = @field(self.cascaded_values.values, @tagName(property));
+        const store = @field(self.cascaded_values, @tagName(property));
         var cascaded_value = getCascadedValue(property, self.this_element, store);
 
         const initial_value = Value{};
@@ -372,7 +372,7 @@ const LayoutContext = struct {
     }
 
     fn getCascadedValue(
-        comptime property: ValueTree.AggregatePropertyEnum,
+        comptime property: zss.properties.AggregatePropertyEnum,
         element: ThisElement,
         store: anytype,
     ) union(enum) {
@@ -755,10 +755,10 @@ fn popFlowBlock(layout: *BlockLayoutContext, boxes: *Boxes) void {
 }
 
 const FlowBlockComputedSizes = struct {
-    content_width: ValueTree.ContentSize,
-    horizontal_edges: ValueTree.BoxEdges,
-    content_height: ValueTree.ContentSize,
-    vertical_edges: ValueTree.BoxEdges,
+    content_width: zss.properties.ContentSize,
+    horizontal_edges: zss.properties.BoxEdges,
+    content_height: zss.properties.ContentSize,
+    vertical_edges: zss.properties.BoxEdges,
 };
 
 const FlowBlockUsedSizes = struct {
@@ -2093,7 +2093,7 @@ fn addLineBreak(boxes: *Boxes, ifc: *InlineFormattingContext) !void {
     try ifc.glyph_indeces.appendSlice(boxes.allocator, &glyphs);
 }
 
-fn addText(boxes: *Boxes, ifc: *InlineFormattingContext, text: zss.value.Text, font: ValueTree.Font) !void {
+fn addText(boxes: *Boxes, ifc: *InlineFormattingContext, text: zss.values.Text, font: zss.properties.Font) !void {
     const buffer = hb.hb_buffer_create() orelse unreachable;
     defer hb.hb_buffer_destroy(buffer);
     _ = hb.hb_buffer_pre_allocate(buffer, @intCast(c_uint, text.len));
@@ -2135,7 +2135,7 @@ fn addText(boxes: *Boxes, ifc: *InlineFormattingContext, text: zss.value.Text, f
     try endTextRun(boxes, ifc, text, buffer, font.font, run_begin, run_end);
 }
 
-fn endTextRun(boxes: *Boxes, ifc: *InlineFormattingContext, text: zss.value.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
+fn endTextRun(boxes: *Boxes, ifc: *InlineFormattingContext, text: zss.values.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
     if (run_end > run_begin) {
         hb.hb_buffer_add_latin1(buffer, text.ptr, @intCast(c_int, text.len), @intCast(c_uint, run_begin), @intCast(c_int, run_end - run_begin));
         if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
@@ -2181,8 +2181,8 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
     };
 
     var computed: struct {
-        horizontal_edges: ValueTree.BoxEdges,
-        vertical_edges: ValueTree.BoxEdges,
+        horizontal_edges: zss.properties.BoxEdges,
+        vertical_edges: zss.properties.BoxEdges,
     } = undefined;
 
     var used: struct {
@@ -2452,8 +2452,8 @@ fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, boxes: *Boxe
     metrics.* = .{ .offset = margins.inline_start, .advance = advance, .width = width };
 }
 
-fn solveBoxStyle(specified: ValueTree.BoxStyle, root: bool) ValueTree.BoxStyle {
-    var computed: ValueTree.BoxStyle = .{
+fn solveBoxStyle(specified: zss.properties.BoxStyle, root: bool) zss.properties.BoxStyle {
+    var computed: zss.properties.BoxStyle = .{
         .display = undefined,
         .position = specified.position,
         .float = specified.float,
@@ -2475,7 +2475,7 @@ fn solveBoxStyle(specified: ValueTree.BoxStyle, root: bool) ValueTree.BoxStyle {
 }
 
 /// Given a specified value for 'display', returns the computed value according to the table found in section 9.7 of CSS2.2.
-fn @"CSS2.2Section9.7Table"(display: zss.value.Display) zss.value.Display {
+fn @"CSS2.2Section9.7Table"(display: zss.values.Display) zss.values.Display {
     // TODO: This is incomplete, fill in the rest when more values of the 'display' property are supported.
     // TODO: There should be a slightly different version of this switch table for the root element. (See rule 4 of secion 9.7)
     return switch (display) {
@@ -2484,7 +2484,7 @@ fn @"CSS2.2Section9.7Table"(display: zss.value.Display) zss.value.Display {
     };
 }
 
-fn solveBorderColors(border_colors: ValueTree.BorderColors, current_color: used_values.Color) used_values.BorderColor {
+fn solveBorderColors(border_colors: zss.properties.BorderColors, current_color: used_values.Color) used_values.BorderColor {
     return used_values.BorderColor{
         .inline_start_rgba = color(border_colors.left, current_color),
         .inline_end_rgba = color(border_colors.right, current_color),
@@ -2493,7 +2493,7 @@ fn solveBorderColors(border_colors: ValueTree.BorderColors, current_color: used_
     };
 }
 
-fn solveBackground1(bg: ValueTree.Background1, current_color: used_values.Color) used_values.Background1 {
+fn solveBackground1(bg: zss.properties.Background1, current_color: used_values.Color) used_values.Background1 {
     return used_values.Background1{
         .color_rgba = color(bg.color, current_color),
         .clip = switch (bg.clip) {
@@ -2505,7 +2505,7 @@ fn solveBackground1(bg: ValueTree.Background1, current_color: used_values.Color)
     };
 }
 
-fn solveBackground2(bg: ValueTree.Background2, box_offsets: *const used_values.BoxOffsets, borders: *const used_values.Borders) !used_values.Background2 {
+fn solveBackground2(bg: zss.properties.Background2, box_offsets: *const used_values.BoxOffsets, borders: *const used_values.Borders) !used_values.Background2 {
     var object = switch (bg.image) {
         .object => |object| object,
         .none => return used_values.Background2{},
@@ -2530,7 +2530,7 @@ fn solveBackground2(bg: ValueTree.Background2, box_offsets: *const used_values.B
         height: ZssUnit,
         has_aspect_ratio: bool,
 
-        fn init(obj: *zss.value.BackgroundImage.Object) !@This() {
+        fn init(obj: *zss.values.BackgroundImage.Object) !@This() {
             const n = obj.getNaturalSize();
             const width = try positiveLength(.px, n.width);
             const height = try positiveLength(.px, n.height);

@@ -31,7 +31,7 @@ test "validation" {
         defer test_case.deinit();
         var boxes = try zss.layout.doLayout(
             test_case.element_tree,
-            test_case.cascaded_value_tree,
+            test_case.cascaded_values,
             allocator,
             .{ .w = test_case.width, .h = test_case.height },
         );

@@ -1,7 +1,7 @@
 const zss = @import("zss");
 const ZssSize = zss.used_values.ZssSize;
 const ElementTree = zss.ElementTree;
-const ValueTree = zss.ValueTree;
+const CascadedValueStore = zss.CascadedValueStore;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -32,7 +32,7 @@ test "memory" {
         const viewport_size = ZssSize{ .w = test_case.width, .h = test_case.height };
         try std.testing.checkAllAllocationFailures(std.testing.allocator, testFn, .{
             @as(*const ElementTree, &test_case.element_tree),
-            @as(*const ValueTree, &test_case.cascaded_value_tree),
+            @as(*const CascadedValueStore, &test_case.cascaded_values),
             viewport_size,
         });
 
@@ -40,7 +40,7 @@ test "memory" {
     }
 }
 
-fn testFn(allocator: std.mem.Allocator, element_tree: *const ElementTree, cascaded_value_tree: *const ValueTree, viewport_size: ZssSize) !void {
-    var boxes = try zss.layout.doLayout(element_tree.*, cascaded_value_tree.*, allocator, viewport_size);
+fn testFn(allocator: std.mem.Allocator, element_tree: *const ElementTree, cascaded_values: *const CascadedValueStore, viewport_size: ZssSize) !void {
+    var boxes = try zss.layout.doLayout(element_tree.*, cascaded_values.*, allocator, viewport_size);
     defer boxes.deinit();
 }

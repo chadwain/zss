@@ -1,7 +1,8 @@
 pub const ElementTree = @import("source/cascade/element_tree.zig").ElementTree;
 
-pub const value = @import("source/cascade/value.zig");
-pub const ValueTree = @import("source/cascade/ValueTree.zig");
+pub const values = @import("source/cascade/values.zig");
+pub const properties = @import("source/cascade/properties.zig");
+pub const CascadedValueStore = @import("source/cascade/CascadedValueStore.zig");
 
 const skip_tree = @import("source/util/skip_tree.zig");
 pub const SkipTree = skip_tree.SkipTree;

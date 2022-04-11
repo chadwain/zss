@@ -90,7 +90,7 @@ test "sdl" {
         defer case.deinit();
         var atlas = try r.GlyphAtlas.init(case.face, renderer.?, pixel_format, allocator);
         defer atlas.deinit(allocator);
-        var boxes = try zss.layout.doLayout(case.element_tree, case.cascaded_value_tree, allocator, .{ .w = case.width, .h = case.height });
+        var boxes = try zss.layout.doLayout(case.element_tree, case.cascaded_values, allocator, .{ .w = case.width, .h = case.height });
         defer boxes.deinit();
 
         const root_sizes: struct { width: i32, height: i32 } = if (boxes.blocks.skips.items.len > 1) blk: {
