@@ -290,3 +290,13 @@ pub const BackgroundSize = union(enum) {
     inherit,
     unset,
 };
+
+pub const Font = union(enum) {
+    const hb = @import("harfbuzz");
+
+    font: *hb.hb_font_t,
+    zss_default,
+    initial,
+    inherit,
+    unset,
+};

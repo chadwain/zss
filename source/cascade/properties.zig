@@ -25,6 +25,7 @@ pub const AggregatePropertyEnum = enum {
     background2,
 
     color,
+    font,
     // Not yet implemented.
     direction,
     unicode_bidi,
@@ -43,6 +44,7 @@ pub const AggregatePropertyEnum = enum {
             .background1 => Background1,
             .background2 => Background2,
             .color => Color,
+            .font => Font,
 
             .direction,
             .unicode_bidi,
@@ -69,6 +71,7 @@ pub const AggregatePropertyEnum = enum {
             => .not_inherited,
 
             .color,
+            .font,
             .direction,
             .custom,
             => .inherited,
@@ -81,18 +84,16 @@ pub const All = struct {
     all: values.All,
 };
 
-/// Doesn't actually represent any CSS property, but instead represents
+/// Doesn't represent any CSS property, but instead represents
 /// the text of a text element.
 pub const Text = struct {
     text: values.Text,
 };
 
-/// A temporary aggregate for holding a single font and font color.
+/// Doesn't represent any CSS property, but instead holds
+/// a font object.
 pub const Font = struct {
-    const hb = @import("harfbuzz");
-
-    font: *hb.hb_font_t,
-    color: values.Color,
+    font: values.Font = .zss_default,
 };
 
 /// * display

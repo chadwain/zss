@@ -28,7 +28,7 @@ pub fn renderBoxes(
     boxes: Boxes,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
-    glyph_atlas: *GlyphAtlas,
+    maybe_atlas: ?*GlyphAtlas,
     allocator: Allocator,
     clip_rect: sdl.SDL_Rect,
     translation: sdl.SDL_Point,
@@ -132,7 +132,7 @@ pub fn renderBoxes(
                         if (it.index == ifc.parent_block) break;
                     }
                     tr = tr.add(ifc.origin);
-                    try drawInlineFormattingContext(ifc, tr, allocator, renderer, pixel_format, glyph_atlas);
+                    try drawInlineFormattingContext(ifc, tr, allocator, renderer, pixel_format, maybe_atlas);
                 }
             },
         }
@@ -590,11 +590,13 @@ pub fn drawInlineFormattingContext(
     allocator: Allocator,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
-    atlas: *GlyphAtlas,
+    maybe_atlas: ?*GlyphAtlas,
 ) !void {
     const color = util.rgbaMap(pixel_format, ifc.font_color_rgba);
-    assert(sdl.SDL_SetTextureColorMod(atlas.texture, color[0], color[1], color[2]) == 0);
-    assert(sdl.SDL_SetTextureAlphaMod(atlas.texture, color[3]) == 0);
+    if (maybe_atlas) |atlas| {
+        assert(sdl.SDL_SetTextureColorMod(atlas.texture, color[0], color[1], color[2]) == 0);
+        assert(sdl.SDL_SetTextureAlphaMod(atlas.texture, color[3]) == 0);
+    }
 
     var inline_box_stack = std.ArrayList(InlineBoxIndex).init(allocator);
     defer inline_box_stack.deinit();
@@ -655,6 +657,7 @@ pub fn drawInlineFormattingContext(
                 continue;
             }
 
+            const atlas = maybe_atlas.?;
             const glyph_info = atlas.getOrLoadGlyph(glyph_index) catch |err| switch (err) {
                 error.OutOfGlyphSlots => {
                     std.log.err("Could not load glyph with index {}: {s}", .{ glyph_index, @errorName(err) });

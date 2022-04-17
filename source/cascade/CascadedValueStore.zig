@@ -52,12 +52,10 @@ border_colors: Store(properties.BorderColors) = .{},
 background1: Store(properties.Background1) = .{},
 background2: Store(properties.Background2) = .{},
 
-font: properties.Font,
+font: Store(properties.Font) = .{},
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
     inline for (std.meta.fields(Self)) |field_info| {
-        if (field_info.field_type != properties.Font) {
-            @field(self, field_info.name).deinit(allocator);
-        }
+        @field(self, field_info.name).deinit(allocator);
     }
 }

@@ -20,10 +20,13 @@ pub const TestCase = struct {
     width: ZssUnit,
     height: ZssUnit,
     face: hb.FT_Face,
+    font: ?*hb.hb_font_t,
 
     pub fn deinit(self: @This()) void {
-        hb.hb_font_destroy(self.cascaded_values.font.font);
-        _ = hb.FT_Done_Face(self.face);
+        if (self.font) |font| {
+            hb.hb_font_destroy(font);
+            _ = hb.FT_Done_Face(self.face);
+        }
     }
 };
 
@@ -45,10 +48,10 @@ pub const TreeData = struct {
             .cascaded_values = .{ .font = undefined },
         };
         try result.element_tree.ensureTotalCapacity(allocator, num_elements);
+        try result.cascaded_values.font.ensureTotalCapacity(allocator, num_elements);
+        try result.cascaded_values.color.ensureTotalCapacity(allocator, num_elements);
         inline for (fields) |field| {
-            if (!std.mem.eql(u8, @tagName(field), "font")) {
-                try @field(result.cascaded_values, @tagName(field)).ensureTotalCapacity(allocator, num_elements);
-            }
+            try @field(result.cascaded_values, @tagName(field)).ensureTotalCapacity(allocator, num_elements);
         }
         return result;
     }
@@ -71,26 +74,31 @@ pub const TreeData = struct {
     }
 
     pub fn toTestCase(self: TreeData, library: hb.FT_Library) TestCase {
-        var face: hb.FT_Face = undefined;
-        assert(hb.FT_New_Face(library, self.font, 0, &face) == 0);
-        assert(hb.FT_Set_Char_Size(face, 0, @intCast(c_int, self.font_size) * 64, 96, 96) == 0);
-
         var result = TestCase{
             .element_tree = self.element_tree,
             .cascaded_values = self.cascaded_values,
             .width = @intCast(ZssUnit, self.width * units_per_pixel),
             .height = @intCast(ZssUnit, self.height * units_per_pixel),
-            .face = face,
+            .face = undefined,
+            .font = undefined,
         };
 
-        result.cascaded_values.font = .{
-            .font = blk: {
-                const hb_font = hb.hb_ft_font_create_referenced(face).?;
+        if (result.element_tree.size() > 0) {
+            assert(hb.FT_New_Face(library, self.font, 0, &result.face) == 0);
+            assert(hb.FT_Set_Char_Size(result.face, 0, @intCast(c_int, self.font_size) * 64, 96, 96) == 0);
+
+            result.font = blk: {
+                const hb_font = hb.hb_ft_font_create_referenced(result.face).?;
                 hb.hb_ft_font_set_funcs(hb_font);
                 break :blk hb_font;
-            },
-            .color = .{ .rgba = self.font_color },
-        };
+            };
+
+            result.cascaded_values.font.setAssumeCapacity(0, .{ .font = .{ .font = result.font.? } });
+            result.cascaded_values.color.setAssumeCapacity(0, .{ .color = .{ .rgba = self.font_color } });
+        } else {
+            result.face = undefined;
+            result.font = null;
+        }
 
         return result;
     }

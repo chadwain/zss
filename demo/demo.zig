@@ -189,9 +189,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     const root_2_0 = element_tree.appendChildAssumeCapacity(root_2, .{});
     const root_2_0_0 = element_tree.appendChildAssumeCapacity(root_2_0, .{});
 
-    var cascaded = zss.CascadedValueStore{
-        .font = .{ .font = font, .color = .{ .rgba = args.text_color } },
-    };
+    var cascaded = zss.CascadedValueStore{};
     defer cascaded.deinit(allocator);
 
     try cascaded.text.ensureTotalCapacity(allocator, num_elements);
@@ -205,6 +203,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     try cascaded.border_colors.ensureTotalCapacity(allocator, num_elements);
     try cascaded.background1.ensureTotalCapacity(allocator, num_elements);
     try cascaded.background2.ensureTotalCapacity(allocator, num_elements);
+    try cascaded.font.ensureTotalCapacity(allocator, num_elements);
 
     // Root element
     const root_border = zss.values.BorderWidth{ .px = 10 };
@@ -224,6 +223,8 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         } },
         .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
     });
+    cascaded.color.setAssumeCapacity(root, .{ .color = .{ .rgba = args.text_color } });
+    cascaded.font.setAssumeCapacity(root, .{ .font = .{ .font = font } });
 
     // Large element with display: none
     cascaded.box_style.setAssumeCapacity(root_0, .{ .display = .none });

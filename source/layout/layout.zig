@@ -165,6 +165,7 @@ const BoxGenComputedValueStack = struct {
     content_height: ArrayListUnmanaged(zss.properties.ContentSize) = .{},
     vertical_edges: ArrayListUnmanaged(zss.properties.BoxEdges) = .{},
     z_index: ArrayListUnmanaged(zss.properties.ZIndex) = .{},
+    font: ArrayListUnmanaged(zss.properties.Font) = .{},
 };
 
 const BoxGenCurrentValues = struct {
@@ -174,6 +175,7 @@ const BoxGenCurrentValues = struct {
     content_height: zss.properties.ContentSize,
     vertical_edges: zss.properties.BoxEdges,
     z_index: zss.properties.ZIndex,
+    font: zss.properties.Font,
 };
 
 const BoxGenComptutedValueFlags = struct {
@@ -183,6 +185,7 @@ const BoxGenComptutedValueFlags = struct {
     content_height: bool = false,
     vertical_edges: bool = false,
     z_index: bool = false,
+    font: bool = false,
 };
 
 const CosmeticComputedValueStack = struct {
@@ -255,6 +258,10 @@ const LayoutContext = struct {
 
     element_index_to_generated_box: []GeneratedBox,
     anonymous_block_boxes: ArrayListUnmanaged(BlockBoxIndex) = .{},
+
+    root_font: struct {
+        font: *hb.hb_font_t,
+    } = undefined,
 
     // Does not do deinitStage.
     fn deinit(self: *Self) void {
@@ -495,6 +502,13 @@ fn doCosmeticLayout(context: *LayoutContext, boxes: *Boxes) !void {
                 },
             }
 
+            if (element == root_element) {
+                const computed_color = context.stage.cosmetic.current_values.color;
+                for (boxes.inlines.items) |ifc| {
+                    ifc.font_color_rgba = getCurrentColor(computed_color.color);
+                }
+            }
+
             if (skip != 1) {
                 try interval_stack.append(context.allocator, .{ .begin = element + 1, .end = element + skip });
                 try context.pushElement(.cosmetic);
@@ -530,6 +544,14 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) 
                 const skip = context.element_tree_skips[element];
                 context.setElement(.box_gen, element);
 
+                const font = context.getSpecifiedValue(.box_gen, .font);
+                context.setComputedValue(.box_gen, .font, font);
+                context.root_font.font = switch (font.font) {
+                    .font => |f| f,
+                    .zss_default => hb.hb_font_get_empty().?, // TODO: Provide a text-rendering-backend-specific default font.
+                    .initial, .inherit, .unset => unreachable,
+                };
+
                 const specified = context.getSpecifiedValue(.box_gen, .box_style);
                 const computed = solveBoxStyle(specified, true);
                 context.setComputedValue(.box_gen, .box_style, computed);
@@ -554,6 +576,9 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) 
                 const element = interval.begin;
                 const skip = context.element_tree_skips[element];
                 context.setElement(.box_gen, element);
+
+                const font = context.getSpecifiedValue(.box_gen, .font);
+                context.setComputedValue(.box_gen, .font, font);
 
                 const specified = context.getSpecifiedValue(.box_gen, .box_style);
                 // TODO: (element == root_element) might always be false
@@ -1930,8 +1955,7 @@ pub fn createInlineBox(boxes: *Boxes, ifc: *InlineFormattingContext) !InlineBoxI
 }
 
 fn createInlineFormattingContext(layout: *InlineLayoutContext, context: *LayoutContext, boxes: *Boxes, ifc: *InlineFormattingContext) Error!void {
-    ifc.font = context.cascaded_values.font.font;
-    ifc.font_color_rgba = getCurrentColor(context.cascaded_values.font.color);
+    ifc.font = context.root_font.font;
     {
         const initial_interval = context.intervals.items[context.intervals.items.len - 1];
         ifc.ensureTotalCapacity(boxes.allocator, initial_interval.end - initial_interval.begin + 1) catch {};
@@ -1999,7 +2023,7 @@ fn ifcRunOnce(
             context.element_index_to_generated_box[element] = .text;
             const text = context.getText();
             // TODO: Do proper font matching.
-            try addText(boxes, ifc, text, context.cascaded_values.font);
+            try addText(boxes, ifc, text, ifc.font);
         },
         .inline_ => {
             interval.begin += skip;
@@ -2013,10 +2037,12 @@ fn ifcRunOnce(
                     .content_width = context.getSpecifiedValue(.box_gen, .content_width),
                     .content_height = context.getSpecifiedValue(.box_gen, .content_height),
                     .z_index = context.getSpecifiedValue(.box_gen, .z_index),
+                    .font = context.getSpecifiedValue(.box_gen, .font),
                 };
                 context.setComputedValue(.box_gen, .content_width, data.content_width);
                 context.setComputedValue(.box_gen, .content_height, data.content_height);
                 context.setComputedValue(.box_gen, .z_index, data.z_index);
+                context.setComputedValue(.box_gen, .font, data.font);
             }
 
             try addBoxStart(boxes, ifc, inline_box_index);
@@ -2037,6 +2063,14 @@ fn ifcRunOnce(
             const block_layout = layout.block_layout;
             const box = try makeInlineBlock(block_layout, context, boxes);
             context.element_index_to_generated_box[element] = box;
+
+            { // TODO: Grabbing useless data to satisfy inheritance...
+                const data = .{
+                    .font = context.getSpecifiedValue(.box_gen, .font),
+                };
+                context.setComputedValue(.box_gen, .font, data.font);
+            }
+
             try context.pushElement(.box_gen);
 
             const frame = try layout.getFrame();
@@ -2093,7 +2127,7 @@ fn addLineBreak(boxes: *Boxes, ifc: *InlineFormattingContext) !void {
     try ifc.glyph_indeces.appendSlice(boxes.allocator, &glyphs);
 }
 
-fn addText(boxes: *Boxes, ifc: *InlineFormattingContext, text: zss.values.Text, font: zss.properties.Font) !void {
+fn addText(boxes: *Boxes, ifc: *InlineFormattingContext, text: zss.values.Text, font: *hb.hb_font_t) !void {
     const buffer = hb.hb_buffer_create() orelse unreachable;
     defer hb.hb_buffer_destroy(buffer);
     _ = hb.hb_buffer_pre_allocate(buffer, @intCast(c_uint, text.len));
@@ -2108,31 +2142,31 @@ fn addText(boxes: *Boxes, ifc: *InlineFormattingContext, text: zss.values.Text, 
         const codepoint = text[run_end];
         switch (codepoint) {
             '\n' => {
-                try endTextRun(boxes, ifc, text, buffer, font.font, run_begin, run_end);
+                try endTextRun(boxes, ifc, text, buffer, font, run_begin, run_end);
                 try addLineBreak(boxes, ifc);
                 run_begin = run_end + 1;
             },
             '\r' => {
-                try endTextRun(boxes, ifc, text, buffer, font.font, run_begin, run_end);
+                try endTextRun(boxes, ifc, text, buffer, font, run_begin, run_end);
                 try addLineBreak(boxes, ifc);
                 run_end += @boolToInt(run_end + 1 < text.len and text[run_end + 1] == '\n');
                 run_begin = run_end + 1;
             },
             '\t' => {
-                try endTextRun(boxes, ifc, text, buffer, font.font, run_begin, run_end);
+                try endTextRun(boxes, ifc, text, buffer, font, run_begin, run_end);
                 run_begin = run_end + 1;
                 // TODO tab size should be determined by the 'tab-size' property
                 const tab_size = 8;
                 hb.hb_buffer_add_latin1(buffer, " " ** tab_size, tab_size, 0, tab_size);
                 if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
-                try addTextRun(boxes, ifc, buffer, font.font);
+                try addTextRun(boxes, ifc, buffer, font);
                 assert(hb.hb_buffer_set_length(buffer, 0) != 0);
             },
             else => {},
         }
     }
 
-    try endTextRun(boxes, ifc, text, buffer, font.font, run_begin, run_end);
+    try endTextRun(boxes, ifc, text, buffer, font, run_begin, run_end);
 }
 
 fn endTextRun(boxes: *Boxes, ifc: *InlineFormattingContext, text: zss.values.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
