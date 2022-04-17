@@ -201,7 +201,7 @@ pub const Insets = struct {
 
 /// * color
 pub const Color = struct {
-    color: values.Color = values.Color.transparent,
+    color: values.Color = values.Color.black,
 };
 
 /// Depending on the writing mode:

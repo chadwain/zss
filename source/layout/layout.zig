@@ -504,8 +504,9 @@ fn doCosmeticLayout(context: *LayoutContext, boxes: *Boxes) !void {
 
             if (element == root_element) {
                 const computed_color = context.stage.cosmetic.current_values.color;
+                const used_color = getCurrentColor(computed_color.color);
                 for (boxes.inlines.items) |ifc| {
-                    ifc.font_color_rgba = getCurrentColor(computed_color.color);
+                    ifc.font_color_rgba = used_color;
                 }
             }
 

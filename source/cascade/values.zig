@@ -194,6 +194,7 @@ pub const Color = union(enum) {
     unset,
 
     pub const transparent = Color{ .rgba = 0 };
+    pub const black = Color{ .rgba = 0xff };
 };
 
 pub const BackgroundImage = union(enum) {
