@@ -118,7 +118,7 @@ fn color(col: zss.values.Color, current_color: used_values.Color) used_values.Co
     return switch (col) {
         .rgba => |rgba| rgba,
         .current_color => current_color,
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 }
 
@@ -126,7 +126,7 @@ fn getCurrentColor(col: zss.values.Color) used_values.Color {
     return switch (col) {
         .rgba => |rgba| rgba,
         .current_color => unreachable,
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 }
 
@@ -350,21 +350,59 @@ const LayoutContext = struct {
         const fields = std.meta.fields(Value);
         const inheritance_type = comptime property.inheritanceType();
         const store = @field(self.cascaded_values, @tagName(property));
-        var cascaded_value = getCascadedValue(property, self.this_element, store);
 
-        const initial_value = Value{};
-        if (cascaded_value == .all_initial) return initial_value;
+        // Find the value using the cascaded value tree.
+        // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do this.
+        var cascaded_value: ?Value = if (store.get(self.this_element.ref)) |*value| cascaded_value: {
+            if (property == .color) {
+                // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
+                if (value.color == .current_color) {
+                    value.color = .inherit;
+                }
+            }
 
-        const current_stage = @field(self.stage, @tagName(stage));
-        const value_stack = @field(current_stage.value_stack, @tagName(property));
-        const inherited_value = if (value_stack.items.len > 0)
-            value_stack.items[value_stack.items.len - 1]
-        else
-            Value{};
-        if (cascaded_value == .all_inherit) return inherited_value;
+            break :cascaded_value value.*;
+        } else null;
+
+        const default: enum { inherit, initial } = default: {
+            // Use the value of the 'all' property.
+            // CSS-CASCADE-4§3.2: The all property is a shorthand that resets all CSS properties except direction and unicode-bidi.
+            //                    [...] It does not reset custom properties.
+            if (property != .direction and property != .unicode_bidi and property != .custom) {
+                if (self.this_element.all) |all| switch (all) {
+                    .initial => break :default .initial,
+                    .inherit => break :default .inherit,
+                    .unset => {},
+                };
+            }
+
+            // Just use the inheritance type.
+            switch (inheritance_type) {
+                .inherited => break :default .inherit,
+                .not_inherited => break :default .initial,
+            }
+        };
+
+        const initial_value = Value.initial_values;
+        if (default == .initial and cascaded_value == null) {
+            return initial_value;
+        }
+
+        const inherited_value = inherited_value: {
+            const current_stage = @field(self.stage, @tagName(stage));
+            const value_stack = @field(current_stage.value_stack, @tagName(property));
+            if (value_stack.items.len > 0) {
+                break :inherited_value value_stack.items[value_stack.items.len - 1];
+            } else {
+                break :inherited_value initial_value;
+            }
+        };
+        if (default == .inherit and cascaded_value == null) {
+            return inherited_value;
+        }
 
         inline for (fields) |field_info| {
-            const sub_property = &@field(cascaded_value.value, field_info.name);
+            const sub_property = &@field(cascaded_value.?, field_info.name);
             switch (sub_property.*) {
                 .inherit => sub_property.* = @field(inherited_value, field_info.name),
                 .initial => sub_property.* = @field(initial_value, field_info.name),
@@ -372,54 +410,16 @@ const LayoutContext = struct {
                     .inherited => sub_property.* = @field(inherited_value, field_info.name),
                     .not_inherited => sub_property.* = @field(initial_value, field_info.name),
                 },
+                .undeclared => if (default == .inherit) {
+                    sub_property.* = @field(inherited_value, field_info.name);
+                } else {
+                    sub_property.* = @field(initial_value, field_info.name);
+                },
                 else => {},
             }
         }
-        return cascaded_value.value;
-    }
 
-    fn getCascadedValue(
-        comptime property: zss.properties.AggregatePropertyEnum,
-        element: ThisElement,
-        store: anytype,
-    ) union(enum) {
-        value: property.Value(),
-        all_inherit,
-        all_initial,
-    } {
-        const Value = property.Value();
-        const fields = std.meta.fields(Value);
-
-        // Find the value using the cascaded value tree.
-        // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do this.
-        if (store.get(element.ref)) |value| {
-            if (property == .color) {
-                // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
-                comptime assert(fields.len == 1);
-                if (value.color == .current_color) {
-                    return .all_inherit;
-                }
-            }
-
-            return .{ .value = value };
-        }
-
-        // Use the value of the 'all' property.
-        // CSS-CASCADE-4§3.2: The all property is a shorthand that resets all CSS properties except direction and unicode-bidi.
-        //                    [...] It does not reset custom properties.
-        if (property != .direction and property != .unicode_bidi and property != .custom) {
-            if (element.all) |all| switch (all) {
-                .inherit => return .all_inherit,
-                .initial => return .all_initial,
-                .unset => {},
-            };
-        }
-
-        // Just use the inheritance type.
-        switch (comptime property.inheritanceType()) {
-            .inherited => return .all_inherit,
-            .not_inherited => return .all_initial,
-        }
+        return cascaded_value.?;
     }
 };
 
@@ -550,7 +550,7 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) 
                 context.root_font.font = switch (font.font) {
                     .font => |f| f,
                     .zss_default => hb.hb_font_get_empty().?, // TODO: Provide a text-rendering-backend-specific default font.
-                    .initial, .inherit, .unset => unreachable,
+                    .initial, .inherit, .unset, .undeclared => unreachable,
                 };
 
                 const specified = context.getSpecifiedValue(.box_gen, .box_style);
@@ -565,7 +565,7 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) 
                     },
                     .none => std.mem.set(GeneratedBox, context.element_index_to_generated_box[element .. element + skip], .none),
                     .inline_, .inline_block, .text => unreachable,
-                    .initial, .inherit, .unset => unreachable,
+                    .initial, .inherit, .unset, .undeclared => unreachable,
                 }
             } else {
                 popInitialContainingBlock(layout, boxes);
@@ -602,7 +602,7 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) 
                         std.mem.set(GeneratedBox, context.element_index_to_generated_box[element .. element + skip], .none);
                         interval.begin += skip;
                     },
-                    .initial, .inherit, .unset => unreachable,
+                    .initial, .inherit, .unset, .undeclared => unreachable,
                 }
             } else {
                 popFlowBlock(layout, boxes);
@@ -697,13 +697,13 @@ fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *B
             switch (specified_z_index.z_index) {
                 .integer => |z_index| break :blk Metadata.StackingContextInfo{ .is_parent = try createStackingContext(layout, boxes, block.index, z_index) },
                 .auto => break :blk Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, boxes, block.index, 0) },
-                .initial, .inherit, .unset => unreachable,
+                .initial, .inherit, .unset, .undeclared => unreachable,
             }
         },
         .absolute => @panic("TODO: absolute positioning"),
         .fixed => @panic("TODO: fixed positioning"),
         .sticky => @panic("TODO: sticky positioning"),
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
     try pushFlowLayout(layout, block.index, used_sizes, stacking_context_info);
@@ -863,7 +863,7 @@ fn flowBlockSolveWidths(
             computed.horizontal_edges.border_start = .{ .px = width };
             used.border_inline_start = positiveLength(.px, width) catch unreachable;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.border_end) {
         .px => |value| {
@@ -885,7 +885,7 @@ fn flowBlockSolveWidths(
             computed.horizontal_edges.border_end = .{ .px = width };
             used.border_inline_end = positiveLength(.px, width) catch unreachable;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.padding_start) {
         .px => |value| {
@@ -896,7 +896,7 @@ fn flowBlockSolveWidths(
             computed.horizontal_edges.padding_start = .{ .percentage = value };
             used.padding_inline_start = try positivePercentage(value, containing_block_logical_width);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.padding_end) {
         .px => |value| {
@@ -907,7 +907,7 @@ fn flowBlockSolveWidths(
             computed.horizontal_edges.padding_end = .{ .percentage = value };
             used.padding_inline_end = try positivePercentage(value, containing_block_logical_width);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     switch (specified.content_width.min_size) {
@@ -919,7 +919,7 @@ fn flowBlockSolveWidths(
             computed.content_width.min_size = .{ .percentage = value };
             used.min_inline_size = try positivePercentage(value, containing_block_logical_width);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_width.max_size) {
         .px => |value| {
@@ -934,7 +934,7 @@ fn flowBlockSolveWidths(
             computed.content_width.max_size = .none;
             used.max_inline_size = std.math.maxInt(ZssUnit);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     switch (specified.content_width.size) {
@@ -951,7 +951,7 @@ fn flowBlockSolveWidths(
             used.auto_bitfield.bits |= BF.inline_size_bit;
             used.inline_size = 0;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.margin_start) {
         .px => |value| {
@@ -967,7 +967,7 @@ fn flowBlockSolveWidths(
             used.auto_bitfield.bits |= BF.margin_inline_start_bit;
             used.margin_inline_start = 0;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.margin_end) {
         .px => |value| {
@@ -983,7 +983,7 @@ fn flowBlockSolveWidths(
             used.auto_bitfield.bits |= BF.margin_inline_end_bit;
             used.margin_inline_end = 0;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
 
@@ -1022,7 +1022,7 @@ fn flowBlockSolveHeights(
             computed.vertical_edges.border_start = .{ .px = width };
             used.border_block_start = positiveLength(.px, width) catch unreachable;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.border_end) {
         .px => |value| {
@@ -1044,7 +1044,7 @@ fn flowBlockSolveHeights(
             computed.vertical_edges.border_end = .{ .px = width };
             used.border_block_end = positiveLength(.px, width) catch unreachable;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.padding_start) {
         .px => |value| {
@@ -1055,7 +1055,7 @@ fn flowBlockSolveHeights(
             computed.vertical_edges.padding_start = .{ .percentage = value };
             used.padding_block_start = try positivePercentage(value, containing_block_logical_width);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.padding_end) {
         .px => |value| {
@@ -1066,7 +1066,7 @@ fn flowBlockSolveHeights(
             computed.vertical_edges.padding_end = .{ .percentage = value };
             used.padding_block_end = try positivePercentage(value, containing_block_logical_width);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.margin_start) {
         .px => |value| {
@@ -1081,7 +1081,7 @@ fn flowBlockSolveHeights(
             computed.vertical_edges.margin_start = .auto;
             used.margin_block_start = 0;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.margin_end) {
         .px => |value| {
@@ -1096,7 +1096,7 @@ fn flowBlockSolveHeights(
             computed.vertical_edges.margin_end = .auto;
             used.margin_block_end = 0;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     switch (specified.content_height.min_size) {
@@ -1111,7 +1111,7 @@ fn flowBlockSolveHeights(
             else
                 0;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_height.max_size) {
         .px => |value| {
@@ -1129,7 +1129,7 @@ fn flowBlockSolveHeights(
             computed.content_height.max_size = .none;
             used.max_block_size = std.math.maxInt(ZssUnit);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_height.size) {
         .px => |value| {
@@ -1147,7 +1147,7 @@ fn flowBlockSolveHeights(
             computed.content_height.size = .auto;
             used.block_size = null;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
 
@@ -1475,13 +1475,13 @@ fn makeInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: 
             break :blk switch (specified_z_index.z_index) {
                 .integer => |z_index| Metadata.StackingContextInfo{ .is_parent = try createStackingContext(layout, boxes, block.index, z_index) },
                 .auto => Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, boxes, block.index, 0) },
-                .initial, .inherit, .unset => unreachable,
+                .initial, .inherit, .unset, .undeclared => unreachable,
             };
         },
         .absolute => @panic("TODO: absolute positioning"),
         .fixed => @panic("TODO: fixed positioning"),
         .sticky => @panic("TODO: sticky positioning"),
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
     const BF = FlowBlockUsedSizes.AutoBitfield;
@@ -1525,7 +1525,7 @@ fn inlineBlockSolveSizes(
             computed.horizontal_edges.border_start = .{ .px = width };
             used.border_inline_start = positiveLength(.px, width) catch unreachable;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.border_end) {
         .px => |value| {
@@ -1547,7 +1547,7 @@ fn inlineBlockSolveSizes(
             computed.horizontal_edges.border_end = .{ .px = width };
             used.border_inline_end = positiveLength(.px, width) catch unreachable;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.padding_start) {
         .px => |value| {
@@ -1558,7 +1558,7 @@ fn inlineBlockSolveSizes(
             computed.horizontal_edges.padding_start = .{ .percentage = value };
             used.padding_inline_start = try positivePercentage(value, containing_block_logical_width);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.padding_end) {
         .px => |value| {
@@ -1569,7 +1569,7 @@ fn inlineBlockSolveSizes(
             computed.horizontal_edges.padding_end = .{ .percentage = value };
             used.padding_inline_end = try positivePercentage(value, containing_block_logical_width);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.margin_start) {
         .px => |value| {
@@ -1584,7 +1584,7 @@ fn inlineBlockSolveSizes(
             computed.horizontal_edges.margin_start = .auto;
             used.margin_inline_start = 0;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.margin_end) {
         .px => |value| {
@@ -1599,7 +1599,7 @@ fn inlineBlockSolveSizes(
             computed.horizontal_edges.margin_end = .auto;
             used.margin_inline_end = 0;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_width.min_size) {
         .px => |value| {
@@ -1610,7 +1610,7 @@ fn inlineBlockSolveSizes(
             computed.content_width.min_size = .{ .percentage = value };
             used.min_inline_size = try positivePercentage(value, containing_block_logical_width);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_width.max_size) {
         .px => |value| {
@@ -1625,7 +1625,7 @@ fn inlineBlockSolveSizes(
             computed.content_width.max_size = .none;
             used.max_inline_size = std.math.maxInt(ZssUnit);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     used.auto_bitfield.bits = 0;
@@ -1645,7 +1645,7 @@ fn inlineBlockSolveSizes(
             used.inline_size = 0;
             used.auto_bitfield.bits |= BF.inline_size_bit;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     switch (specified.vertical_edges.border_start) {
@@ -1668,7 +1668,7 @@ fn inlineBlockSolveSizes(
             computed.vertical_edges.border_start = .{ .px = width };
             used.border_block_start = positiveLength(.px, width) catch unreachable;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.border_end) {
         .px => |value| {
@@ -1690,7 +1690,7 @@ fn inlineBlockSolveSizes(
             computed.vertical_edges.border_end = .{ .px = width };
             used.border_block_end = positiveLength(.px, width) catch unreachable;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.padding_start) {
         .px => |value| {
@@ -1701,7 +1701,7 @@ fn inlineBlockSolveSizes(
             computed.vertical_edges.padding_start = .{ .percentage = value };
             used.padding_block_start = try positivePercentage(value, containing_block_logical_width);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.padding_end) {
         .px => |value| {
@@ -1712,7 +1712,7 @@ fn inlineBlockSolveSizes(
             computed.vertical_edges.padding_end = .{ .percentage = value };
             used.padding_block_end = try positivePercentage(value, containing_block_logical_width);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.margin_start) {
         .px => |value| {
@@ -1727,7 +1727,7 @@ fn inlineBlockSolveSizes(
             computed.vertical_edges.margin_start = .auto;
             used.margin_block_start = 0;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.margin_end) {
         .px => |value| {
@@ -1742,7 +1742,7 @@ fn inlineBlockSolveSizes(
             computed.vertical_edges.margin_end = .auto;
             used.margin_block_end = 0;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_height.min_size) {
         .px => |value| {
@@ -1756,7 +1756,7 @@ fn inlineBlockSolveSizes(
             else
                 0;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_height.max_size) {
         .px => |value| {
@@ -1774,7 +1774,7 @@ fn inlineBlockSolveSizes(
             computed.content_height.max_size = .none;
             used.max_block_size = std.math.maxInt(ZssUnit);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_height.size) {
         .px => |value| {
@@ -1792,7 +1792,7 @@ fn inlineBlockSolveSizes(
             computed.content_height.size = .auto;
             used.block_size = null;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
 
@@ -2095,7 +2095,7 @@ fn ifcRunOnce(
             interval.begin += skip;
             std.mem.set(GeneratedBox, context.element_index_to_generated_box[element .. element + skip], .none);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     return false;
@@ -2246,7 +2246,7 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
             computed.horizontal_edges.margin_start = .auto;
             used.margin_inline_start = 0;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.border_start) {
         .px => |value| {
@@ -2268,7 +2268,7 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
             computed.horizontal_edges.border_start = .{ .px = width };
             used.border_inline_start = positiveLength(.px, width) catch unreachable;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.padding_start) {
         .px => |value| {
@@ -2279,7 +2279,7 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
             computed.horizontal_edges.padding_start = .{ .percentage = value };
             used.padding_inline_start = try positivePercentage(value, layout.percentage_base_unit);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.margin_end) {
         .px => |value| {
@@ -2294,7 +2294,7 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
             computed.horizontal_edges.margin_end = .auto;
             used.margin_inline_end = 0;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.border_end) {
         .px => |value| {
@@ -2316,7 +2316,7 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
             computed.horizontal_edges.border_end = .{ .px = width };
             used.border_inline_end = positiveLength(.px, width) catch unreachable;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.padding_end) {
         .px => |value| {
@@ -2327,7 +2327,7 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
             computed.horizontal_edges.padding_end = .{ .percentage = value };
             used.padding_inline_end = try positivePercentage(value, layout.percentage_base_unit);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     switch (specified.vertical_edges.border_start) {
@@ -2350,7 +2350,7 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
             computed.vertical_edges.border_start = .{ .px = width };
             used.border_block_start = positiveLength(.px, width) catch unreachable;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.padding_start) {
         .px => |value| {
@@ -2361,7 +2361,7 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
             computed.vertical_edges.padding_start = .{ .percentage = value };
             used.padding_block_start = try positivePercentage(value, layout.percentage_base_unit);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.border_end) {
         .px => |value| {
@@ -2383,7 +2383,7 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
             computed.vertical_edges.border_end = .{ .px = width };
             used.border_block_end = positiveLength(.px, width) catch unreachable;
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.padding_end) {
         .px => |value| {
@@ -2394,7 +2394,7 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
             computed.vertical_edges.padding_end = .{ .percentage = value };
             used.padding_block_end = try positivePercentage(value, layout.percentage_base_unit);
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     computed.vertical_edges.margin_start = specified.vertical_edges.margin_start;
@@ -2535,7 +2535,7 @@ fn solveBackground1(bg: zss.properties.Background1, current_color: used_values.C
             .border_box => .Border,
             .padding_box => .Padding,
             .content_box => .Content,
-            .initial, .inherit, .unset => unreachable,
+            .initial, .inherit, .unset, .undeclared => unreachable,
         },
     };
 }
@@ -2544,7 +2544,7 @@ fn solveBackground2(bg: zss.properties.Background2, box_offsets: *const used_val
     var object = switch (bg.image) {
         .object => |object| object,
         .none => return used_values.Background2{},
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
     const border_width = box_offsets.border_end.x - box_offsets.border_start.x;
@@ -2557,7 +2557,7 @@ fn solveBackground2(bg: zss.properties.Background2, box_offsets: *const used_val
         .border_box => .{ .origin = .Border, .width = border_width, .height = border_height },
         .padding_box => .{ .origin = .Padding, .width = padding_width, .height = padding_height },
         .content_box => .{ .origin = .Content, .width = content_width, .height = content_height },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
     const NaturalSize = struct {
@@ -2613,7 +2613,7 @@ fn solveBackground2(bg: zss.properties.Background2, box_offsets: *const used_val
                 break :blk used_values.Background2.Size{ .width = positioning_area.width, .height = @divFloor(positioning_area.width * natural.?.height, natural.?.width) };
             }
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
     const repeat: used_values.Background2.Repeat = switch (bg.repeat) {
@@ -2631,7 +2631,7 @@ fn solveBackground2(bg: zss.properties.Background2, box_offsets: *const used_val
                 .round => .Round,
             },
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
     if (width_was_auto or height_was_auto or repeat.x == .Round or repeat.y == .Round) {
@@ -2682,7 +2682,7 @@ fn solveBackground2(bg: zss.properties.Background2, box_offsets: *const used_val
                 },
             },
         },
-        .initial, .inherit, .unset => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
     return used_values.Background2{

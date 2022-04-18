@@ -86,64 +86,124 @@ pub const Text = struct {
 };
 
 pub const Font = struct {
-    font: values.Font = .zss_default,
+    font: values.Font = .undeclared,
+
+    pub const initial_values = Font{
+        .font = .zss_default,
+    };
 };
 
 pub const BoxStyle = struct {
-    display: values.Display = .inline_,
-    position: values.Position = .static,
-    float: values.Float = .none,
+    display: values.Display = .undeclared,
+    position: values.Position = .undeclared,
+    float: values.Float = .undeclared,
+
+    pub const initial_values = BoxStyle{
+        .display = .inline_,
+        .position = .static,
+        .float = .none,
+    };
 };
 
 pub const ContentSize = struct {
-    size: values.Size = .auto,
-    min_size: values.MinSize = .{ .px = 0 },
-    max_size: values.MaxSize = .none,
+    size: values.Size = .undeclared,
+    min_size: values.MinSize = .undeclared,
+    max_size: values.MaxSize = .undeclared,
+
+    pub const initial_values = ContentSize{
+        .size = .auto,
+        .min_size = .{ .px = 0 },
+        .max_size = .none,
+    };
 };
 
 pub const BoxEdges = struct {
-    padding_start: values.Padding = .{ .px = 0 },
-    padding_end: values.Padding = .{ .px = 0 },
-    border_start: values.BorderWidth = .{ .px = 0 },
-    border_end: values.BorderWidth = .{ .px = 0 },
-    margin_start: values.Margin = .{ .px = 0 },
-    margin_end: values.Margin = .{ .px = 0 },
+    padding_start: values.Padding = .undeclared,
+    padding_end: values.Padding = .undeclared,
+    border_start: values.BorderWidth = .undeclared,
+    border_end: values.BorderWidth = .undeclared,
+    margin_start: values.Margin = .undeclared,
+    margin_end: values.Margin = .undeclared,
+
+    pub const initial_values = BoxEdges{
+        .padding_start = .{ .px = 0 },
+        .padding_end = .{ .px = 0 },
+        .border_start = .{ .px = 0 },
+        .border_end = .{ .px = 0 },
+        .margin_start = .{ .px = 0 },
+        .margin_end = .{ .px = 0 },
+    };
 };
 
 pub const ZIndex = struct {
-    z_index: values.ZIndex = .auto,
+    z_index: values.ZIndex = .undeclared,
+
+    pub const initial_values = ZIndex{
+        .z_index = .auto,
+    };
 };
 
 pub const Insets = struct {
-    left: values.Inset = .auto,
-    right: values.Inset = .auto,
-    top: values.Inset = .auto,
-    bottom: values.Inset = .auto,
+    left: values.Inset = .undeclared,
+    right: values.Inset = .undeclared,
+    top: values.Inset = .undeclared,
+    bottom: values.Inset = .undeclared,
+
+    pub const initial_values = Insets{
+        .left = .auto,
+        .right = .auto,
+        .top = .auto,
+        .bottom = .auto,
+    };
 };
 
 pub const Color = struct {
-    color: values.Color = values.Color.black,
+    color: values.Color = .undeclared,
+
+    pub const initial_values = Color{
+        .color = values.Color.black,
+    };
 };
 
 pub const BorderColors = struct {
-    left: values.Color = .current_color,
-    right: values.Color = .current_color,
-    top: values.Color = .current_color,
-    bottom: values.Color = .current_color,
+    left: values.Color = .undeclared,
+    right: values.Color = .undeclared,
+    top: values.Color = .undeclared,
+    bottom: values.Color = .undeclared,
+
+    pub const initial_values = BorderColors{
+        .left = .current_color,
+        .right = .current_color,
+        .top = .current_color,
+        .bottom = .current_color,
+    };
 };
 
 pub const Background1 = struct {
-    color: values.Color = values.Color.transparent,
-    clip: values.BackgroundClip = .border_box,
+    color: values.Color = .undeclared,
+    clip: values.BackgroundClip = .undeclared,
+
+    pub const initial_values = Background1{
+        .color = values.Color.transparent,
+        .clip = .border_box,
+    };
 };
 
 pub const Background2 = struct {
-    image: values.BackgroundImage = .none,
-    repeat: values.BackgroundRepeat = .{ .repeat = .{ .x = .repeat, .y = .repeat } },
-    position: values.BackgroundPosition = .{ .position = .{
-        .x = .{ .side = .left, .offset = .{ .percentage = 0 } },
-        .y = .{ .side = .top, .offset = .{ .percentage = 0 } },
-    } },
-    origin: values.BackgroundOrigin = .padding_box,
-    size: values.BackgroundSize = .{ .size = .{ .width = .auto, .height = .auto } },
+    image: values.BackgroundImage = .undeclared,
+    repeat: values.BackgroundRepeat = .undeclared,
+    position: values.BackgroundPosition = .undeclared,
+    origin: values.BackgroundOrigin = .undeclared,
+    size: values.BackgroundSize = .undeclared,
+
+    pub const initial_values = Background2{
+        .image = .none,
+        .repeat = .{ .repeat = .{ .x = .repeat, .y = .repeat } },
+        .position = .{ .position = .{
+            .x = .{ .side = .left, .offset = .{ .percentage = 0 } },
+            .y = .{ .side = .top, .offset = .{ .percentage = 0 } },
+        } },
+        .origin = .padding_box,
+        .size = .{ .size = .{ .width = .auto, .height = .auto } },
+    };
 };

@@ -15,6 +15,7 @@ pub const Display = enum {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 //pub const Display = enum {
@@ -95,6 +96,7 @@ pub const Position = enum {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const ZIndex = union(enum) {
@@ -103,6 +105,7 @@ pub const ZIndex = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const Float = enum {
@@ -112,6 +115,7 @@ pub const Float = enum {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const Clear = enum {
@@ -122,6 +126,7 @@ pub const Clear = enum {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const Size = union(enum) {
@@ -131,6 +136,7 @@ pub const Size = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const MinSize = union(enum) {
@@ -139,6 +145,7 @@ pub const MinSize = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const MaxSize = union(enum) {
@@ -148,6 +155,7 @@ pub const MaxSize = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const BorderWidth = union(enum) {
@@ -158,6 +166,7 @@ pub const BorderWidth = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const Padding = union(enum) {
@@ -166,6 +175,7 @@ pub const Padding = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const Margin = union(enum) {
@@ -175,6 +185,7 @@ pub const Margin = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const Inset = union(enum) {
@@ -184,6 +195,7 @@ pub const Inset = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const Color = union(enum) {
@@ -192,6 +204,7 @@ pub const Color = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 
     pub const transparent = Color{ .rgba = 0 };
     pub const black = Color{ .rgba = 0xff };
@@ -218,6 +231,7 @@ pub const BackgroundImage = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const BackgroundRepeat = union(enum) {
@@ -230,6 +244,7 @@ pub const BackgroundRepeat = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const BackgroundPosition = union(enum) {
@@ -254,6 +269,7 @@ pub const BackgroundPosition = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const BackgroundClip = union(enum) {
@@ -263,6 +279,7 @@ pub const BackgroundClip = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const BackgroundOrigin = union(enum) {
@@ -272,6 +289,7 @@ pub const BackgroundOrigin = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const BackgroundSize = union(enum) {
@@ -290,6 +308,7 @@ pub const BackgroundSize = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const Font = union(enum) {
@@ -300,4 +319,5 @@ pub const Font = union(enum) {
     initial,
     inherit,
     unset,
+    undeclared,
 };
