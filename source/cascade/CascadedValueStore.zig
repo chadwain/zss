@@ -1,3 +1,9 @@
+//! This struct maps elements to their CSS cascaded values.
+//! These values are all structs defined in ./properties.zig.
+//!
+//! Each field of this struct has a doc comment which specifies how each field
+//! of the value struct corresponds to a particular CSS property.
+
 const zss = @import("../../zss.zig");
 const properties = zss.properties;
 const ElementRef = zss.ElementTree.Ref;
@@ -33,25 +39,73 @@ pub fn Store(comptime ValueType: type) type {
     };
 }
 
+/// * all -> all
 all: Store(properties.All) = .{},
+
+/// * text -> Does not correspond to any CSS property. Instead it represents the text of a text element.
 text: Store(properties.Text) = .{},
 
+/// * display  -> display
+/// * position -> position
+/// * float    -> float
 box_style: Store(properties.BoxStyle) = .{},
 
+/// * size     -> width
+/// * min_size -> min-width
+/// * max_size -> max-width
 content_width: Store(properties.ContentSize) = .{},
+
+/// * padding_start -> padding-left
+/// * padding_end   -> padding-right
+/// * border_start  -> border-width-left
+/// * border_end    -> border-width-right
+/// * margin_start  -> margin-left
+/// * margin_end    -> margin-right
 horizontal_edges: Store(properties.BoxEdges) = .{},
 
+/// * size     -> height
+/// * min_size -> min-height
+/// * max_size -> max-height
 content_height: Store(properties.ContentSize) = .{},
+
+/// * padding_start -> padding-top
+/// * padding_end   -> padding-bottom
+/// * border_start  -> border-width-top
+/// * border_end    -> border-width-bottom
+/// * margin_start  -> margin-top
+/// * margin_end    -> margin-bottom
 vertical_edges: Store(properties.BoxEdges) = .{},
 
+/// * z_index -> z-index
 z_index: Store(properties.ZIndex) = .{},
+
+/// * left   -> left
+/// * right  -> right
+/// * top    -> top
+/// * bottom -> bottom
 insets: Store(properties.Insets) = .{},
 
+/// * color -> color
 color: Store(properties.Color) = .{},
+
+/// * left   -> border-left-color
+/// * right  -> border-right-color
+/// * top    -> border-top-color
+/// * bottom -> border-bottom-color
 border_colors: Store(properties.BorderColors) = .{},
+
+/// * color -> background-color
+/// * clip  -> background-clip
 background1: Store(properties.Background1) = .{},
+
+/// * image    -> background-image
+/// * repeat   -> background-image
+/// * position -> background-position
+/// * origin   -> background-origin
+/// * size     -> background-size
 background2: Store(properties.Background2) = .{},
 
+/// * font -> Does not correspond to any CSS property. Instead it represents a font object.
 font: Store(properties.Font) = .{},
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
