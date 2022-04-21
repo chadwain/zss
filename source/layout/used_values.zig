@@ -360,7 +360,7 @@ pub const StackingContext = struct {
 pub const StackingContextTree = SkipTree(StackingContextIndex, StackingContext);
 
 /// The result of layout.
-pub const Boxes = struct {
+pub const BoxTree = struct {
     blocks: BlockBoxTree = .{},
     inlines: ArrayListUnmanaged(*InlineFormattingContext) = .{},
     stacking_contexts: StackingContextTree = .{},

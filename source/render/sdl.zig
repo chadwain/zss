@@ -17,15 +17,15 @@ const InlineFormattingContext = zss.used_values.InlineFormattingContext;
 const InlineFormattingContextIndex = zss.used_values.InlineFormattingContextIndex;
 const StackingContextTree = zss.used_values.StackingContextTree;
 const ZIndex = zss.used_values.ZIndex;
-const Boxes = zss.used_values.Boxes;
+const BoxTree = zss.used_values.BoxTree;
 
 const hb = @import("harfbuzz");
 const sdl = @import("SDL2");
 
 pub const util = @import("util/sdl.zig");
 
-pub fn renderBoxes(
-    boxes: Boxes,
+pub fn renderBoxTree(
+    box_tree: BoxTree,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
     maybe_atlas: ?*GlyphAtlas,
@@ -57,7 +57,7 @@ pub fn renderBoxes(
             stack: *ArrayList(@This()),
             insertion_index: usize,
             top: @This(),
-            boxes_: Boxes,
+            box_tree_: BoxTree,
             sc_tree_skips: []const StackingContextTree.Index,
             sc_tree_block_box: []const BlockBoxIndex,
             sc_tree_ifcs: []const ArrayListUnmanaged(InlineFormattingContextIndex),
@@ -65,11 +65,11 @@ pub fn renderBoxes(
             const child_block_box = sc_tree_block_box[top.child_iterator.index];
             const translation_ = blk: {
                 var tr = top.translation;
-                var it = zss.SkipTreeIterator(BlockBoxIndex).init(top.generating_block, boxes_.blocks.skips.items);
-                while (!it.empty()) : (it = it.firstChild(boxes_.blocks.skips.items)) {
-                    it = it.nextParent(child_block_box, boxes_.blocks.skips.items);
+                var it = zss.SkipTreeIterator(BlockBoxIndex).init(top.generating_block, box_tree_.blocks.skips.items);
+                while (!it.empty()) : (it = it.firstChild(box_tree_.blocks.skips.items)) {
+                    it = it.nextParent(child_block_box, box_tree_.blocks.skips.items);
                     if (it.index == child_block_box) break;
-                    tr = tr.add(zssLogicalVectorToZssVector(boxes_.blocks.box_offsets.items[it.index].content_start));
+                    tr = tr.add(zssLogicalVectorToZssVector(box_tree_.blocks.box_offsets.items[it.index].content_start));
                 }
                 break :blk tr;
             };
@@ -83,7 +83,7 @@ pub fn renderBoxes(
         }
     };
 
-    const sc_tree = boxes.stacking_contexts;
+    const sc_tree = box_tree.stacking_contexts;
     const sc_tree_root_iterator = sc_tree.iterator() orelse return;
     const sc_tree_slice = sc_tree.slice();
     const sc_tree_skips: []const StackingContextTree.Index = sc_tree_slice.items(.__skip);
@@ -109,26 +109,26 @@ pub fn renderBoxes(
                 top.command = .DrawChildren;
                 while (!top.child_iterator.empty()) : (top.child_iterator = top.child_iterator.nextSibling(sc_tree_skips)) {
                     if (sc_tree_z_index[top.child_iterator.index] >= 0) break;
-                    try StackItem.addToStack(&stacking_context_stack, old_len, top, boxes, sc_tree_skips, sc_tree_block_box, sc_tree_ifcs);
+                    try StackItem.addToStack(&stacking_context_stack, old_len, top, box_tree, sc_tree_skips, sc_tree_block_box, sc_tree_ifcs);
                 }
                 stacking_context_stack.items[old_len - 1] = top;
 
-                drawGeneratingBlock(boxes.blocks, top.generating_block, top.translation, clip_rect_zss, renderer, pixel_format);
+                drawGeneratingBlock(box_tree.blocks, top.generating_block, top.translation, clip_rect_zss, renderer, pixel_format);
             },
             .DrawChildren => {
                 _ = stacking_context_stack.pop();
                 while (!top.child_iterator.empty()) : (top.child_iterator = top.child_iterator.nextSibling(sc_tree_skips)) {
-                    try StackItem.addToStack(&stacking_context_stack, old_len - 1, top, boxes, sc_tree_skips, sc_tree_block_box, sc_tree_ifcs);
+                    try StackItem.addToStack(&stacking_context_stack, old_len - 1, top, box_tree, sc_tree_skips, sc_tree_block_box, sc_tree_ifcs);
                 }
-                try drawChildBlocks(boxes.blocks, top.generating_block, allocator, top.translation, clip_rect_zss, renderer, pixel_format);
+                try drawChildBlocks(box_tree.blocks, top.generating_block, allocator, top.translation, clip_rect_zss, renderer, pixel_format);
 
                 for (top.ifcs) |ifc_index| {
-                    const ifc = boxes.inlines.items[ifc_index];
+                    const ifc = box_tree.inlines.items[ifc_index];
                     var tr = top.translation;
-                    var it = zss.SkipTreeIterator(BlockBoxIndex).init(top.generating_block, boxes.blocks.skips.items);
-                    while (!it.empty()) : (it = it.firstChild(boxes.blocks.skips.items)) {
-                        it = it.nextParent(ifc.parent_block, boxes.blocks.skips.items);
-                        tr = tr.add(zssLogicalVectorToZssVector(boxes.blocks.box_offsets.items[it.index].content_start));
+                    var it = zss.SkipTreeIterator(BlockBoxIndex).init(top.generating_block, box_tree.blocks.skips.items);
+                    while (!it.empty()) : (it = it.firstChild(box_tree.blocks.skips.items)) {
+                        it = it.nextParent(ifc.parent_block, box_tree.blocks.skips.items);
+                        tr = tr.add(zssLogicalVectorToZssVector(box_tree.blocks.box_offsets.items[it.index].content_start));
                         if (it.index == ifc.parent_block) break;
                     }
                     tr = tr.add(ifc.origin);

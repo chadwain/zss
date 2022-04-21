@@ -1,5 +1,5 @@
 const zss = @import("zss");
-const Boxes = zss.used_values.Boxes;
+const BoxTree = zss.used_values.BoxTree;
 const r = zss.render.sdl;
 
 const std = @import("std");
@@ -12,7 +12,7 @@ const sdl = @import("SDL2");
 const cases = @import("./test_cases.zig");
 
 pub fn drawToSurface(
-    boxes: Boxes,
+    box_tree: BoxTree,
     width: c_int,
     height: c_int,
     translation: sdl.SDL_Point,
@@ -41,7 +41,7 @@ pub fn drawToSurface(
             const vp = sdl.SDL_Rect{ .x = 0, .y = 0, .w = std.math.min(width - tr.x, tw), .h = std.math.min(height - tr.y, th) };
             assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0) == 0);
             assert(sdl.SDL_RenderClear(renderer) == 0);
-            try r.renderBoxes(boxes, renderer, pixel_format, glyph_atlas, allocator, vp, tr);
+            try r.renderBoxTree(box_tree, renderer, pixel_format, glyph_atlas, allocator, vp, tr);
             sdl.SDL_RenderPresent(renderer);
             assert(sdl.SDL_RenderReadPixels(renderer, &vp, buffer.*.format.*.format, buffer.*.pixels, buffer.*.pitch) == 0);
             assert(sdl.SDL_BlitSurface(buffer, null, surface, &.{ .x = i * tw, .y = j * th, .w = tw, .h = th }) == 0);
@@ -88,12 +88,12 @@ test "sdl" {
 
         const case = data.toTestCase(library);
         defer case.deinit();
-        var boxes = try zss.layout.doLayout(case.element_tree, case.cascaded_values, allocator, .{ .w = case.width, .h = case.height });
-        defer boxes.deinit();
+        var box_tree = try zss.layout.doLayout(case.element_tree, case.cascaded_values, allocator, .{ .w = case.width, .h = case.height });
+        defer box_tree.deinit();
 
-        const root_sizes: struct { width: i32, height: i32 } = if (boxes.blocks.skips.items.len > 1) blk: {
+        const root_sizes: struct { width: i32, height: i32 } = if (box_tree.blocks.skips.items.len > 1) blk: {
             // TODO: Find the block id of root a better way
-            const root_box_offsets = boxes.blocks.box_offsets.items[1];
+            const root_box_offsets = box_tree.blocks.box_offsets.items[1];
             break :blk .{
                 .width = r.zssUnitToPixel(root_box_offsets.border_end.x - root_box_offsets.border_start.x),
                 .height = r.zssUnitToPixel(root_box_offsets.border_end.y - root_box_offsets.border_start.y),
@@ -107,7 +107,7 @@ test "sdl" {
         defer if (maybe_atlas) |*atlas| atlas.deinit(allocator);
         const atlas_ptr = if (maybe_atlas) |*atlas| atlas else null;
         const surface = try drawToSurface(
-            boxes,
+            box_tree,
             root_sizes.width,
             root_sizes.height,
             sdl.SDL_Point{ .x = 0, .y = 0 },

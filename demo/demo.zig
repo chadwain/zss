@@ -279,7 +279,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
 const ProgramState = struct {
     element_tree: *const ElementTree,
     cascaded_values: *const CascadedValueStore,
-    boxes: zss.used_values.Boxes,
+    box_tree: zss.used_values.BoxTree,
     atlas: zss.render.sdl.GlyphAtlas,
     width: c_int,
     height: c_int,
@@ -306,8 +306,8 @@ const ProgramState = struct {
         sdl.SDL_GetWindowSize(window, &result.width, &result.height);
         result.timer = try std.time.Timer.start();
 
-        result.boxes = try zss.layout.doLayout(element_tree.*, cascaded_values.*, allocator, .{ .w = pixelToZssUnit(result.width), .h = pixelToZssUnit(result.height) });
-        errdefer result.boxes.deinit();
+        result.box_tree = try zss.layout.doLayout(element_tree.*, cascaded_values.*, allocator, .{ .w = pixelToZssUnit(result.width), .h = pixelToZssUnit(result.height) });
+        errdefer result.box_tree.deinit();
 
         result.last_layout_time = result.timer.read();
 
@@ -319,21 +319,21 @@ const ProgramState = struct {
     }
 
     fn deinit(self: *Self, allocator: Allocator) void {
-        self.boxes.deinit();
+        self.box_tree.deinit();
         self.atlas.deinit(allocator);
     }
 
-    fn updateBoxes(self: *Self, allocator: Allocator) !void {
+    fn updateBoxTree(self: *Self, allocator: Allocator) !void {
         self.timer.reset();
-        var new_boxes = try zss.layout.doLayout(self.element_tree.*, self.cascaded_values.*, allocator, .{ .w = pixelToZssUnit(self.width), .h = pixelToZssUnit(self.height) });
+        var new_box_tree = try zss.layout.doLayout(self.element_tree.*, self.cascaded_values.*, allocator, .{ .w = pixelToZssUnit(self.width), .h = pixelToZssUnit(self.height) });
         self.last_layout_time = self.timer.read();
-        self.boxes.deinit();
-        self.boxes = new_boxes;
+        self.box_tree.deinit();
+        self.box_tree = new_box_tree;
         self.updateMaxScroll();
     }
 
     fn updateMaxScroll(self: *Self) void {
-        self.max_scroll_y = std.math.max(0, zss.render.sdl.zssUnitToPixel(self.boxes.blocks.box_offsets.items[1].border_end.y) - self.height);
+        self.max_scroll_y = std.math.max(0, zss.render.sdl.zssUnitToPixel(self.box_tree.blocks.box_offsets.items[1].border_end.y) - self.height);
         self.scroll_y = std.math.clamp(self.scroll_y, 0, self.max_scroll_y);
     }
 };
@@ -413,7 +413,7 @@ fn sdlMainLoop(
 
         if (needs_relayout) {
             needs_relayout = false;
-            try ps.updateBoxes(allocator);
+            try ps.updateBoxTree(allocator);
         }
 
         const viewport_rect = sdl.SDL_Rect{
@@ -428,7 +428,7 @@ fn sdlMainLoop(
         };
         assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255) == 0);
         assert(sdl.SDL_RenderClear(renderer) == 0);
-        try zss.render.sdl.renderBoxes(ps.boxes, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
+        try zss.render.sdl.renderBoxTree(ps.box_tree, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
         sdl.SDL_RenderPresent(renderer);
 
         const frame_time = timer.lap();

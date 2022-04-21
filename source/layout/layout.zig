@@ -25,7 +25,7 @@ const InlineBoxIndex = used_values.InlineBoxIndex;
 const InlineFormattingContext = used_values.InlineFormattingContext;
 const InlineFormattingContextIndex = used_values.InlineFormattingContextIndex;
 const GlyphIndex = InlineFormattingContext.GlyphIndex;
-const Boxes = used_values.Boxes;
+const BoxTree = used_values.BoxTree;
 
 const hb = @import("harfbuzz");
 
@@ -41,7 +41,7 @@ pub fn doLayout(
     allocator: Allocator,
     /// The size of the viewport in ZssUnits.
     viewport_size: ZssSize,
-) Error!Boxes {
+) Error!BoxTree {
     var context = LayoutContext{
         .element_tree_skips = element_tree.list.items(.__skip),
         .element_tree_refs = element_tree.list.items(.__ref),
@@ -53,8 +53,8 @@ pub fn doLayout(
     };
     defer context.deinit();
 
-    var boxes = Boxes{ .allocator = allocator };
-    errdefer boxes.deinit();
+    var box_tree = BoxTree{ .allocator = allocator };
+    errdefer box_tree.deinit();
 
     {
         var layout = BlockLayoutContext{ .allocator = allocator };
@@ -63,7 +63,7 @@ pub fn doLayout(
         context.stage = .{ .box_gen = .{} };
         defer context.deinitStage(.box_gen);
 
-        try doBoxGeneration(&layout, &context, &boxes);
+        try doBoxGeneration(&layout, &context, &box_tree);
         context.assertEmptyStage(.box_gen);
     }
 
@@ -71,11 +71,11 @@ pub fn doLayout(
         context.stage = .{ .cosmetic = .{} };
         defer context.deinitStage(.cosmetic);
 
-        try doCosmeticLayout(&context, &boxes);
+        try doCosmeticLayout(&context, &box_tree);
         context.assertEmptyStage(.cosmetic);
     }
 
-    return boxes;
+    return box_tree;
 }
 
 const LengthUnit = enum { px };
@@ -217,7 +217,7 @@ const ThisElement = struct {
 
 /// The type of box(es) that an element generates.
 const GeneratedBox = union(enum) {
-    /// The element generated no boxes.
+    /// The element generated no box_tree.
     none,
     /// The element generated a single block box.
     block_box: BlockBoxIndex,
@@ -347,12 +347,11 @@ const LayoutContext = struct {
         comptime property: zss.properties.AggregatePropertyEnum,
     ) property.Value() {
         const Value = property.Value();
-        const fields = std.meta.fields(Value);
         const inheritance_type = comptime property.inheritanceType();
-        const store = @field(self.cascaded_values, @tagName(property));
 
         // Find the value using the cascaded value tree.
         // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do this.
+        const store = @field(self.cascaded_values, @tagName(property));
         var cascaded_value: ?Value = if (store.get(self.this_element.ref)) |*value| cascaded_value: {
             if (property == .color) {
                 // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
@@ -384,7 +383,7 @@ const LayoutContext = struct {
         };
 
         const initial_value = Value.initial_values;
-        if (default == .initial and cascaded_value == null) {
+        if (cascaded_value == null and default == .initial) {
             return initial_value;
         }
 
@@ -397,11 +396,11 @@ const LayoutContext = struct {
                 break :inherited_value initial_value;
             }
         };
-        if (default == .inherit and cascaded_value == null) {
+        if (cascaded_value == null and default == .inherit) {
             return inherited_value;
         }
 
-        inline for (fields) |field_info| {
+        inline for (std.meta.fields(Value)) |field_info| {
             const sub_property = &@field(cascaded_value.?, field_info.name);
             switch (sub_property.*) {
                 .inherit => sub_property.* = @field(inherited_value, field_info.name),
@@ -455,25 +454,25 @@ const BlockLayoutContext = struct {
     }
 };
 
-fn doBoxGeneration(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) !void {
+fn doBoxGeneration(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree) !void {
     if (context.element_tree_skips.len > 0) {
-        boxes.blocks.ensureTotalCapacity(boxes.allocator, context.element_tree_skips[root_element] + 1) catch {};
+        box_tree.blocks.ensureTotalCapacity(box_tree.allocator, context.element_tree_skips[root_element] + 1) catch {};
     }
 
-    try makeInitialContainingBlock(layout, context, boxes);
+    try makeInitialContainingBlock(layout, context, box_tree);
     if (layout.layout_mode.items.len == 0) return;
 
-    try runUntilStackSizeIsRestored(layout, context, boxes);
+    try runUntilStackSizeIsRestored(layout, context, box_tree);
 }
 
-fn doCosmeticLayout(context: *LayoutContext, boxes: *Boxes) !void {
-    const num_created_boxes = boxes.blocks.skips.items[0];
-    try boxes.blocks.border_colors.resize(boxes.allocator, num_created_boxes);
-    try boxes.blocks.background1.resize(boxes.allocator, num_created_boxes);
-    try boxes.blocks.background2.resize(boxes.allocator, num_created_boxes);
+fn doCosmeticLayout(context: *LayoutContext, box_tree: *BoxTree) !void {
+    const num_created_boxes = box_tree.blocks.skips.items[0];
+    try box_tree.blocks.border_colors.resize(box_tree.allocator, num_created_boxes);
+    try box_tree.blocks.background1.resize(box_tree.allocator, num_created_boxes);
+    try box_tree.blocks.background2.resize(box_tree.allocator, num_created_boxes);
 
-    for (boxes.inlines.items) |inline_| {
-        try inline_.background1.resize(boxes.allocator, inline_.inline_start.items.len);
+    for (box_tree.inlines.items) |inline_| {
+        try inline_.background1.resize(box_tree.allocator, inline_.inline_start.items.len);
         inlineRootBoxSolveOtherProperties(inline_);
     }
 
@@ -495,9 +494,9 @@ fn doCosmeticLayout(context: *LayoutContext, boxes: *Boxes) !void {
             const box_type = context.element_index_to_generated_box[element];
             switch (box_type) {
                 .none, .text => continue,
-                .block_box => |index| try blockBoxSolveOtherProperties(context, boxes, index),
+                .block_box => |index| try blockBoxSolveOtherProperties(context, box_tree, index),
                 .inline_box => |box_spec| {
-                    const ifc = boxes.inlines.items[box_spec.ifc_index];
+                    const ifc = box_tree.inlines.items[box_spec.ifc_index];
                     try inlineBoxSolveOtherProperties(context, ifc, box_spec.index);
                 },
             }
@@ -505,7 +504,7 @@ fn doCosmeticLayout(context: *LayoutContext, boxes: *Boxes) !void {
             if (element == root_element) {
                 const computed_color = context.stage.cosmetic.current_values.color;
                 const used_color = getCurrentColor(computed_color.color);
-                for (boxes.inlines.items) |ifc| {
+                for (box_tree.inlines.items) |ifc| {
                     ifc.font_color_rgba = used_color;
                 }
             }
@@ -523,18 +522,18 @@ fn doCosmeticLayout(context: *LayoutContext, boxes: *Boxes) !void {
     }
 
     for (context.anonymous_block_boxes.items) |anon_index| {
-        blockBoxFillOtherPropertiesWithDefaults(boxes, @intCast(BlockBoxIndex, anon_index));
+        blockBoxFillOtherPropertiesWithDefaults(box_tree, @intCast(BlockBoxIndex, anon_index));
     }
 }
 
-fn runUntilStackSizeIsRestored(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) !void {
+fn runUntilStackSizeIsRestored(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree) !void {
     const stack_size = layout.layout_mode.items.len;
     while (layout.layout_mode.items.len >= stack_size) {
-        try runOnce(layout, context, boxes);
+        try runOnce(layout, context, box_tree);
     }
 }
 
-fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) !void {
+fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree) !void {
     const layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
     switch (layout_mode) {
         .InitialContainingBlock => {
@@ -559,7 +558,7 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) 
 
                 switch (computed.display) {
                     .block => {
-                        const box = try makeFlowBlock(layout, context, boxes, true);
+                        const box = try makeFlowBlock(layout, context, box_tree, true);
                         context.element_index_to_generated_box[element] = box;
                         try context.pushElement(.box_gen);
                     },
@@ -568,7 +567,7 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) 
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 }
             } else {
-                popInitialContainingBlock(layout, boxes);
+                popInitialContainingBlock(layout, box_tree);
             }
         },
         .Flow => {
@@ -589,14 +588,14 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) 
                 switch (computed.display) {
                     .block => {
                         // TODO: (element == root_element) might always be false
-                        const box = try makeFlowBlock(layout, context, boxes, element == root_element);
+                        const box = try makeFlowBlock(layout, context, box_tree, element == root_element);
                         context.element_index_to_generated_box[element] = box;
                         interval.begin += skip;
                         try context.pushElement(.box_gen);
                     },
                     .inline_, .inline_block, .text => {
                         const containing_block_logical_width = layout.flow_block_used_logical_width.items[layout.flow_block_used_logical_width.items.len - 1];
-                        return makeInlineFormattingContext(layout, context, boxes, interval, containing_block_logical_width, .Normal);
+                        return makeInlineFormattingContext(layout, context, box_tree, interval, containing_block_logical_width, .Normal);
                     },
                     .none => {
                         std.mem.set(GeneratedBox, context.element_index_to_generated_box[element .. element + skip], .none);
@@ -605,7 +604,7 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) 
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 }
             } else {
-                popFlowBlock(layout, boxes);
+                popFlowBlock(layout, box_tree);
                 context.popElement(.box_gen);
             }
         },
@@ -613,11 +612,11 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) 
     }
 }
 
-fn makeInitialContainingBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) !void {
+fn makeInitialContainingBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree) !void {
     const width = context.viewport_size.w;
     const height = context.viewport_size.h;
 
-    const block = try createBlock(boxes);
+    const block = try createBlock(box_tree);
     block.skip.* = undefined;
     block.properties.* = .{};
     block.box_offsets.* = .{
@@ -643,18 +642,18 @@ fn makeInitialContainingBlock(layout: *BlockLayoutContext, context: *LayoutConte
     });
 }
 
-fn popInitialContainingBlock(layout: *BlockLayoutContext, boxes: *Boxes) void {
+fn popInitialContainingBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
     assert(layout.layout_mode.pop() == .InitialContainingBlock);
     const block_box_index = layout.index.pop();
     const skip = layout.skip.pop();
     _ = layout.flow_block_used_logical_width.pop();
     _ = layout.flow_block_used_logical_heights.pop();
 
-    boxes.blocks.skips.items[block_box_index] = skip;
+    box_tree.blocks.skips.items[block_box_index] = skip;
 }
 
-fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes, is_root_element: bool) !GeneratedBox {
-    const block = try createBlock(boxes);
+fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree, is_root_element: bool) !GeneratedBox {
+    const block = try createBlock(box_tree);
     block.skip.* = undefined;
     block.properties.* = .{};
 
@@ -684,7 +683,7 @@ fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *B
     context.setComputedValue(.box_gen, .z_index, specified_z_index);
     const position = context.stage.box_gen.current_values.box_style.position;
     const stacking_context_info: Metadata.StackingContextInfo = switch (position) {
-        .static => if (is_root_element) Metadata.StackingContextInfo{ .is_parent = try createRootStackingContext(boxes, block.index, 0) } else Metadata.StackingContextInfo{ .none = {} },
+        .static => if (is_root_element) Metadata.StackingContextInfo{ .is_parent = try createRootStackingContext(box_tree, block.index, 0) } else Metadata.StackingContextInfo{ .none = {} },
         .relative => blk: {
             if (is_root_element) {
                 // TODO: Should maybe just treat position as static
@@ -695,8 +694,8 @@ fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *B
             // TODO: Position the block using the values of the 'inset' family of properties.
 
             switch (specified_z_index.z_index) {
-                .integer => |z_index| break :blk Metadata.StackingContextInfo{ .is_parent = try createStackingContext(layout, boxes, block.index, z_index) },
-                .auto => break :blk Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, boxes, block.index, 0) },
+                .integer => |z_index| break :blk Metadata.StackingContextInfo{ .is_parent = try createStackingContext(layout, box_tree, block.index, z_index) },
+                .auto => break :blk Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, box_tree, block.index, 0) },
                 .initial, .inherit, .unset, .undeclared => unreachable,
             }
         },
@@ -737,7 +736,7 @@ fn pushFlowLayout(
     }
 }
 
-fn popFlowBlock(layout: *BlockLayoutContext, boxes: *Boxes) void {
+fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
     // The deallocations here must correspond to allocations in pushFlowLayout.
     assert(layout.layout_mode.pop() == .Flow);
     const block_box_index = layout.index.pop();
@@ -747,8 +746,8 @@ fn popFlowBlock(layout: *BlockLayoutContext, boxes: *Boxes) void {
     const used_logical_heights = layout.flow_block_used_logical_heights.pop();
     const metadata = layout.metadata.pop();
 
-    boxes.blocks.skips.items[block_box_index] = skip;
-    const box_offsets = &boxes.blocks.box_offsets.items[block_box_index];
+    box_tree.blocks.skips.items[block_box_index] = skip;
+    const box_offsets = &box_tree.blocks.box_offsets.items[block_box_index];
     assert(box_offsets.content_end.x - box_offsets.content_start.x == used_logical_width);
     flowBlockFinishLayout(box_offsets, used_logical_heights, auto_logical_height);
 
@@ -758,7 +757,7 @@ fn popFlowBlock(layout: *BlockLayoutContext, boxes: *Boxes) void {
         .Flow => {
             layout.skip.items[layout.skip.items.len - 1] += skip;
             const parent_auto_logical_height = &layout.flow_block_auto_logical_height.items[layout.flow_block_auto_logical_height.items.len - 1];
-            const margin_block_end = boxes.blocks.margins.items[block_box_index].block_end;
+            const margin_block_end = box_tree.blocks.margins.items[block_box_index].block_end;
             addBlockToFlow(box_offsets, margin_block_end, parent_auto_logical_height);
         },
         .InlineFormattingContext => layout.skip.items[layout.skip.items.len - 1] += skip,
@@ -1236,7 +1235,7 @@ fn advanceFlow(parent_auto_logical_height: *ZssUnit, height: ZssUnit) void {
 fn makeInlineFormattingContext(
     layout: *BlockLayoutContext,
     context: *LayoutContext,
-    boxes: *Boxes,
+    box_tree: *BoxTree,
     interval: *Interval,
     containing_block_logical_width: ZssUnit,
     mode: enum { Normal, ShrinkToFit },
@@ -1245,20 +1244,20 @@ fn makeInlineFormattingContext(
 
     try layout.layout_mode.append(layout.allocator, .InlineFormattingContext);
 
-    const ifc_index = try std.math.cast(InlineFormattingContextIndex, boxes.inlines.items.len);
+    const ifc_index = try std.math.cast(InlineFormattingContextIndex, box_tree.inlines.items.len);
     const ifc = ifc: {
-        const result_ptr = try boxes.inlines.addOne(boxes.allocator);
-        errdefer _ = boxes.inlines.pop();
-        const result = try boxes.allocator.create(InlineFormattingContext);
-        errdefer boxes.allocator.destroy(result);
+        const result_ptr = try box_tree.inlines.addOne(box_tree.allocator);
+        errdefer _ = box_tree.inlines.pop();
+        const result = try box_tree.allocator.create(InlineFormattingContext);
+        errdefer box_tree.allocator.destroy(result);
         result.* = .{ .parent_block = layout.index.items[layout.index.items.len - 1], .origin = undefined };
-        errdefer result.deinit(boxes.allocator);
+        errdefer result.deinit(box_tree.allocator);
         result_ptr.* = result;
         break :ifc result;
     };
 
-    const sc_ifcs = &boxes.stacking_contexts.multi_list.items(.ifcs)[layout.current_stacking_context];
-    try sc_ifcs.append(boxes.allocator, ifc_index);
+    const sc_ifcs = &box_tree.stacking_contexts.multi_list.items(.ifcs)[layout.current_stacking_context];
+    try sc_ifcs.append(box_tree.allocator, ifc_index);
 
     const percentage_base_unit: ZssUnit = switch (mode) {
         .Normal => containing_block_logical_width,
@@ -1273,7 +1272,7 @@ fn makeInlineFormattingContext(
     };
     defer inline_layout.deinit();
 
-    try createInlineFormattingContext(&inline_layout, context, boxes, ifc);
+    try createInlineFormattingContext(&inline_layout, context, box_tree, ifc);
 
     assert(layout.layout_mode.pop() == .InlineFormattingContext);
 
@@ -1285,7 +1284,7 @@ fn makeInlineFormattingContext(
         .Flow => {
             const parent_auto_logical_height = &layout.flow_block_auto_logical_height.items[layout.flow_block_auto_logical_height.items.len - 1];
             ifc.origin = ZssVector{ .x = 0, .y = parent_auto_logical_height.* };
-            const line_split_result = try splitIntoLineBoxes(context, boxes, ifc, containing_block_logical_width);
+            const line_split_result = try splitIntoLineBoxes(context, box_tree, ifc, containing_block_logical_width);
             advanceFlow(parent_auto_logical_height, line_split_result.logical_height);
         },
         .InlineFormattingContext => unreachable,
@@ -1358,7 +1357,7 @@ const IFCLineSplitResult = struct {
 
 fn splitIntoLineBoxes(
     context: *LayoutContext,
-    boxes: *Boxes,
+    box_tree: *BoxTree,
     ifc: *InlineFormattingContext,
     max_line_box_length: ZssUnit,
 ) !IFCLineSplitResult {
@@ -1386,7 +1385,7 @@ fn splitIntoLineBoxes(
             switch (@intToEnum(InlineFormattingContext.Special.LayoutInternalKind, @enumToInt(special.kind))) {
                 .LineBreak => {
                     s.finishLineBox(ifc.origin);
-                    try ifc.line_boxes.append(boxes.allocator, s.line_box);
+                    try ifc.line_boxes.append(box_tree.allocator, s.line_box);
                     s.newLineBox(2);
                     continue;
                 },
@@ -1398,7 +1397,7 @@ fn splitIntoLineBoxes(
         // TODO: (Bug) A glyph with a width of zero but an advance that is non-zero may overflow the width of the containing block
         if (s.cursor > 0 and metrics.width > 0 and s.cursor + metrics.offset + metrics.width > max_line_box_length and s.line_box.elements[1] > s.line_box.elements[0]) {
             s.finishLineBox(ifc.origin);
-            try ifc.line_boxes.append(boxes.allocator, s.line_box);
+            try ifc.line_boxes.append(box_tree.allocator, s.line_box);
             s.newLineBox(0);
         }
 
@@ -1407,8 +1406,8 @@ fn splitIntoLineBoxes(
             switch (@intToEnum(InlineFormattingContext.Special.LayoutInternalKind, @enumToInt(special.kind))) {
                 .InlineBlock => {
                     const block_box_index = @as(BlockBoxIndex, special.data);
-                    const box_offsets = &boxes.blocks.box_offsets.items[block_box_index];
-                    const margins = boxes.blocks.margins.items[block_box_index];
+                    const box_offsets = &box_tree.blocks.box_offsets.items[block_box_index];
+                    const margins = box_tree.blocks.margins.items[block_box_index];
                     const margin_box_height = box_offsets.border_end.y - box_offsets.border_start.y + margins.block_start + margins.block_end;
                     s.max_top_height = std.math.max(s.max_top_height, margin_box_height);
                     try s.inline_blocks_in_this_line_box.append(
@@ -1430,7 +1429,7 @@ fn splitIntoLineBoxes(
 
     if (s.line_box.elements[1] > s.line_box.elements[0]) {
         s.finishLineBox(ifc.origin);
-        try ifc.line_boxes.append(boxes.allocator, s.line_box);
+        try ifc.line_boxes.append(box_tree.allocator, s.line_box);
     }
 
     return IFCLineSplitResult{
@@ -1441,8 +1440,8 @@ fn splitIntoLineBoxes(
     };
 }
 
-fn makeInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: *Boxes) !GeneratedBox {
-    const block = try createBlock(boxes);
+fn makeInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree) !GeneratedBox {
+    const block = try createBlock(box_tree);
     block.skip.* = undefined;
     block.properties.* = .{};
 
@@ -1469,12 +1468,12 @@ fn makeInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, boxes: 
     context.setComputedValue(.box_gen, .z_index, specified_z_index);
     const position = context.stage.box_gen.current_values.box_style.position;
     const stacking_context_info: Metadata.StackingContextInfo = switch (position) {
-        .static => Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, boxes, block.index, 0) },
+        .static => Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, box_tree, block.index, 0) },
         .relative => blk: {
             // TODO: Position the block using the values of the 'inset' family of properties.
             break :blk switch (specified_z_index.z_index) {
-                .integer => |z_index| Metadata.StackingContextInfo{ .is_parent = try createStackingContext(layout, boxes, block.index, z_index) },
-                .auto => Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, boxes, block.index, 0) },
+                .integer => |z_index| Metadata.StackingContextInfo{ .is_parent = try createStackingContext(layout, box_tree, block.index, z_index) },
+                .auto => Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, box_tree, block.index, 0) },
                 .initial, .inherit, .unset, .undeclared => unreachable,
             };
         },
@@ -1805,19 +1804,19 @@ const Block = struct {
     properties: *BlockBoxTree.BoxProperties,
 };
 
-fn createBlock(boxes: *Boxes) !Block {
-    const index = try std.math.cast(BlockBoxIndex, boxes.blocks.skips.items.len);
+fn createBlock(box_tree: *BoxTree) !Block {
+    const index = try std.math.cast(BlockBoxIndex, box_tree.blocks.skips.items.len);
     return Block{
         .index = index,
-        .skip = try boxes.blocks.skips.addOne(boxes.allocator),
-        .box_offsets = try boxes.blocks.box_offsets.addOne(boxes.allocator),
-        .borders = try boxes.blocks.borders.addOne(boxes.allocator),
-        .margins = try boxes.blocks.margins.addOne(boxes.allocator),
-        .properties = try boxes.blocks.properties.addOne(boxes.allocator),
+        .skip = try box_tree.blocks.skips.addOne(box_tree.allocator),
+        .box_offsets = try box_tree.blocks.box_offsets.addOne(box_tree.allocator),
+        .borders = try box_tree.blocks.borders.addOne(box_tree.allocator),
+        .margins = try box_tree.blocks.margins.addOne(box_tree.allocator),
+        .properties = try box_tree.blocks.properties.addOne(box_tree.allocator),
     };
 }
 
-fn blockBoxSolveOtherProperties(context: *LayoutContext, boxes: *Boxes, block_box_index: BlockBoxIndex) !void {
+fn blockBoxSolveOtherProperties(context: *LayoutContext, box_tree: *BoxTree, block_box_index: BlockBoxIndex) !void {
     const specified = .{
         .color = context.getSpecifiedValue(.cosmetic, .color),
         .border_colors = context.getSpecifiedValue(.cosmetic, .border_colors),
@@ -1833,22 +1832,22 @@ fn blockBoxSolveOtherProperties(context: *LayoutContext, boxes: *Boxes, block_bo
 
     const current_color = getCurrentColor(specified.color.color);
 
-    const box_offsets_ptr = &boxes.blocks.box_offsets.items[block_box_index];
-    const borders_ptr = &boxes.blocks.borders.items[block_box_index];
+    const box_offsets_ptr = &box_tree.blocks.box_offsets.items[block_box_index];
+    const borders_ptr = &box_tree.blocks.borders.items[block_box_index];
 
-    const border_colors_ptr = &boxes.blocks.border_colors.items[block_box_index];
+    const border_colors_ptr = &box_tree.blocks.border_colors.items[block_box_index];
     border_colors_ptr.* = solveBorderColors(specified.border_colors, current_color);
 
-    const background1_ptr = &boxes.blocks.background1.items[block_box_index];
-    const background2_ptr = &boxes.blocks.background2.items[block_box_index];
+    const background1_ptr = &box_tree.blocks.background1.items[block_box_index];
+    const background2_ptr = &box_tree.blocks.background2.items[block_box_index];
     background1_ptr.* = solveBackground1(specified.background1, current_color);
     background2_ptr.* = try solveBackground2(specified.background2, box_offsets_ptr, borders_ptr);
 }
 
-fn blockBoxFillOtherPropertiesWithDefaults(boxes: *Boxes, block_box_index: BlockBoxIndex) void {
-    boxes.blocks.border_colors.items[block_box_index] = .{};
-    boxes.blocks.background1.items[block_box_index] = .{};
-    boxes.blocks.background2.items[block_box_index] = .{};
+fn blockBoxFillOtherPropertiesWithDefaults(box_tree: *BoxTree, block_box_index: BlockBoxIndex) void {
+    box_tree.blocks.border_colors.items[block_box_index] = .{};
+    box_tree.blocks.background1.items[block_box_index] = .{};
+    box_tree.blocks.background2.items[block_box_index] = .{};
 }
 
 fn inlineBoxSolveOtherProperties(context: *LayoutContext, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
@@ -1856,7 +1855,7 @@ fn inlineBoxSolveOtherProperties(context: *LayoutContext, ifc: *InlineFormatting
         .color = context.getSpecifiedValue(.cosmetic, .color),
         .border_colors = context.getSpecifiedValue(.cosmetic, .border_colors),
         .background1 = context.getSpecifiedValue(.cosmetic, .background1),
-        .background2 = context.getSpecifiedValue(.cosmetic, .background2), // TODO: Inline boxes don't need background2
+        .background2 = context.getSpecifiedValue(.cosmetic, .background2), // TODO: Inline box_tree don't need background2
     };
 
     // TODO: Pretending that specified values are computed values...
@@ -1886,17 +1885,17 @@ fn inlineRootBoxSolveOtherProperties(ifc: *InlineFormattingContext) void {
     ifc.background1.items[0] = .{};
 }
 
-fn createRootStackingContext(boxes: *Boxes, block_box_index: BlockBoxIndex, z_index: ZIndex) !StackingContextIndex {
-    assert(boxes.stacking_contexts.size() == 0);
-    try boxes.stacking_contexts.ensureTotalCapacity(boxes.allocator, 1);
-    const result = boxes.stacking_contexts.createRootAssumeCapacity(.{ .z_index = z_index, .block_box = block_box_index, .ifcs = .{} });
-    boxes.blocks.properties.items[block_box_index].creates_stacking_context = true;
+fn createRootStackingContext(box_tree: *BoxTree, block_box_index: BlockBoxIndex, z_index: ZIndex) !StackingContextIndex {
+    assert(box_tree.stacking_contexts.size() == 0);
+    try box_tree.stacking_contexts.ensureTotalCapacity(box_tree.allocator, 1);
+    const result = box_tree.stacking_contexts.createRootAssumeCapacity(.{ .z_index = z_index, .block_box = block_box_index, .ifcs = .{} });
+    box_tree.blocks.properties.items[block_box_index].creates_stacking_context = true;
     return result;
 }
 
-fn createStackingContext(layout: *BlockLayoutContext, boxes: *Boxes, block_box_index: BlockBoxIndex, z_index: ZIndex) !StackingContextIndex {
-    try boxes.stacking_contexts.ensureTotalCapacity(boxes.allocator, boxes.stacking_contexts.size() + 1);
-    const sc_tree_slice = &boxes.stacking_contexts.multi_list.slice();
+fn createStackingContext(layout: *BlockLayoutContext, box_tree: *BoxTree, block_box_index: BlockBoxIndex, z_index: ZIndex) !StackingContextIndex {
+    try box_tree.stacking_contexts.ensureTotalCapacity(box_tree.allocator, box_tree.stacking_contexts.size() + 1);
+    const sc_tree_slice = &box_tree.stacking_contexts.multi_list.slice();
     const sc_tree_skips = sc_tree_slice.items(.__skip);
     const sc_tree_z_index = sc_tree_slice.items(.z_index);
 
@@ -1911,8 +1910,8 @@ fn createStackingContext(layout: *BlockLayoutContext, boxes: *Boxes, block_box_i
         sc_tree_skips[index] += 1;
     }
 
-    boxes.stacking_contexts.multi_list.insertAssumeCapacity(current, .{ .__skip = 1, .z_index = z_index, .block_box = block_box_index, .ifcs = .{} });
-    boxes.blocks.properties.items[block_box_index].creates_stacking_context = true;
+    box_tree.stacking_contexts.multi_list.insertAssumeCapacity(current, .{ .__skip = 1, .z_index = z_index, .block_box = block_box_index, .ifcs = .{} });
+    box_tree.blocks.properties.items[block_box_index].creates_stacking_context = true;
     return current;
 }
 
@@ -1945,29 +1944,29 @@ const InlineLayoutContext = struct {
     }
 };
 
-pub fn createInlineBox(boxes: *Boxes, ifc: *InlineFormattingContext) !InlineBoxIndex {
+pub fn createInlineBox(box_tree: *BoxTree, ifc: *InlineFormattingContext) !InlineBoxIndex {
     const old_size = ifc.inline_start.items.len;
-    _ = try ifc.inline_start.addOne(boxes.allocator);
-    _ = try ifc.inline_end.addOne(boxes.allocator);
-    _ = try ifc.block_start.addOne(boxes.allocator);
-    _ = try ifc.block_end.addOne(boxes.allocator);
-    _ = try ifc.margins.addOne(boxes.allocator);
+    _ = try ifc.inline_start.addOne(box_tree.allocator);
+    _ = try ifc.inline_end.addOne(box_tree.allocator);
+    _ = try ifc.block_start.addOne(box_tree.allocator);
+    _ = try ifc.block_end.addOne(box_tree.allocator);
+    _ = try ifc.margins.addOne(box_tree.allocator);
     return @intCast(InlineBoxIndex, old_size);
 }
 
-fn createInlineFormattingContext(layout: *InlineLayoutContext, context: *LayoutContext, boxes: *Boxes, ifc: *InlineFormattingContext) Error!void {
+fn createInlineFormattingContext(layout: *InlineLayoutContext, context: *LayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) Error!void {
     ifc.font = context.root_font.font;
     {
         const initial_interval = context.intervals.items[context.intervals.items.len - 1];
-        ifc.ensureTotalCapacity(boxes.allocator, initial_interval.end - initial_interval.begin + 1) catch {};
+        ifc.ensureTotalCapacity(box_tree.allocator, initial_interval.end - initial_interval.begin + 1) catch {};
     }
 
-    try ifcPushRootInlineBox(layout, boxes, ifc);
+    try ifcPushRootInlineBox(layout, box_tree, ifc);
     layout.next_element = while (true) {
         const interval = &context.intervals.items[context.intervals.items.len - 1];
         if (layout.inline_box_depth == 0) {
             if (interval.begin != interval.end) {
-                const should_terminate = try ifcRunOnce(layout, context, interval, boxes, ifc);
+                const should_terminate = try ifcRunOnce(layout, context, interval, box_tree, ifc);
                 if (should_terminate) {
                     break interval.begin;
                 }
@@ -1976,31 +1975,31 @@ fn createInlineFormattingContext(layout: *InlineLayoutContext, context: *LayoutC
             }
         } else {
             if (interval.begin != interval.end) {
-                const should_terminate = try ifcRunOnce(layout, context, interval, boxes, ifc);
+                const should_terminate = try ifcRunOnce(layout, context, interval, box_tree, ifc);
                 assert(!should_terminate);
             } else {
-                try ifcPopInlineBox(layout, context, boxes, ifc);
+                try ifcPopInlineBox(layout, context, box_tree, ifc);
             }
         }
     } else unreachable;
-    try ifcPopRootInlineBox(layout, boxes, ifc);
+    try ifcPopRootInlineBox(layout, box_tree, ifc);
 
-    try ifc.metrics.resize(boxes.allocator, ifc.glyph_indeces.items.len);
-    inlineValuesSolveMetrics(boxes, ifc);
+    try ifc.metrics.resize(box_tree.allocator, ifc.glyph_indeces.items.len);
+    inlineValuesSolveMetrics(box_tree, ifc);
 }
 
-fn ifcPushRootInlineBox(layout: *InlineLayoutContext, boxes: *Boxes, ifc: *InlineFormattingContext) !void {
+fn ifcPushRootInlineBox(layout: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     assert(layout.inline_box_depth == 0);
-    const root_inline_box_index = try createInlineBox(boxes, ifc);
+    const root_inline_box_index = try createInlineBox(box_tree, ifc);
     setRootInlineBoxUsedData(ifc, root_inline_box_index);
-    try addBoxStart(boxes, ifc, root_inline_box_index);
+    try addBoxStart(box_tree, ifc, root_inline_box_index);
     try layout.index.append(layout.allocator, root_inline_box_index);
 }
 
-fn ifcPopRootInlineBox(layout: *InlineLayoutContext, boxes: *Boxes, ifc: *InlineFormattingContext) !void {
+fn ifcPopRootInlineBox(layout: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     assert(layout.inline_box_depth == 0);
     const root_inline_box_index = layout.index.pop();
-    try addBoxEnd(boxes, ifc, root_inline_box_index);
+    try addBoxEnd(box_tree, ifc, root_inline_box_index);
 }
 
 /// A return value of true means that a terminating element was encountered.
@@ -2008,7 +2007,7 @@ fn ifcRunOnce(
     layout: *InlineLayoutContext,
     context: *LayoutContext,
     interval: *Interval,
-    boxes: *Boxes,
+    box_tree: *BoxTree,
     ifc: *InlineFormattingContext,
 ) !bool {
     const element = interval.begin;
@@ -2024,11 +2023,11 @@ fn ifcRunOnce(
             context.element_index_to_generated_box[element] = .text;
             const text = context.getText();
             // TODO: Do proper font matching.
-            try addText(boxes, ifc, text, ifc.font);
+            try addText(box_tree, ifc, text, ifc.font);
         },
         .inline_ => {
             interval.begin += skip;
-            const inline_box_index = try createInlineBox(boxes, ifc);
+            const inline_box_index = try createInlineBox(box_tree, ifc);
             try setInlineBoxUsedData(layout, context, ifc, inline_box_index);
 
             context.element_index_to_generated_box[element] = .{ .inline_box = .{ .ifc_index = layout.ifc_index, .index = inline_box_index } };
@@ -2046,23 +2045,23 @@ fn ifcRunOnce(
                 context.setComputedValue(.box_gen, .font, data.font);
             }
 
-            try addBoxStart(boxes, ifc, inline_box_index);
+            try addBoxStart(box_tree, ifc, inline_box_index);
 
             if (skip != 1) {
                 layout.inline_box_depth += 1;
                 try layout.index.append(layout.allocator, inline_box_index);
                 try context.pushElement(.box_gen);
             } else {
-                // Optimized path for inline boxes with no children.
+                // Optimized path for inline box_tree with no children.
                 // It is a shorter version of ifcPopInlineBox.
-                try addBoxEnd(boxes, ifc, inline_box_index);
+                try addBoxEnd(box_tree, ifc, inline_box_index);
             }
         },
         .inline_block => {
             interval.begin += skip;
             context.setComputedValue(.box_gen, .box_style, computed);
             const block_layout = layout.block_layout;
-            const box = try makeInlineBlock(block_layout, context, boxes);
+            const box = try makeInlineBlock(block_layout, context, box_tree);
             context.element_index_to_generated_box[element] = box;
 
             { // TODO: Grabbing useless data to satisfy inheritance...
@@ -2075,11 +2074,11 @@ fn ifcRunOnce(
             try context.pushElement(.box_gen);
 
             const frame = try layout.getFrame();
-            frame.* = async runUntilStackSizeIsRestored(block_layout, context, boxes);
+            frame.* = async runUntilStackSizeIsRestored(block_layout, context, box_tree);
             try await frame.*;
 
             switch (box) {
-                .block_box => |block_box_index| try addInlineBlock(boxes, ifc, block_box_index),
+                .block_box => |block_box_index| try addInlineBlock(box_tree, ifc, block_box_index),
                 .inline_box, .none, .text => unreachable,
             }
         },
@@ -2088,7 +2087,7 @@ fn ifcRunOnce(
                 return true;
             } else {
                 @panic("TODO: Blocks within inline contexts");
-                //try ifc.glyph_indeces.appendSlice(boxes.allocator, &.{ 0, undefined });
+                //try ifc.glyph_indeces.appendSlice(box_tree.allocator, &.{ 0, undefined });
             }
         },
         .none => {
@@ -2101,34 +2100,34 @@ fn ifcRunOnce(
     return false;
 }
 
-fn ifcPopInlineBox(layout: *InlineLayoutContext, context: *LayoutContext, boxes: *Boxes, ifc: *InlineFormattingContext) !void {
+fn ifcPopInlineBox(layout: *InlineLayoutContext, context: *LayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     layout.inline_box_depth -= 1;
     const inline_box_index = layout.index.pop();
-    try addBoxEnd(boxes, ifc, inline_box_index);
+    try addBoxEnd(box_tree, ifc, inline_box_index);
     context.popElement(.box_gen);
 }
 
-fn addBoxStart(boxes: *Boxes, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
+fn addBoxStart(box_tree: *BoxTree, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
     const glyphs = [2]GlyphIndex{ 0, InlineFormattingContext.Special.encodeBoxStart(inline_box_index) };
-    try ifc.glyph_indeces.appendSlice(boxes.allocator, &glyphs);
+    try ifc.glyph_indeces.appendSlice(box_tree.allocator, &glyphs);
 }
 
-fn addBoxEnd(boxes: *Boxes, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
+fn addBoxEnd(box_tree: *BoxTree, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
     const glyphs = [2]GlyphIndex{ 0, InlineFormattingContext.Special.encodeBoxEnd(inline_box_index) };
-    try ifc.glyph_indeces.appendSlice(boxes.allocator, &glyphs);
+    try ifc.glyph_indeces.appendSlice(box_tree.allocator, &glyphs);
 }
 
-fn addInlineBlock(boxes: *Boxes, ifc: *InlineFormattingContext, block_box_index: BlockBoxIndex) !void {
+fn addInlineBlock(box_tree: *BoxTree, ifc: *InlineFormattingContext, block_box_index: BlockBoxIndex) !void {
     const glyphs = [2]GlyphIndex{ 0, InlineFormattingContext.Special.encodeInlineBlock(block_box_index) };
-    try ifc.glyph_indeces.appendSlice(boxes.allocator, &glyphs);
+    try ifc.glyph_indeces.appendSlice(box_tree.allocator, &glyphs);
 }
 
-fn addLineBreak(boxes: *Boxes, ifc: *InlineFormattingContext) !void {
+fn addLineBreak(box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     const glyphs = [2]GlyphIndex{ 0, InlineFormattingContext.Special.encodeLineBreak() };
-    try ifc.glyph_indeces.appendSlice(boxes.allocator, &glyphs);
+    try ifc.glyph_indeces.appendSlice(box_tree.allocator, &glyphs);
 }
 
-fn addText(boxes: *Boxes, ifc: *InlineFormattingContext, text: zss.values.Text, font: *hb.hb_font_t) !void {
+fn addText(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.values.Text, font: *hb.hb_font_t) !void {
     const buffer = hb.hb_buffer_create() orelse unreachable;
     defer hb.hb_buffer_destroy(buffer);
     _ = hb.hb_buffer_pre_allocate(buffer, @intCast(c_uint, text.len));
@@ -2143,43 +2142,43 @@ fn addText(boxes: *Boxes, ifc: *InlineFormattingContext, text: zss.values.Text, 
         const codepoint = text[run_end];
         switch (codepoint) {
             '\n' => {
-                try endTextRun(boxes, ifc, text, buffer, font, run_begin, run_end);
-                try addLineBreak(boxes, ifc);
+                try endTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
+                try addLineBreak(box_tree, ifc);
                 run_begin = run_end + 1;
             },
             '\r' => {
-                try endTextRun(boxes, ifc, text, buffer, font, run_begin, run_end);
-                try addLineBreak(boxes, ifc);
+                try endTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
+                try addLineBreak(box_tree, ifc);
                 run_end += @boolToInt(run_end + 1 < text.len and text[run_end + 1] == '\n');
                 run_begin = run_end + 1;
             },
             '\t' => {
-                try endTextRun(boxes, ifc, text, buffer, font, run_begin, run_end);
+                try endTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
                 run_begin = run_end + 1;
                 // TODO tab size should be determined by the 'tab-size' property
                 const tab_size = 8;
                 hb.hb_buffer_add_latin1(buffer, " " ** tab_size, tab_size, 0, tab_size);
                 if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
-                try addTextRun(boxes, ifc, buffer, font);
+                try addTextRun(box_tree, ifc, buffer, font);
                 assert(hb.hb_buffer_set_length(buffer, 0) != 0);
             },
             else => {},
         }
     }
 
-    try endTextRun(boxes, ifc, text, buffer, font, run_begin, run_end);
+    try endTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
 }
 
-fn endTextRun(boxes: *Boxes, ifc: *InlineFormattingContext, text: zss.values.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
+fn endTextRun(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.values.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
     if (run_end > run_begin) {
         hb.hb_buffer_add_latin1(buffer, text.ptr, @intCast(c_int, text.len), @intCast(c_uint, run_begin), @intCast(c_int, run_end - run_begin));
         if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
-        try addTextRun(boxes, ifc, buffer, font);
+        try addTextRun(box_tree, ifc, buffer, font);
         assert(hb.hb_buffer_set_length(buffer, 0) != 0);
     }
 }
 
-fn addTextRun(boxes: *Boxes, ifc: *InlineFormattingContext, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t) !void {
+fn addTextRun(box_tree: *BoxTree, ifc: *InlineFormattingContext, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t) !void {
     hb.hb_shape(font, buffer, null, 0);
     const glyph_infos = blk: {
         var n: c_uint = 0;
@@ -2188,7 +2187,7 @@ fn addTextRun(boxes: *Boxes, ifc: *InlineFormattingContext, buffer: *hb.hb_buffe
     };
 
     // Allocate twice as much so that special glyph indeces always have space
-    try ifc.glyph_indeces.ensureUnusedCapacity(boxes.allocator, 2 * glyph_infos.len);
+    try ifc.glyph_indeces.ensureUnusedCapacity(box_tree.allocator, 2 * glyph_infos.len);
 
     for (glyph_infos) |info| {
         const glyph_index: GlyphIndex = info.codepoint;
@@ -2410,7 +2409,7 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
     ifc.margins.items[inline_box_index] = .{ .start = used.margin_inline_start, .end = used.margin_inline_end };
 }
 
-fn inlineValuesSolveMetrics(boxes: *Boxes, ifc: *InlineFormattingContext) void {
+fn inlineValuesSolveMetrics(box_tree: *BoxTree, ifc: *InlineFormattingContext) void {
     const num_glyphs = ifc.glyph_indeces.items.len;
     var i: usize = 0;
     while (i < num_glyphs) : (i += 1) {
@@ -2433,7 +2432,7 @@ fn inlineValuesSolveMetrics(boxes: *Boxes, ifc: *InlineFormattingContext) void {
                 },
                 .InlineBlock => {
                     const block_box_index = @as(BlockBoxIndex, special.data);
-                    setMetricsInlineBlock(metrics, boxes, block_box_index);
+                    setMetricsInlineBlock(metrics, box_tree, block_box_index);
                 },
                 .LineBreak => setMetricsLineBreak(metrics),
                 .ContinuationBlock => @panic("TODO Continuation block metrics"),
@@ -2478,9 +2477,9 @@ fn setMetricsLineBreak(metrics: *InlineFormattingContext.Metrics) void {
     metrics.* = .{ .offset = 0, .advance = 0, .width = 0 };
 }
 
-fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, boxes: *Boxes, block_box_index: BlockBoxIndex) void {
-    const box_offsets = boxes.blocks.box_offsets.items[block_box_index];
-    const margins = boxes.blocks.margins.items[block_box_index];
+fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, box_tree: *BoxTree, block_box_index: BlockBoxIndex) void {
+    const box_offsets = box_tree.blocks.box_offsets.items[block_box_index];
+    const margins = box_tree.blocks.margins.items[block_box_index];
 
     const width = box_offsets.border_end.x - box_offsets.border_start.x;
     const advance = width + margins.inline_start + margins.inline_end;

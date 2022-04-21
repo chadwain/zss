@@ -29,16 +29,16 @@ test "validation" {
 
         const test_case = data.toTestCase(library);
         defer test_case.deinit();
-        var boxes = try zss.layout.doLayout(
+        var box_tree = try zss.layout.doLayout(
             test_case.element_tree,
             test_case.cascaded_values,
             allocator,
             .{ .w = test_case.width, .h = test_case.height },
         );
-        defer boxes.deinit();
+        defer box_tree.deinit();
 
-        try validateStackingContexts(&boxes);
-        for (boxes.inlines.items) |inl| {
+        try validateStackingContexts(&box_tree);
+        for (box_tree.inlines.items) |inl| {
             try validateInline(inl);
         }
 
@@ -67,14 +67,14 @@ fn validateInline(inl: *used.InlineFormattingContext) !void {
     try expect(stack.items.len == 0);
 }
 
-fn validateStackingContexts(boxes: *zss.used_values.Boxes) !void {
+fn validateStackingContexts(box_tree: *zss.used_values.BoxTree) !void {
     @setRuntimeSafety(true);
     const StackingContextTree = used.StackingContextTree;
     const ZIndex = used.ZIndex;
 
-    const root_iterator = boxes.stacking_contexts.iterator() orelse return;
+    const root_iterator = box_tree.stacking_contexts.iterator() orelse return;
 
-    const slice = boxes.stacking_contexts.slice();
+    const slice = box_tree.stacking_contexts.slice();
     const skips = slice.items(.__skip);
     const z_index = slice.items(.z_index);
     try expect(z_index[root_iterator.index] == 0);
