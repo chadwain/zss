@@ -113,3 +113,9 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
         @field(self, field_info.name).deinit(allocator);
     }
 }
+
+pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: ElementRef) !void {
+    inline for (std.meta.fields(Self)) |field_info| {
+        try @field(self, field_info.name).ensureTotalCapacity(allocator, count);
+    }
+}
