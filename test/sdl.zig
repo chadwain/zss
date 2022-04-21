@@ -41,7 +41,7 @@ pub fn drawToSurface(
             const vp = sdl.SDL_Rect{ .x = 0, .y = 0, .w = std.math.min(width - tr.x, tw), .h = std.math.min(height - tr.y, th) };
             assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0) == 0);
             assert(sdl.SDL_RenderClear(renderer) == 0);
-            try r.renderBoxTree(box_tree, renderer, pixel_format, glyph_atlas, allocator, vp, tr);
+            try r.drawBoxTree(box_tree, renderer, pixel_format, glyph_atlas, allocator, vp, tr);
             sdl.SDL_RenderPresent(renderer);
             assert(sdl.SDL_RenderReadPixels(renderer, &vp, buffer.*.format.*.format, buffer.*.pixels, buffer.*.pitch) == 0);
             assert(sdl.SDL_BlitSurface(buffer, null, surface, &.{ .x = i * tw, .y = j * th, .w = tw, .h = th }) == 0);

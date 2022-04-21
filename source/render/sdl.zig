@@ -24,7 +24,7 @@ const sdl = @import("SDL2");
 
 pub const util = @import("util/sdl.zig");
 
-pub fn renderBoxTree(
+pub fn drawBoxTree(
     box_tree: BoxTree,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,

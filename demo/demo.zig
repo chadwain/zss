@@ -428,7 +428,7 @@ fn sdlMainLoop(
         };
         assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255) == 0);
         assert(sdl.SDL_RenderClear(renderer) == 0);
-        try zss.render.sdl.renderBoxTree(ps.box_tree, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
+        try zss.render.sdl.drawBoxTree(ps.box_tree, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
         sdl.SDL_RenderPresent(renderer);
 
         const frame_time = timer.lap();
