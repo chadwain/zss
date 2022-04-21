@@ -1,8 +1,5 @@
-pub const ElementTree = @import("source/cascade/element_tree.zig").ElementTree;
-
-pub const values = @import("source/cascade/values.zig");
-pub const properties = @import("source/cascade/properties.zig");
-pub const CascadedValueStore = @import("source/cascade/CascadedValueStore.zig");
+pub const values = @import("source/values/values.zig");
+pub const properties = @import("source/values/properties.zig");
 
 const skip_tree = @import("source/util/skip_tree.zig");
 pub const SkipTree = skip_tree.SkipTree;
@@ -16,6 +13,8 @@ pub const ReferencedSkipTree = referenced_skip_tree.ReferencedSkipTree;
 
 pub const layout = @import("source/layout/layout.zig");
 pub const used_values = @import("source/layout/used_values.zig");
+pub const ElementTree = @import("source/layout/element_tree.zig").ElementTree;
+pub const CascadedValueStore = @import("source/layout/CascadedValueStore.zig");
 
 pub const render = @import("source/render/render.zig");
 
