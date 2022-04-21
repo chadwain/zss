@@ -6,7 +6,7 @@
 
 const zss = @import("../../zss.zig");
 const properties = zss.properties;
-const ElementRef = zss.ElementTree.Ref;
+const ElementRef = zss.ElementRef;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

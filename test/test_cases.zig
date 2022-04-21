@@ -3,8 +3,8 @@ const properties = zss.properties;
 const ZssUnit = zss.used_values.ZssUnit;
 const units_per_pixel = zss.used_values.units_per_pixel;
 const ElementTree = zss.ElementTree;
-const ElementIndex = ElementTree.Index;
-const ElementRef = ElementTree.Ref;
+const ElementIndex = zss.ElementIndex;
+const ElementRef = zss.ElementRef;
 const CascadedValueStore = zss.CascadedValueStore;
 
 const std = @import("std");
@@ -62,11 +62,11 @@ pub const TreeData = struct {
     }
 
     fn createRoot(self: *TreeData) ElementRef {
-        return self.element_tree.createRootAssumeCapacity(.{});
+        return self.element_tree.createRootAssumeCapacity();
     }
 
     fn insertChild(self: *TreeData, parent: ElementRef) ElementRef {
-        return self.element_tree.appendChildAssumeCapacity(parent, .{});
+        return self.element_tree.appendChildAssumeCapacity(parent);
     }
 
     fn set(self: *TreeData, comptime field: FieldEnum, element_ref: ElementRef, value: store_fields[@enumToInt(field)].field_type.Value) void {

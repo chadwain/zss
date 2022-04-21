@@ -5,8 +5,8 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
 const ElementTree = zss.ElementTree;
-const ElementIndex = ElementTree.Index;
-const ElementRef = ElementTree.Ref;
+const ElementIndex = zss.ElementIndex;
+const ElementRef = zss.ElementRef;
 const root_element = @as(ElementIndex, 0);
 const CascadedValueStore = zss.CascadedValueStore;
 
@@ -43,8 +43,8 @@ pub fn doLayout(
     viewport_size: ZssSize,
 ) Error!BoxTree {
     var context = LayoutContext{
-        .element_tree_skips = element_tree.list.items(.__skip),
-        .element_tree_refs = element_tree.list.items(.__ref),
+        .element_tree_skips = element_tree.tree.list.items(.__skip),
+        .element_tree_refs = element_tree.tree.list.items(.__ref),
         .cascaded_values = &cascaded_value_tree,
         .stage = undefined,
         .allocator = allocator,

@@ -177,17 +177,17 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
 
     const num_elements = 9;
     try element_tree.ensureTotalCapacity(allocator, num_elements);
-    const root = element_tree.createRootAssumeCapacity(.{});
+    const root = element_tree.createRootAssumeCapacity();
 
-    const root_0 = element_tree.appendChildAssumeCapacity(root, .{});
-    const root_1 = element_tree.appendChildAssumeCapacity(root, .{});
-    const root_2 = element_tree.appendChildAssumeCapacity(root, .{});
-    const root_3 = element_tree.appendChildAssumeCapacity(root, .{});
+    const root_0 = element_tree.appendChildAssumeCapacity(root);
+    const root_1 = element_tree.appendChildAssumeCapacity(root);
+    const root_2 = element_tree.appendChildAssumeCapacity(root);
+    const root_3 = element_tree.appendChildAssumeCapacity(root);
 
-    const root_1_0 = element_tree.appendChildAssumeCapacity(root_1, .{});
-    const root_1_0_0 = element_tree.appendChildAssumeCapacity(root_1_0, .{});
-    const root_2_0 = element_tree.appendChildAssumeCapacity(root_2, .{});
-    const root_2_0_0 = element_tree.appendChildAssumeCapacity(root_2_0, .{});
+    const root_1_0 = element_tree.appendChildAssumeCapacity(root_1);
+    const root_1_0_0 = element_tree.appendChildAssumeCapacity(root_1_0);
+    const root_2_0 = element_tree.appendChildAssumeCapacity(root_2);
+    const root_2_0_0 = element_tree.appendChildAssumeCapacity(root_2_0);
 
     var cascaded = zss.CascadedValueStore{};
     defer cascaded.deinit(allocator);

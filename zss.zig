@@ -13,7 +13,10 @@ pub const ReferencedSkipTree = referenced_skip_tree.ReferencedSkipTree;
 
 pub const layout = @import("source/layout/layout.zig");
 pub const used_values = @import("source/layout/used_values.zig");
-pub const ElementTree = @import("source/layout/element_tree.zig").ElementTree;
+const element_tree = @import("source/layout/element_tree.zig");
+pub const ElementTree = element_tree.ElementTree;
+pub const ElementIndex = element_tree.ElementIndex;
+pub const ElementRef = element_tree.ElementRef;
 pub const CascadedValueStore = @import("source/layout/CascadedValueStore.zig");
 
 pub const render = @import("source/render/render.zig");
