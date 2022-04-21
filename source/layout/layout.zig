@@ -2023,6 +2023,7 @@ fn ifcRunOnce(
             context.element_index_to_generated_box[element] = .text;
             const text = context.getText();
             // TODO: Do proper font matching.
+            if (ifc.font == hb.hb_font_get_empty()) @panic("TODO: Found text, but no font was specified.");
             try addText(box_tree, ifc, text, ifc.font);
         },
         .inline_ => {
