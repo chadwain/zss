@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-const zss = @import("../zss.zig");
+const zss = @import("../../zss.zig");
 const used_values = zss.used_values;
 const ZssRect = used_values.ZssRect;
 
@@ -136,52 +136,4 @@ test "roundUp" {
     try expect(roundUp(1, 4) == 4);
     try expect(roundUp(3, 4) == 4);
     try expect(roundUp(62, 7) == 63);
-}
-
-pub fn StructureArray(comptime T: type) type {
-    return struct {
-        pub const TreeIterator = struct {
-            items: []const T,
-            current: T,
-            target: T,
-
-            pub fn next(self: *@This()) ?T {
-                if (self.target < self.current) return null;
-                while (self.target >= self.current + self.items[self.current]) {
-                    self.current += self.items[self.current];
-                }
-                defer self.current += 1;
-                return self.current;
-            }
-        };
-
-        pub fn treeIterator(items: []const T, parent: T, child: T) TreeIterator {
-            assert(child >= parent and child < parent + items[parent]);
-            return TreeIterator{
-                .items = items,
-                .current = parent,
-                .target = child,
-            };
-        }
-
-        pub const ChildIterator = struct {
-            items: []const T,
-            current: T,
-            end: T,
-
-            pub fn next(self: *@This()) ?T {
-                if (self.current == self.end) return null;
-                defer self.current += self.items[self.current];
-                return self.current;
-            }
-        };
-
-        pub fn childIterator(items: []const T, parent: T) ChildIterator {
-            return ChildIterator{
-                .items = items,
-                .current = parent + 1,
-                .end = parent + items[parent],
-            };
-        }
-    };
 }

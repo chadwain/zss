@@ -1,5 +1,5 @@
 const zss = @import("zss");
-const Document = zss.used_values.Document;
+const BoxTree = zss.used_values.BoxTree;
 const r = zss.render.sdl;
 
 const std = @import("std");
@@ -12,13 +12,13 @@ const sdl = @import("SDL2");
 const cases = @import("./test_cases.zig");
 
 pub fn drawToSurface(
-    doc: *Document,
+    box_tree: BoxTree,
     width: c_int,
     height: c_int,
     translation: sdl.SDL_Point,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
-    glyph_atlas: *r.GlyphAtlas,
+    glyph_atlas: ?*r.GlyphAtlas,
 ) !*sdl.SDL_Surface {
     const surface = sdl.SDL_CreateRGBSurface(0, width, height, 32, 0, 0, 0, 0);
     errdefer sdl.SDL_FreeSurface(surface);
@@ -41,7 +41,7 @@ pub fn drawToSurface(
             const vp = sdl.SDL_Rect{ .x = 0, .y = 0, .w = std.math.min(width - tr.x, tw), .h = std.math.min(height - tr.y, th) };
             assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0) == 0);
             assert(sdl.SDL_RenderClear(renderer) == 0);
-            try r.renderDocument(doc, renderer, pixel_format, glyph_atlas, allocator, vp, tr);
+            try r.drawBoxTree(box_tree, renderer, pixel_format, glyph_atlas, allocator, vp, tr);
             sdl.SDL_RenderPresent(renderer);
             assert(sdl.SDL_RenderReadPixels(renderer, &vp, buffer.*.format.*.format, buffer.*.pixels, buffer.*.pitch) == 0);
             assert(sdl.SDL_BlitSurface(buffer, null, surface, &.{ .x = i * tw, .y = j * th, .w = tw, .h = th }) == 0);
@@ -72,24 +72,49 @@ test "sdl" {
     assert(hb.FT_Init_FreeType(&library) == 0);
     defer _ = hb.FT_Done_FreeType(library);
 
+    const all_test_data = try cases.getTestData();
+    defer {
+        for (all_test_data.items) |*data| data.deinit();
+        all_test_data.deinit();
+    }
+
     const results_path = "test/sdl_results";
     try std.fs.cwd().makePath(results_path);
 
     std.debug.print("\n", .{});
-    for (cases.tree_data) |_, i| {
-        std.debug.print("sdl test {}... ", .{i});
+    for (all_test_data.items) |data, i| {
+        std.debug.print("sdl render {}... ", .{i});
         defer std.debug.print("\n", .{});
 
-        var case = cases.get(i, library);
+        const case = data.toTestCase(library);
         defer case.deinit();
-        var atlas = try r.GlyphAtlas.init(case.face, renderer.?, pixel_format, allocator);
-        defer atlas.deinit(allocator);
-        var doc = try zss.layout.doLayout(&case.tree, allocator, .{ .w = case.width, .h = case.height });
-        defer doc.deinit();
-        const root_sizes = doc.blocks.box_offsets.items[1];
-        const root_width = r.zssUnitToPixel(root_sizes.border_end.x - root_sizes.border_start.x);
-        const root_height = r.zssUnitToPixel(root_sizes.border_end.y - root_sizes.border_start.y);
-        const surface = try drawToSurface(&doc, root_width, root_height, sdl.SDL_Point{ .x = 0, .y = 0 }, renderer.?, pixel_format, &atlas);
+        var box_tree = try zss.layout.doLayout(case.element_tree, case.cascaded_values, allocator, .{ .w = case.width, .h = case.height });
+        defer box_tree.deinit();
+
+        const root_sizes: struct { width: i32, height: i32 } = if (box_tree.blocks.skips.items.len > 1) blk: {
+            // TODO: Find the block id of root a better way
+            const root_box_offsets = box_tree.blocks.box_offsets.items[1];
+            break :blk .{
+                .width = r.zssUnitToPixel(root_box_offsets.border_end.x - root_box_offsets.border_start.x),
+                .height = r.zssUnitToPixel(root_box_offsets.border_end.y - root_box_offsets.border_start.y),
+            };
+        } else .{ .width = 0, .height = 0 };
+        var maybe_atlas = maybe_atlas: {
+            const font = if (case.font != null and case.font.? != hb.hb_font_get_empty()) case.font.? else break :maybe_atlas null;
+            const face = hb.hb_ft_font_get_face(font);
+            break :maybe_atlas try r.GlyphAtlas.init(face, renderer.?, pixel_format, allocator);
+        };
+        defer if (maybe_atlas) |*atlas| atlas.deinit(allocator);
+        const atlas_ptr = if (maybe_atlas) |*atlas| atlas else null;
+        const surface = try drawToSurface(
+            box_tree,
+            root_sizes.width,
+            root_sizes.height,
+            sdl.SDL_Point{ .x = 0, .y = 0 },
+            renderer.?,
+            pixel_format,
+            atlas_ptr,
+        );
         defer sdl.SDL_FreeSurface(surface);
         const filename = try std.fmt.allocPrintZ(allocator, results_path ++ "/{:0>2}.bmp", .{i});
         defer allocator.free(filename);

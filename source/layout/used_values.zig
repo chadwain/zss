@@ -4,12 +4,13 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
+const SkipTree = zss.SkipTree;
 
 /// The fundamental unit of space used for all CSS layout computations in zss.
 pub const ZssUnit = i32;
 
 /// The number of ZssUnits contained wthin 1 screen pixel.
-pub const unitsPerPixel = 1;
+pub const units_per_pixel = 1;
 
 /// A floating point number usually between 0 and 1, but it can
 /// exceed these values.
@@ -62,6 +63,8 @@ pub const ZssRect = struct {
     }
 };
 
+pub const Color = u32;
+
 /// The offsets of various points of a block box, taken from the
 /// inline-start/block-start corner of the content box of its parent.
 pub const BoxOffsets = struct {
@@ -85,10 +88,10 @@ pub const Borders = struct {
 /// 'border-block-start-color', 'border-inline-end-color',
 /// 'border-block-end-color', and 'border-inline-start-color'.
 pub const BorderColor = struct {
-    inline_start_rgba: u32 = 0,
-    inline_end_rgba: u32 = 0,
-    block_start_rgba: u32 = 0,
-    block_end_rgba: u32 = 0,
+    inline_start_rgba: Color = 0,
+    inline_end_rgba: Color = 0,
+    block_start_rgba: Color = 0,
+    block_end_rgba: Color = 0,
 };
 
 /// Contains the used values of the properties
@@ -104,7 +107,7 @@ pub const Margins = struct {
 /// Contains the used values of the properties
 /// 'background-color' and 'background-clip'.
 pub const Background1 = struct {
-    color_rgba: u32 = 0,
+    color_rgba: Color = 0,
     clip: enum { Border, Padding, Content } = .Border,
 };
 
@@ -121,27 +124,19 @@ pub const Background2 = struct {
         y: Style = .None,
     };
 
-    image: ?*zss.BoxTree.Background.Image.Object.Data = null,
+    image: ?*zss.values.BackgroundImage.Object.Data = null,
     position: Position = .{},
     size: Size = .{},
     repeat: Repeat = .{},
     origin: Origin = .Padding,
 };
 
-pub const UsedId = u16;
-pub const UsedSubtreeSize = UsedId;
-pub const UsedBoxCount = UsedId;
-pub const StackingContextId = UsedId;
-pub const InlineId = UsedId;
-pub const ZIndex = i32;
+pub const BlockBoxIndex = u16;
+pub const BlockBoxSkip = BlockBoxIndex;
+pub const BlockBoxCount = BlockBoxIndex;
 
-/// Contains information about a set of block boxes.
-/// Block boxes form a hierarchy, and therefore a tree structure, which is represented here.
-pub const BlockLevelUsedValues = struct {
-    // A "used id" is an index into the following arrays.
-    // To know how to use the "structure" field and the group of fields following it,
-    // see the explanation in BoxTree. It works in exactly the same way.
-    structure: ArrayListUnmanaged(UsedId) = .{},
+pub const BlockBoxTree = struct {
+    skips: ArrayListUnmanaged(BlockBoxIndex) = .{},
     box_offsets: ArrayListUnmanaged(BoxOffsets) = .{},
     borders: ArrayListUnmanaged(Borders) = .{},
     margins: ArrayListUnmanaged(Margins) = .{},
@@ -149,18 +144,15 @@ pub const BlockLevelUsedValues = struct {
     background1: ArrayListUnmanaged(Background1) = .{},
     background2: ArrayListUnmanaged(Background2) = .{},
     properties: ArrayListUnmanaged(BoxProperties) = .{},
-    // End of the "used id" indexed arrays.
 
     const Self = @This();
 
     pub const BoxProperties = struct {
         creates_stacking_context: bool = false,
-        inline_context_index: ?InlineId = null,
-        uses_shrink_to_fit_sizing: bool = false,
     };
 
     pub fn deinit(self: *Self, allocator: Allocator) void {
-        self.structure.deinit(allocator);
+        self.skips.deinit(allocator);
         self.box_offsets.deinit(allocator);
         self.borders.deinit(allocator);
         self.margins.deinit(allocator);
@@ -171,7 +163,7 @@ pub const BlockLevelUsedValues = struct {
     }
 
     pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, capacity: usize) !void {
-        try self.structure.ensureTotalCapacity(allocator, capacity);
+        try self.skips.ensureTotalCapacity(allocator, capacity);
         try self.box_offsets.ensureTotalCapacity(allocator, capacity);
         try self.borders.ensureTotalCapacity(allocator, capacity);
         try self.margins.ensureTotalCapacity(allocator, capacity);
@@ -182,6 +174,9 @@ pub const BlockLevelUsedValues = struct {
     }
 };
 
+pub const InlineBoxIndex = u16;
+pub const InlineFormattingContextIndex = u16;
+
 /// Contains information about an inline formatting context.
 /// Each glyph and its corresponding metrics are placed into arrays. (glyph_indeces and metrics)
 /// Then, each element in line_boxes tells you which glyphs to include and the baseline position.
@@ -191,7 +186,10 @@ pub const BlockLevelUsedValues = struct {
 /// that the next glyph index (which is guaranteed to exist) contains "special data." Use the Special.decode
 /// function to recover and interpret that data. Note that this data still has metrics associated with it.
 /// That metrics data is found in the same array index as that of the first glyph index (the one that was 0).
-pub const InlineLevelUsedValues = struct {
+pub const InlineFormattingContext = struct {
+    parent_block: BlockBoxIndex,
+    origin: ZssVector,
+
     glyph_indeces: ArrayListUnmanaged(GlyphIndex) = .{},
     metrics: ArrayListUnmanaged(Metrics) = .{},
 
@@ -205,14 +203,12 @@ pub const InlineLevelUsedValues = struct {
     ascender: ZssUnit = undefined,
     descender: ZssUnit = undefined,
 
-    // A "used id" is an index into the following arrays.
     inline_start: ArrayListUnmanaged(BoxProperties) = .{},
     inline_end: ArrayListUnmanaged(BoxProperties) = .{},
     block_start: ArrayListUnmanaged(BoxProperties) = .{},
     block_end: ArrayListUnmanaged(BoxProperties) = .{},
     background1: ArrayListUnmanaged(Background1) = .{},
     margins: ArrayListUnmanaged(MarginsInline) = .{},
-    // End of the "used id" indexed arrays.
 
     const hb = @import("harfbuzz");
 
@@ -300,16 +296,16 @@ pub const InlineLevelUsedValues = struct {
             }
         }
 
-        pub fn encodeBoxStart(used_id: UsedId) GlyphIndex {
-            return @bitCast(GlyphIndex, Special{ .kind = .BoxStart, .data = used_id });
+        pub fn encodeBoxStart(index: InlineBoxIndex) GlyphIndex {
+            return @bitCast(GlyphIndex, Special{ .kind = .BoxStart, .data = index });
         }
 
-        pub fn encodeBoxEnd(used_id: UsedId) GlyphIndex {
-            return @bitCast(GlyphIndex, Special{ .kind = .BoxEnd, .data = used_id });
+        pub fn encodeBoxEnd(index: InlineBoxIndex) GlyphIndex {
+            return @bitCast(GlyphIndex, Special{ .kind = .BoxEnd, .data = index });
         }
 
-        pub fn encodeInlineBlock(used_id: UsedId) GlyphIndex {
-            return @bitCast(GlyphIndex, Special{ .kind = .InlineBlock, .data = used_id });
+        pub fn encodeInlineBlock(index: BlockBoxIndex) GlyphIndex {
+            return @bitCast(GlyphIndex, Special{ .kind = .InlineBlock, .data = index });
         }
 
         pub fn encodeZeroGlyphIndex() GlyphIndex {
@@ -320,8 +316,8 @@ pub const InlineLevelUsedValues = struct {
             return @bitCast(GlyphIndex, Special{ .kind = @intToEnum(Kind, @enumToInt(LayoutInternalKind.LineBreak)), .data = undefined });
         }
 
-        pub fn encodeContinuationBlock(used_id: UsedId) GlyphIndex {
-            return @bitCast(GlyphIndex, Special{ .kind = @intToEnum(Kind, @enumToInt(LayoutInternalKind.ContinuationBlock)), .data = used_id });
+        pub fn encodeContinuationBlock(index: InlineBoxIndex) GlyphIndex {
+            return @bitCast(GlyphIndex, Special{ .kind = @intToEnum(Kind, @enumToInt(LayoutInternalKind.ContinuationBlock)), .data = index });
         }
     };
 
@@ -329,6 +325,7 @@ pub const InlineLevelUsedValues = struct {
         self.glyph_indeces.deinit(allocator);
         self.metrics.deinit(allocator);
         self.line_boxes.deinit(allocator);
+
         self.inline_start.deinit(allocator);
         self.inline_end.deinit(allocator);
         self.block_start.deinit(allocator);
@@ -338,9 +335,6 @@ pub const InlineLevelUsedValues = struct {
     }
 
     pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: usize) !void {
-        try self.line_boxes.ensureTotalCapacity(allocator, count);
-        try self.glyph_indeces.ensureTotalCapacity(allocator, count);
-        try self.metrics.ensureTotalCapacity(allocator, count);
         try self.inline_start.ensureTotalCapacity(allocator, count);
         try self.inline_end.ensureTotalCapacity(allocator, count);
         try self.block_start.ensureTotalCapacity(allocator, count);
@@ -350,71 +344,41 @@ pub const InlineLevelUsedValues = struct {
     }
 };
 
-pub const StackingContextTree = struct {
-    subtree: ArrayListUnmanaged(StackingContextId) = .{},
-    stacking_contexts: ArrayListUnmanaged(StackingContext) = .{},
+pub const StackingContextIndex = u16;
+pub const ZIndex = i32;
 
-    const Self = @This();
-
-    pub const StackingContext = struct {
-        z_index: ZIndex,
-        used_id: UsedId,
-    };
-
-    pub fn deinit(self: *Self, allocator: Allocator) void {
-        self.subtree.deinit(allocator);
-        self.stacking_contexts.deinit(allocator);
-    }
-
-    pub const Range = struct {
-        current: StackingContextId,
-        end: StackingContextId,
-
-        pub fn get(self: Range, sc_tree: StackingContextTree) StackingContext {
-            return sc_tree.stacking_contexts.items[self.current];
-        }
-
-        pub fn empty(self: Range) bool {
-            return self.current == self.end;
-        }
-
-        pub fn next(self: *Range, sc_tree: StackingContextTree) void {
-            self.current += sc_tree.subtree.items[self.current];
-        }
-
-        pub fn children(self: Range, sc_tree: StackingContextTree) Range {
-            return Range{
-                .current = self.current + 1,
-                .end = self.current + sc_tree.subtree.items[self.current],
-            };
-        }
-    };
-
-    pub fn range(self: Self) Range {
-        return Range{
-            .current = 0,
-            .end = self.subtree.items[0],
-        };
-    }
+pub const StackingContext = struct {
+    /// The z-index of this stacking context.
+    z_index: ZIndex,
+    /// The block box that creates this stacking context.
+    block_box: BlockBoxIndex,
+    /// The list of inline formatting contexts in this stacking context.
+    ifcs: ArrayListUnmanaged(InlineFormattingContextIndex),
 };
 
-/// The final result of layout.
-pub const Document = struct {
-    blocks: BlockLevelUsedValues = .{},
-    inlines: ArrayListUnmanaged(*InlineLevelUsedValues) = .{},
-    stacking_context_tree: StackingContextTree = .{},
+// NOTE: This might benefit from being a SparseSkipTree instead.
+pub const StackingContextTree = SkipTree(StackingContextIndex, StackingContext);
+
+/// The result of layout.
+pub const BoxTree = struct {
+    blocks: BlockBoxTree = .{},
+    inlines: ArrayListUnmanaged(*InlineFormattingContext) = .{},
+    stacking_contexts: StackingContextTree = .{},
     allocator: Allocator,
 
     const Self = @This();
 
     pub fn deinit(self: *Self) void {
         self.blocks.deinit(self.allocator);
-        for (self.inlines.items) |inl| {
-            inl.deinit(self.allocator);
-            self.allocator.destroy(inl);
+        for (self.inlines.items) |ifc| {
+            ifc.deinit(self.allocator);
+            self.allocator.destroy(ifc);
         }
         self.inlines.deinit(self.allocator);
-        self.stacking_context_tree.deinit(self.allocator);
+        for (self.stacking_contexts.multi_list.items(.ifcs)) |*ifc_list| {
+            ifc_list.deinit(self.allocator);
+        }
+        self.stacking_contexts.deinit(self.allocator);
     }
 };
 

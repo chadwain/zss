@@ -13,6 +13,8 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("zss");
 const BoxTree = zss.BoxTree;
+const ElementTree = zss.ElementTree;
+const CascadedValueStore = zss.CascadedValueStore;
 const pixelToZssUnit = zss.render.sdl.pixelToZssUnit;
 
 const sdl = @import("SDL2");
@@ -170,135 +172,101 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     const zig_png = sdl.IMG_LoadTexture(renderer, "demo/zig.png") orelse return error.ResourceLoadFail;
     defer sdl.SDL_DestroyTexture(zig_png);
 
-    const root_border = BoxTree.LogicalSize.BorderWidth{ .px = 10 };
-    const root_padding = BoxTree.LogicalSize.Padding{ .px = 30 };
-    const root_border_color = BoxTree.Border.Color{ .rgba = 0xaf2233ff };
+    var element_tree = zss.ElementTree{};
+    defer element_tree.deinit(allocator);
 
-    const len = 9;
-    var structure = [len]BoxTree.BoxId{ 9, 1, 3, 2, 1, 3, 2, 1, 1 };
-    var inline_size = [len]BoxTree.LogicalSize{
-        .{ .min_size = .{ .px = 200 }, .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border },
-        .{ .size = .{ .px = 10000 } },
-        .{},
-        .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } },
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-    };
-    var block_size = [len]BoxTree.LogicalSize{
-        .{ .padding_start = root_padding, .padding_end = .{ .px = 12 }, .border_start = root_border, .border_end = root_border },
-        .{ .size = .{ .px = 10000 } },
-        .{ .border_end = .{ .px = 2 }, .margin_end = .{ .px = 24 } },
-        .{ .padding_end = .{ .px = 5 } },
-        .{},
-        .{},
-        .{},
-        .{},
-        .{ .size = .{ .px = 50 }, .margin_start = .{ .px = 10 } },
-    };
-    var display = [len]BoxTree.Display{
-        .{ .block = {} },
-        .{ .none = {} },
-        .{ .block = {} },
-        .{ .inline_ = {} },
-        .{ .text = {} },
-        .{ .block = {} },
-        .{ .inline_ = {} },
-        .{ .text = {} },
-        .{ .block = {} },
-    };
-    var position = [len]BoxTree.Positioning{
-        .{},
-        .{},
-        .{ .style = .{ .relative = {} }, .z_index = .{ .value = -1 } },
-        .{},
-        .{},
-        .{ .style = .{ .relative = {} } },
-        .{},
-        .{},
-        .{},
-    };
-    var insets = [len]BoxTree.Insets{
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-    };
-    var latin1_text = [len]BoxTree.Latin1Text{
-        .{},
-        .{},
-        .{},
-        .{},
-        .{ .text = args.filename },
-        .{},
-        .{},
-        .{ .text = bytes },
-        .{},
-    };
-    var border = [len]BoxTree.Border{
-        .{ .inline_start_color = root_border_color, .inline_end_color = root_border_color, .block_start_color = root_border_color, .block_end_color = root_border_color },
-        .{},
-        .{ .block_end_color = .{ .rgba = 0x202020ff } },
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-        .{},
-    };
-    var background = [len]BoxTree.Background{
-        .{
-            .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(smile) },
-            .position = .{ .position = .{
-                .x = .{ .side = .right },
-                .y = .{ .offset = .{ .px = 10 } },
-            } },
-            .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
-            .color = .{ .rgba = args.bg_color },
-        },
-        .{},
-        .{},
-        .{ .color = .{ .rgba = 0xfa58007f } },
-        .{},
-        .{},
-        .{},
-        .{},
-        .{
-            .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(zig_png) },
-            .position = .{ .position = .{
-                .x = .{ .offset = .{ .percentage = 0.5 } },
-                .y = .{ .offset = .{ .percentage = 0.5 } },
-            } },
-            .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
-            .size = .{ .contain = {} },
-        },
-    };
-    const tree = BoxTree{
-        .structure = &structure,
-        .inline_size = &inline_size,
-        .block_size = &block_size,
-        .display = &display,
-        .position = &position,
-        .insets = &insets,
-        .latin1_text = &latin1_text,
-        .border = &border,
-        .background = &background,
-        .font = .{ .font = font, .color = .{ .rgba = args.text_color } },
-    };
+    const num_elements = 9;
+    try element_tree.ensureTotalCapacity(allocator, num_elements);
+    const root = element_tree.createRootAssumeCapacity();
 
-    try sdlMainLoop(window, renderer, face, allocator, &tree);
+    const root_0 = element_tree.appendChildAssumeCapacity(root);
+    const root_1 = element_tree.appendChildAssumeCapacity(root);
+    const root_2 = element_tree.appendChildAssumeCapacity(root);
+    const root_3 = element_tree.appendChildAssumeCapacity(root);
+
+    const root_1_0 = element_tree.appendChildAssumeCapacity(root_1);
+    const root_1_0_0 = element_tree.appendChildAssumeCapacity(root_1_0);
+    const root_2_0 = element_tree.appendChildAssumeCapacity(root_2);
+    const root_2_0_0 = element_tree.appendChildAssumeCapacity(root_2_0);
+
+    var cascaded = zss.CascadedValueStore{};
+    defer cascaded.deinit(allocator);
+    try cascaded.ensureTotalCapacity(allocator, num_elements);
+
+    // Root element
+    const root_border = zss.values.BorderWidth{ .px = 10 };
+    const root_padding = zss.values.Padding{ .px = 30 };
+    const root_border_color = zss.values.Color{ .rgba = 0xaf2233ff };
+    cascaded.box_style.setAssumeCapacity(root, .{ .display = .block });
+    cascaded.content_width.setAssumeCapacity(root, .{ .min_size = .{ .px = 200 } });
+    cascaded.horizontal_edges.setAssumeCapacity(root, .{ .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border });
+    cascaded.vertical_edges.setAssumeCapacity(root, .{ .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border });
+    cascaded.border_colors.setAssumeCapacity(root, .{ .top = root_border_color, .right = root_border_color, .bottom = root_border_color, .left = root_border_color });
+    cascaded.background1.setAssumeCapacity(root, .{ .color = .{ .rgba = args.bg_color } });
+    cascaded.background2.setAssumeCapacity(root, .{
+        .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(smile) },
+        .position = .{ .position = .{
+            .x = .{ .side = .right, .offset = .{ .percentage = 0 } },
+            .y = .{ .side = .top, .offset = .{ .px = 10 } },
+        } },
+        .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
+    });
+    cascaded.color.setAssumeCapacity(root, .{ .color = .{ .rgba = args.text_color } });
+
+    // Large element with display: none
+    cascaded.box_style.setAssumeCapacity(root_0, .{ .display = .none });
+    cascaded.content_width.setAssumeCapacity(root_0, .{ .size = .{ .px = 10000 } });
+    cascaded.content_height.setAssumeCapacity(root_0, .{ .size = .{ .px = 10000 } });
+
+    // Title block box
+    cascaded.box_style.setAssumeCapacity(root_1, .{ .display = .block, .position = .relative });
+    cascaded.vertical_edges.setAssumeCapacity(root_1, .{ .border_end = .{ .px = 2 }, .margin_end = .{ .px = 24 } });
+    cascaded.z_index.setAssumeCapacity(root_1, .{ .z_index = .{ .integer = -1 } });
+    cascaded.border_colors.setAssumeCapacity(root_1, .{ .bottom = .{ .rgba = 0x202020ff } });
+
+    // Title inline box
+    cascaded.box_style.setAssumeCapacity(root_1_0, .{ .display = .inline_ });
+    cascaded.horizontal_edges.setAssumeCapacity(root_1_0, .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } });
+    cascaded.vertical_edges.setAssumeCapacity(root_1_0, .{ .padding_end = .{ .px = 5 } });
+    cascaded.background1.setAssumeCapacity(root_1_0, .{ .color = .{ .rgba = 0xfa58007f } });
+
+    // Title text
+    cascaded.box_style.setAssumeCapacity(root_1_0_0, .{ .display = .text });
+    cascaded.text.setAssumeCapacity(root_1_0_0, .{ .text = args.filename });
+
+    // Body block box
+    cascaded.box_style.setAssumeCapacity(root_2, .{ .display = .block, .position = .relative });
+
+    // Body inline box
+    cascaded.box_style.setAssumeCapacity(root_2_0, .{ .display = .inline_ });
+
+    // Body text
+    cascaded.box_style.setAssumeCapacity(root_2_0_0, .{ .display = .text });
+    cascaded.text.setAssumeCapacity(root_2_0_0, .{ .text = bytes });
+
+    // Footer block
+    cascaded.box_style.setAssumeCapacity(root_3, .{ .display = .block });
+    cascaded.content_height.setAssumeCapacity(root_3, .{ .size = .{ .px = 50 } });
+    cascaded.horizontal_edges.setAssumeCapacity(root_3, .{ .border_start = .inherit, .border_end = .inherit });
+    cascaded.vertical_edges.setAssumeCapacity(root_3, .{ .margin_start = .{ .px = 10 }, .border_start = .inherit, .border_end = .inherit });
+    cascaded.border_colors.setAssumeCapacity(root_3, .{ .top = root_border_color, .right = root_border_color, .bottom = root_border_color, .left = root_border_color });
+    cascaded.background2.setAssumeCapacity(root_3, .{
+        .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(zig_png) },
+        .position = .{ .position = .{
+            .x = .{ .side = .left, .offset = .{ .percentage = 0.5 } },
+            .y = .{ .side = .top, .offset = .{ .percentage = 0.5 } },
+        } },
+        .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
+        .size = .{ .contain = {} },
+    });
+
+    try sdlMainLoop(window, renderer, face, allocator, &element_tree, &cascaded);
 }
 
 const ProgramState = struct {
-    tree: *const BoxTree,
-    document: zss.used_values.Document,
+    element_tree: *const ElementTree,
+    cascaded_values: *const CascadedValueStore,
+    box_tree: zss.used_values.BoxTree,
     atlas: zss.render.sdl.GlyphAtlas,
     width: c_int,
     height: c_int,
@@ -309,15 +277,24 @@ const ProgramState = struct {
 
     const Self = @This();
 
-    fn init(tree: *const BoxTree, window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, face: hb.FT_Face, allocator: Allocator) !Self {
+    fn init(
+        element_tree: *const ElementTree,
+        cascaded_values: *const CascadedValueStore,
+        window: *sdl.SDL_Window,
+        renderer: *sdl.SDL_Renderer,
+        pixel_format: *sdl.SDL_PixelFormat,
+        face: hb.FT_Face,
+        allocator: Allocator,
+    ) !Self {
         var result = @as(Self, undefined);
 
-        result.tree = tree;
+        result.element_tree = element_tree;
+        result.cascaded_values = cascaded_values;
         sdl.SDL_GetWindowSize(window, &result.width, &result.height);
         result.timer = try std.time.Timer.start();
 
-        result.document = try zss.layout.doLayout(tree, allocator, .{ .w = pixelToZssUnit(result.width), .h = pixelToZssUnit(result.height) });
-        errdefer result.document.deinit();
+        result.box_tree = try zss.layout.doLayout(element_tree.*, cascaded_values.*, allocator, .{ .w = pixelToZssUnit(result.width), .h = pixelToZssUnit(result.height) });
+        errdefer result.box_tree.deinit();
 
         result.last_layout_time = result.timer.read();
 
@@ -329,30 +306,37 @@ const ProgramState = struct {
     }
 
     fn deinit(self: *Self, allocator: Allocator) void {
-        self.document.deinit();
+        self.box_tree.deinit();
         self.atlas.deinit(allocator);
     }
 
-    fn updateDocument(self: *Self, allocator: Allocator) !void {
+    fn updateBoxTree(self: *Self, allocator: Allocator) !void {
         self.timer.reset();
-        var new_document = try zss.layout.doLayout(self.tree, allocator, .{ .w = pixelToZssUnit(self.width), .h = pixelToZssUnit(self.height) });
+        var new_box_tree = try zss.layout.doLayout(self.element_tree.*, self.cascaded_values.*, allocator, .{ .w = pixelToZssUnit(self.width), .h = pixelToZssUnit(self.height) });
         self.last_layout_time = self.timer.read();
-        self.document.deinit();
-        self.document = new_document;
+        self.box_tree.deinit();
+        self.box_tree = new_box_tree;
         self.updateMaxScroll();
     }
 
     fn updateMaxScroll(self: *Self) void {
-        self.max_scroll_y = std.math.max(0, zss.render.sdl.zssUnitToPixel(self.document.blocks.box_offsets.items[1].border_end.y) - self.height);
+        self.max_scroll_y = std.math.max(0, zss.render.sdl.zssUnitToPixel(self.box_tree.blocks.box_offsets.items[1].border_end.y) - self.height);
         self.scroll_y = std.math.clamp(self.scroll_y, 0, self.max_scroll_y);
     }
 };
 
-fn sdlMainLoop(window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: hb.FT_Face, allocator: Allocator, tree: *const BoxTree) !void {
+fn sdlMainLoop(
+    window: *sdl.SDL_Window,
+    renderer: *sdl.SDL_Renderer,
+    face: hb.FT_Face,
+    allocator: Allocator,
+    element_tree: *const ElementTree,
+    cascaded_values: *const CascadedValueStore,
+) !void {
     const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
 
-    var ps = try ProgramState.init(tree, window, renderer, pixel_format, face, allocator);
+    var ps = try ProgramState.init(element_tree, cascaded_values, window, renderer, pixel_format, face, allocator);
     defer ps.deinit(allocator);
 
     const stderr = std.io.getStdErr().writer();
@@ -416,7 +400,7 @@ fn sdlMainLoop(window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: hb.FT
 
         if (needs_relayout) {
             needs_relayout = false;
-            try ps.updateDocument(allocator);
+            try ps.updateBoxTree(allocator);
         }
 
         const viewport_rect = sdl.SDL_Rect{
@@ -431,7 +415,7 @@ fn sdlMainLoop(window: *sdl.SDL_Window, renderer: *sdl.SDL_Renderer, face: hb.FT
         };
         assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255) == 0);
         assert(sdl.SDL_RenderClear(renderer) == 0);
-        try zss.render.sdl.renderDocument(&ps.document, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
+        try zss.render.sdl.drawBoxTree(ps.box_tree, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
         sdl.SDL_RenderPresent(renderer);
 
         const frame_time = timer.lap();

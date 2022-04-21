@@ -12,22 +12,33 @@ const cases = @import("./test_cases.zig");
 const hb = @import("harfbuzz");
 
 test "validation" {
+    var all_test_data = try cases.getTestData();
+    defer {
+        for (all_test_data.items) |*data| data.deinit();
+        all_test_data.deinit();
+    }
+
     var library: hb.FT_Library = undefined;
     assert(hb.FT_Init_FreeType(&library) == 0);
     defer _ = hb.FT_Done_FreeType(library);
 
     std.debug.print("\n", .{});
-    for (cases.tree_data) |_, i| {
-        std.debug.print("validate document {}... ", .{i});
+    for (all_test_data.items) |data, i| {
+        std.debug.print("validate box tree {}... ", .{i});
         defer std.debug.print("\n", .{});
 
-        var test_case = cases.get(i, library);
+        const test_case = data.toTestCase(library);
         defer test_case.deinit();
-        var document = try zss.layout.doLayout(&test_case.tree, allocator, .{ .w = test_case.width, .h = test_case.height });
-        defer document.deinit();
+        var box_tree = try zss.layout.doLayout(
+            test_case.element_tree,
+            test_case.cascaded_values,
+            allocator,
+            .{ .w = test_case.width, .h = test_case.height },
+        );
+        defer box_tree.deinit();
 
-        try validateStackingContexts(&document);
-        for (document.inlines.items) |inl| {
+        try validateStackingContexts(&box_tree);
+        for (box_tree.inlines.items) |inl| {
             try validateInline(inl);
         }
 
@@ -35,19 +46,19 @@ test "validation" {
     }
 }
 
-fn validateInline(inl: *used.InlineLevelUsedValues) !void {
+fn validateInline(inl: *used.InlineFormattingContext) !void {
     @setRuntimeSafety(true);
-    const UsedId = used.UsedId;
+    const InlineBoxIndex = used.InlineBoxIndex;
 
-    var stack = std.ArrayList(UsedId).init(allocator);
+    var stack = std.ArrayList(InlineBoxIndex).init(allocator);
     defer stack.deinit();
     var i: usize = 0;
     while (i < inl.glyph_indeces.items.len) : (i += 1) {
         if (inl.glyph_indeces.items[i] == 0) {
             i += 1;
-            const special = used.InlineLevelUsedValues.Special.decode(inl.glyph_indeces.items[i]);
+            const special = used.InlineFormattingContext.Special.decode(inl.glyph_indeces.items[i]);
             switch (special.kind) {
-                .BoxStart => stack.append(special.data) catch unreachable,
+                .BoxStart => stack.append(@as(InlineBoxIndex, special.data)) catch unreachable,
                 .BoxEnd => _ = stack.pop(),
                 else => {},
             }
@@ -56,23 +67,31 @@ fn validateInline(inl: *used.InlineLevelUsedValues) !void {
     try expect(stack.items.len == 0);
 }
 
-fn validateStackingContexts(document: *zss.used_values.Document) !void {
+fn validateStackingContexts(box_tree: *zss.used_values.BoxTree) !void {
     @setRuntimeSafety(true);
     const StackingContextTree = used.StackingContextTree;
     const ZIndex = used.ZIndex;
 
-    var stack = std.ArrayList(StackingContextTree.Range).init(allocator);
+    const root_iterator = box_tree.stacking_contexts.iterator() orelse return;
+
+    const slice = box_tree.stacking_contexts.slice();
+    const skips = slice.items(.__skip);
+    const z_index = slice.items(.z_index);
+    try expect(z_index[root_iterator.index] == 0);
+
+    var stack = std.ArrayList(StackingContextTree.Iterator).init(allocator);
     defer stack.deinit();
-    stack.append(document.stacking_context_tree.range()) catch unreachable;
+
+    stack.append(root_iterator) catch unreachable;
     while (stack.items.len > 0) {
         const parent = stack.pop();
-        var range = parent.children(document.stacking_context_tree);
-        var last: ZIndex = std.math.minInt(ZIndex);
-        while (!range.empty()) : (range.next(document.stacking_context_tree)) {
-            const current = range.get(document.stacking_context_tree).z_index;
-            try expect(last <= current);
-            last = current;
-            stack.append(range) catch unreachable;
+        var child = parent.firstChild(skips);
+        var previous: ZIndex = std.math.minInt(ZIndex);
+        while (!child.empty()) : (child = child.nextSibling(skips)) {
+            const current = z_index[child.index];
+            try expect(previous <= current);
+            previous = current;
+            stack.append(child) catch unreachable;
         }
     }
 }

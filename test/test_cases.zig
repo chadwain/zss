@@ -1,98 +1,107 @@
 const zss = @import("zss");
+const properties = zss.properties;
 const ZssUnit = zss.used_values.ZssUnit;
-const unitsPerPixel = zss.used_values.unitsPerPixel;
-const BoxTree = zss.BoxTree;
+const units_per_pixel = zss.used_values.units_per_pixel;
+const ElementTree = zss.ElementTree;
+const ElementIndex = zss.ElementIndex;
+const ElementRef = zss.ElementRef;
+const CascadedValueStore = zss.CascadedValueStore;
 
 const std = @import("std");
 const assert = std.debug.assert;
 const allocator = std.testing.allocator;
+const ArrayList = std.ArrayList;
 
 const hb = @import("harfbuzz");
 
 pub const TestCase = struct {
-    tree: BoxTree,
+    element_tree: ElementTree,
+    cascaded_values: CascadedValueStore,
     width: ZssUnit,
     height: ZssUnit,
     face: hb.FT_Face,
+    font: ?*hb.hb_font_t,
 
-    pub fn deinit(self: *@This()) void {
-        allocator.free(self.tree.structure);
-        allocator.free(self.tree.display);
-        allocator.free(self.tree.position);
-        allocator.free(self.tree.inline_size);
-        allocator.free(self.tree.block_size);
-        allocator.free(self.tree.insets);
-        allocator.free(self.tree.latin1_text);
-        allocator.free(self.tree.border);
-        allocator.free(self.tree.background);
-        hb.hb_font_destroy(self.tree.font.font);
-        _ = hb.FT_Done_Face(self.face);
+    pub fn deinit(self: @This()) void {
+        if (self.font) |font| {
+            hb.hb_font_destroy(font);
+            _ = hb.FT_Done_Face(self.face);
+        }
     }
 };
 
-pub fn get(index: usize, library: hb.FT_Library) TestCase {
-    @setRuntimeSafety(true);
-    const data = tree_data[index];
-
-    var face: hb.FT_Face = undefined;
-    assert(hb.FT_New_Face(library, data.font, 0, &face) == 0);
-    assert(hb.FT_Set_Char_Size(face, 0, @intCast(c_int, data.font_size) * 64, 96, 96) == 0);
-
-    const tree_size = data.structure.len;
-    assert(data.display.len == data.structure.len);
-    return TestCase{
-        .tree = .{
-            .structure = allocator.dupe(BoxTree.BoxId, data.structure) catch unreachable,
-            .display = allocator.dupe(BoxTree.Display, data.display) catch unreachable,
-            .position = copy(BoxTree.Positioning, data.position, tree_size),
-            .inline_size = copy(BoxTree.LogicalSize, data.inline_size, tree_size),
-            .block_size = copy(BoxTree.LogicalSize, data.block_size, tree_size),
-            .insets = copy(BoxTree.Insets, data.insets, tree_size),
-            .latin1_text = copy(BoxTree.Latin1Text, data.latin1_text, tree_size),
-            .border = copy(BoxTree.Border, data.border, tree_size),
-            .background = copy(BoxTree.Background, data.background, tree_size),
-            .font = .{
-                .font = blk: {
-                    const hb_font = hb.hb_ft_font_create_referenced(face).?;
-                    hb.hb_ft_font_set_funcs(hb_font);
-                    break :blk hb_font;
-                },
-                .color = .{ .rgba = data.font_color },
-            },
-        },
-        .width = @intCast(ZssUnit, data.width * unitsPerPixel),
-        .height = @intCast(ZssUnit, data.height * unitsPerPixel),
-        .face = face,
-    };
-}
-
-fn copy(comptime T: type, data: ?[]const T, tree_size: usize) []T {
-    @setRuntimeSafety(true);
-    if (data) |arr| {
-        assert(arr.len >= tree_size);
-        return allocator.dupe(T, arr) catch unreachable;
-    } else {
-        const arr = allocator.alloc(T, tree_size) catch unreachable;
-        std.mem.set(T, arr, .{});
-        return arr;
-    }
-}
-
 pub const TreeData = struct {
-    structure: []const BoxTree.BoxId,
-    display: []const BoxTree.Display,
-    position: ?[]const BoxTree.Positioning = null,
-    inline_size: ?[]const BoxTree.LogicalSize = null,
-    block_size: ?[]const BoxTree.LogicalSize = null,
-    insets: ?[]const BoxTree.Insets = null,
-    latin1_text: ?[]const BoxTree.Latin1Text = null,
-    border: ?[]const BoxTree.Border = null,
-    background: ?[]const BoxTree.Background = null,
+    element_tree: ElementTree,
+    cascaded_values: CascadedValueStore,
     width: u32 = 400,
     height: u32 = 400,
     font: [:0]const u8 = fonts[0],
     font_size: u32 = 12,
     font_color: u32 = 0xffffffff,
+
+    const store_fields = std.meta.fields(CascadedValueStore);
+    const FieldEnum = std.meta.FieldEnum(CascadedValueStore);
+
+    fn init(num_elements: ElementIndex, comptime fields: []const FieldEnum) !TreeData {
+        var result: TreeData = .{
+            .element_tree = .{},
+            .cascaded_values = .{ .font = undefined },
+        };
+        try result.element_tree.ensureTotalCapacity(allocator, num_elements);
+        try result.cascaded_values.font.ensureTotalCapacity(allocator, num_elements);
+        try result.cascaded_values.color.ensureTotalCapacity(allocator, num_elements);
+        inline for (fields) |field| {
+            try @field(result.cascaded_values, @tagName(field)).ensureTotalCapacity(allocator, num_elements);
+        }
+        return result;
+    }
+
+    pub fn deinit(self: *TreeData) void {
+        self.element_tree.deinit(allocator);
+        self.cascaded_values.deinit(allocator);
+    }
+
+    fn createRoot(self: *TreeData) ElementRef {
+        return self.element_tree.createRootAssumeCapacity();
+    }
+
+    fn insertChild(self: *TreeData, parent: ElementRef) ElementRef {
+        return self.element_tree.appendChildAssumeCapacity(parent);
+    }
+
+    fn set(self: *TreeData, comptime field: FieldEnum, element_ref: ElementRef, value: store_fields[@enumToInt(field)].field_type.Value) void {
+        @field(self.cascaded_values, @tagName(field)).setAssumeCapacity(element_ref, value);
+    }
+
+    pub fn toTestCase(self: TreeData, library: hb.FT_Library) TestCase {
+        var result = TestCase{
+            .element_tree = self.element_tree,
+            .cascaded_values = self.cascaded_values,
+            .width = @intCast(ZssUnit, self.width * units_per_pixel),
+            .height = @intCast(ZssUnit, self.height * units_per_pixel),
+            .face = undefined,
+            .font = undefined,
+        };
+
+        if (result.element_tree.size() > 0) {
+            assert(hb.FT_New_Face(library, self.font, 0, &result.face) == 0);
+            assert(hb.FT_Set_Char_Size(result.face, 0, @intCast(c_int, self.font_size) * 64, 96, 96) == 0);
+
+            result.font = blk: {
+                const hb_font = hb.hb_ft_font_create_referenced(result.face).?;
+                hb.hb_ft_font_set_funcs(hb_font);
+                break :blk hb_font;
+            };
+
+            result.cascaded_values.font.setAssumeCapacity(0, .{ .font = .{ .font = result.font.? } });
+            result.cascaded_values.color.setAssumeCapacity(0, .{ .color = .{ .rgba = self.font_color } });
+        } else {
+            result.face = undefined;
+            result.font = null;
+        }
+
+        return result;
+    }
 };
 
 pub const strings = [_][]const u8{
@@ -104,7 +113,7 @@ pub const fonts = [_][:0]const u8{
     "demo/NotoSans-Regular.ttf",
 };
 
-pub const border_color_sets = [_][]const BoxTree.Border{
+pub const border_color_sets = [_][]const properties.BorderColors{
     &.{
         .{ .inline_start_color = .{ .rgba = 0x1e3c7bff }, .inline_end_color = .{ .rgba = 0xc5b6f7ff }, .block_start_color = .{ .rgba = 0x8e5085ff }, .block_end_color = .{ .rgba = 0xfdc409ff } },
         .{ .inline_start_color = .{ .rgba = 0xe5bb0dff }, .inline_end_color = .{ .rgba = 0x46eefcff }, .block_start_color = .{ .rgba = 0xa4504bff }, .block_end_color = .{ .rgba = 0xb43430ff } },
@@ -117,62 +126,213 @@ pub const border_color_sets = [_][]const BoxTree.Border{
     },
 };
 
-pub const tree_data = [_]TreeData{
-    .{
-        .structure = &.{1},
-        .display = &.{.{ .block = {} }},
-    },
-    .{
-        .structure = &.{ 2, 1 },
-        .display = &.{ .{ .block = {} }, .{ .block = {} } },
-    },
-    .{
-        .structure = &.{ 2, 1 },
-        .display = &.{ .{ .block = {} }, .{ .inline_ = {} } },
-    },
-    .{
-        .structure = &.{1},
-        .display = &.{.{ .inline_ = {} }},
-    },
-    .{
-        .structure = &.{1},
-        .display = &.{.{ .inline_block = {} }},
-        .inline_size = &.{.{ .size = .{ .px = 50 } }},
-    },
-    .{
-        .structure = &.{1},
-        .display = &.{.{ .text = {} }},
-        .latin1_text = &.{.{ .text = strings[0] }},
-    },
-    .{
-        .structure = &.{ 2, 1 },
-        .display = &.{ .{ .inline_ = {} }, .{ .text = {} } },
-        .latin1_text = &.{ .{}, .{ .text = strings[0] } },
-    },
-    .{
-        .structure = &.{ 3, 2, 1 },
-        .display = &.{ .{ .block = {} }, .{ .inline_ = {} }, .{ .text = {} } },
-        .latin1_text = &.{ .{}, .{}, .{ .text = strings[1] } },
-        .font_size = 18,
-    },
-    .{
-        .structure = &.{ 2, 1 },
-        .display = &.{ .{ .block = {} }, .{ .block = {} } },
-        .inline_size = &.{ .{}, .{ .size = .{ .px = 50 }, .margin_start = .{ .auto = {} }, .margin_end = .{ .auto = {} } } },
-        .block_size = &.{ .{ .size = .{ .px = 50 } }, .{ .size = .{ .px = 50 } } },
-        .background = &.{ .{}, .{ .color = .{ .rgba = 0x404070ff } } },
-    },
-    .{
-        .structure = &.{ 5, 1, 1, 1, 1 },
-        .display = &.{ .{ .block = {} }, .{ .block = {} }, .{ .block = {} }, .{ .block = {} }, .{ .block = {} } },
-        .position = &.{
-            .{},
-            .{ .style = .{ .relative = {} }, .z_index = .{ .value = 6 } },
-            .{ .style = .{ .relative = {} }, .z_index = .{ .value = -2 } },
-            .{ .style = .{ .relative = {} }, .z_index = .{ .auto = {} } },
-            .{ .style = .{ .relative = {} }, .z_index = .{ .value = -5 } },
-        },
-    },
+pub fn getTestData() !ArrayList(TreeData) {
+    var list = ArrayList(TreeData).init(allocator);
+    try list.append(blk: {
+        var tree_data = try TreeData.init(0, &.{});
+        break :blk tree_data;
+    });
+    try list.append(blk: {
+        var tree_data = try TreeData.init(1, &.{.box_style});
+        const root = tree_data.createRoot();
+
+        tree_data.set(.box_style, root, .{ .display = .block });
+        break :blk tree_data;
+    });
+    try list.append(blk: {
+        var tree_data = try TreeData.init(2, &.{.box_style});
+        const root = tree_data.createRoot();
+        const root_0 = tree_data.insertChild(root);
+
+        tree_data.set(.box_style, root, .{ .display = .block });
+        tree_data.set(.box_style, root_0, .{ .display = .block });
+        break :blk tree_data;
+    });
+    try list.append(blk: {
+        var tree_data = try TreeData.init(2, &.{.box_style});
+        const root = tree_data.createRoot();
+        const root_0 = tree_data.insertChild(root);
+
+        tree_data.set(.box_style, root, .{ .display = .block });
+        tree_data.set(.box_style, root_0, .{ .display = .inline_ });
+        break :blk tree_data;
+    });
+    try list.append(blk: {
+        var tree_data = try TreeData.init(1, &.{.box_style});
+        const root = tree_data.createRoot();
+
+        tree_data.set(.box_style, root, .{ .display = .inline_ });
+        break :blk tree_data;
+    });
+    try list.append(blk: {
+        var tree_data = try TreeData.init(1, &.{ .box_style, .text });
+        const root = tree_data.createRoot();
+
+        tree_data.set(.box_style, root, .{ .display = .text });
+        tree_data.set(.text, root, .{ .text = strings[0] });
+        break :blk tree_data;
+    });
+    try list.append(blk: {
+        var tree_data = try TreeData.init(2, &.{ .box_style, .text });
+        const root = tree_data.createRoot();
+        const root_0 = tree_data.insertChild(root);
+
+        tree_data.set(.box_style, root, .{ .display = .inline_ });
+        tree_data.set(.box_style, root_0, .{ .display = .text });
+        tree_data.set(.text, root_0, .{ .text = strings[0] });
+        break :blk tree_data;
+    });
+    try list.append(blk: {
+        var tree_data = try TreeData.init(3, &.{ .box_style, .text });
+        const root = tree_data.createRoot();
+        const root_0 = tree_data.insertChild(root);
+        const root_0_0 = tree_data.insertChild(root_0);
+
+        tree_data.set(.box_style, root, .{ .display = .block });
+        tree_data.set(.box_style, root_0, .{ .display = .inline_ });
+        tree_data.set(.box_style, root_0_0, .{ .display = .text });
+        tree_data.set(.text, root_0_0, .{ .text = strings[0] });
+        tree_data.font_size = 18;
+        break :blk tree_data;
+    });
+    try list.append(blk: {
+        var tree_data = try TreeData.init(2, &.{ .box_style, .content_width, .content_height, .horizontal_edges, .background1 });
+        const root = tree_data.createRoot();
+        const root_0 = tree_data.insertChild(root);
+
+        tree_data.set(.box_style, root, .{ .display = .block });
+        tree_data.set(.content_height, root, .{ .size = .{ .px = 50 } });
+
+        tree_data.set(.box_style, root_0, .{ .display = .block });
+        tree_data.set(.content_width, root_0, .{ .size = .{ .px = 50 } });
+        tree_data.set(.content_height, root_0, .{ .size = .{ .px = 50 } });
+        tree_data.set(.horizontal_edges, root_0, .{ .margin_start = .auto, .margin_end = .auto });
+        tree_data.set(.background1, root_0, .{ .color = .{ .rgba = 0x404070ff } });
+        break :blk tree_data;
+    });
+    try list.append(blk: {
+        var tree_data = try TreeData.init(5, &.{ .box_style, .z_index });
+        const root = tree_data.createRoot();
+        const root_0 = tree_data.insertChild(root);
+        const root_1 = tree_data.insertChild(root);
+        const root_2 = tree_data.insertChild(root);
+        const root_3 = tree_data.insertChild(root);
+
+        tree_data.set(.box_style, root, .{ .display = .block });
+        tree_data.set(.box_style, root_0, .{ .display = .block, .position = .relative });
+        tree_data.set(.box_style, root_1, .{ .display = .block, .position = .relative });
+        tree_data.set(.box_style, root_2, .{ .display = .block, .position = .relative });
+        tree_data.set(.box_style, root_3, .{ .display = .block, .position = .relative });
+
+        tree_data.set(.z_index, root_0, .{ .z_index = .{ .integer = 6 } });
+        tree_data.set(.z_index, root_1, .{ .z_index = .{ .integer = -2 } });
+        tree_data.set(.z_index, root_2, .{ .z_index = .auto });
+        tree_data.set(.z_index, root_3, .{ .z_index = .{ .integer = -5 } });
+        break :blk tree_data;
+    });
+    try list.append(blk: {
+        var tree_data = try TreeData.init(7, &.{ .box_style, .content_height, .background1, .text });
+        const root = tree_data.createRoot();
+        const root_0 = tree_data.insertChild(root);
+        const root_1 = tree_data.insertChild(root);
+        const root_2 = tree_data.insertChild(root);
+        const root_3 = tree_data.insertChild(root);
+        const root_3_0 = tree_data.insertChild(root_3);
+        const root_4 = tree_data.insertChild(root);
+
+        tree_data.set(.box_style, root, .{ .display = .block });
+
+        tree_data.set(.box_style, root_0, .{ .display = .block });
+        tree_data.set(.content_height, root_0, .{ .size = .{ .px = 50 } });
+        tree_data.set(.background1, root_0, .{ .color = .{ .rgba = 0x508020ff } });
+
+        tree_data.set(.box_style, root_1, .{ .display = .text });
+        tree_data.set(.text, root_1, .{ .text = "stuff 1" });
+
+        tree_data.set(.box_style, root_2, .{ .display = .block });
+        tree_data.set(.content_height, root_2, .{ .size = .{ .px = 50 } });
+        tree_data.set(.background1, root_2, .{ .color = .{ .rgba = 0x472658ff } });
+
+        tree_data.set(.box_style, root_3, .{ .display = .inline_ });
+        tree_data.set(.background1, root_3, .{ .color = .{ .rgba = 0xd74529ff } });
+
+        tree_data.set(.box_style, root_3_0, .{ .display = .text });
+        tree_data.set(.text, root_3_0, .{ .text = "stuff 2" });
+
+        tree_data.set(.box_style, root_4, .{ .display = .block });
+        tree_data.set(.content_height, root_4, .{ .size = .{ .px = 50 } });
+        tree_data.set(.background1, root_4, .{ .color = .{ .rgba = 0xd5ad81ff } });
+        break :blk tree_data;
+    });
+    try list.append(blk: {
+        var tree_data = try TreeData.init(3, &.{ .box_style, .content_width, .content_height, .background1, .text });
+        const root = tree_data.createRoot();
+        const root_0 = tree_data.insertChild(root);
+        const root_1 = tree_data.insertChild(root);
+        const root_1_0 = tree_data.insertChild(root_1);
+        const root_2 = tree_data.insertChild(root);
+
+        tree_data.set(.box_style, root_0, .{ .display = .text });
+        tree_data.set(.text, root_0, .{ .text = "abc\ndef" });
+
+        tree_data.set(.box_style, root_1, .{ .display = .inline_block });
+        tree_data.set(.content_width, root_1, .{ .size = .{ .px = 50 } });
+        tree_data.set(.content_height, root_1, .{ .size = .{ .px = 50 } });
+        tree_data.set(.background1, root_1, .{ .color = .{ .rgba = 0x48728fff } });
+
+        tree_data.set(.box_style, root_1_0, .{ .display = .text });
+        tree_data.set(.text, root_1_0, .{ .text = "123\n456" });
+
+        tree_data.set(.box_style, root_2, .{ .display = .text });
+        tree_data.set(.text, root_2, .{ .text = "666\n777" });
+        break :blk tree_data;
+    });
+    //    try list.append(blk: {
+    //        var tree_data = try TreeData.init(9, &.{ .box_style, .vertical_edges, .text, .background1 });
+    //        const root = tree_data.createRoot();
+    //        const inline_block_1 = tree_data.insertChild(root);
+    //        const text_1 = tree_data.insertChild(inline_block_1);
+    //        const inline_block_2 = tree_data.insertChild(inline_block_1);
+    //        const text_2 = tree_data.insertChild(inline_block_2);
+    //        const inline_block_3 = tree_data.insertChild(inline_block_2);
+    //        const text_3 = tree_data.insertChild(inline_block_3);
+    //        const inline_block_4 = tree_data.insertChild(inline_block_3);
+    //        const text_4 = tree_data.insertChild(inline_block_4);
+    //
+    //        tree_data.set(.box_style, inline_block_1, .{ .display = .inline_block });
+    //        tree_data.set(.vertical_edges, inline_block_1, .{ .padding_start = .{ .px = 10 } });
+    //        tree_data.set(.background1, inline_block_1, .{ .color = .{ .rgba = 0x508020ff } });
+    //
+    //        tree_data.set(.box_style, inline_block_2, .{ .display = .inline_block });
+    //        tree_data.set(.vertical_edges, inline_block_2, .{ .padding_start = .{ .px = 10 } });
+    //        tree_data.set(.background1, inline_block_2, .{ .color = .{ .rgba = 0x805020ff } });
+    //
+    //        tree_data.set(.box_style, inline_block_3, .{ .display = .inline_block });
+    //        tree_data.set(.vertical_edges, inline_block_3, .{ .padding_start = .{ .px = 10 } });
+    //        tree_data.set(.background1, inline_block_3, .{ .color = .{ .rgba = 0x802050ff } });
+    //
+    //        tree_data.set(.box_style, inline_block_4, .{ .display = .inline_block });
+    //        tree_data.set(.vertical_edges, inline_block_4, .{ .padding_start = .{ .px = 10 } });
+    //        tree_data.set(.background1, inline_block_4, .{ .color = .{ .rgba = 0x208050ff } });
+    //
+    //        tree_data.set(.box_style, text_1, .{ .display = .text });
+    //        tree_data.set(.text, text_1, .{ .text = "nested inline blocks  1 " });
+    //
+    //        tree_data.set(.box_style, text_2, .{ .display = .text });
+    //        tree_data.set(.text, text_2, .{ .text = "2 " });
+    //
+    //        tree_data.set(.box_style, text_3, .{ .display = .text });
+    //        tree_data.set(.text, text_3, .{ .text = "3 " });
+    //
+    //        tree_data.set(.box_style, text_4, .{ .display = .text });
+    //        tree_data.set(.text, text_4, .{ .text = "4 " });
+    //
+    //        break :blk tree_data;
+    //    });
+    return list;
+}
+
+pub const tree_data_old = [_]TreeData{
     .{
         .structure = &.{ 7, 2, 1, 1, 2, 1, 1 },
         .display = &.{ .{ .block = {} }, .{ .block = {} }, .{ .text = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .text = {} } },
@@ -182,13 +342,6 @@ pub const tree_data = [_]TreeData{
         .background = &.{ .{}, .{ .color = .{ .rgba = 0x9f2034ff } }, .{}, .{}, .{ .color = .{ .rgba = 0x208420ff } }, .{}, .{} },
         .position = &.{ .{}, .{ .style = .{ .relative = {} } }, .{}, .{}, .{}, .{}, .{} },
         .insets = &.{ .{}, .{ .block_start = .{ .px = 20 } }, .{}, .{}, .{}, .{}, .{} },
-    },
-    .{
-        .structure = &.{ 9, 8, 1, 6, 1, 4, 1, 2, 1 },
-        .display = &.{ .{ .block = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} } },
-        .block_size = &.{ .{}, .{ .padding_start = .{ .px = 10 } }, .{}, .{ .padding_start = .{ .px = 10 } }, .{}, .{ .padding_start = .{ .px = 10 } }, .{}, .{ .padding_start = .{ .px = 10 } }, .{} },
-        .latin1_text = &.{ .{}, .{}, .{ .text = "nested inline blocks  1 " }, .{}, .{ .text = "2 " }, .{}, .{ .text = "3 " }, .{}, .{ .text = "4 " } },
-        .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{}, .{ .color = .{ .rgba = 0x805020ff } }, .{}, .{ .color = .{ .rgba = 0x802050ff } }, .{}, .{ .color = .{ .rgba = 0x208050ff } }, .{} },
     },
     .{
         .structure = &.{ 6, 5, 1, 1, 2, 1 },
@@ -212,12 +365,5 @@ pub const tree_data = [_]TreeData{
         .latin1_text = &.{ .{}, .{}, .{}, .{}, .{}, .{ .text = "the inline-block width fits this text" } },
         .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{ .color = .{ .rgba = 0x472658ff } }, .{ .color = .{ .rgba = 0xd74529ff } }, .{ .color = .{ .rgba = 0xd5ad81ff } }, .{} },
         .border = border_color_sets[0],
-    },
-    .{
-        .structure = &.{ 7, 1, 1, 1, 2, 1, 1 },
-        .display = &.{ .{ .block = {} }, .{ .block = {} }, .{ .text = {} }, .{ .block = {} }, .{ .inline_ = {} }, .{ .text = {} }, .{ .block = {} } },
-        .block_size = &.{ .{}, .{ .size = .{ .px = 50 } }, .{}, .{ .size = .{ .px = 50 } }, .{}, .{}, .{ .size = .{ .px = 50 } } },
-        .background = &.{ .{}, .{ .color = .{ .rgba = 0x508020ff } }, .{}, .{ .color = .{ .rgba = 0x472658ff } }, .{ .color = .{ .rgba = 0xd74529ff } }, .{}, .{ .color = .{ .rgba = 0xd5ad81ff } } },
-        .latin1_text = &.{ .{}, .{}, .{ .text = "stuff 1" }, .{}, .{}, .{ .text = "stuff 2" }, .{} },
     },
 };
