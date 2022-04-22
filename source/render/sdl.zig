@@ -9,7 +9,6 @@ const zss = @import("../../zss.zig");
 const ZssUnit = zss.used_values.ZssUnit;
 const ZssRect = zss.used_values.ZssRect;
 const ZssVector = zss.used_values.ZssVector;
-const ZssLogicalVector = zss.used_values.ZssLogicalVector;
 const BlockBoxIndex = zss.used_values.BlockBoxIndex;
 const BlockBoxTree = zss.used_values.BlockBoxTree;
 const InlineBoxIndex = zss.used_values.InlineBoxIndex;
@@ -69,7 +68,8 @@ pub fn drawBoxTree(
                 while (!it.empty()) : (it = it.firstChild(box_tree_.blocks.skips.items)) {
                     it = it.nextParent(child_block_box, box_tree_.blocks.skips.items);
                     if (it.index == child_block_box) break;
-                    tr = tr.add(zssLogicalVectorToZssVector(box_tree_.blocks.box_offsets.items[it.index].content_start));
+                    const box_offsets = box_tree_.blocks.box_offsets.items[it.index];
+                    tr = tr.add(box_offsets.border_pos).add(box_offsets.content_pos);
                 }
                 break :blk tr;
             };
@@ -128,7 +128,8 @@ pub fn drawBoxTree(
                     var it = zss.SkipTreeIterator(BlockBoxIndex).init(top.generating_block, box_tree.blocks.skips.items);
                     while (!it.empty()) : (it = it.firstChild(box_tree.blocks.skips.items)) {
                         it = it.nextParent(ifc.parent_block, box_tree.blocks.skips.items);
-                        tr = tr.add(zssLogicalVectorToZssVector(box_tree.blocks.box_offsets.items[it.index].content_start));
+                        const box_offsets = box_tree.blocks.box_offsets.items[it.index];
+                        tr = tr.add(box_offsets.border_pos).add(box_offsets.content_pos);
                         if (it.index == ifc.parent_block) break;
                     }
                     tr = tr.add(ifc.origin);
@@ -180,15 +181,6 @@ pub fn zssRectToSdlRect(rect: ZssRect) sdl.SDL_Rect {
         .y = zssUnitToPixel(rect.y),
         .w = zssUnitToPixel(rect.w),
         .h = zssUnitToPixel(rect.h),
-    };
-}
-
-// The only supported writing mode is horizontal-tb, so this function
-// lets us ignore the logical coords and move into physical coords.
-pub fn zssLogicalVectorToZssVector(logical_vector: ZssLogicalVector) ZssVector {
-    return ZssVector{
-        .x = logical_vector.x,
-        .y = logical_vector.y,
     };
 }
 
@@ -332,32 +324,28 @@ pub const ThreeBoxes = struct {
     content: ZssRect,
 };
 
-// The only supported writing mode is horizontal-tb, so this function
-// lets us ignore the logical coords and move into physical coords.
 fn getThreeBoxes(translation: ZssVector, box_offsets: zss.used_values.BoxOffsets, borders: zss.used_values.Borders) ThreeBoxes {
-    const border_x = translation.x + box_offsets.border_start.x;
-    const border_y = translation.y + box_offsets.border_start.y;
-    const border_w = box_offsets.border_end.x - box_offsets.border_start.x;
-    const border_h = box_offsets.border_end.y - box_offsets.border_start.y;
+    const border_x = translation.x + box_offsets.border_pos.x;
+    const border_y = translation.y + box_offsets.border_pos.y;
 
     return ThreeBoxes{
         .border = ZssRect{
             .x = border_x,
             .y = border_y,
-            .w = border_w,
-            .h = border_h,
+            .w = box_offsets.border_size.w,
+            .h = box_offsets.border_size.h,
         },
         .padding = ZssRect{
-            .x = border_x + borders.inline_start,
-            .y = border_y + borders.block_start,
-            .w = border_w - borders.inline_start - borders.inline_end,
-            .h = border_h - borders.block_start - borders.block_end,
+            .x = border_x + borders.left,
+            .y = border_y + borders.top,
+            .w = box_offsets.border_size.w - borders.left - borders.right,
+            .h = box_offsets.border_size.h - borders.top - borders.bottom,
         },
         .content = ZssRect{
-            .x = translation.x + box_offsets.content_start.x,
-            .y = translation.y + box_offsets.content_start.y,
-            .w = box_offsets.content_end.x - box_offsets.content_start.x,
-            .h = box_offsets.content_end.y - box_offsets.content_start.y,
+            .x = border_x + box_offsets.content_pos.x,
+            .y = border_y + box_offsets.content_pos.y,
+            .w = box_offsets.content_size.w,
+            .h = box_offsets.content_size.h,
         },
     };
 }
@@ -438,7 +426,7 @@ pub fn drawChildBlocks(
 
         try stack.append(StackItem{
             .interval = Interval{ .begin = generating_block + 1, .end = generating_block + blocks.skips.items[generating_block] },
-            .translation = translation.add(zssLogicalVectorToZssVector(box_offsets.content_start)),
+            .translation = translation.add(box_offsets.border_pos).add(box_offsets.content_pos),
         });
     }
 
@@ -488,7 +476,7 @@ pub fn drawChildBlocks(
 
                 try stack.append(StackItem{
                     .interval = Interval{ .begin = block_box + 1, .end = block_box + skip },
-                    .translation = stack_item.translation.add(zssLogicalVectorToZssVector(box_offsets.content_start)),
+                    .translation = stack_item.translation.add(box_offsets.border_pos).add(box_offsets.content_pos),
                 });
                 continue :stackLoop;
             }
@@ -570,16 +558,16 @@ pub fn drawBlockContainer(
         pixel_format,
         zssRectToSdlRect(boxes.border),
         util.Widths{
-            .top = zssUnitToPixel(borders.block_start),
-            .right = zssUnitToPixel(borders.inline_end),
-            .bottom = zssUnitToPixel(borders.block_end),
-            .left = zssUnitToPixel(borders.inline_start),
+            .top = zssUnitToPixel(borders.top),
+            .right = zssUnitToPixel(borders.right),
+            .bottom = zssUnitToPixel(borders.bottom),
+            .left = zssUnitToPixel(borders.left),
         },
         util.Colors{
-            .top_rgba = border_colors.block_start_rgba,
-            .right_rgba = border_colors.inline_end_rgba,
-            .bottom_rgba = border_colors.block_end_rgba,
-            .left_rgba = border_colors.inline_start_rgba,
+            .top_rgba = border_colors.top_rgba,
+            .right_rgba = border_colors.right_rgba,
+            .bottom_rgba = border_colors.bottom_rgba,
+            .left_rgba = border_colors.left_rgba,
         },
     );
 }

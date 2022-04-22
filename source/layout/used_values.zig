@@ -26,11 +26,6 @@ pub const ZssVector = struct {
     }
 };
 
-pub const ZssLogicalVector = struct {
-    x: ZssUnit,
-    y: ZssUnit,
-};
-
 pub const ZssSize = struct {
     w: ZssUnit,
     h: ZssUnit,
@@ -65,55 +60,46 @@ pub const ZssRect = struct {
 
 pub const Color = u32;
 
-/// The offsets of various points of a block box, taken from the
-/// inline-start/block-start corner of the content box of its parent.
 pub const BoxOffsets = struct {
-    border_start: ZssLogicalVector = .{ .x = 0, .y = 0 },
-    border_end: ZssLogicalVector = .{ .x = 0, .y = 0 },
-    content_start: ZssLogicalVector = .{ .x = 0, .y = 0 },
-    content_end: ZssLogicalVector = .{ .x = 0, .y = 0 },
+    /// The offset of the top-left corner of the border box, relative to
+    /// the top-left corner of the parent block's content box (or the top-left
+    /// corner of the screen, if this is the initial containing block).
+    border_pos: ZssVector = .{ .x = 0, .y = 0 },
+    /// The width and height of the border box.
+    border_size: ZssSize = .{ .w = 0, .h = 0 },
+    /// The offset of the top-left corner of the content box, relative to
+    /// the top-left corner of this block's border box.
+    content_pos: ZssVector = .{ .x = 0, .y = 0 },
+    /// The width and height of the content box.
+    content_size: ZssSize = .{ .w = 0, .h = 0 },
 };
 
-/// Contains the used values of the properties
-/// 'border-block-start-width', 'border-inline-end-width',
-/// 'border-block-end-width', and 'border-inline-start-width'.
 pub const Borders = struct {
-    inline_start: ZssUnit = 0,
-    inline_end: ZssUnit = 0,
-    block_start: ZssUnit = 0,
-    block_end: ZssUnit = 0,
+    left: ZssUnit = 0,
+    right: ZssUnit = 0,
+    top: ZssUnit = 0,
+    bottom: ZssUnit = 0,
 };
 
-/// Contains the used values of the properties
-/// 'border-block-start-color', 'border-inline-end-color',
-/// 'border-block-end-color', and 'border-inline-start-color'.
 pub const BorderColor = struct {
-    inline_start_rgba: Color = 0,
-    inline_end_rgba: Color = 0,
-    block_start_rgba: Color = 0,
-    block_end_rgba: Color = 0,
+    left_rgba: Color = 0,
+    right_rgba: Color = 0,
+    top_rgba: Color = 0,
+    bottom_rgba: Color = 0,
 };
 
-/// Contains the used values of the properties
-/// 'margin-inline-start', 'margin-inline-end',
-/// 'margin-block-start', and 'margin-block-end'.
 pub const Margins = struct {
-    inline_start: ZssUnit = 0,
-    inline_end: ZssUnit = 0,
-    block_start: ZssUnit = 0,
-    block_end: ZssUnit = 0,
+    left: ZssUnit = 0,
+    right: ZssUnit = 0,
+    top: ZssUnit = 0,
+    bottom: ZssUnit = 0,
 };
 
-/// Contains the used values of the properties
-/// 'background-color' and 'background-clip'.
 pub const Background1 = struct {
     color_rgba: Color = 0,
     clip: enum { Border, Padding, Content } = .Border,
 };
 
-/// Contains the used values of the properties 'background-image',
-/// 'background-origin', 'background-position', 'background-size',
-/// and 'background-repeat'.
 pub const Background2 = struct {
     pub const Origin = enum { Padding, Border, Content };
     pub const Position = struct { x: ZssUnit = 0, y: ZssUnit = 0 };

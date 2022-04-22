@@ -212,6 +212,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
     });
     cascaded.color.setAssumeCapacity(root, .{ .color = .{ .rgba = args.text_color } });
+    cascaded.font.setAssumeCapacity(root, .{ .font = .{ .font = font } });
 
     // Large element with display: none
     cascaded.box_style.setAssumeCapacity(root_0, .{ .display = .none });
@@ -320,7 +321,8 @@ const ProgramState = struct {
     }
 
     fn updateMaxScroll(self: *Self) void {
-        self.max_scroll_y = std.math.max(0, zss.render.sdl.zssUnitToPixel(self.box_tree.blocks.box_offsets.items[1].border_end.y) - self.height);
+        const root_box_offsets = self.box_tree.blocks.box_offsets.items[1];
+        self.max_scroll_y = std.math.max(0, zss.render.sdl.zssUnitToPixel(root_box_offsets.border_pos.y + root_box_offsets.border_size.h) - self.height);
         self.scroll_y = std.math.clamp(self.scroll_y, 0, self.max_scroll_y);
     }
 };

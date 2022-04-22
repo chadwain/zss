@@ -620,10 +620,10 @@ fn makeInitialContainingBlock(layout: *BlockLayoutContext, context: *LayoutConte
     block.skip.* = undefined;
     block.properties.* = .{};
     block.box_offsets.* = .{
-        .border_start = .{ .x = 0, .y = 0 },
-        .content_start = .{ .x = 0, .y = 0 },
-        .content_end = .{ .x = width, .y = height },
-        .border_end = .{ .x = width, .y = height },
+        .border_pos = .{ .x = 0, .y = 0 },
+        .content_pos = .{ .x = 0, .y = 0 },
+        .content_size = .{ .w = width, .h = height },
+        .border_size = .{ .w = width, .h = height },
     };
     block.borders.* = .{};
     block.margins.* = .{};
@@ -748,7 +748,7 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
 
     box_tree.blocks.skips.items[block_box_index] = skip;
     const box_offsets = &box_tree.blocks.box_offsets.items[block_box_index];
-    assert(box_offsets.content_end.x - box_offsets.content_start.x == used_logical_width);
+    assert(box_offsets.content_size.w == used_logical_width);
     flowBlockFinishLayout(box_offsets, used_logical_heights, auto_logical_height);
 
     const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
@@ -757,8 +757,8 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
         .Flow => {
             layout.skip.items[layout.skip.items.len - 1] += skip;
             const parent_auto_logical_height = &layout.flow_block_auto_logical_height.items[layout.flow_block_auto_logical_height.items.len - 1];
-            const margin_block_end = box_tree.blocks.margins.items[block_box_index].block_end;
-            addBlockToFlow(box_offsets, margin_block_end, parent_auto_logical_height);
+            const margin_bottom = box_tree.blocks.margins.items[block_box_index].bottom;
+            addBlockToFlow(box_offsets, margin_bottom, parent_auto_logical_height);
         },
         .InlineFormattingContext => layout.skip.items[layout.skip.items.len - 1] += skip,
     }
@@ -1190,42 +1190,40 @@ fn flowBlockSetData(
     borders: *used_values.Borders,
     margins: *used_values.Margins,
 ) void {
-    // inline
-    box_offsets.border_start.x = used.margin_inline_start;
-    box_offsets.content_start.x = used.margin_inline_start + used.border_inline_start + used.padding_inline_start;
-    box_offsets.content_end.x = box_offsets.content_start.x + used.inline_size;
-    box_offsets.border_end.x = box_offsets.content_end.x + used.padding_inline_end + used.border_inline_end;
+    // horizontal
+    box_offsets.border_pos.x = used.margin_inline_start;
+    box_offsets.content_pos.x = used.border_inline_start + used.padding_inline_start;
+    box_offsets.content_size.w = used.inline_size;
+    box_offsets.border_size.w = box_offsets.content_pos.x + box_offsets.content_size.w + used.padding_inline_end + used.border_inline_end;
 
-    borders.inline_start = used.border_inline_start;
-    borders.inline_end = used.border_inline_end;
+    borders.left = used.border_inline_start;
+    borders.right = used.border_inline_end;
 
-    margins.inline_start = used.margin_inline_start;
-    margins.inline_end = used.margin_inline_end;
+    margins.left = used.margin_inline_start;
+    margins.right = used.margin_inline_end;
 
-    // block
-    box_offsets.border_start.y = used.margin_block_start;
-    box_offsets.content_start.y = used.margin_block_start + used.border_block_start + used.padding_block_start;
-    box_offsets.border_end.y = used.padding_block_end + used.border_block_end;
+    // vertical
+    box_offsets.border_pos.y = used.margin_block_start;
+    box_offsets.content_pos.y = used.border_block_start + used.padding_block_start;
+    box_offsets.border_size.h = box_offsets.content_pos.y + used.padding_block_end + used.border_block_end;
 
-    borders.block_start = used.border_block_start;
-    borders.block_end = used.border_block_end;
+    borders.top = used.border_block_start;
+    borders.bottom = used.border_block_end;
 
-    margins.block_start = used.margin_block_start;
-    margins.block_end = used.margin_block_end;
+    margins.top = used.margin_block_start;
+    margins.bottom = used.margin_block_end;
 }
 
 fn flowBlockFinishLayout(box_offsets: *used_values.BoxOffsets, used_logical_heights: UsedLogicalHeights, auto_logical_height: ZssUnit) void {
     const used_logical_height = used_logical_heights.height orelse clampSize(auto_logical_height, used_logical_heights.min_height, used_logical_heights.max_height);
-    box_offsets.content_end.y = box_offsets.content_start.y + used_logical_height;
-    box_offsets.border_end.y += box_offsets.content_end.y;
+    box_offsets.content_size.h = used_logical_height;
+    box_offsets.border_size.h += used_logical_height;
 }
 
-fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_end: ZssUnit, parent_auto_logical_height: *ZssUnit) void {
-    box_offsets.border_start.y += parent_auto_logical_height.*;
-    box_offsets.content_start.y += parent_auto_logical_height.*;
-    box_offsets.content_end.y += parent_auto_logical_height.*;
-    box_offsets.border_end.y += parent_auto_logical_height.*;
-    parent_auto_logical_height.* = box_offsets.border_end.y + margin_end;
+fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_bottom: ZssUnit, parent_auto_logical_height: *ZssUnit) void {
+    const margin_top = box_offsets.border_pos.y;
+    box_offsets.border_pos.y += parent_auto_logical_height.*;
+    parent_auto_logical_height.* += box_offsets.border_size.h + margin_top + margin_bottom;
 }
 
 fn advanceFlow(parent_auto_logical_height: *ZssUnit, height: ZssUnit) void {
@@ -1329,14 +1327,8 @@ const IFCLineSplitState = struct {
         for (self.inline_blocks_in_this_line_box.items) |info| {
             const offset_x = origin.x + info.cursor;
             const offset_y = origin.y + self.line_box.baseline - info.height;
-            info.box_offsets.border_start.x += offset_x;
-            info.box_offsets.border_start.y += offset_y;
-            info.box_offsets.border_end.x += offset_x;
-            info.box_offsets.border_end.y += offset_y;
-            info.box_offsets.content_start.x += offset_x;
-            info.box_offsets.content_start.y += offset_y;
-            info.box_offsets.content_end.x += offset_x;
-            info.box_offsets.content_end.y += offset_y;
+            info.box_offsets.border_pos.x += offset_x;
+            info.box_offsets.border_pos.y += offset_y;
         }
     }
 
@@ -1408,11 +1400,11 @@ fn splitIntoLineBoxes(
                     const block_box_index = @as(BlockBoxIndex, special.data);
                     const box_offsets = &box_tree.blocks.box_offsets.items[block_box_index];
                     const margins = box_tree.blocks.margins.items[block_box_index];
-                    const margin_box_height = box_offsets.border_end.y - box_offsets.border_start.y + margins.block_start + margins.block_end;
+                    const margin_box_height = box_offsets.border_size.h + margins.top + margins.bottom;
                     s.max_top_height = std.math.max(s.max_top_height, margin_box_height);
                     try s.inline_blocks_in_this_line_box.append(
                         context.allocator,
-                        .{ .box_offsets = box_offsets, .cursor = s.cursor, .height = margin_box_height - margins.block_start },
+                        .{ .box_offsets = box_offsets, .cursor = s.cursor, .height = margin_box_height - margins.top },
                     );
                 },
                 .LineBreak => unreachable,
@@ -1867,10 +1859,10 @@ fn inlineBoxSolveOtherProperties(context: *LayoutContext, ifc: *InlineFormatting
     const current_color = getCurrentColor(specified.color.color);
 
     const border_colors = solveBorderColors(specified.border_colors, current_color);
-    ifc.inline_start.items[inline_box_index].border_color_rgba = border_colors.inline_start_rgba;
-    ifc.inline_end.items[inline_box_index].border_color_rgba = border_colors.inline_end_rgba;
-    ifc.block_start.items[inline_box_index].border_color_rgba = border_colors.block_start_rgba;
-    ifc.block_end.items[inline_box_index].border_color_rgba = border_colors.block_end_rgba;
+    ifc.inline_start.items[inline_box_index].border_color_rgba = border_colors.left_rgba;
+    ifc.inline_end.items[inline_box_index].border_color_rgba = border_colors.right_rgba;
+    ifc.block_start.items[inline_box_index].border_color_rgba = border_colors.top_rgba;
+    ifc.block_end.items[inline_box_index].border_color_rgba = border_colors.bottom_rgba;
 
     const background1_ptr = &ifc.background1.items[inline_box_index];
     background1_ptr.* = solveBackground1(specified.background1, current_color);
@@ -2482,9 +2474,9 @@ fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, box_tree: *B
     const box_offsets = box_tree.blocks.box_offsets.items[block_box_index];
     const margins = box_tree.blocks.margins.items[block_box_index];
 
-    const width = box_offsets.border_end.x - box_offsets.border_start.x;
-    const advance = width + margins.inline_start + margins.inline_end;
-    metrics.* = .{ .offset = margins.inline_start, .advance = advance, .width = width };
+    const width = box_offsets.border_size.w;
+    const advance = width + margins.left + margins.right;
+    metrics.* = .{ .offset = margins.left, .advance = advance, .width = width };
 }
 
 fn solveBoxStyle(specified: zss.properties.BoxStyle, root: bool) zss.properties.BoxStyle {
@@ -2521,10 +2513,10 @@ fn @"CSS2.2Section9.7Table"(display: zss.values.Display) zss.values.Display {
 
 fn solveBorderColors(border_colors: zss.properties.BorderColors, current_color: used_values.Color) used_values.BorderColor {
     return used_values.BorderColor{
-        .inline_start_rgba = color(border_colors.left, current_color),
-        .inline_end_rgba = color(border_colors.right, current_color),
-        .block_start_rgba = color(border_colors.top, current_color),
-        .block_end_rgba = color(border_colors.bottom, current_color),
+        .left_rgba = color(border_colors.left, current_color),
+        .right_rgba = color(border_colors.right, current_color),
+        .top_rgba = color(border_colors.top, current_color),
+        .bottom_rgba = color(border_colors.bottom, current_color),
     };
 }
 
@@ -2547,12 +2539,12 @@ fn solveBackground2(bg: zss.properties.Background2, box_offsets: *const used_val
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
-    const border_width = box_offsets.border_end.x - box_offsets.border_start.x;
-    const border_height = box_offsets.border_end.y - box_offsets.border_start.y;
-    const padding_width = border_width - borders.inline_start - borders.inline_end;
-    const padding_height = border_height - borders.block_start - borders.block_end;
-    const content_width = box_offsets.content_end.x - box_offsets.content_start.x;
-    const content_height = box_offsets.content_end.y - box_offsets.content_start.y;
+    const border_width = box_offsets.border_size.w;
+    const border_height = box_offsets.border_size.h;
+    const padding_width = border_width - borders.left - borders.right;
+    const padding_height = border_height - borders.top - borders.bottom;
+    const content_width = box_offsets.content_size.w;
+    const content_height = box_offsets.content_size.h;
     const positioning_area: struct { origin: used_values.Background2.Origin, width: ZssUnit, height: ZssUnit } = switch (bg.origin) {
         .border_box => .{ .origin = .Border, .width = border_width, .height = border_height },
         .padding_box => .{ .origin = .Padding, .width = padding_width, .height = padding_height },

@@ -95,8 +95,8 @@ test "sdl" {
             // TODO: Find the block id of root a better way
             const root_box_offsets = box_tree.blocks.box_offsets.items[1];
             break :blk .{
-                .width = r.zssUnitToPixel(root_box_offsets.border_end.x - root_box_offsets.border_start.x),
-                .height = r.zssUnitToPixel(root_box_offsets.border_end.y - root_box_offsets.border_start.y),
+                .width = r.zssUnitToPixel(root_box_offsets.border_size.w),
+                .height = r.zssUnitToPixel(root_box_offsets.border_size.h),
             };
         } else .{ .width = 0, .height = 0 };
         var maybe_atlas = maybe_atlas: {
