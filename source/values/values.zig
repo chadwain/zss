@@ -169,6 +169,23 @@ pub const BorderWidth = union(enum) {
     undeclared,
 };
 
+pub const BorderStyle = enum {
+    none,
+    hidden,
+    dotted,
+    dashed,
+    solid,
+    double,
+    groove,
+    ridge,
+    inset,
+    outset,
+    initial,
+    inherit,
+    unset,
+    undeclared,
+};
+
 pub const Padding = union(enum) {
     px: f32,
     percentage: f32,
@@ -272,7 +289,7 @@ pub const BackgroundPosition = union(enum) {
     undeclared,
 };
 
-pub const BackgroundClip = union(enum) {
+pub const BackgroundClip = enum {
     border_box,
     padding_box,
     content_box,
@@ -282,7 +299,7 @@ pub const BackgroundClip = union(enum) {
     undeclared,
 };
 
-pub const BackgroundOrigin = union(enum) {
+pub const BackgroundOrigin = enum {
     border_box,
     padding_box,
     content_box,

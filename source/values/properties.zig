@@ -19,6 +19,7 @@ pub const AggregatePropertyEnum = enum {
     z_index,
     insets,
     border_colors,
+    border_styles,
     background1,
     background2,
 
@@ -39,6 +40,7 @@ pub const AggregatePropertyEnum = enum {
             .z_index => ZIndex,
             .insets => Insets,
             .border_colors => BorderColors,
+            .border_styles => BorderStyles,
             .background1 => Background1,
             .background2 => Background2,
             .color => Color,
@@ -63,6 +65,7 @@ pub const AggregatePropertyEnum = enum {
             .z_index,
             .insets,
             .border_colors,
+            .border_styles,
             .background1,
             .background2,
             .unicode_bidi,
@@ -128,8 +131,8 @@ pub const BoxEdges = struct {
     pub const initial_values = BoxEdges{
         .padding_start = .{ .px = 0 },
         .padding_end = .{ .px = 0 },
-        .border_start = .{ .px = 0 },
-        .border_end = .{ .px = 0 },
+        .border_start = .medium,
+        .border_end = .medium,
         .margin_start = .{ .px = 0 },
         .margin_end = .{ .px = 0 },
     };
@@ -176,6 +179,20 @@ pub const BorderColors = struct {
         .right = .current_color,
         .top = .current_color,
         .bottom = .current_color,
+    };
+};
+
+pub const BorderStyles = struct {
+    left: values.BorderStyle = .undeclared,
+    right: values.BorderStyle = .undeclared,
+    top: values.BorderStyle = .undeclared,
+    bottom: values.BorderStyle = .undeclared,
+
+    pub const initial_values = BorderStyles{
+        .left = .none,
+        .right = .none,
+        .top = .none,
+        .bottom = .none,
     };
 };
 

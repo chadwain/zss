@@ -16,6 +16,7 @@ const ZssSize = used_values.ZssSize;
 const ZssVector = used_values.ZssVector;
 const units_per_pixel = used_values.units_per_pixel;
 const BlockBoxIndex = used_values.BlockBoxIndex;
+const initial_containing_block = @as(BlockBoxIndex, 0);
 const BlockBoxSkip = used_values.BlockBoxSkip;
 const BlockBoxCount = used_values.BlockBoxCount;
 const BlockBoxTree = used_values.BlockBoxTree;
@@ -108,9 +109,18 @@ const BorderThickness = enum { thin, medium, thick };
 
 fn borderWidth(comptime thickness: BorderThickness) f32 {
     return switch (thickness) {
+        // TODO: Let these values be user-customizable.
         .thin => 1,
         .medium => 3,
         .thick => 5,
+    };
+}
+
+fn borderWidthMultiplier(border_styles: zss.values.BorderStyle) f32 {
+    return switch (border_styles) {
+        .none, .hidden => 0,
+        .initial, .inherit, .unset, .undeclared => unreachable,
+        else => 1,
     };
 }
 
@@ -164,6 +174,7 @@ const BoxGenComputedValueStack = struct {
     horizontal_edges: ArrayListUnmanaged(zss.properties.BoxEdges) = .{},
     content_height: ArrayListUnmanaged(zss.properties.ContentSize) = .{},
     vertical_edges: ArrayListUnmanaged(zss.properties.BoxEdges) = .{},
+    border_styles: ArrayListUnmanaged(zss.properties.BorderStyles) = .{},
     z_index: ArrayListUnmanaged(zss.properties.ZIndex) = .{},
     font: ArrayListUnmanaged(zss.properties.Font) = .{},
 };
@@ -174,6 +185,7 @@ const BoxGenCurrentValues = struct {
     horizontal_edges: zss.properties.BoxEdges,
     content_height: zss.properties.ContentSize,
     vertical_edges: zss.properties.BoxEdges,
+    border_styles: zss.properties.BorderStyles,
     z_index: zss.properties.ZIndex,
     font: zss.properties.Font,
 };
@@ -184,6 +196,7 @@ const BoxGenComptutedValueFlags = struct {
     horizontal_edges: bool = false,
     content_height: bool = false,
     vertical_edges: bool = false,
+    border_styles: bool = false,
     z_index: bool = false,
     font: bool = false,
 };
@@ -217,7 +230,7 @@ const ThisElement = struct {
 
 /// The type of box(es) that an element generates.
 const GeneratedBox = union(enum) {
-    /// The element generated no box_tree.
+    /// The element generated no boxes.
     none,
     /// The element generated a single block box.
     block_box: BlockBoxIndex,
@@ -501,6 +514,7 @@ fn doCosmeticLayout(context: *LayoutContext, box_tree: *BoxTree) !void {
                 },
             }
 
+            // TODO: Temporary jank to set the text color.
             if (element == root_element) {
                 const computed_color = context.stage.cosmetic.current_values.color;
                 const used_color = getCurrentColor(computed_color.color);
@@ -521,8 +535,9 @@ fn doCosmeticLayout(context: *LayoutContext, box_tree: *BoxTree) !void {
         }
     }
 
+    blockBoxFillOtherPropertiesWithDefaults(box_tree, initial_containing_block);
     for (context.anonymous_block_boxes.items) |anon_index| {
-        blockBoxFillOtherPropertiesWithDefaults(box_tree, @intCast(BlockBoxIndex, anon_index));
+        blockBoxFillOtherPropertiesWithDefaults(box_tree, anon_index);
     }
 }
 
@@ -617,6 +632,7 @@ fn makeInitialContainingBlock(layout: *BlockLayoutContext, context: *LayoutConte
     const height = context.viewport_size.h;
 
     const block = try createBlock(box_tree);
+    assert(block.index == initial_containing_block);
     block.skip.* = undefined;
     block.properties.* = .{};
     block.box_offsets.* = .{
@@ -628,7 +644,6 @@ fn makeInitialContainingBlock(layout: *BlockLayoutContext, context: *LayoutConte
     block.borders.* = .{};
     block.margins.* = .{};
 
-    try context.anonymous_block_boxes.append(context.allocator, block.index);
     if (context.element_tree_skips.len == 0) return;
 
     try layout.layout_mode.append(layout.allocator, .InitialContainingBlock);
@@ -644,12 +659,12 @@ fn makeInitialContainingBlock(layout: *BlockLayoutContext, context: *LayoutConte
 
 fn popInitialContainingBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
     assert(layout.layout_mode.pop() == .InitialContainingBlock);
-    const block_box_index = layout.index.pop();
+    assert(layout.index.pop() == initial_containing_block);
     const skip = layout.skip.pop();
     _ = layout.flow_block_used_logical_width.pop();
     _ = layout.flow_block_used_logical_heights.pop();
 
-    box_tree.blocks.skips.items[block_box_index] = skip;
+    box_tree.blocks.skips.items[initial_containing_block] = skip;
 }
 
 fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree, is_root_element: bool) !GeneratedBox {
@@ -660,6 +675,7 @@ fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree:
     const containing_block_logical_width = layout.flow_block_used_logical_width.items[layout.flow_block_used_logical_width.items.len - 1];
     const containing_block_logical_height = layout.flow_block_used_logical_heights.items[layout.flow_block_used_logical_heights.items.len - 1].height;
 
+    const border_styles = context.getSpecifiedValue(.box_gen, .border_styles);
     const specified_sizes = FlowBlockComputedSizes{
         .content_width = context.getSpecifiedValue(.box_gen, .content_width),
         .horizontal_edges = context.getSpecifiedValue(.box_gen, .horizontal_edges),
@@ -668,8 +684,8 @@ fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree:
     };
     var computed_sizes: FlowBlockComputedSizes = undefined;
     var used_sizes: FlowBlockUsedSizes = undefined;
-    try flowBlockSolveWidths(specified_sizes, containing_block_logical_width, &computed_sizes, &used_sizes);
-    try flowBlockSolveHeights(specified_sizes, containing_block_logical_width, containing_block_logical_height, &computed_sizes, &used_sizes);
+    try flowBlockSolveWidths(specified_sizes, containing_block_logical_width, border_styles, &computed_sizes, &used_sizes);
+    try flowBlockSolveHeights(specified_sizes, containing_block_logical_width, containing_block_logical_height, border_styles, &computed_sizes, &used_sizes);
     flowBlockAdjustWidthAndMargins(&used_sizes, containing_block_logical_width);
     flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
 
@@ -677,6 +693,7 @@ fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree:
     context.setComputedValue(.box_gen, .horizontal_edges, computed_sizes.horizontal_edges);
     context.setComputedValue(.box_gen, .content_height, computed_sizes.content_height);
     context.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
+    context.setComputedValue(.box_gen, .border_styles, border_styles);
 
     // TODO: Move z-index computation to the cosmetic stage
     const specified_z_index = context.getSpecifiedValue(.box_gen, .z_index);
@@ -831,60 +848,68 @@ const FlowBlockUsedSizes = struct {
 fn flowBlockSolveWidths(
     specified: FlowBlockComputedSizes,
     containing_block_logical_width: ZssUnit,
+    border_styles: zss.properties.BorderStyles,
     computed: *FlowBlockComputedSizes,
     used: *FlowBlockUsedSizes,
 ) !void {
     // TODO: Also use the logical properties ('inline-size', 'border-inline-start', etc.) to determine lengths.
     // TODO: Any relative units must be converted to absolute units to form the computed value.
-    // TODO: Border widths are '0' if the value of 'border-style' is 'none' or 'hidden'
 
     assert(containing_block_logical_width >= 0);
     const BF = FlowBlockUsedSizes.AutoBitfield;
     used.auto_bitfield.bits = 0;
 
-    switch (specified.horizontal_edges.border_start) {
-        .px => |value| {
-            computed.horizontal_edges.border_start = .{ .px = value };
-            used.border_inline_start = try positiveLength(.px, value);
-        },
-        .thin => {
-            const width = borderWidth(.thin);
-            computed.horizontal_edges.border_start = .{ .px = width };
-            used.border_inline_start = positiveLength(.px, width) catch unreachable;
-        },
-        .medium => {
-            const width = borderWidth(.medium);
-            computed.horizontal_edges.border_start = .{ .px = width };
-            used.border_inline_start = positiveLength(.px, width) catch unreachable;
-        },
-        .thick => {
-            const width = borderWidth(.thick);
-            computed.horizontal_edges.border_start = .{ .px = width };
-            used.border_inline_start = positiveLength(.px, width) catch unreachable;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
+    {
+        const multiplier = borderWidthMultiplier(border_styles.left);
+        switch (specified.horizontal_edges.border_start) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.horizontal_edges.border_start = .{ .px = width };
+                used.border_inline_start = try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.horizontal_edges.border_start = .{ .px = width };
+                used.border_inline_start = positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.horizontal_edges.border_start = .{ .px = width };
+                used.border_inline_start = positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.horizontal_edges.border_start = .{ .px = width };
+                used.border_inline_start = positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
     }
-    switch (specified.horizontal_edges.border_end) {
-        .px => |value| {
-            computed.horizontal_edges.border_end = .{ .px = value };
-            used.border_inline_end = try positiveLength(.px, value);
-        },
-        .thin => {
-            const width = borderWidth(.thin);
-            computed.horizontal_edges.border_end = .{ .px = width };
-            used.border_inline_end = positiveLength(.px, width) catch unreachable;
-        },
-        .medium => {
-            const width = borderWidth(.medium);
-            computed.horizontal_edges.border_end = .{ .px = width };
-            used.border_inline_end = positiveLength(.px, width) catch unreachable;
-        },
-        .thick => {
-            const width = borderWidth(.thick);
-            computed.horizontal_edges.border_end = .{ .px = width };
-            used.border_inline_end = positiveLength(.px, width) catch unreachable;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
+    {
+        const multiplier = borderWidthMultiplier(border_styles.right);
+        switch (specified.horizontal_edges.border_end) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.horizontal_edges.border_end = .{ .px = width };
+                used.border_inline_end = try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.horizontal_edges.border_end = .{ .px = width };
+                used.border_inline_end = positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.horizontal_edges.border_end = .{ .px = width };
+                used.border_inline_end = positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.horizontal_edges.border_end = .{ .px = width };
+                used.border_inline_end = positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
     }
     switch (specified.horizontal_edges.padding_start) {
         .px => |value| {
@@ -991,59 +1016,67 @@ fn flowBlockSolveHeights(
     specified: FlowBlockComputedSizes,
     containing_block_logical_width: ZssUnit,
     containing_block_logical_height: ?ZssUnit,
+    border_styles: zss.properties.BorderStyles,
     computed: *FlowBlockComputedSizes,
     used: *FlowBlockUsedSizes,
 ) !void {
     // TODO: Also use the logical properties ('block-size', 'border-block-start', etc.) to determine lengths.
     // TODO: Any relative units must be converted to absolute units to form the computed value.
-    // TODO: Border widths are '0' if the value of 'border-style' is 'none' or 'hidden'
 
     assert(containing_block_logical_width >= 0);
     if (containing_block_logical_height) |h| assert(h >= 0);
 
-    switch (specified.vertical_edges.border_start) {
-        .px => |value| {
-            computed.vertical_edges.border_start = .{ .px = value };
-            used.border_block_start = try positiveLength(.px, value);
-        },
-        .thin => {
-            const width = borderWidth(.thin);
-            computed.vertical_edges.border_start = .{ .px = width };
-            used.border_block_start = positiveLength(.px, width) catch unreachable;
-        },
-        .medium => {
-            const width = borderWidth(.medium);
-            computed.vertical_edges.border_start = .{ .px = width };
-            used.border_block_start = positiveLength(.px, width) catch unreachable;
-        },
-        .thick => {
-            const width = borderWidth(.thick);
-            computed.vertical_edges.border_start = .{ .px = width };
-            used.border_block_start = positiveLength(.px, width) catch unreachable;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
+    {
+        const multiplier = borderWidthMultiplier(border_styles.top);
+        switch (specified.vertical_edges.border_start) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.vertical_edges.border_start = .{ .px = width };
+                used.border_block_start = try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.vertical_edges.border_start = .{ .px = width };
+                used.border_block_start = positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.vertical_edges.border_start = .{ .px = width };
+                used.border_block_start = positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.vertical_edges.border_start = .{ .px = width };
+                used.border_block_start = positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
     }
-    switch (specified.vertical_edges.border_end) {
-        .px => |value| {
-            computed.vertical_edges.border_end = .{ .px = value };
-            used.border_block_end = try positiveLength(.px, value);
-        },
-        .thin => {
-            const width = borderWidth(.thin);
-            computed.vertical_edges.border_end = .{ .px = width };
-            used.border_block_end = positiveLength(.px, width) catch unreachable;
-        },
-        .medium => {
-            const width = borderWidth(.medium);
-            computed.vertical_edges.border_end = .{ .px = width };
-            used.border_block_end = positiveLength(.px, width) catch unreachable;
-        },
-        .thick => {
-            const width = borderWidth(.thick);
-            computed.vertical_edges.border_end = .{ .px = width };
-            used.border_block_end = positiveLength(.px, width) catch unreachable;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
+    {
+        const multiplier = borderWidthMultiplier(border_styles.bottom);
+        switch (specified.vertical_edges.border_end) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.vertical_edges.border_end = .{ .px = width };
+                used.border_block_end = try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.vertical_edges.border_end = .{ .px = width };
+                used.border_block_end = positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.vertical_edges.border_end = .{ .px = width };
+                used.border_block_end = positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.vertical_edges.border_end = .{ .px = width };
+                used.border_block_end = positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
     }
     switch (specified.vertical_edges.padding_start) {
         .px => |value| {
@@ -1446,14 +1479,16 @@ fn makeInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tre
         .content_height = context.getSpecifiedValue(.box_gen, .content_height),
         .vertical_edges = context.getSpecifiedValue(.box_gen, .vertical_edges),
     };
+    const border_styles = context.getSpecifiedValue(.box_gen, .border_styles);
     var computed_sizes: FlowBlockComputedSizes = undefined;
     var used_sizes: FlowBlockUsedSizes = undefined;
-    try inlineBlockSolveSizes(specified_sizes, containing_block_logical_width, containing_block_logical_height, &computed_sizes, &used_sizes);
+    try inlineBlockSolveSizes(specified_sizes, containing_block_logical_width, containing_block_logical_height, border_styles, &computed_sizes, &used_sizes);
 
     context.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
     context.setComputedValue(.box_gen, .horizontal_edges, computed_sizes.horizontal_edges);
     context.setComputedValue(.box_gen, .content_height, computed_sizes.content_height);
     context.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
+    context.setComputedValue(.box_gen, .border_styles, border_styles);
 
     // TODO: Move z-index computation to the cosmetic stage
     const specified_z_index = context.getSpecifiedValue(.box_gen, .z_index);
@@ -1489,6 +1524,7 @@ fn inlineBlockSolveSizes(
     specified: FlowBlockComputedSizes,
     containing_block_logical_width: ZssUnit,
     containing_block_logical_height: ?ZssUnit,
+    border_styles: zss.properties.BorderStyles,
     computed: *FlowBlockComputedSizes,
     used: *FlowBlockUsedSizes,
 ) !void {
@@ -1496,49 +1532,58 @@ fn inlineBlockSolveSizes(
     if (containing_block_logical_height) |h| assert(h >= 0);
 
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
-    switch (specified.horizontal_edges.border_start) {
-        .px => |value| {
-            computed.horizontal_edges.border_start = .{ .px = value };
-            used.border_inline_start = try positiveLength(.px, value);
-        },
-        .thin => {
-            const width = borderWidth(.thin);
-            computed.horizontal_edges.border_start = .{ .px = width };
-            used.border_inline_start = positiveLength(.px, width) catch unreachable;
-        },
-        .medium => {
-            const width = borderWidth(.medium);
-            computed.horizontal_edges.border_start = .{ .px = width };
-            used.border_inline_start = positiveLength(.px, width) catch unreachable;
-        },
-        .thick => {
-            const width = borderWidth(.thick);
-            computed.horizontal_edges.border_start = .{ .px = width };
-            used.border_inline_start = positiveLength(.px, width) catch unreachable;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
+
+    {
+        const multiplier = borderWidthMultiplier(border_styles.left);
+        switch (specified.horizontal_edges.border_start) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.horizontal_edges.border_start = .{ .px = width };
+                used.border_inline_start = try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.horizontal_edges.border_start = .{ .px = width };
+                used.border_inline_start = positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.horizontal_edges.border_start = .{ .px = width };
+                used.border_inline_start = positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.horizontal_edges.border_start = .{ .px = width };
+                used.border_inline_start = positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
     }
-    switch (specified.horizontal_edges.border_end) {
-        .px => |value| {
-            computed.horizontal_edges.border_end = .{ .px = value };
-            used.border_inline_end = try positiveLength(.px, value);
-        },
-        .thin => {
-            const width = borderWidth(.thin);
-            computed.horizontal_edges.border_end = .{ .px = width };
-            used.border_inline_end = positiveLength(.px, width) catch unreachable;
-        },
-        .medium => {
-            const width = borderWidth(.medium);
-            computed.horizontal_edges.border_end = .{ .px = width };
-            used.border_inline_end = positiveLength(.px, width) catch unreachable;
-        },
-        .thick => {
-            const width = borderWidth(.thick);
-            computed.horizontal_edges.border_end = .{ .px = width };
-            used.border_inline_end = positiveLength(.px, width) catch unreachable;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
+    {
+        const multiplier = borderWidthMultiplier(border_styles.right);
+        switch (specified.horizontal_edges.border_end) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.horizontal_edges.border_end = .{ .px = width };
+                used.border_inline_end = try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.horizontal_edges.border_end = .{ .px = width };
+                used.border_inline_end = positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.horizontal_edges.border_end = .{ .px = width };
+                used.border_inline_end = positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.horizontal_edges.border_end = .{ .px = width };
+                used.border_inline_end = positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
     }
     switch (specified.horizontal_edges.padding_start) {
         .px => |value| {
@@ -1639,49 +1684,57 @@ fn inlineBlockSolveSizes(
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
-    switch (specified.vertical_edges.border_start) {
-        .px => |value| {
-            computed.vertical_edges.border_start = .{ .px = value };
-            used.border_block_start = try positiveLength(.px, value);
-        },
-        .thin => {
-            const width = borderWidth(.thin);
-            computed.vertical_edges.border_start = .{ .px = width };
-            used.border_block_start = positiveLength(.px, width) catch unreachable;
-        },
-        .medium => {
-            const width = borderWidth(.medium);
-            computed.vertical_edges.border_start = .{ .px = width };
-            used.border_block_start = positiveLength(.px, width) catch unreachable;
-        },
-        .thick => {
-            const width = borderWidth(.thick);
-            computed.vertical_edges.border_start = .{ .px = width };
-            used.border_block_start = positiveLength(.px, width) catch unreachable;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
+    {
+        const multiplier = borderWidthMultiplier(border_styles.top);
+        switch (specified.vertical_edges.border_start) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.vertical_edges.border_start = .{ .px = width };
+                used.border_block_start = try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.vertical_edges.border_start = .{ .px = width };
+                used.border_block_start = positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.vertical_edges.border_start = .{ .px = width };
+                used.border_block_start = positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.vertical_edges.border_start = .{ .px = width };
+                used.border_block_start = positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
     }
-    switch (specified.vertical_edges.border_end) {
-        .px => |value| {
-            computed.vertical_edges.border_end = .{ .px = value };
-            used.border_block_end = try positiveLength(.px, value);
-        },
-        .thin => {
-            const width = borderWidth(.thin);
-            computed.vertical_edges.border_end = .{ .px = width };
-            used.border_block_end = positiveLength(.px, width) catch unreachable;
-        },
-        .medium => {
-            const width = borderWidth(.medium);
-            computed.vertical_edges.border_end = .{ .px = width };
-            used.border_block_end = positiveLength(.px, width) catch unreachable;
-        },
-        .thick => {
-            const width = borderWidth(.thick);
-            computed.vertical_edges.border_end = .{ .px = width };
-            used.border_block_end = positiveLength(.px, width) catch unreachable;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
+    {
+        const multiplier = borderWidthMultiplier(border_styles.bottom);
+        switch (specified.vertical_edges.border_end) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.vertical_edges.border_end = .{ .px = width };
+                used.border_block_end = try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.vertical_edges.border_end = .{ .px = width };
+                used.border_block_end = positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.vertical_edges.border_end = .{ .px = width };
+                used.border_block_end = positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.vertical_edges.border_end = .{ .px = width };
+                used.border_block_end = positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
     }
     switch (specified.vertical_edges.padding_start) {
         .px => |value| {
@@ -1847,7 +1900,7 @@ fn inlineBoxSolveOtherProperties(context: *LayoutContext, ifc: *InlineFormatting
         .color = context.getSpecifiedValue(.cosmetic, .color),
         .border_colors = context.getSpecifiedValue(.cosmetic, .border_colors),
         .background1 = context.getSpecifiedValue(.cosmetic, .background1),
-        .background2 = context.getSpecifiedValue(.cosmetic, .background2), // TODO: Inline box_tree don't need background2
+        .background2 = context.getSpecifiedValue(.cosmetic, .background2), // TODO: Inline boxes don't need background2
     };
 
     // TODO: Pretending that specified values are computed values...
@@ -2045,7 +2098,7 @@ fn ifcRunOnce(
                 try layout.index.append(layout.allocator, inline_box_index);
                 try context.pushElement(.box_gen);
             } else {
-                // Optimized path for inline box_tree with no children.
+                // Optimized path for inline boxes with no children.
                 // It is a shorter version of ifcPopInlineBox.
                 try addBoxEnd(box_tree, ifc, inline_box_index);
             }
@@ -2201,10 +2254,10 @@ fn setRootInlineBoxUsedData(ifc: *InlineFormattingContext, inline_box_index: Inl
 
 fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
-    // TODO: Border widths are '0' if the value of 'border-style' is 'none' or 'hidden'
     const specified = .{
         .horizontal_edges = context.getSpecifiedValue(.box_gen, .horizontal_edges),
         .vertical_edges = context.getSpecifiedValue(.box_gen, .vertical_edges),
+        .border_styles = context.getSpecifiedValue(.box_gen, .border_styles),
     };
 
     var computed: struct {
@@ -2240,27 +2293,31 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.horizontal_edges.border_start) {
-        .px => |value| {
-            computed.horizontal_edges.border_start = .{ .px = value };
-            used.border_inline_start = try positiveLength(.px, value);
-        },
-        .thin => {
-            const width = borderWidth(.thin);
-            computed.horizontal_edges.border_start = .{ .px = width };
-            used.border_inline_start = positiveLength(.px, width) catch unreachable;
-        },
-        .medium => {
-            const width = borderWidth(.medium);
-            computed.horizontal_edges.border_start = .{ .px = width };
-            used.border_inline_start = positiveLength(.px, width) catch unreachable;
-        },
-        .thick => {
-            const width = borderWidth(.thick);
-            computed.horizontal_edges.border_start = .{ .px = width };
-            used.border_inline_start = positiveLength(.px, width) catch unreachable;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
+    {
+        const multiplier = borderWidthMultiplier(specified.border_styles.left);
+        switch (specified.horizontal_edges.border_start) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.horizontal_edges.border_start = .{ .px = width };
+                used.border_inline_start = try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.horizontal_edges.border_start = .{ .px = width };
+                used.border_inline_start = positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.horizontal_edges.border_start = .{ .px = width };
+                used.border_inline_start = positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.horizontal_edges.border_start = .{ .px = width };
+                used.border_inline_start = positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
     }
     switch (specified.horizontal_edges.padding_start) {
         .px => |value| {
@@ -2288,27 +2345,31 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.horizontal_edges.border_end) {
-        .px => |value| {
-            computed.horizontal_edges.border_end = .{ .px = value };
-            used.border_inline_end = try positiveLength(.px, value);
-        },
-        .thin => {
-            const width = borderWidth(.thin);
-            computed.horizontal_edges.border_end = .{ .px = width };
-            used.border_inline_end = positiveLength(.px, width) catch unreachable;
-        },
-        .medium => {
-            const width = borderWidth(.medium);
-            computed.horizontal_edges.border_end = .{ .px = width };
-            used.border_inline_end = positiveLength(.px, width) catch unreachable;
-        },
-        .thick => {
-            const width = borderWidth(.thick);
-            computed.horizontal_edges.border_end = .{ .px = width };
-            used.border_inline_end = positiveLength(.px, width) catch unreachable;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
+    {
+        const multiplier = borderWidthMultiplier(specified.border_styles.right);
+        switch (specified.horizontal_edges.border_end) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.horizontal_edges.border_end = .{ .px = width };
+                used.border_inline_end = try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.horizontal_edges.border_end = .{ .px = width };
+                used.border_inline_end = positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.horizontal_edges.border_end = .{ .px = width };
+                used.border_inline_end = positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.horizontal_edges.border_end = .{ .px = width };
+                used.border_inline_end = positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
     }
     switch (specified.horizontal_edges.padding_end) {
         .px => |value| {
@@ -2322,27 +2383,31 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
-    switch (specified.vertical_edges.border_start) {
-        .px => |value| {
-            computed.vertical_edges.border_start = .{ .px = value };
-            used.border_block_start = try positiveLength(.px, value);
-        },
-        .thin => {
-            const width = borderWidth(.thin);
-            computed.vertical_edges.border_start = .{ .px = width };
-            used.border_block_start = positiveLength(.px, width) catch unreachable;
-        },
-        .medium => {
-            const width = borderWidth(.medium);
-            computed.vertical_edges.border_start = .{ .px = width };
-            used.border_block_start = positiveLength(.px, width) catch unreachable;
-        },
-        .thick => {
-            const width = borderWidth(.thick);
-            computed.vertical_edges.border_start = .{ .px = width };
-            used.border_block_start = positiveLength(.px, width) catch unreachable;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
+    {
+        const multiplier = borderWidthMultiplier(specified.border_styles.top);
+        switch (specified.vertical_edges.border_start) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.vertical_edges.border_start = .{ .px = width };
+                used.border_block_start = try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.vertical_edges.border_start = .{ .px = width };
+                used.border_block_start = positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.vertical_edges.border_start = .{ .px = width };
+                used.border_block_start = positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.vertical_edges.border_start = .{ .px = width };
+                used.border_block_start = positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
     }
     switch (specified.vertical_edges.padding_start) {
         .px => |value| {
@@ -2355,27 +2420,31 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.vertical_edges.border_end) {
-        .px => |value| {
-            computed.vertical_edges.border_end = .{ .px = value };
-            used.border_block_end = try positiveLength(.px, value);
-        },
-        .thin => {
-            const width = borderWidth(.thin);
-            computed.vertical_edges.border_end = .{ .px = width };
-            used.border_block_end = positiveLength(.px, width) catch unreachable;
-        },
-        .medium => {
-            const width = borderWidth(.medium);
-            computed.vertical_edges.border_end = .{ .px = width };
-            used.border_block_end = positiveLength(.px, width) catch unreachable;
-        },
-        .thick => {
-            const width = borderWidth(.thick);
-            computed.vertical_edges.border_end = .{ .px = width };
-            used.border_block_end = positiveLength(.px, width) catch unreachable;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
+    {
+        const multiplier = borderWidthMultiplier(specified.border_styles.bottom);
+        switch (specified.vertical_edges.border_end) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.vertical_edges.border_end = .{ .px = width };
+                used.border_block_end = try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.vertical_edges.border_end = .{ .px = width };
+                used.border_block_end = positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.vertical_edges.border_end = .{ .px = width };
+                used.border_block_end = positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.vertical_edges.border_end = .{ .px = width };
+                used.border_block_end = positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
     }
     switch (specified.vertical_edges.padding_end) {
         .px => |value| {
@@ -2394,6 +2463,7 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
 
     context.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
     context.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
+    context.setComputedValue(.box_gen, .border_styles, specified.border_styles);
 
     ifc.inline_start.items[inline_box_index] = .{ .border = used.border_inline_start, .padding = used.padding_inline_start };
     ifc.inline_end.items[inline_box_index] = .{ .border = used.border_inline_end, .padding = used.padding_inline_end };

@@ -94,6 +94,12 @@ color: Store(properties.Color) = .{},
 /// * bottom -> border-bottom-color
 border_colors: Store(properties.BorderColors) = .{},
 
+/// * left   -> border-left-style
+/// * right  -> border-right-style
+/// * top    -> border-top-style
+/// * bottom -> border-bottom-style
+border_styles: Store(properties.BorderStyles) = .{},
+
 /// * color -> background-color
 /// * clip  -> background-clip
 background1: Store(properties.Background1) = .{},

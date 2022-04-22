@@ -154,7 +154,7 @@ fn parseArgs(args: []const [:0]const u8, stderr: std.fs.File.Writer) ProgramArgu
             stderr.print("Unable to parse text color: {s}", .{@errorName(e)}) catch {};
             std.os.exit(1);
         }) << 8 | 0xff,
-        .bg_color = @as(u32, bg_color orelse @as(std.fmt.ParseIntError!u24, 0xeeeeee) catch |e| {
+        .bg_color = @as(u32, bg_color orelse @as(std.fmt.ParseIntError!u24, 0xefefef) catch |e| {
             stderr.print("Unable to parse background color: {s}", .{@errorName(e)}) catch {};
             std.os.exit(1);
         }) << 8 | 0xff,
@@ -174,24 +174,24 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
 
     var element_tree = zss.ElementTree{};
     defer element_tree.deinit(allocator);
+    try element_tree.ensureTotalCapacity(allocator, 8);
 
-    const num_elements = 9;
-    try element_tree.ensureTotalCapacity(allocator, num_elements);
     const root = element_tree.createRootAssumeCapacity();
 
-    const root_0 = element_tree.appendChildAssumeCapacity(root);
-    const root_1 = element_tree.appendChildAssumeCapacity(root);
-    const root_2 = element_tree.appendChildAssumeCapacity(root);
-    const root_3 = element_tree.appendChildAssumeCapacity(root);
+    const removed_block = element_tree.appendChildAssumeCapacity(root);
 
-    const root_1_0 = element_tree.appendChildAssumeCapacity(root_1);
-    const root_1_0_0 = element_tree.appendChildAssumeCapacity(root_1_0);
-    const root_2_0 = element_tree.appendChildAssumeCapacity(root_2);
-    const root_2_0_0 = element_tree.appendChildAssumeCapacity(root_2_0);
+    const title_block = element_tree.appendChildAssumeCapacity(root);
+    const title_inline_box = element_tree.appendChildAssumeCapacity(title_block);
+    const title_text = element_tree.appendChildAssumeCapacity(title_inline_box);
+
+    const body_block = element_tree.appendChildAssumeCapacity(root);
+    const body_text = element_tree.appendChildAssumeCapacity(body_block);
+
+    const footer = element_tree.appendChildAssumeCapacity(root);
 
     var cascaded = zss.CascadedValueStore{};
     defer cascaded.deinit(allocator);
-    try cascaded.ensureTotalCapacity(allocator, num_elements);
+    try cascaded.ensureTotalCapacity(allocator, element_tree.size());
 
     // Root element
     const root_border = zss.values.BorderWidth{ .px = 10 };
@@ -202,6 +202,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     cascaded.horizontal_edges.setAssumeCapacity(root, .{ .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border });
     cascaded.vertical_edges.setAssumeCapacity(root, .{ .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border });
     cascaded.border_colors.setAssumeCapacity(root, .{ .top = root_border_color, .right = root_border_color, .bottom = root_border_color, .left = root_border_color });
+    cascaded.border_styles.setAssumeCapacity(root, .{ .top = .solid, .right = .solid, .bottom = .solid, .left = .solid });
     cascaded.background1.setAssumeCapacity(root, .{ .color = .{ .rgba = args.bg_color } });
     cascaded.background2.setAssumeCapacity(root, .{
         .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(smile) },
@@ -215,50 +216,50 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     cascaded.font.setAssumeCapacity(root, .{ .font = .{ .font = font } });
 
     // Large element with display: none
-    cascaded.box_style.setAssumeCapacity(root_0, .{ .display = .none });
-    cascaded.content_width.setAssumeCapacity(root_0, .{ .size = .{ .px = 10000 } });
-    cascaded.content_height.setAssumeCapacity(root_0, .{ .size = .{ .px = 10000 } });
+    cascaded.box_style.setAssumeCapacity(removed_block, .{ .display = .none });
+    cascaded.content_width.setAssumeCapacity(removed_block, .{ .size = .{ .px = 10000 } });
+    cascaded.content_height.setAssumeCapacity(removed_block, .{ .size = .{ .px = 10000 } });
+    cascaded.background1.setAssumeCapacity(removed_block, .{ .color = .{ .rgba = 0xff00ffff } });
 
     // Title block box
-    cascaded.box_style.setAssumeCapacity(root_1, .{ .display = .block, .position = .relative });
-    cascaded.vertical_edges.setAssumeCapacity(root_1, .{ .border_end = .{ .px = 2 }, .margin_end = .{ .px = 24 } });
-    cascaded.z_index.setAssumeCapacity(root_1, .{ .z_index = .{ .integer = -1 } });
-    cascaded.border_colors.setAssumeCapacity(root_1, .{ .bottom = .{ .rgba = 0x202020ff } });
+    cascaded.box_style.setAssumeCapacity(title_block, .{ .display = .block, .position = .relative });
+    cascaded.vertical_edges.setAssumeCapacity(title_block, .{ .border_end = .{ .px = 2 }, .margin_end = .{ .px = 24 } });
+    cascaded.z_index.setAssumeCapacity(title_block, .{ .z_index = .{ .integer = -1 } });
+    cascaded.border_colors.setAssumeCapacity(title_block, .{ .bottom = .{ .rgba = 0x202020ff } });
+    cascaded.border_styles.setAssumeCapacity(title_block, .{ .bottom = .solid });
 
     // Title inline box
-    cascaded.box_style.setAssumeCapacity(root_1_0, .{ .display = .inline_ });
-    cascaded.horizontal_edges.setAssumeCapacity(root_1_0, .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } });
-    cascaded.vertical_edges.setAssumeCapacity(root_1_0, .{ .padding_end = .{ .px = 5 } });
-    cascaded.background1.setAssumeCapacity(root_1_0, .{ .color = .{ .rgba = 0xfa58007f } });
+    cascaded.box_style.setAssumeCapacity(title_inline_box, .{ .display = .inline_ });
+    cascaded.horizontal_edges.setAssumeCapacity(title_inline_box, .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } });
+    cascaded.vertical_edges.setAssumeCapacity(title_inline_box, .{ .padding_end = .{ .px = 5 } });
+    cascaded.background1.setAssumeCapacity(title_inline_box, .{ .color = .{ .rgba = 0xfa58007f } });
 
     // Title text
-    cascaded.box_style.setAssumeCapacity(root_1_0_0, .{ .display = .text });
-    cascaded.text.setAssumeCapacity(root_1_0_0, .{ .text = args.filename });
+    cascaded.box_style.setAssumeCapacity(title_text, .{ .display = .text });
+    cascaded.text.setAssumeCapacity(title_text, .{ .text = args.filename });
 
     // Body block box
-    cascaded.box_style.setAssumeCapacity(root_2, .{ .display = .block, .position = .relative });
-
-    // Body inline box
-    cascaded.box_style.setAssumeCapacity(root_2_0, .{ .display = .inline_ });
+    cascaded.box_style.setAssumeCapacity(body_block, .{ .display = .block, .position = .relative });
 
     // Body text
-    cascaded.box_style.setAssumeCapacity(root_2_0_0, .{ .display = .text });
-    cascaded.text.setAssumeCapacity(root_2_0_0, .{ .text = bytes });
+    cascaded.box_style.setAssumeCapacity(body_text, .{ .display = .text });
+    cascaded.text.setAssumeCapacity(body_text, .{ .text = bytes });
 
     // Footer block
-    cascaded.box_style.setAssumeCapacity(root_3, .{ .display = .block });
-    cascaded.content_height.setAssumeCapacity(root_3, .{ .size = .{ .px = 50 } });
-    cascaded.horizontal_edges.setAssumeCapacity(root_3, .{ .border_start = .inherit, .border_end = .inherit });
-    cascaded.vertical_edges.setAssumeCapacity(root_3, .{ .margin_start = .{ .px = 10 }, .border_start = .inherit, .border_end = .inherit });
-    cascaded.border_colors.setAssumeCapacity(root_3, .{ .top = root_border_color, .right = root_border_color, .bottom = root_border_color, .left = root_border_color });
-    cascaded.background2.setAssumeCapacity(root_3, .{
+    cascaded.box_style.setAssumeCapacity(footer, .{ .display = .block });
+    cascaded.content_height.setAssumeCapacity(footer, .{ .size = .{ .px = 50 } });
+    cascaded.horizontal_edges.setAssumeCapacity(footer, .{ .border_start = .inherit, .border_end = .inherit });
+    cascaded.vertical_edges.setAssumeCapacity(footer, .{ .margin_start = .{ .px = 10 }, .border_start = .inherit, .border_end = .inherit });
+    cascaded.border_colors.setAssumeCapacity(footer, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
+    cascaded.border_styles.setAssumeCapacity(footer, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
+    cascaded.background2.setAssumeCapacity(footer, .{
         .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(zig_png) },
         .position = .{ .position = .{
             .x = .{ .side = .left, .offset = .{ .percentage = 0.5 } },
             .y = .{ .side = .top, .offset = .{ .percentage = 0.5 } },
         } },
         .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
-        .size = .{ .contain = {} },
+        .size = .contain,
     });
 
     try sdlMainLoop(window, renderer, face, allocator, &element_tree, &cascaded);
