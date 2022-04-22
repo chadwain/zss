@@ -203,6 +203,7 @@ const BoxGenComptutedValueFlags = struct {
 
 const CosmeticComputedValueStack = struct {
     border_colors: ArrayListUnmanaged(zss.properties.BorderColors) = .{},
+    border_styles: ArrayListUnmanaged(zss.properties.BorderStyles) = .{},
     background1: ArrayListUnmanaged(zss.properties.Background1) = .{},
     background2: ArrayListUnmanaged(zss.properties.Background2) = .{},
     color: ArrayListUnmanaged(zss.properties.Color) = .{},
@@ -210,6 +211,7 @@ const CosmeticComputedValueStack = struct {
 
 const CosmeticCurrentValues = struct {
     border_colors: zss.properties.BorderColors,
+    border_styles: zss.properties.BorderStyles,
     background1: zss.properties.Background1,
     background2: zss.properties.Background2,
     color: zss.properties.Color,
@@ -217,6 +219,7 @@ const CosmeticCurrentValues = struct {
 
 const CosmeticComptutedValueFlags = struct {
     border_colors: bool = false,
+    border_styles: bool = false,
     background1: bool = false,
     background2: bool = false,
     color: bool = false,
@@ -1865,15 +1868,10 @@ fn blockBoxSolveOtherProperties(context: *LayoutContext, box_tree: *BoxTree, blo
     const specified = .{
         .color = context.getSpecifiedValue(.cosmetic, .color),
         .border_colors = context.getSpecifiedValue(.cosmetic, .border_colors),
+        .border_styles = context.getSpecifiedValue(.cosmetic, .border_styles),
         .background1 = context.getSpecifiedValue(.cosmetic, .background1),
         .background2 = context.getSpecifiedValue(.cosmetic, .background2),
     };
-
-    // TODO: Pretending that specified values are computed values...
-    context.setComputedValue(.cosmetic, .color, specified.color);
-    context.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
-    context.setComputedValue(.cosmetic, .background1, specified.background1);
-    context.setComputedValue(.cosmetic, .background2, specified.background2);
 
     const current_color = getCurrentColor(specified.color.color);
 
@@ -1883,10 +1881,19 @@ fn blockBoxSolveOtherProperties(context: *LayoutContext, box_tree: *BoxTree, blo
     const border_colors_ptr = &box_tree.blocks.border_colors.items[block_box_index];
     border_colors_ptr.* = solveBorderColors(specified.border_colors, current_color);
 
+    solveBorderStyles(specified.border_styles);
+
     const background1_ptr = &box_tree.blocks.background1.items[block_box_index];
     const background2_ptr = &box_tree.blocks.background2.items[block_box_index];
     background1_ptr.* = solveBackground1(specified.background1, current_color);
     background2_ptr.* = try solveBackground2(specified.background2, box_offsets_ptr, borders_ptr);
+
+    // TODO: Pretending that specified values are computed values...
+    context.setComputedValue(.cosmetic, .color, specified.color);
+    context.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
+    context.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
+    context.setComputedValue(.cosmetic, .background1, specified.background1);
+    context.setComputedValue(.cosmetic, .background2, specified.background2);
 }
 
 fn blockBoxFillOtherPropertiesWithDefaults(box_tree: *BoxTree, block_box_index: BlockBoxIndex) void {
@@ -1899,6 +1906,7 @@ fn inlineBoxSolveOtherProperties(context: *LayoutContext, ifc: *InlineFormatting
     const specified = .{
         .color = context.getSpecifiedValue(.cosmetic, .color),
         .border_colors = context.getSpecifiedValue(.cosmetic, .border_colors),
+        .border_styles = context.getSpecifiedValue(.cosmetic, .border_styles),
         .background1 = context.getSpecifiedValue(.cosmetic, .background1),
         .background2 = context.getSpecifiedValue(.cosmetic, .background2), // TODO: Inline boxes don't need background2
     };
@@ -1906,6 +1914,7 @@ fn inlineBoxSolveOtherProperties(context: *LayoutContext, ifc: *InlineFormatting
     // TODO: Pretending that specified values are computed values...
     context.setComputedValue(.cosmetic, .color, specified.color);
     context.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
+    context.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
     context.setComputedValue(.cosmetic, .background1, specified.background1);
     context.setComputedValue(.cosmetic, .background2, specified.background2);
 
@@ -1916,6 +1925,8 @@ fn inlineBoxSolveOtherProperties(context: *LayoutContext, ifc: *InlineFormatting
     ifc.inline_end.items[inline_box_index].border_color_rgba = border_colors.right_rgba;
     ifc.block_start.items[inline_box_index].border_color_rgba = border_colors.top_rgba;
     ifc.block_end.items[inline_box_index].border_color_rgba = border_colors.bottom_rgba;
+
+    solveBorderStyles(specified.border_styles);
 
     const background1_ptr = &ifc.background1.items[inline_box_index];
     background1_ptr.* = solveBackground1(specified.background1, current_color);
@@ -2588,6 +2599,22 @@ fn solveBorderColors(border_colors: zss.properties.BorderColors, current_color: 
         .top_rgba = color(border_colors.top, current_color),
         .bottom_rgba = color(border_colors.bottom, current_color),
     };
+}
+
+fn solveBorderStyles(border_styles: zss.properties.BorderStyles) void {
+    const solveOne = struct {
+        fn f(border_style: zss.values.BorderStyle) void {
+            switch (border_style) {
+                .none, .hidden, .solid => {},
+                .initial, .inherit, .unset, .undeclared => unreachable,
+                else => std.debug.panic("TODO: border-style: {s}", .{@tagName(border_style)}),
+            }
+        }
+    }.f;
+
+    inline for (std.meta.fields(zss.properties.BorderStyles)) |field_info| {
+        solveOne(@field(border_styles, field_info.name));
+    }
 }
 
 fn solveBackground1(bg: zss.properties.Background1, current_color: used_values.Color) used_values.Background1 {
