@@ -2130,9 +2130,11 @@ fn ifcRunOnce(
 
             try context.pushElement(.box_gen);
 
-            const frame = try layout.getFrame();
-            frame.* = async runUntilStackSizeIsRestored(block_layout, context, box_tree);
-            nosuspend try await frame.*;
+            nosuspend {
+                const frame = try layout.getFrame();
+                frame.* = async runUntilStackSizeIsRestored(block_layout, context, box_tree);
+                try await frame.*;
+            }
 
             switch (box) {
                 .block_box => |block_box_index| try addInlineBlock(box_tree, ifc, block_box_index),
