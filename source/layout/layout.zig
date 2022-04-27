@@ -2590,6 +2590,7 @@ fn @"CSS2.2Section9.7Table"(display: zss.values.Display) zss.values.Display {
     // TODO: There should be a slightly different version of this switch table for the root element. (See rule 4 of secion 9.7)
     return switch (display) {
         .inline_, .inline_block, .text => .block,
+        .initial, .inherit, .unset, .undeclared => unreachable,
         else => display,
     };
 }
