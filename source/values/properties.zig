@@ -81,7 +81,7 @@ pub const AggregatePropertyEnum = enum {
 };
 
 pub const All = struct {
-    all: values.All,
+    all: values.All = .undeclared,
 };
 
 pub const Text = struct {

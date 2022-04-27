@@ -2,6 +2,7 @@ pub const All = enum {
     initial,
     inherit,
     unset,
+    undeclared,
 };
 
 pub const Text = []const u8;

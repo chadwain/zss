@@ -228,7 +228,7 @@ const CosmeticComptutedValueFlags = struct {
 const ThisElement = struct {
     index: ElementIndex,
     ref: ElementRef,
-    all: ?zss.values.All,
+    all: zss.values.All,
 };
 
 /// The type of box(es) that an element generates.
@@ -308,7 +308,7 @@ const LayoutContext = struct {
         self.this_element = .{
             .index = index,
             .ref = ref,
-            .all = if (self.cascaded_values.all.get(ref)) |value| value.all else null,
+            .all = if (self.cascaded_values.all.get(ref)) |value| value.all else .undeclared,
         };
 
         const current_stage = &@field(self.stage, @tagName(stage));
@@ -384,11 +384,11 @@ const LayoutContext = struct {
             // CSS-CASCADE-4§3.2: The all property is a shorthand that resets all CSS properties except direction and unicode-bidi.
             //                    [...] It does not reset custom properties.
             if (property != .direction and property != .unicode_bidi and property != .custom) {
-                if (self.this_element.all) |all| switch (all) {
+                switch (self.this_element.all) {
                     .initial => break :default .initial,
                     .inherit => break :default .inherit,
-                    .unset => {},
-                };
+                    .unset, .undeclared => {},
+                }
             }
 
             // Just use the inheritance type.
