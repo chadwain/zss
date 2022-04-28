@@ -513,7 +513,7 @@ fn doCosmeticLayout(context: *LayoutContext, box_tree: *BoxTree) !void {
                 .block_box => |index| try blockBoxSolveOtherProperties(context, box_tree, index),
                 .inline_box => |box_spec| {
                     const ifc = box_tree.inlines.items[box_spec.ifc_index];
-                    try inlineBoxSolveOtherProperties(context, ifc, box_spec.index);
+                    inlineBoxSolveOtherProperties(context, ifc, box_spec.index);
                 },
             }
 
@@ -725,11 +725,11 @@ fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree:
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
-    try pushFlowLayout(layout, block.index, used_sizes, stacking_context_info);
+    try pushFlowBlock(layout, block.index, used_sizes, stacking_context_info);
     return GeneratedBox{ .block_box = block.index };
 }
 
-fn pushFlowLayout(
+fn pushFlowBlock(
     layout: *BlockLayoutContext,
     block_box_index: BlockBoxIndex,
     used_sizes: FlowBlockUsedSizes,
@@ -757,7 +757,7 @@ fn pushFlowLayout(
 }
 
 fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
-    // The deallocations here must correspond to allocations in pushFlowLayout.
+    // The deallocations here must correspond to allocations in pushFlowBlock.
     assert(layout.layout_mode.pop() == .Flow);
     const block_box_index = layout.index.pop();
     const skip = layout.skip.pop();
@@ -1516,7 +1516,7 @@ fn makeInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tre
     const BF = FlowBlockUsedSizes.AutoBitfield;
     if (used_sizes.auto_bitfield.bits & BF.inline_size_bit == 0) {
         flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
-        try pushFlowLayout(layout, block.index, used_sizes, stacking_context_info);
+        try pushFlowBlock(layout, block.index, used_sizes, stacking_context_info);
         return GeneratedBox{ .block_box = block.index };
     } else {
         @panic("TODO: Inline-block with 'width: auto'");
@@ -1902,7 +1902,7 @@ fn blockBoxFillOtherPropertiesWithDefaults(box_tree: *BoxTree, block_box_index: 
     box_tree.blocks.background2.items[block_box_index] = .{};
 }
 
-fn inlineBoxSolveOtherProperties(context: *LayoutContext, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
+fn inlineBoxSolveOtherProperties(context: *LayoutContext, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
     const specified = .{
         .color = context.getSpecifiedValue(.cosmetic, .color),
         .border_colors = context.getSpecifiedValue(.cosmetic, .border_colors),
@@ -2041,21 +2041,21 @@ fn createInlineFormattingContext(layout: *InlineLayoutContext, context: *LayoutC
     try ifcPopRootInlineBox(layout, box_tree, ifc);
 
     try ifc.metrics.resize(box_tree.allocator, ifc.glyph_indeces.items.len);
-    inlineValuesSolveMetrics(box_tree, ifc);
+    ifcSolveMetrics(box_tree, ifc);
 }
 
 fn ifcPushRootInlineBox(layout: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     assert(layout.inline_box_depth == 0);
     const root_inline_box_index = try createInlineBox(box_tree, ifc);
-    setRootInlineBoxUsedData(ifc, root_inline_box_index);
-    try addBoxStart(box_tree, ifc, root_inline_box_index);
+    rootInlineBoxSetData(ifc, root_inline_box_index);
+    try ifcAddBoxStart(box_tree, ifc, root_inline_box_index);
     try layout.index.append(layout.allocator, root_inline_box_index);
 }
 
 fn ifcPopRootInlineBox(layout: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     assert(layout.inline_box_depth == 0);
     const root_inline_box_index = layout.index.pop();
-    try addBoxEnd(box_tree, ifc, root_inline_box_index);
+    try ifcAddBoxEnd(box_tree, ifc, root_inline_box_index);
 }
 
 /// A return value of true means that a terminating element was encountered.
@@ -2072,6 +2072,7 @@ fn ifcRunOnce(
     context.setElement(.box_gen, element);
     const specified = context.getSpecifiedValue(.box_gen, .box_style);
     const computed = solveBoxStyle(specified, element == root_element);
+    // TODO: Check position and flaot properties
     switch (computed.display) {
         .text => {
             assert(skip == 1);
@@ -2080,12 +2081,12 @@ fn ifcRunOnce(
             const text = context.getText();
             // TODO: Do proper font matching.
             if (ifc.font == hb.hb_font_get_empty()) @panic("TODO: Found text, but no font was specified.");
-            try addText(box_tree, ifc, text, ifc.font);
+            try ifcAddText(box_tree, ifc, text, ifc.font);
         },
         .inline_ => {
             interval.begin += skip;
             const inline_box_index = try createInlineBox(box_tree, ifc);
-            try setInlineBoxUsedData(layout, context, ifc, inline_box_index);
+            try inlineBoxSetData(layout, context, ifc, inline_box_index);
 
             context.element_index_to_generated_box[element] = .{ .inline_box = .{ .ifc_index = layout.ifc_index, .index = inline_box_index } };
             context.setComputedValue(.box_gen, .box_style, computed);
@@ -2102,7 +2103,7 @@ fn ifcRunOnce(
                 context.setComputedValue(.box_gen, .font, data.font);
             }
 
-            try addBoxStart(box_tree, ifc, inline_box_index);
+            try ifcAddBoxStart(box_tree, ifc, inline_box_index);
 
             if (skip != 1) {
                 layout.inline_box_depth += 1;
@@ -2111,7 +2112,7 @@ fn ifcRunOnce(
             } else {
                 // Optimized path for inline boxes with no children.
                 // It is a shorter version of ifcPopInlineBox.
-                try addBoxEnd(box_tree, ifc, inline_box_index);
+                try ifcAddBoxEnd(box_tree, ifc, inline_box_index);
             }
         },
         .inline_block => {
@@ -2137,7 +2138,7 @@ fn ifcRunOnce(
             }
 
             switch (box) {
-                .block_box => |block_box_index| try addInlineBlock(box_tree, ifc, block_box_index),
+                .block_box => |block_box_index| try ifcAddInlineBlock(box_tree, ifc, block_box_index),
                 .inline_box, .none, .text => unreachable,
             }
         },
@@ -2162,31 +2163,31 @@ fn ifcRunOnce(
 fn ifcPopInlineBox(layout: *InlineLayoutContext, context: *LayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     layout.inline_box_depth -= 1;
     const inline_box_index = layout.index.pop();
-    try addBoxEnd(box_tree, ifc, inline_box_index);
+    try ifcAddBoxEnd(box_tree, ifc, inline_box_index);
     context.popElement(.box_gen);
 }
 
-fn addBoxStart(box_tree: *BoxTree, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
+fn ifcAddBoxStart(box_tree: *BoxTree, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
     const glyphs = [2]GlyphIndex{ 0, InlineFormattingContext.Special.encodeBoxStart(inline_box_index) };
     try ifc.glyph_indeces.appendSlice(box_tree.allocator, &glyphs);
 }
 
-fn addBoxEnd(box_tree: *BoxTree, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
+fn ifcAddBoxEnd(box_tree: *BoxTree, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
     const glyphs = [2]GlyphIndex{ 0, InlineFormattingContext.Special.encodeBoxEnd(inline_box_index) };
     try ifc.glyph_indeces.appendSlice(box_tree.allocator, &glyphs);
 }
 
-fn addInlineBlock(box_tree: *BoxTree, ifc: *InlineFormattingContext, block_box_index: BlockBoxIndex) !void {
+fn ifcAddInlineBlock(box_tree: *BoxTree, ifc: *InlineFormattingContext, block_box_index: BlockBoxIndex) !void {
     const glyphs = [2]GlyphIndex{ 0, InlineFormattingContext.Special.encodeInlineBlock(block_box_index) };
     try ifc.glyph_indeces.appendSlice(box_tree.allocator, &glyphs);
 }
 
-fn addLineBreak(box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
+fn ifcAddLineBreak(box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     const glyphs = [2]GlyphIndex{ 0, InlineFormattingContext.Special.encodeLineBreak() };
     try ifc.glyph_indeces.appendSlice(box_tree.allocator, &glyphs);
 }
 
-fn addText(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.values.Text, font: *hb.hb_font_t) !void {
+fn ifcAddText(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.values.Text, font: *hb.hb_font_t) !void {
     const buffer = hb.hb_buffer_create() orelse unreachable;
     defer hb.hb_buffer_destroy(buffer);
     _ = hb.hb_buffer_pre_allocate(buffer, @intCast(c_uint, text.len));
@@ -2201,43 +2202,43 @@ fn addText(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.values.T
         const codepoint = text[run_end];
         switch (codepoint) {
             '\n' => {
-                try endTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
-                try addLineBreak(box_tree, ifc);
+                try ifcEndTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
+                try ifcAddLineBreak(box_tree, ifc);
                 run_begin = run_end + 1;
             },
             '\r' => {
-                try endTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
-                try addLineBreak(box_tree, ifc);
+                try ifcEndTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
+                try ifcAddLineBreak(box_tree, ifc);
                 run_end += @boolToInt(run_end + 1 < text.len and text[run_end + 1] == '\n');
                 run_begin = run_end + 1;
             },
             '\t' => {
-                try endTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
+                try ifcEndTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
                 run_begin = run_end + 1;
                 // TODO tab size should be determined by the 'tab-size' property
                 const tab_size = 8;
                 hb.hb_buffer_add_latin1(buffer, " " ** tab_size, tab_size, 0, tab_size);
                 if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
-                try addTextRun(box_tree, ifc, buffer, font);
+                try ifcAddTextRun(box_tree, ifc, buffer, font);
                 assert(hb.hb_buffer_set_length(buffer, 0) != 0);
             },
             else => {},
         }
     }
 
-    try endTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
+    try ifcEndTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
 }
 
-fn endTextRun(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.values.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
+fn ifcEndTextRun(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.values.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
     if (run_end > run_begin) {
         hb.hb_buffer_add_latin1(buffer, text.ptr, @intCast(c_int, text.len), @intCast(c_uint, run_begin), @intCast(c_int, run_end - run_begin));
         if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
-        try addTextRun(box_tree, ifc, buffer, font);
+        try ifcAddTextRun(box_tree, ifc, buffer, font);
         assert(hb.hb_buffer_set_length(buffer, 0) != 0);
     }
 }
 
-fn addTextRun(box_tree: *BoxTree, ifc: *InlineFormattingContext, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t) !void {
+fn ifcAddTextRun(box_tree: *BoxTree, ifc: *InlineFormattingContext, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t) !void {
     hb.hb_shape(font, buffer, null, 0);
     const glyph_infos = blk: {
         var n: c_uint = 0;
@@ -2257,7 +2258,7 @@ fn addTextRun(box_tree: *BoxTree, ifc: *InlineFormattingContext, buffer: *hb.hb_
     }
 }
 
-fn setRootInlineBoxUsedData(ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
+fn rootInlineBoxSetData(ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
     ifc.inline_start.items[inline_box_index] = .{ .border = 0, .padding = 0, .border_color_rgba = 0 };
     ifc.inline_end.items[inline_box_index] = .{ .border = 0, .padding = 0, .border_color_rgba = 0 };
     ifc.block_start.items[inline_box_index] = .{ .border = 0, .padding = 0, .border_color_rgba = 0 };
@@ -2265,7 +2266,7 @@ fn setRootInlineBoxUsedData(ifc: *InlineFormattingContext, inline_box_index: Inl
     ifc.margins.items[inline_box_index] = .{ .start = 0, .end = 0 };
 }
 
-fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
+fn inlineBoxSetData(layout: *InlineLayoutContext, context: *LayoutContext, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
     const specified = .{
         .horizontal_edges = context.getSpecifiedValue(.box_gen, .horizontal_edges),
@@ -2485,7 +2486,7 @@ fn setInlineBoxUsedData(layout: *InlineLayoutContext, context: *LayoutContext, i
     ifc.margins.items[inline_box_index] = .{ .start = used.margin_inline_start, .end = used.margin_inline_end };
 }
 
-fn inlineValuesSolveMetrics(box_tree: *BoxTree, ifc: *InlineFormattingContext) void {
+fn ifcSolveMetrics(box_tree: *BoxTree, ifc: *InlineFormattingContext) void {
     const num_glyphs = ifc.glyph_indeces.items.len;
     var i: usize = 0;
     while (i < num_glyphs) : (i += 1) {
