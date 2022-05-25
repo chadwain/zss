@@ -43,6 +43,7 @@ pub fn doLayout(
     /// The size of the viewport in ZssUnits.
     viewport_size: ZssSize,
 ) Error!BoxTree {
+    const element_index_to_generated_box = try allocator.alloc(GeneratedBox, element_tree.size());
     var context = LayoutContext{
         .element_tree_skips = element_tree.tree.list.items(.__skip),
         .element_tree_refs = element_tree.tree.list.items(.__ref),
@@ -50,7 +51,7 @@ pub fn doLayout(
         .stage = undefined,
         .allocator = allocator,
         .viewport_size = viewport_size,
-        .element_index_to_generated_box = try allocator.alloc(GeneratedBox, element_tree.size()),
+        .element_index_to_generated_box = element_index_to_generated_box,
     };
     defer context.deinit();
 
@@ -151,21 +152,19 @@ const Interval = struct {
     end: ElementIndex,
 };
 
+const IsRoot = enum { Root, NonRoot };
+
 const UsedLogicalHeights = struct {
     height: ?ZssUnit,
     min_height: ZssUnit,
     max_height: ZssUnit,
 };
 
-const Metadata = struct {
-    stacking_context_info: StackingContextInfoTag,
-
-    const StackingContextInfoTag = enum { none, is_parent, is_non_parent };
-    const StackingContextInfo = union(StackingContextInfoTag) {
-        none: void,
-        is_parent: StackingContextIndex,
-        is_non_parent: StackingContextIndex,
-    };
+const StackingContextTypeTag = enum { none, is_parent, is_non_parent };
+const StackingContextType = union(StackingContextTypeTag) {
+    none: void,
+    is_parent: StackingContextIndex,
+    is_non_parent: StackingContextIndex,
 };
 
 const BoxGenComputedValueStack = struct {
@@ -444,7 +443,7 @@ const BlockLayoutContext = struct {
     processed_root_element: bool = false,
     layout_mode: ArrayListUnmanaged(LayoutMode) = .{},
 
-    metadata: ArrayListUnmanaged(Metadata) = .{},
+    stacking_context_type: ArrayListUnmanaged(StackingContextType) = .{},
     stacking_context_index: ArrayListUnmanaged(StackingContextIndex) = .{},
     current_stacking_context: StackingContextIndex = undefined,
 
@@ -458,7 +457,7 @@ const BlockLayoutContext = struct {
     fn deinit(self: *BlockLayoutContext) void {
         self.layout_mode.deinit(self.allocator);
 
-        self.metadata.deinit(self.allocator);
+        self.stacking_context_type.deinit(self.allocator);
         self.stacking_context_index.deinit(self.allocator);
 
         self.index.deinit(self.allocator);
@@ -570,14 +569,24 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxT
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 };
 
-                const specified = context.getSpecifiedValue(.box_gen, .box_style);
-                const computed = solveBoxStyle(specified, true);
-                context.setComputedValue(.box_gen, .box_style, computed);
+                const specified = .{
+                    .box_style = context.getSpecifiedValue(.box_gen, .box_style),
+                };
+                const computed = .{
+                    .box_style = solveBoxStyle(specified.box_style, .Root),
+                };
+                context.setComputedValue(.box_gen, .box_style, computed.box_style);
 
-                switch (computed.display) {
+                switch (computed.box_style.display) {
                     .block => {
-                        const box = try makeFlowBlock(layout, context, box_tree, true);
+                        const box = try makeFlowBlock(layout, context, box_tree);
                         context.element_index_to_generated_box[element] = box;
+
+                        const z_index = context.getSpecifiedValue(.box_gen, .z_index); // TODO: Useless info
+                        context.setComputedValue(.box_gen, .z_index, z_index);
+                        const stacking_context_type = StackingContextType{ .is_parent = try createRootStackingContext(box_tree, box.block_box, 0) };
+                        try pushStackingContext(layout, stacking_context_type);
+
                         try context.pushElement(.box_gen);
                     },
                     .none => std.mem.set(GeneratedBox, context.element_index_to_generated_box[element .. element + skip], .none),
@@ -598,16 +607,36 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxT
                 const font = context.getSpecifiedValue(.box_gen, .font);
                 context.setComputedValue(.box_gen, .font, font);
 
-                const specified = context.getSpecifiedValue(.box_gen, .box_style);
-                // TODO: (element == root_element) might always be false
-                const computed = solveBoxStyle(specified, element == root_element);
-                context.setComputedValue(.box_gen, .box_style, computed);
+                const specified = .{
+                    .box_style = context.getSpecifiedValue(.box_gen, .box_style),
+                };
+                const computed = .{
+                    .box_style = solveBoxStyle(specified.box_style, .NonRoot),
+                };
+                context.setComputedValue(.box_gen, .box_style, computed.box_style);
 
-                switch (computed.display) {
+                switch (computed.box_style.display) {
                     .block => {
-                        // TODO: (element == root_element) might always be false
-                        const box = try makeFlowBlock(layout, context, box_tree, element == root_element);
+                        const box = try makeFlowBlock(layout, context, box_tree);
                         context.element_index_to_generated_box[element] = box;
+
+                        const specified_z_index = context.getSpecifiedValue(.box_gen, .z_index);
+                        context.setComputedValue(.box_gen, .z_index, specified_z_index);
+                        const stacking_context_type: StackingContextType = switch (computed.box_style.position) {
+                            .static => .none,
+                            // TODO: Position the block using the values of the 'inset' family of properties.
+                            .relative => switch (specified_z_index.z_index) {
+                                .integer => |z_index| StackingContextType{ .is_parent = try createStackingContext(layout, box_tree, box.block_box, z_index) },
+                                .auto => StackingContextType{ .is_non_parent = try createStackingContext(layout, box_tree, box.block_box, 0) },
+                                .initial, .inherit, .unset, .undeclared => unreachable,
+                            },
+                            .absolute => @panic("TODO: absolute positioning"),
+                            .fixed => @panic("TODO: fixed positioning"),
+                            .sticky => @panic("TODO: sticky positioning"),
+                            .initial, .inherit, .unset, .undeclared => unreachable,
+                        };
+                        try pushStackingContext(layout, stacking_context_type);
+
                         interval.begin += skip;
                         try context.pushElement(.box_gen);
                     },
@@ -623,6 +652,7 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxT
                 }
             } else {
                 popFlowBlock(layout, box_tree);
+                popStackingContext(layout);
                 context.popElement(.box_gen);
             }
         },
@@ -670,7 +700,7 @@ fn popInitialContainingBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) vo
     box_tree.blocks.skips.items[initial_containing_block] = skip;
 }
 
-fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree, is_root_element: bool) !GeneratedBox {
+fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree) !GeneratedBox {
     const block = try createBlock(box_tree);
     block.skip.* = undefined;
     block.properties.* = .{};
@@ -698,34 +728,7 @@ fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree:
     context.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
     context.setComputedValue(.box_gen, .border_styles, border_styles);
 
-    // TODO: Move z-index computation to the cosmetic stage
-    const specified_z_index = context.getSpecifiedValue(.box_gen, .z_index);
-    context.setComputedValue(.box_gen, .z_index, specified_z_index);
-    const position = context.stage.box_gen.current_values.box_style.position;
-    const stacking_context_info: Metadata.StackingContextInfo = switch (position) {
-        .static => if (is_root_element) Metadata.StackingContextInfo{ .is_parent = try createRootStackingContext(box_tree, block.index, 0) } else Metadata.StackingContextInfo{ .none = {} },
-        .relative => blk: {
-            if (is_root_element) {
-                // TODO: Should maybe just treat position as static
-                // This is the root element. Position must be 'static'.
-                return error.InvalidValue;
-            }
-
-            // TODO: Position the block using the values of the 'inset' family of properties.
-
-            switch (specified_z_index.z_index) {
-                .integer => |z_index| break :blk Metadata.StackingContextInfo{ .is_parent = try createStackingContext(layout, box_tree, block.index, z_index) },
-                .auto => break :blk Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, box_tree, block.index, 0) },
-                .initial, .inherit, .unset, .undeclared => unreachable,
-            }
-        },
-        .absolute => @panic("TODO: absolute positioning"),
-        .fixed => @panic("TODO: fixed positioning"),
-        .sticky => @panic("TODO: sticky positioning"),
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    };
-
-    try pushFlowBlock(layout, block.index, used_sizes, stacking_context_info);
+    try pushFlowBlock(layout, block.index, used_sizes);
     return GeneratedBox{ .block_box = block.index };
 }
 
@@ -733,7 +736,6 @@ fn pushFlowBlock(
     layout: *BlockLayoutContext,
     block_box_index: BlockBoxIndex,
     used_sizes: FlowBlockUsedSizes,
-    stacking_context_index: Metadata.StackingContextInfo,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowBlock.
     try layout.layout_mode.append(layout.allocator, .Flow);
@@ -742,18 +744,6 @@ fn pushFlowBlock(
     try layout.flow_block_used_logical_width.append(layout.allocator, used_sizes.inline_size);
     try layout.flow_block_auto_logical_height.append(layout.allocator, 0);
     try layout.flow_block_used_logical_heights.append(layout.allocator, used_sizes.getUsedLogicalHeights());
-    switch (stacking_context_index) {
-        .none => try layout.metadata.append(layout.allocator, .{ .stacking_context_info = .none }),
-        .is_parent => |sc_index| {
-            try layout.metadata.append(layout.allocator, .{ .stacking_context_info = .is_parent });
-            layout.current_stacking_context = sc_index;
-            try layout.stacking_context_index.append(layout.allocator, sc_index);
-        },
-        .is_non_parent => |sc_index| {
-            try layout.metadata.append(layout.allocator, .{ .stacking_context_info = .is_non_parent });
-            layout.current_stacking_context = sc_index;
-        },
-    }
 }
 
 fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
@@ -764,7 +754,6 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
     const used_logical_width = layout.flow_block_used_logical_width.pop();
     const auto_logical_height = layout.flow_block_auto_logical_height.pop();
     const used_logical_heights = layout.flow_block_used_logical_heights.pop();
-    const metadata = layout.metadata.pop();
 
     box_tree.blocks.skips.items[block_box_index] = skip;
     const box_offsets = &box_tree.blocks.box_offsets.items[block_box_index];
@@ -781,21 +770,6 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
             addBlockToFlow(box_offsets, margin_bottom, parent_auto_logical_height);
         },
         .InlineFormattingContext => layout.skip.items[layout.skip.items.len - 1] += skip,
-    }
-
-    switch (metadata.stacking_context_info) {
-        .none => {},
-        .is_parent => {
-            _ = layout.stacking_context_index.pop();
-            if (parent_layout_mode != .InitialContainingBlock) {
-                layout.current_stacking_context = layout.stacking_context_index.items[layout.stacking_context_index.items.len - 1];
-            } else {
-                layout.current_stacking_context = undefined;
-            }
-        },
-        .is_non_parent => {
-            layout.current_stacking_context = layout.stacking_context_index.items[layout.stacking_context_index.items.len - 1];
-        },
     }
 }
 
@@ -1493,30 +1467,10 @@ fn makeInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tre
     context.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
     context.setComputedValue(.box_gen, .border_styles, border_styles);
 
-    // TODO: Move z-index computation to the cosmetic stage
-    const specified_z_index = context.getSpecifiedValue(.box_gen, .z_index);
-    context.setComputedValue(.box_gen, .z_index, specified_z_index);
-    const position = context.stage.box_gen.current_values.box_style.position;
-    const stacking_context_info: Metadata.StackingContextInfo = switch (position) {
-        .static => Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, box_tree, block.index, 0) },
-        .relative => blk: {
-            // TODO: Position the block using the values of the 'inset' family of properties.
-            break :blk switch (specified_z_index.z_index) {
-                .integer => |z_index| Metadata.StackingContextInfo{ .is_parent = try createStackingContext(layout, box_tree, block.index, z_index) },
-                .auto => Metadata.StackingContextInfo{ .is_non_parent = try createStackingContext(layout, box_tree, block.index, 0) },
-                .initial, .inherit, .unset, .undeclared => unreachable,
-            };
-        },
-        .absolute => @panic("TODO: absolute positioning"),
-        .fixed => @panic("TODO: fixed positioning"),
-        .sticky => @panic("TODO: sticky positioning"),
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    };
-
     const BF = FlowBlockUsedSizes.AutoBitfield;
     if (used_sizes.auto_bitfield.bits & BF.inline_size_bit == 0) {
         flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
-        try pushFlowBlock(layout, block.index, used_sizes, stacking_context_info);
+        try pushFlowBlock(layout, block.index, used_sizes);
         return GeneratedBox{ .block_box = block.index };
     } else {
         @panic("TODO: Inline-block with 'width: auto'");
@@ -1971,6 +1925,39 @@ fn createStackingContext(layout: *BlockLayoutContext, box_tree: *BoxTree, block_
     return current;
 }
 
+fn pushStackingContext(layout: *BlockLayoutContext, stacking_context_type: StackingContextType) !void {
+    try layout.stacking_context_type.append(layout.allocator, stacking_context_type);
+    switch (stacking_context_type) {
+        .none => {},
+        .is_parent => |sc_index| {
+            layout.current_stacking_context = sc_index;
+            try layout.stacking_context_index.append(layout.allocator, sc_index);
+        },
+        .is_non_parent => |sc_index| {
+            layout.current_stacking_context = sc_index;
+        },
+    }
+}
+
+fn popStackingContext(layout: *BlockLayoutContext) void {
+    const stacking_context_type = layout.stacking_context_type.pop();
+    switch (stacking_context_type) {
+        .none => {},
+        .is_parent => {
+            _ = layout.stacking_context_index.pop();
+            const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
+            if (parent_layout_mode != .InitialContainingBlock) {
+                layout.current_stacking_context = layout.stacking_context_index.items[layout.stacking_context_index.items.len - 1];
+            } else {
+                layout.current_stacking_context = undefined;
+            }
+        },
+        .is_non_parent => {
+            layout.current_stacking_context = layout.stacking_context_index.items[layout.stacking_context_index.items.len - 1];
+        },
+    }
+}
+
 const InlineLayoutContext = struct {
     const Self = @This();
 
@@ -2071,7 +2058,7 @@ fn ifcRunOnce(
 
     context.setElement(.box_gen, element);
     const specified = context.getSpecifiedValue(.box_gen, .box_style);
-    const computed = solveBoxStyle(specified, element == root_element);
+    const computed = solveBoxStyle(specified, .NonRoot);
     // TODO: Check position and flaot properties
     switch (computed.display) {
         .text => {
@@ -2121,6 +2108,23 @@ fn ifcRunOnce(
             const block_layout = layout.block_layout;
             const box = try makeInlineBlock(block_layout, context, box_tree);
             context.element_index_to_generated_box[element] = box;
+
+            const specified_z_index = context.getSpecifiedValue(.box_gen, .z_index);
+            context.setComputedValue(.box_gen, .z_index, specified_z_index);
+            const stacking_context_type: StackingContextType = switch (computed.position) {
+                .static => StackingContextType{ .is_non_parent = try createStackingContext(block_layout, box_tree, box.block_box, 0) },
+                // TODO: Position the block using the values of the 'inset' family of properties.
+                .relative => switch (specified_z_index.z_index) {
+                    .integer => |z_index| StackingContextType{ .is_parent = try createStackingContext(block_layout, box_tree, box.block_box, z_index) },
+                    .auto => StackingContextType{ .is_non_parent = try createStackingContext(block_layout, box_tree, box.block_box, 0) },
+                    .initial, .inherit, .unset, .undeclared => unreachable,
+                },
+                .absolute => @panic("TODO: absolute positioning"),
+                .fixed => @panic("TODO: fixed positioning"),
+                .sticky => @panic("TODO: sticky positioning"),
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            };
+            try pushStackingContext(block_layout, stacking_context_type);
 
             { // TODO: Grabbing useless data to satisfy inheritance...
                 const data = .{
@@ -2563,7 +2567,7 @@ fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, box_tree: *B
     metrics.* = .{ .offset = margins.left, .advance = advance, .width = width };
 }
 
-fn solveBoxStyle(specified: zss.properties.BoxStyle, root: bool) zss.properties.BoxStyle {
+fn solveBoxStyle(specified: zss.properties.BoxStyle, comptime is_root: IsRoot) zss.properties.BoxStyle {
     var computed: zss.properties.BoxStyle = .{
         .display = undefined,
         .position = specified.position,
@@ -2576,7 +2580,7 @@ fn solveBoxStyle(specified: zss.properties.BoxStyle, root: bool) zss.properties.
         computed.float = .none;
     } else if (specified.float != .none) {
         computed.display = @"CSS2.2Section9.7Table"(specified.display);
-    } else if (root) {
+    } else if (is_root == .Root) {
         // TODO: There should be a slightly different version of this function for the root element. (See rule 4 of secion 9.7)
         computed.display = @"CSS2.2Section9.7Table"(specified.display);
     } else {
