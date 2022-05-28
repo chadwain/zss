@@ -144,6 +144,7 @@ fn getCurrentColor(col: zss.values.Color) used_values.Color {
 const LayoutMode = enum {
     InitialContainingBlock,
     Flow,
+    //FlowStf1stPass,
     InlineFormattingContext,
 };
 
@@ -718,7 +719,8 @@ fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree:
     var computed_sizes: FlowBlockComputedSizes = undefined;
     var used_sizes: FlowBlockUsedSizes = undefined;
     try flowBlockSolveWidths(specified_sizes, containing_block_logical_width, border_styles, &computed_sizes, &used_sizes);
-    try flowBlockSolveHeights(specified_sizes, containing_block_logical_width, containing_block_logical_height, border_styles, &computed_sizes, &used_sizes);
+    try flowBlockSolveContentHeight(specified_sizes, containing_block_logical_height, &computed_sizes, &used_sizes);
+    try flowBlockSolveVerticalEdges(specified_sizes, containing_block_logical_width, border_styles, &computed_sizes, &used_sizes);
     flowBlockAdjustWidthAndMargins(&used_sizes, containing_block_logical_width);
     flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
 
@@ -988,11 +990,70 @@ fn flowBlockSolveWidths(
     }
 }
 
+fn flowBlockSolveContentHeight(
+    specified: FlowBlockComputedSizes,
+    containing_block_logical_height: ?ZssUnit,
+    computed: *FlowBlockComputedSizes,
+    used: *FlowBlockUsedSizes,
+) !void {
+    if (containing_block_logical_height) |h| assert(h >= 0);
+
+    switch (specified.content_height.min_size) {
+        .px => |value| {
+            computed.content_height.min_size = .{ .px = value };
+            used.min_block_size = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.content_height.min_size = .{ .percentage = value };
+            used.min_block_size = if (containing_block_logical_height) |s|
+                try positivePercentage(value, s)
+            else
+                0;
+        },
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    }
+    switch (specified.content_height.max_size) {
+        .px => |value| {
+            computed.content_height.max_size = .{ .px = value };
+            used.max_block_size = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.content_height.max_size = .{ .percentage = value };
+            used.max_block_size = if (containing_block_logical_height) |s|
+                try positivePercentage(value, s)
+            else
+                std.math.maxInt(ZssUnit);
+        },
+        .none => {
+            computed.content_height.max_size = .none;
+            used.max_block_size = std.math.maxInt(ZssUnit);
+        },
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    }
+    switch (specified.content_height.size) {
+        .px => |value| {
+            computed.content_height.size = .{ .px = value };
+            used.block_size = clampSize(try positiveLength(.px, value), used.min_block_size, used.max_block_size);
+        },
+        .percentage => |value| {
+            computed.content_height.size = .{ .percentage = value };
+            used.block_size = if (containing_block_logical_height) |h|
+                clampSize(try positivePercentage(value, h), used.min_block_size, used.max_block_size)
+            else
+                null;
+        },
+        .auto => {
+            computed.content_height.size = .auto;
+            used.block_size = null;
+        },
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    }
+}
+
 /// This is an implementation of CSS2§10.5 and CSS2§10.6.3.
-fn flowBlockSolveHeights(
+fn flowBlockSolveVerticalEdges(
     specified: FlowBlockComputedSizes,
     containing_block_logical_width: ZssUnit,
-    containing_block_logical_height: ?ZssUnit,
     border_styles: zss.properties.BorderStyles,
     computed: *FlowBlockComputedSizes,
     used: *FlowBlockUsedSizes,
@@ -1001,7 +1062,6 @@ fn flowBlockSolveHeights(
     // TODO: Any relative units must be converted to absolute units to form the computed value.
 
     assert(containing_block_logical_width >= 0);
-    if (containing_block_logical_height) |h| assert(h >= 0);
 
     {
         const multiplier = borderWidthMultiplier(border_styles.top);
@@ -1107,61 +1167,10 @@ fn flowBlockSolveHeights(
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-
-    switch (specified.content_height.min_size) {
-        .px => |value| {
-            computed.content_height.min_size = .{ .px = value };
-            used.min_block_size = try positiveLength(.px, value);
-        },
-        .percentage => |value| {
-            computed.content_height.min_size = .{ .percentage = value };
-            used.min_block_size = if (containing_block_logical_height) |s|
-                try positivePercentage(value, s)
-            else
-                0;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
-    switch (specified.content_height.max_size) {
-        .px => |value| {
-            computed.content_height.max_size = .{ .px = value };
-            used.max_block_size = try positiveLength(.px, value);
-        },
-        .percentage => |value| {
-            computed.content_height.max_size = .{ .percentage = value };
-            used.max_block_size = if (containing_block_logical_height) |s|
-                try positivePercentage(value, s)
-            else
-                std.math.maxInt(ZssUnit);
-        },
-        .none => {
-            computed.content_height.max_size = .none;
-            used.max_block_size = std.math.maxInt(ZssUnit);
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
-    switch (specified.content_height.size) {
-        .px => |value| {
-            computed.content_height.size = .{ .px = value };
-            used.block_size = clampSize(try positiveLength(.px, value), used.min_block_size, used.max_block_size);
-        },
-        .percentage => |value| {
-            computed.content_height.size = .{ .percentage = value };
-            used.block_size = if (containing_block_logical_height) |h|
-                clampSize(try positivePercentage(value, h), used.min_block_size, used.max_block_size)
-            else
-                null;
-        },
-        .auto => {
-            computed.content_height.size = .auto;
-            used.block_size = null;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
 }
 
 /// This function expects that if 'inline-size', 'margin-inline-start', or 'margin-inline-end' computed to 'auto',
-/// the corresponding field has been initialized to 0.
+/// the corresponding field in `used.auto_bitfield` has been initialized to 0.
 fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_logical_width: ZssUnit) void {
     const BF = FlowBlockUsedSizes.AutoBitfield;
 
@@ -1238,6 +1247,199 @@ fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_bottom: ZssUnit, 
 
 fn advanceFlow(parent_auto_logical_height: *ZssUnit, height: ZssUnit) void {
     parent_auto_logical_height.* += height;
+}
+
+const StfBoxType = enum { a, b };
+
+fn makeFlowStfBlock(layout: *BlockLayoutContext, context: *LayoutContext) !StfBoxType {
+    const specified = FlowBlockComputedSizes{
+        .content_width = context.getSpecifiedValue(.box_gen, .content_width),
+        .content_height = context.getSpecifiedValue(.box_gen, .content_height),
+        .horizontal_edges = context.getSpecifiedValue(.box_gen, .horizontal_edges),
+        .vertical_edges = undefined,
+    };
+    const border_styles = context.getSpecifiedValue(.box_gen, .border_styles);
+    var computed: FlowBlockComputedSizes = undefined;
+    var used: FlowBlockUsedSizes = undefined;
+
+    const width_optional = try flowStfBlockSolveContentWidth(specified, border_styles, &computed);
+    const edge_width = try flowStfBlockSolveHorizontalEdges(specified, border_styles, &computed);
+    const containing_block_logical_height = layout.flow_block_used_logical_heights.items[layout.flow_block_used_logical_heights.items.len - 1].height;
+    try flowBlockSolveContentHeight(specified, containing_block_logical_height, &computed, &used);
+    if (width_optional) |width| {
+        const parent_auto_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
+        parent_auto_width.* = std.math.max(parent_auto_width.*, width + edge_width);
+        return StfBoxType.fixed_width;
+    } else {
+        const parent_available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
+        const available_width = std.math.max(0, parent_available_width - edge_width);
+        try pushFlowStfBlock(layout, used, available_width);
+        return StfBoxType.auto_width;
+    }
+}
+
+fn pushFlowStfBlock(layout: *BlockLayoutContext, used_sizes: FlowBlockUsedSizes, available_width: ZssUnit) !void {
+    // The allocations here must have corresponding deallocations in popFlowStfBlock.
+    try layout.layout_mode.append(layout.allocator, .FlowStf1stPass);
+    try layout.shrink_to_fit_auto_width.append(layout.allocator, 0);
+    try layout.shrink_to_fit_available_width.append(layout.allocator, available_width);
+    try layout.flow_block_used_logical_heights.append(layout.allocator, used_sizes.getUsedLogicalHeights());
+}
+
+fn flowStfBlockSolveContentWidth(
+    specified: zss.properties.ContentSize,
+    computed: *zss.properties.ContentSize,
+) !?ZssUnit {
+    switch (specified.size) {
+        .percentage => |value| {
+            computed.size = .{ .percentage = value };
+            return null;
+        },
+        .auto => {
+            computed.size = .auto;
+            return null;
+        },
+        .initial, .inherit, .unset, .undeclared => unreachable,
+        else => {},
+    }
+
+    var min_width: ZssUnit = undefined;
+    var max_width: ZssUnit = undefined;
+    switch (specified.min_size) {
+        .px => |value| {
+            computed.min_size = .{ .px = value };
+            min_width = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.min_size = .{ .percentage = value };
+            min_width = 0;
+        },
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    }
+    switch (specified.max_size) {
+        .px => |value| {
+            computed.max_size = .{ .px = value };
+            max_width = try positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.max_size = .{ .percentage = value };
+            max_width = std.math.maxInt(ZssUnit);
+        },
+        .none => {
+            computed.max_size = .none;
+            max_width = std.math.maxInt(ZssUnit);
+        },
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    }
+
+    switch (specified.size) {
+        .px => |value| {
+            const width = try positiveLength(.px, value);
+            computed.size = .{ .px = width };
+            return clampSize(width, min_width, max_width);
+        },
+        .percentage, .auto => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    }
+}
+
+fn flowStfBlockSolveHorizontalEdges(
+    specified: zss.properties.BoxEdges,
+    border_styles: zss.properties.BorderStyles,
+    computed: *zss.properties.BoxEdges,
+) !ZssUnit {
+    var result: ZssUnit = 0;
+
+    {
+        const multiplier = borderWidthMultiplier(border_styles.left);
+        switch (specified.border_start) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.border_start = .{ .px = width };
+                result += try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.border_start = .{ .px = width };
+                result += positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.border_start = .{ .px = width };
+                result += positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.border_start = .{ .px = width };
+                result += positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
+    }
+    {
+        const multiplier = borderWidthMultiplier(border_styles.right);
+        switch (specified.border_end) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.border_end = .{ .px = width };
+                result += try positiveLength(.px, width);
+            },
+            .thin => {
+                const width = borderWidth(.thin) * multiplier;
+                computed.border_end = .{ .px = width };
+                result += positiveLength(.px, width) catch unreachable;
+            },
+            .medium => {
+                const width = borderWidth(.medium) * multiplier;
+                computed.border_end = .{ .px = width };
+                result += positiveLength(.px, width) catch unreachable;
+            },
+            .thick => {
+                const width = borderWidth(.thick) * multiplier;
+                computed.border_end = .{ .px = width };
+                result += positiveLength(.px, width) catch unreachable;
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
+    }
+
+    switch (specified.padding_start) {
+        .px => |value| {
+            computed.padding_start = .{ .px = value };
+            result += try positiveLength(.px, value);
+        },
+        .percentage => |value| computed.padding_start = .{ .percentage = value },
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    }
+    switch (specified.padding_end) {
+        .px => |value| {
+            computed.padding_end = .{ .px = value };
+            result += try positiveLength(.px, value);
+        },
+        .percentage => |value| computed.padding_end = .{ .percentage = value },
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    }
+
+    switch (specified.margin_start) {
+        .px => |value| {
+            computed.margin_start = .{ .px = value };
+            result += length(.px, value);
+        },
+        .percentage => |value| computed.margin_start = .{ .percentage = value },
+        .auto => computed.margin_start = .auto,
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    }
+    switch (specified.margin_end) {
+        .px => |value| {
+            computed.margin_end = .{ .px = value };
+            result += length(.px, value);
+        },
+        .percentage => |value| computed.margin_end = .{ .percentage = value },
+        .auto => computed.margin_end = .auto,
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    }
+
+    return result;
 }
 
 fn makeInlineFormattingContext(
