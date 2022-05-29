@@ -144,7 +144,7 @@ fn getCurrentColor(col: zss.values.Color) used_values.Color {
 const LayoutMode = enum {
     InitialContainingBlock,
     Flow,
-    //FlowStf1stPass,
+    FlowStf1stPass,
     InlineFormattingContext,
 };
 
@@ -159,6 +159,25 @@ const UsedLogicalHeights = struct {
     height: ?ZssUnit,
     min_height: ZssUnit,
     max_height: ZssUnit,
+};
+
+const StfObjectTree = struct {
+    skip: ArrayListUnmanaged(Index) = .{},
+    objects: ArrayListUnmanaged(Object) = .{},
+
+    const Index = ElementIndex;
+
+    const ObjectTag = enum {
+        flow_normal,
+        flow_stf,
+        none,
+    };
+
+    const Object = union(ObjectTag) {
+        flow_normal: ElementIndex,
+        flow_stf: ElementIndex,
+        none: ElementIndex,
+    };
 };
 
 const StackingContextTypeTag = enum { none, is_parent, is_non_parent };
@@ -455,6 +474,11 @@ const BlockLayoutContext = struct {
     flow_block_auto_logical_height: ArrayListUnmanaged(ZssUnit) = .{},
     flow_block_used_logical_heights: ArrayListUnmanaged(UsedLogicalHeights) = .{},
 
+    shrink_to_fit_root_element: ArrayListUnmanaged(ElementIndex) = .{},
+    shrink_to_fit_object_tree: ArrayListUnmanaged(StfObjectTree) = .{},
+    shrink_to_fit_auto_width: ArrayListUnmanaged(ZssUnit) = .{},
+    shrink_to_fit_available_width: ArrayListUnmanaged(ZssUnit) = .{},
+
     fn deinit(self: *BlockLayoutContext) void {
         self.layout_mode.deinit(self.allocator);
 
@@ -467,6 +491,16 @@ const BlockLayoutContext = struct {
         self.flow_block_used_logical_width.deinit(self.allocator);
         self.flow_block_auto_logical_height.deinit(self.allocator);
         self.flow_block_used_logical_heights.deinit(self.allocator);
+
+        for (self.shrink_to_fit_object_tree.items) |*tree| {
+            tree.skip.deinit(self.allocator);
+            tree.objects.deinit(self.allocator);
+        }
+
+        self.shrink_to_fit_root_element.deinit(self.allocator);
+        self.shrink_to_fit_object_tree.deinit(self.allocator);
+        self.shrink_to_fit_auto_width.deinit(self.allocator);
+        self.shrink_to_fit_available_width.deinit(self.allocator);
     }
 };
 
@@ -657,6 +691,70 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxT
                 context.popElement(.box_gen);
             }
         },
+        .FlowStf1stPass => {
+            const interval = &context.intervals.items[context.intervals.items.len - 1];
+            if (interval.begin != interval.end) {
+                const element = interval.begin;
+                const skip = context.element_tree_skips[element];
+                context.setElement(.box_gen, element);
+
+                const font = context.getSpecifiedValue(.box_gen, .font);
+                context.setComputedValue(.box_gen, .font, font);
+
+                const specified = .{
+                    .box_style = context.getSpecifiedValue(.box_gen, .box_style),
+                };
+                const computed = .{
+                    .box_style = solveBoxStyle(specified.box_style, .NonRoot),
+                };
+                context.setComputedValue(.box_gen, .box_style, computed.box_style);
+
+                switch (computed.box_style.display) {
+                    .block => {
+                        const object_tag = try analyzeFlowStfBlock(layout, context);
+                        const object: StfObjectTree.Object = switch (object_tag) {
+                            .flow_normal => .{ .flow_normal = element },
+                            .flow_stf => .{ .flow_stf = element },
+                            else => unreachable,
+                        };
+                        const stf_tree = &layout.shrink_to_fit_object_tree.items[layout.shrink_to_fit_object_tree.items.len - 1];
+                        try stf_tree.skip.append(layout.allocator, 1);
+                        try stf_tree.objects.append(layout.allocator, object);
+
+                        // TODO: Handle stacking contexts
+
+                        interval.begin += skip;
+                        switch (object_tag) {
+                            .flow_normal => {},
+                            .flow_stf => try context.pushElement(.box_gen),
+                            else => unreachable,
+                        }
+                    },
+                    .none => {
+                        const object = StfObjectTree.Object{ .none = element };
+                        const stf_tree = &layout.shrink_to_fit_object_tree.items[layout.shrink_to_fit_object_tree.items.len - 1];
+                        try stf_tree.skip.append(layout.allocator, 1);
+                        try stf_tree.objects.append(layout.allocator, object);
+
+                        interval.begin += skip;
+                    },
+                    .inline_, .inline_block, .text => @panic("TODO: Shrink to fit text"),
+                    .initial, .inherit, .unset, .undeclared => unreachable,
+                }
+            } else {
+                const element = context.this_element.index;
+
+                popFlowStfObject(layout);
+                context.popElement(.box_gen);
+
+                const stf_root = layout.shrink_to_fit_root_element.items[layout.shrink_to_fit_root_element.items.len - 1];
+                if (stf_root == element) {
+                    // reset context to the stf root
+                    // push 2nd pass
+                }
+                @panic("TODO");
+            }
+        },
         .InlineFormattingContext => unreachable,
     }
 }
@@ -771,6 +869,7 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
             const margin_bottom = box_tree.blocks.margins.items[block_box_index].bottom;
             addBlockToFlow(box_offsets, margin_bottom, parent_auto_logical_height);
         },
+        .FlowStf1stPass => unreachable,
         .InlineFormattingContext => layout.skip.items[layout.skip.items.len - 1] += skip,
     }
 }
@@ -1249,9 +1348,7 @@ fn advanceFlow(parent_auto_logical_height: *ZssUnit, height: ZssUnit) void {
     parent_auto_logical_height.* += height;
 }
 
-const StfBoxType = enum { a, b };
-
-fn makeFlowStfBlock(layout: *BlockLayoutContext, context: *LayoutContext) !StfBoxType {
+fn analyzeFlowStfBlock(layout: *BlockLayoutContext, context: *LayoutContext) !StfObjectTree.ObjectTag {
     const specified = FlowBlockComputedSizes{
         .content_width = context.getSpecifiedValue(.box_gen, .content_width),
         .content_height = context.getSpecifiedValue(.box_gen, .content_height),
@@ -1262,28 +1359,46 @@ fn makeFlowStfBlock(layout: *BlockLayoutContext, context: *LayoutContext) !StfBo
     var computed: FlowBlockComputedSizes = undefined;
     var used: FlowBlockUsedSizes = undefined;
 
-    const width_optional = try flowStfBlockSolveContentWidth(specified, border_styles, &computed);
-    const edge_width = try flowStfBlockSolveHorizontalEdges(specified, border_styles, &computed);
+    const width_optional = try flowStfBlockSolveContentWidth(specified.content_width, &computed.content_width);
+    const edge_width = try flowStfBlockSolveHorizontalEdges(specified.horizontal_edges, border_styles, &computed.horizontal_edges);
     const containing_block_logical_height = layout.flow_block_used_logical_heights.items[layout.flow_block_used_logical_heights.items.len - 1].height;
     try flowBlockSolveContentHeight(specified, containing_block_logical_height, &computed, &used);
     if (width_optional) |width| {
-        const parent_auto_width = &context.shrink_to_fit_auto_width.items[context.shrink_to_fit_auto_width.items.len - 1];
+        const parent_auto_width = &layout.shrink_to_fit_auto_width.items[layout.shrink_to_fit_auto_width.items.len - 1];
         parent_auto_width.* = std.math.max(parent_auto_width.*, width + edge_width);
-        return StfBoxType.fixed_width;
+        return StfObjectTree.ObjectTag.flow_normal;
     } else {
-        const parent_available_width = context.shrink_to_fit_available_width.items[context.shrink_to_fit_available_width.items.len - 1];
+        const parent_available_width = layout.shrink_to_fit_available_width.items[layout.shrink_to_fit_available_width.items.len - 1];
         const available_width = std.math.max(0, parent_available_width - edge_width);
-        try pushFlowStfBlock(layout, used, available_width);
-        return StfBoxType.auto_width;
+        try pushFlowStfObject(layout, used, available_width);
+        return StfObjectTree.ObjectTag.flow_stf;
     }
 }
 
-fn pushFlowStfBlock(layout: *BlockLayoutContext, used_sizes: FlowBlockUsedSizes, available_width: ZssUnit) !void {
-    // The allocations here must have corresponding deallocations in popFlowStfBlock.
+fn pushFlowStfObject(layout: *BlockLayoutContext, used_sizes: FlowBlockUsedSizes, available_width: ZssUnit) !void {
+    // The allocations here must have corresponding deallocations in popFlowStfObject.
     try layout.layout_mode.append(layout.allocator, .FlowStf1stPass);
     try layout.shrink_to_fit_auto_width.append(layout.allocator, 0);
     try layout.shrink_to_fit_available_width.append(layout.allocator, available_width);
     try layout.flow_block_used_logical_heights.append(layout.allocator, used_sizes.getUsedLogicalHeights());
+}
+
+fn popFlowStfObject(layout: *BlockLayoutContext) void {
+    // The deallocations here must correspond to allocations in pushFlowStfObject.
+    assert(layout.layout_mode.pop() == .FlowStf1stPass);
+    const auto_width = layout.shrink_to_fit_auto_width.pop();
+    _ = layout.shrink_to_fit_available_width.pop();
+    _ = layout.flow_block_used_logical_heights.pop();
+
+    const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
+    switch (parent_layout_mode) {
+        .FlowStf1stPass => {
+            const parent_auto_width = &layout.shrink_to_fit_auto_width.items[layout.shrink_to_fit_auto_width.items.len - 1];
+            parent_auto_width.* = std.math.max(parent_auto_width.*, auto_width);
+        },
+        .Flow, .InlineFormattingContext => {},
+        .InitialContainingBlock => unreachable,
+    }
 }
 
 fn flowStfBlockSolveContentWidth(
@@ -1334,8 +1449,8 @@ fn flowStfBlockSolveContentWidth(
 
     switch (specified.size) {
         .px => |value| {
+            computed.size = .{ .px = value };
             const width = try positiveLength(.px, value);
-            computed.size = .{ .px = width };
             return clampSize(width, min_width, max_width);
         },
         .percentage, .auto => unreachable,
@@ -1497,6 +1612,7 @@ fn makeInlineFormattingContext(
             const line_split_result = try splitIntoLineBoxes(context, box_tree, ifc, containing_block_logical_width);
             advanceFlow(parent_auto_logical_height, line_split_result.logical_height);
         },
+        .FlowStf1stPass => unreachable,
         .InlineFormattingContext => unreachable,
     }
 }
