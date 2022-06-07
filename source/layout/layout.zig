@@ -9,6 +9,7 @@ const ElementIndex = zss.ElementIndex;
 const ElementRef = zss.ElementRef;
 const root_element = @as(ElementIndex, 0);
 const CascadedValueStore = zss.CascadedValueStore;
+const StyleComputer = @import("./StyleComputer.zig");
 
 const used_values = @import("./used_values.zig");
 const ZssUnit = used_values.ZssUnit;
@@ -26,6 +27,7 @@ const InlineBoxIndex = used_values.InlineBoxIndex;
 const InlineFormattingContext = used_values.InlineFormattingContext;
 const InlineFormattingContextIndex = used_values.InlineFormattingContextIndex;
 const GlyphIndex = InlineFormattingContext.GlyphIndex;
+const GeneratedBox = used_values.GeneratedBox;
 const BoxTree = used_values.BoxTree;
 
 const hb = @import("harfbuzz");
@@ -36,45 +38,52 @@ pub const Error = error{
     Overflow,
 };
 
+pub const ViewportSize = struct {
+    width: u32,
+    height: u32,
+};
+
 pub fn doLayout(
     element_tree: ElementTree,
     cascaded_value_tree: CascadedValueStore,
     allocator: Allocator,
-    /// The size of the viewport in ZssUnits.
-    viewport_size: ZssSize,
+    /// The size of the viewport in pixels.
+    viewport_size: ViewportSize,
 ) Error!BoxTree {
-    const element_index_to_generated_box = try allocator.alloc(GeneratedBox, element_tree.size());
-    var context = LayoutContext{
+    var computer = StyleComputer{
         .element_tree_skips = element_tree.tree.list.items(.__skip),
         .element_tree_refs = element_tree.tree.list.items(.__ref),
         .cascaded_values = &cascaded_value_tree,
+        .viewport_size = viewport_size,
         .stage = undefined,
         .allocator = allocator,
-        .viewport_size = viewport_size,
+    };
+    defer computer.deinit();
+
+    var layout = BlockLayoutContext{ .allocator = allocator };
+    defer layout.deinit();
+
+    const element_index_to_generated_box = try allocator.alloc(GeneratedBox, element_tree.size());
+    var box_tree = BoxTree{
+        .allocator = allocator,
         .element_index_to_generated_box = element_index_to_generated_box,
     };
-    defer context.deinit();
-
-    var box_tree = BoxTree{ .allocator = allocator };
     errdefer box_tree.deinit();
 
     {
-        var layout = BlockLayoutContext{ .allocator = allocator };
-        defer layout.deinit();
+        computer.stage = .{ .box_gen = .{} };
+        defer computer.deinitStage(.box_gen);
 
-        context.stage = .{ .box_gen = .{} };
-        defer context.deinitStage(.box_gen);
-
-        try doBoxGeneration(&layout, &context, &box_tree);
-        context.assertEmptyStage(.box_gen);
+        try doBoxGeneration(&layout, &computer, &box_tree);
+        computer.assertEmptyStage(.box_gen);
     }
 
     {
-        context.stage = .{ .cosmetic = .{} };
-        defer context.deinitStage(.cosmetic);
+        computer.stage = .{ .cosmetic = .{} };
+        defer computer.deinitStage(.cosmetic);
 
-        try doCosmeticLayout(&context, &box_tree);
-        context.assertEmptyStage(.cosmetic);
+        try doCosmeticLayout(&layout, &computer, &box_tree);
+        computer.assertEmptyStage(.cosmetic);
     }
 
     return box_tree;
@@ -148,11 +157,6 @@ const LayoutMode = enum {
     InlineFormattingContext,
 };
 
-const Interval = struct {
-    begin: ElementIndex,
-    end: ElementIndex,
-};
-
 const IsRoot = enum { Root, NonRoot };
 
 const UsedLogicalHeights = struct {
@@ -187,280 +191,11 @@ const StackingContextType = union(StackingContextTypeTag) {
     is_non_parent: StackingContextIndex,
 };
 
-const BoxGenComputedValueStack = struct {
-    box_style: ArrayListUnmanaged(zss.properties.BoxStyle) = .{},
-    content_width: ArrayListUnmanaged(zss.properties.ContentSize) = .{},
-    horizontal_edges: ArrayListUnmanaged(zss.properties.BoxEdges) = .{},
-    content_height: ArrayListUnmanaged(zss.properties.ContentSize) = .{},
-    vertical_edges: ArrayListUnmanaged(zss.properties.BoxEdges) = .{},
-    border_styles: ArrayListUnmanaged(zss.properties.BorderStyles) = .{},
-    z_index: ArrayListUnmanaged(zss.properties.ZIndex) = .{},
-    font: ArrayListUnmanaged(zss.properties.Font) = .{},
-};
-
-const BoxGenCurrentValues = struct {
-    box_style: zss.properties.BoxStyle,
-    content_width: zss.properties.ContentSize,
-    horizontal_edges: zss.properties.BoxEdges,
-    content_height: zss.properties.ContentSize,
-    vertical_edges: zss.properties.BoxEdges,
-    border_styles: zss.properties.BorderStyles,
-    z_index: zss.properties.ZIndex,
-    font: zss.properties.Font,
-};
-
-const BoxGenComptutedValueFlags = struct {
-    box_style: bool = false,
-    content_width: bool = false,
-    horizontal_edges: bool = false,
-    content_height: bool = false,
-    vertical_edges: bool = false,
-    border_styles: bool = false,
-    z_index: bool = false,
-    font: bool = false,
-};
-
-const CosmeticComputedValueStack = struct {
-    border_colors: ArrayListUnmanaged(zss.properties.BorderColors) = .{},
-    border_styles: ArrayListUnmanaged(zss.properties.BorderStyles) = .{},
-    background1: ArrayListUnmanaged(zss.properties.Background1) = .{},
-    background2: ArrayListUnmanaged(zss.properties.Background2) = .{},
-    color: ArrayListUnmanaged(zss.properties.Color) = .{},
-};
-
-const CosmeticCurrentValues = struct {
-    border_colors: zss.properties.BorderColors,
-    border_styles: zss.properties.BorderStyles,
-    background1: zss.properties.Background1,
-    background2: zss.properties.Background2,
-    color: zss.properties.Color,
-};
-
-const CosmeticComptutedValueFlags = struct {
-    border_colors: bool = false,
-    border_styles: bool = false,
-    background1: bool = false,
-    background2: bool = false,
-    color: bool = false,
-};
-
-const ThisElement = struct {
-    index: ElementIndex,
-    ref: ElementRef,
-    all: zss.values.All,
-};
-
-/// The type of box(es) that an element generates.
-const GeneratedBox = union(enum) {
-    /// The element generated no boxes.
-    none,
-    /// The element generated a single block box.
-    block_box: BlockBoxIndex,
-    /// The element generated a single inline box.
-    inline_box: struct { ifc_index: InlineFormattingContextIndex, index: InlineBoxIndex },
-    /// The element generated text.
-    text,
-};
-
-const LayoutContext = struct {
-    const Self = @This();
-
-    const Stage = enum { box_gen, cosmetic };
-
-    element_tree_skips: []const ElementIndex,
-    element_tree_refs: []const ElementRef,
-    cascaded_values: *const CascadedValueStore,
-
-    this_element: ThisElement = undefined,
-    element_stack: ArrayListUnmanaged(ThisElement) = .{},
-    intervals: ArrayListUnmanaged(Interval) = .{},
-
-    stage: union {
-        box_gen: struct {
-            current_values: BoxGenCurrentValues = undefined,
-            current_flags: BoxGenComptutedValueFlags = .{},
-            value_stack: BoxGenComputedValueStack = .{},
-        },
-        cosmetic: struct {
-            current_values: CosmeticCurrentValues = undefined,
-            current_flags: CosmeticComptutedValueFlags = .{},
-            value_stack: CosmeticComputedValueStack = .{},
-        },
-    },
-
-    allocator: Allocator,
-    viewport_size: ZssSize,
-
-    element_index_to_generated_box: []GeneratedBox,
-    anonymous_block_boxes: ArrayListUnmanaged(BlockBoxIndex) = .{},
-
-    root_font: struct {
-        font: *hb.hb_font_t,
-    } = undefined,
-
-    // Does not do deinitStage.
-    fn deinit(self: *Self) void {
-        self.element_stack.deinit(self.allocator);
-        self.intervals.deinit(self.allocator);
-        self.allocator.free(self.element_index_to_generated_box);
-        self.anonymous_block_boxes.deinit(self.allocator);
-    }
-
-    fn assertEmptyStage(self: Self, comptime stage: Stage) void {
-        assert(self.element_stack.items.len == 0);
-        assert(self.intervals.items.len == 0);
-        const current_stage = &@field(self.stage, @tagName(stage));
-        inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
-            assert(@field(current_stage.value_stack, field_info.name).items.len == 0);
-        }
-    }
-
-    fn deinitStage(self: *Self, comptime stage: Stage) void {
-        const current_stage = &@field(self.stage, @tagName(stage));
-        inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
-            @field(current_stage.value_stack, field_info.name).deinit(self.allocator);
-        }
-    }
-
-    fn setElement(self: *Self, comptime stage: Stage, index: ElementIndex) void {
-        const ref = self.element_tree_refs[index];
-        self.this_element = .{
-            .index = index,
-            .ref = ref,
-            .all = if (self.cascaded_values.all.get(ref)) |value| value.all else .undeclared,
-        };
-
-        const current_stage = &@field(self.stage, @tagName(stage));
-        current_stage.current_flags = .{};
-        current_stage.current_values = undefined;
-    }
-
-    fn setComputedValue(self: *Self, comptime stage: Stage, comptime property: zss.properties.AggregatePropertyEnum, value: property.Value()) void {
-        const current_stage = &@field(self.stage, @tagName(stage));
-        const flag = &@field(current_stage.current_flags, @tagName(property));
-        assert(!flag.*);
-        flag.* = true;
-        @field(current_stage.current_values, @tagName(property)) = value;
-    }
-
-    fn pushElement(self: *Self, comptime stage: Stage) !void {
-        const index = self.this_element.index;
-        const skip = self.element_tree_skips[index];
-        try self.element_stack.append(self.allocator, self.this_element);
-        try self.intervals.append(self.allocator, Interval{ .begin = index + 1, .end = index + skip });
-
-        const current_stage = &@field(self.stage, @tagName(stage));
-        const values = current_stage.current_values;
-        const flags = current_stage.current_flags;
-
-        inline for (std.meta.fields(@TypeOf(flags))) |field_info| {
-            const flag = @field(flags, field_info.name);
-            assert(flag);
-            const value = @field(values, field_info.name);
-            try @field(current_stage.value_stack, field_info.name).append(self.allocator, value);
-        }
-    }
-
-    fn popElement(self: *Self, comptime stage: Stage) void {
-        _ = self.element_stack.pop();
-        _ = self.intervals.pop();
-
-        const current_stage = &@field(self.stage, @tagName(stage));
-
-        inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
-            _ = @field(current_stage.value_stack, field_info.name).pop();
-        }
-    }
-
-    fn getText(self: Self) zss.values.Text {
-        return if (self.cascaded_values.text.get(self.this_element.ref)) |value| value.text else "";
-    }
-
-    fn getSpecifiedValue(
-        self: Self,
-        comptime stage: Stage,
-        comptime property: zss.properties.AggregatePropertyEnum,
-    ) property.Value() {
-        const Value = property.Value();
-        const inheritance_type = comptime property.inheritanceType();
-
-        // Find the value using the cascaded value tree.
-        // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do this.
-        const store = @field(self.cascaded_values, @tagName(property));
-        var cascaded_value: ?Value = if (store.get(self.this_element.ref)) |*value| cascaded_value: {
-            if (property == .color) {
-                // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
-                if (value.color == .current_color) {
-                    value.color = .inherit;
-                }
-            }
-
-            break :cascaded_value value.*;
-        } else null;
-
-        const default: enum { inherit, initial } = default: {
-            // Use the value of the 'all' property.
-            // CSS-CASCADE-4§3.2: The all property is a shorthand that resets all CSS properties except direction and unicode-bidi.
-            //                    [...] It does not reset custom properties.
-            if (property != .direction and property != .unicode_bidi and property != .custom) {
-                switch (self.this_element.all) {
-                    .initial => break :default .initial,
-                    .inherit => break :default .inherit,
-                    .unset, .undeclared => {},
-                }
-            }
-
-            // Just use the inheritance type.
-            switch (inheritance_type) {
-                .inherited => break :default .inherit,
-                .not_inherited => break :default .initial,
-            }
-        };
-
-        const initial_value = Value.initial_values;
-        if (cascaded_value == null and default == .initial) {
-            return initial_value;
-        }
-
-        const inherited_value = inherited_value: {
-            const current_stage = @field(self.stage, @tagName(stage));
-            const value_stack = @field(current_stage.value_stack, @tagName(property));
-            if (value_stack.items.len > 0) {
-                break :inherited_value value_stack.items[value_stack.items.len - 1];
-            } else {
-                break :inherited_value initial_value;
-            }
-        };
-        if (cascaded_value == null and default == .inherit) {
-            return inherited_value;
-        }
-
-        inline for (std.meta.fields(Value)) |field_info| {
-            const sub_property = &@field(cascaded_value.?, field_info.name);
-            switch (sub_property.*) {
-                .inherit => sub_property.* = @field(inherited_value, field_info.name),
-                .initial => sub_property.* = @field(initial_value, field_info.name),
-                .unset => switch (inheritance_type) {
-                    .inherited => sub_property.* = @field(inherited_value, field_info.name),
-                    .not_inherited => sub_property.* = @field(initial_value, field_info.name),
-                },
-                .undeclared => if (default == .inherit) {
-                    sub_property.* = @field(inherited_value, field_info.name);
-                } else {
-                    sub_property.* = @field(initial_value, field_info.name);
-                },
-                else => {},
-            }
-        }
-
-        return cascaded_value.?;
-    }
-};
-
 const BlockLayoutContext = struct {
     allocator: Allocator,
 
     processed_root_element: bool = false,
+    anonymous_block_boxes: ArrayListUnmanaged(BlockBoxIndex) = .{},
     layout_mode: ArrayListUnmanaged(LayoutMode) = .{},
 
     stacking_context_type: ArrayListUnmanaged(StackingContextType) = .{},
@@ -480,6 +215,7 @@ const BlockLayoutContext = struct {
     shrink_to_fit_available_width: ArrayListUnmanaged(ZssUnit) = .{},
 
     fn deinit(self: *BlockLayoutContext) void {
+        self.anonymous_block_boxes.deinit(self.allocator);
         self.layout_mode.deinit(self.allocator);
 
         self.stacking_context_type.deinit(self.allocator);
@@ -504,18 +240,18 @@ const BlockLayoutContext = struct {
     }
 };
 
-fn doBoxGeneration(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree) !void {
-    if (context.element_tree_skips.len > 0) {
-        box_tree.blocks.ensureTotalCapacity(box_tree.allocator, context.element_tree_skips[root_element] + 1) catch {};
+fn doBoxGeneration(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
+    if (computer.element_tree_skips.len > 0) {
+        box_tree.blocks.ensureTotalCapacity(box_tree.allocator, computer.element_tree_skips[root_element] + 1) catch {};
     }
 
-    try makeInitialContainingBlock(layout, context, box_tree);
+    try makeInitialContainingBlock(layout, computer, box_tree);
     if (layout.layout_mode.items.len == 0) return;
 
-    try runUntilStackSizeIsRestored(layout, context, box_tree);
+    try runUntilStackSizeIsRestored(layout, computer, box_tree);
 }
 
-fn doCosmeticLayout(context: *LayoutContext, box_tree: *BoxTree) !void {
+fn doCosmeticLayout(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
     const num_created_boxes = box_tree.blocks.skips.items[0];
     try box_tree.blocks.border_colors.resize(box_tree.allocator, num_created_boxes);
     try box_tree.blocks.background1.resize(box_tree.allocator, num_created_boxes);
@@ -526,10 +262,11 @@ fn doCosmeticLayout(context: *LayoutContext, box_tree: *BoxTree) !void {
         inlineRootBoxSolveOtherProperties(inline_);
     }
 
-    var interval_stack = ArrayListUnmanaged(Interval){};
-    defer interval_stack.deinit(context.allocator);
-    if (context.element_tree_skips.len > 0) {
-        try interval_stack.append(context.allocator, .{ .begin = root_element, .end = root_element + context.element_tree_skips[root_element] });
+    // TODO: Don't make another interval stack
+    var interval_stack = ArrayListUnmanaged(StyleComputer.Interval){};
+    defer interval_stack.deinit(computer.allocator);
+    if (computer.element_tree_skips.len > 0) {
+        try interval_stack.append(computer.allocator, .{ .begin = root_element, .end = root_element + computer.element_tree_skips[root_element] });
     }
 
     while (interval_stack.items.len > 0) {
@@ -537,23 +274,23 @@ fn doCosmeticLayout(context: *LayoutContext, box_tree: *BoxTree) !void {
 
         if (interval.begin != interval.end) {
             const element = interval.begin;
-            const skip = context.element_tree_skips[element];
+            const skip = computer.element_tree_skips[element];
             interval.begin += skip;
 
-            context.setElement(.cosmetic, element);
-            const box_type = context.element_index_to_generated_box[element];
+            computer.setElement(.cosmetic, element);
+            const box_type = box_tree.element_index_to_generated_box[element];
             switch (box_type) {
                 .none, .text => continue,
-                .block_box => |index| try blockBoxSolveOtherProperties(context, box_tree, index),
+                .block_box => |index| try blockBoxSolveOtherProperties(computer, box_tree, index),
                 .inline_box => |box_spec| {
                     const ifc = box_tree.inlines.items[box_spec.ifc_index];
-                    inlineBoxSolveOtherProperties(context, ifc, box_spec.index);
+                    inlineBoxSolveOtherProperties(computer, ifc, box_spec.index);
                 },
             }
 
             // TODO: Temporary jank to set the text color.
             if (element == root_element) {
-                const computed_color = context.stage.cosmetic.current_values.color;
+                const computed_color = computer.stage.cosmetic.current_values.color;
                 const used_color = getCurrentColor(computed_color.color);
                 for (box_tree.inlines.items) |ifc| {
                     ifc.font_color_rgba = used_color;
@@ -561,31 +298,31 @@ fn doCosmeticLayout(context: *LayoutContext, box_tree: *BoxTree) !void {
             }
 
             if (skip != 1) {
-                try interval_stack.append(context.allocator, .{ .begin = element + 1, .end = element + skip });
-                try context.pushElement(.cosmetic);
+                try interval_stack.append(computer.allocator, .{ .begin = element + 1, .end = element + skip });
+                try computer.pushElement(.cosmetic);
             }
         } else {
             if (interval_stack.items.len > 1) {
-                context.popElement(.cosmetic);
+                computer.popElement(.cosmetic);
             }
             _ = interval_stack.pop();
         }
     }
 
     blockBoxFillOtherPropertiesWithDefaults(box_tree, initial_containing_block);
-    for (context.anonymous_block_boxes.items) |anon_index| {
+    for (layout.anonymous_block_boxes.items) |anon_index| {
         blockBoxFillOtherPropertiesWithDefaults(box_tree, anon_index);
     }
 }
 
-fn runUntilStackSizeIsRestored(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree) !void {
+fn runUntilStackSizeIsRestored(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
     const stack_size = layout.layout_mode.items.len;
     while (layout.layout_mode.items.len >= stack_size) {
-        try runOnce(layout, context, box_tree);
+        try runOnce(layout, computer, box_tree);
     }
 }
 
-fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree) !void {
+fn runOnce(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
     const layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
     switch (layout_mode) {
         .InitialContainingBlock => {
@@ -593,38 +330,38 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxT
                 layout.processed_root_element = true;
 
                 const element = root_element;
-                const skip = context.element_tree_skips[element];
-                context.setElement(.box_gen, element);
+                const skip = computer.element_tree_skips[element];
+                computer.setElement(.box_gen, element);
 
-                const font = context.getSpecifiedValue(.box_gen, .font);
-                context.setComputedValue(.box_gen, .font, font);
-                context.root_font.font = switch (font.font) {
+                const font = computer.getSpecifiedValue(.box_gen, .font);
+                computer.setComputedValue(.box_gen, .font, font);
+                computer.root_font.font = switch (font.font) {
                     .font => |f| f,
                     .zss_default => hb.hb_font_get_empty().?, // TODO: Provide a text-rendering-backend-specific default font.
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 };
 
                 const specified = .{
-                    .box_style = context.getSpecifiedValue(.box_gen, .box_style),
+                    .box_style = computer.getSpecifiedValue(.box_gen, .box_style),
                 };
                 const computed = .{
                     .box_style = solveBoxStyle(specified.box_style, .Root),
                 };
-                context.setComputedValue(.box_gen, .box_style, computed.box_style);
+                computer.setComputedValue(.box_gen, .box_style, computed.box_style);
 
                 switch (computed.box_style.display) {
                     .block => {
-                        const box = try makeFlowBlock(layout, context, box_tree);
-                        context.element_index_to_generated_box[element] = box;
+                        const box = try makeFlowBlock(layout, computer, box_tree);
+                        box_tree.element_index_to_generated_box[element] = box;
 
-                        const z_index = context.getSpecifiedValue(.box_gen, .z_index); // TODO: Useless info
-                        context.setComputedValue(.box_gen, .z_index, z_index);
+                        const z_index = computer.getSpecifiedValue(.box_gen, .z_index); // TODO: Useless info
+                        computer.setComputedValue(.box_gen, .z_index, z_index);
                         const stacking_context_type = StackingContextType{ .is_parent = try createRootStackingContext(box_tree, box.block_box, 0) };
                         try pushStackingContext(layout, stacking_context_type);
 
-                        try context.pushElement(.box_gen);
+                        try computer.pushElement(.box_gen);
                     },
-                    .none => std.mem.set(GeneratedBox, context.element_index_to_generated_box[element .. element + skip], .none),
+                    .none => std.mem.set(GeneratedBox, box_tree.element_index_to_generated_box[element .. element + skip], .none),
                     .inline_, .inline_block, .text => unreachable,
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 }
@@ -633,30 +370,30 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxT
             }
         },
         .Flow => {
-            const interval = &context.intervals.items[context.intervals.items.len - 1];
+            const interval = &computer.intervals.items[computer.intervals.items.len - 1];
             if (interval.begin != interval.end) {
                 const element = interval.begin;
-                const skip = context.element_tree_skips[element];
-                context.setElement(.box_gen, element);
+                const skip = computer.element_tree_skips[element];
+                computer.setElement(.box_gen, element);
 
-                const font = context.getSpecifiedValue(.box_gen, .font);
-                context.setComputedValue(.box_gen, .font, font);
+                const font = computer.getSpecifiedValue(.box_gen, .font);
+                computer.setComputedValue(.box_gen, .font, font);
 
                 const specified = .{
-                    .box_style = context.getSpecifiedValue(.box_gen, .box_style),
+                    .box_style = computer.getSpecifiedValue(.box_gen, .box_style),
                 };
                 const computed = .{
                     .box_style = solveBoxStyle(specified.box_style, .NonRoot),
                 };
-                context.setComputedValue(.box_gen, .box_style, computed.box_style);
+                computer.setComputedValue(.box_gen, .box_style, computed.box_style);
 
                 switch (computed.box_style.display) {
                     .block => {
-                        const box = try makeFlowBlock(layout, context, box_tree);
-                        context.element_index_to_generated_box[element] = box;
+                        const box = try makeFlowBlock(layout, computer, box_tree);
+                        box_tree.element_index_to_generated_box[element] = box;
 
-                        const specified_z_index = context.getSpecifiedValue(.box_gen, .z_index);
-                        context.setComputedValue(.box_gen, .z_index, specified_z_index);
+                        const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
+                        computer.setComputedValue(.box_gen, .z_index, specified_z_index);
                         const stacking_context_type: StackingContextType = switch (computed.box_style.position) {
                             .static => .none,
                             // TODO: Position the block using the values of the 'inset' family of properties.
@@ -673,14 +410,14 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxT
                         try pushStackingContext(layout, stacking_context_type);
 
                         interval.begin += skip;
-                        try context.pushElement(.box_gen);
+                        try computer.pushElement(.box_gen);
                     },
                     .inline_, .inline_block, .text => {
                         const containing_block_logical_width = layout.flow_block_used_logical_width.items[layout.flow_block_used_logical_width.items.len - 1];
-                        return makeInlineFormattingContext(layout, context, box_tree, interval, containing_block_logical_width, .Normal);
+                        return makeInlineFormattingContext(layout, computer, box_tree, interval, containing_block_logical_width, .Normal);
                     },
                     .none => {
-                        std.mem.set(GeneratedBox, context.element_index_to_generated_box[element .. element + skip], .none);
+                        std.mem.set(GeneratedBox, box_tree.element_index_to_generated_box[element .. element + skip], .none);
                         interval.begin += skip;
                     },
                     .initial, .inherit, .unset, .undeclared => unreachable,
@@ -688,30 +425,30 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxT
             } else {
                 popFlowBlock(layout, box_tree);
                 popStackingContext(layout);
-                context.popElement(.box_gen);
+                computer.popElement(.box_gen);
             }
         },
         .FlowStf1stPass => {
-            const interval = &context.intervals.items[context.intervals.items.len - 1];
+            const interval = &computer.intervals.items[computer.intervals.items.len - 1];
             if (interval.begin != interval.end) {
                 const element = interval.begin;
-                const skip = context.element_tree_skips[element];
-                context.setElement(.box_gen, element);
+                const skip = computer.element_tree_skips[element];
+                computer.setElement(.box_gen, element);
 
-                const font = context.getSpecifiedValue(.box_gen, .font);
-                context.setComputedValue(.box_gen, .font, font);
+                const font = computer.getSpecifiedValue(.box_gen, .font);
+                computer.setComputedValue(.box_gen, .font, font);
 
                 const specified = .{
-                    .box_style = context.getSpecifiedValue(.box_gen, .box_style),
+                    .box_style = computer.getSpecifiedValue(.box_gen, .box_style),
                 };
                 const computed = .{
                     .box_style = solveBoxStyle(specified.box_style, .NonRoot),
                 };
-                context.setComputedValue(.box_gen, .box_style, computed.box_style);
+                computer.setComputedValue(.box_gen, .box_style, computed.box_style);
 
                 switch (computed.box_style.display) {
                     .block => {
-                        const object_tag = try analyzeFlowStfBlock(layout, context);
+                        const object_tag = try analyzeFlowStfBlock(layout, computer);
                         const object: StfObjectTree.Object = switch (object_tag) {
                             .flow_normal => .{ .flow_normal = element },
                             .flow_stf => .{ .flow_stf = element },
@@ -726,7 +463,7 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxT
                         interval.begin += skip;
                         switch (object_tag) {
                             .flow_normal => {},
-                            .flow_stf => try context.pushElement(.box_gen),
+                            .flow_stf => try computer.pushElement(.box_gen),
                             else => unreachable,
                         }
                     },
@@ -742,14 +479,14 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxT
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 }
             } else {
-                const element = context.this_element.index;
+                const element = computer.element_stack.items[computer.element_stack.items.len - 1];
 
                 popFlowStfObject(layout);
-                context.popElement(.box_gen);
+                computer.popElement(.box_gen);
 
                 const stf_root = layout.shrink_to_fit_root_element.items[layout.shrink_to_fit_root_element.items.len - 1];
-                if (stf_root == element) {
-                    // reset context to the stf root
+                if (stf_root == element.index) {
+                    // reset computer to the stf root
                     // push 2nd pass
                 }
                 @panic("TODO");
@@ -759,9 +496,9 @@ fn runOnce(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxT
     }
 }
 
-fn makeInitialContainingBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree) !void {
-    const width = context.viewport_size.w;
-    const height = context.viewport_size.h;
+fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
+    const width = @intCast(ZssUnit, computer.viewport_size.width * units_per_pixel);
+    const height = @intCast(ZssUnit, computer.viewport_size.height * units_per_pixel);
 
     const block = try createBlock(box_tree);
     assert(block.index == initial_containing_block);
@@ -776,7 +513,7 @@ fn makeInitialContainingBlock(layout: *BlockLayoutContext, context: *LayoutConte
     block.borders.* = .{};
     block.margins.* = .{};
 
-    if (context.element_tree_skips.len == 0) return;
+    if (computer.element_tree_skips.len == 0) return;
 
     try layout.layout_mode.append(layout.allocator, .InitialContainingBlock);
     try layout.index.append(layout.allocator, block.index);
@@ -799,7 +536,7 @@ fn popInitialContainingBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) vo
     box_tree.blocks.skips.items[initial_containing_block] = skip;
 }
 
-fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree) !GeneratedBox {
+fn makeFlowBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !GeneratedBox {
     const block = try createBlock(box_tree);
     block.skip.* = undefined;
     block.properties.* = .{};
@@ -807,12 +544,12 @@ fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree:
     const containing_block_logical_width = layout.flow_block_used_logical_width.items[layout.flow_block_used_logical_width.items.len - 1];
     const containing_block_logical_height = layout.flow_block_used_logical_heights.items[layout.flow_block_used_logical_heights.items.len - 1].height;
 
-    const border_styles = context.getSpecifiedValue(.box_gen, .border_styles);
+    const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     const specified_sizes = FlowBlockComputedSizes{
-        .content_width = context.getSpecifiedValue(.box_gen, .content_width),
-        .horizontal_edges = context.getSpecifiedValue(.box_gen, .horizontal_edges),
-        .content_height = context.getSpecifiedValue(.box_gen, .content_height),
-        .vertical_edges = context.getSpecifiedValue(.box_gen, .vertical_edges),
+        .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
+        .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
+        .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
+        .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
     };
     var computed_sizes: FlowBlockComputedSizes = undefined;
     var used_sizes: FlowBlockUsedSizes = undefined;
@@ -822,11 +559,11 @@ fn makeFlowBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree:
     flowBlockAdjustWidthAndMargins(&used_sizes, containing_block_logical_width);
     flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
 
-    context.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
-    context.setComputedValue(.box_gen, .horizontal_edges, computed_sizes.horizontal_edges);
-    context.setComputedValue(.box_gen, .content_height, computed_sizes.content_height);
-    context.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
-    context.setComputedValue(.box_gen, .border_styles, border_styles);
+    computer.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
+    computer.setComputedValue(.box_gen, .horizontal_edges, computed_sizes.horizontal_edges);
+    computer.setComputedValue(.box_gen, .content_height, computed_sizes.content_height);
+    computer.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
+    computer.setComputedValue(.box_gen, .border_styles, border_styles);
 
     try pushFlowBlock(layout, block.index, used_sizes);
     return GeneratedBox{ .block_box = block.index };
@@ -1348,14 +1085,14 @@ fn advanceFlow(parent_auto_logical_height: *ZssUnit, height: ZssUnit) void {
     parent_auto_logical_height.* += height;
 }
 
-fn analyzeFlowStfBlock(layout: *BlockLayoutContext, context: *LayoutContext) !StfObjectTree.ObjectTag {
+fn analyzeFlowStfBlock(layout: *BlockLayoutContext, computer: *StyleComputer) !StfObjectTree.ObjectTag {
     const specified = FlowBlockComputedSizes{
-        .content_width = context.getSpecifiedValue(.box_gen, .content_width),
-        .content_height = context.getSpecifiedValue(.box_gen, .content_height),
-        .horizontal_edges = context.getSpecifiedValue(.box_gen, .horizontal_edges),
+        .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
+        .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
+        .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
         .vertical_edges = undefined,
     };
-    const border_styles = context.getSpecifiedValue(.box_gen, .border_styles);
+    const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     var computed: FlowBlockComputedSizes = undefined;
     var used: FlowBlockUsedSizes = undefined;
 
@@ -1559,9 +1296,9 @@ fn flowStfBlockSolveHorizontalEdges(
 
 fn makeInlineFormattingContext(
     layout: *BlockLayoutContext,
-    context: *LayoutContext,
+    computer: *StyleComputer,
     box_tree: *BoxTree,
-    interval: *Interval,
+    interval: *StyleComputer.Interval,
     containing_block_logical_width: ZssUnit,
     mode: enum { Normal, ShrinkToFit },
 ) !void {
@@ -1597,7 +1334,7 @@ fn makeInlineFormattingContext(
     };
     defer inline_layout.deinit();
 
-    try createInlineFormattingContext(&inline_layout, context, box_tree, ifc);
+    try createInlineFormattingContext(&inline_layout, computer, box_tree, ifc);
 
     assert(layout.layout_mode.pop() == .InlineFormattingContext);
 
@@ -1609,7 +1346,7 @@ fn makeInlineFormattingContext(
         .Flow => {
             const parent_auto_logical_height = &layout.flow_block_auto_logical_height.items[layout.flow_block_auto_logical_height.items.len - 1];
             ifc.origin = ZssVector{ .x = 0, .y = parent_auto_logical_height.* };
-            const line_split_result = try splitIntoLineBoxes(context, box_tree, ifc, containing_block_logical_width);
+            const line_split_result = try splitIntoLineBoxes(computer.allocator, box_tree, ifc, containing_block_logical_width);
             advanceFlow(parent_auto_logical_height, line_split_result.logical_height);
         },
         .FlowStf1stPass => unreachable,
@@ -1676,7 +1413,7 @@ const IFCLineSplitResult = struct {
 };
 
 fn splitIntoLineBoxes(
-    context: *LayoutContext,
+    allocator: Allocator,
     box_tree: *BoxTree,
     ifc: *InlineFormattingContext,
     max_line_box_length: ZssUnit,
@@ -1692,7 +1429,7 @@ fn splitIntoLineBoxes(
     const bottom_height: ZssUnit = @divFloor((-font_extents.descender + @divFloor(font_extents.line_gap, 2)) * units_per_pixel, 64);
 
     var s = IFCLineSplitState.init(top_height, bottom_height);
-    defer s.deinit(context.allocator);
+    defer s.deinit(allocator);
 
     var i: usize = 0;
     while (i < ifc.glyph_indeces.items.len) : (i += 1) {
@@ -1731,7 +1468,7 @@ fn splitIntoLineBoxes(
                     const margin_box_height = box_offsets.border_size.h + margins.top + margins.bottom;
                     s.max_top_height = std.math.max(s.max_top_height, margin_box_height);
                     try s.inline_blocks_in_this_line_box.append(
-                        context.allocator,
+                        allocator,
                         .{ .box_offsets = box_offsets, .cursor = s.cursor, .height = margin_box_height - margins.top },
                     );
                 },
@@ -1756,11 +1493,11 @@ fn splitIntoLineBoxes(
         .logical_height = if (ifc.line_boxes.items.len > 0)
             ifc.line_boxes.items[ifc.line_boxes.items.len - 1].baseline + s.bottom_height
         else
-            0, // TODO This is never reached because the root inline box always creates at least 1 line box.
+            0, // TODO: This is never reached because the root inline box always creates at least 1 line box.
     };
 }
 
-fn makeInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tree: *BoxTree) !GeneratedBox {
+fn makeInlineBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !GeneratedBox {
     const block = try createBlock(box_tree);
     block.skip.* = undefined;
     block.properties.* = .{};
@@ -1769,21 +1506,21 @@ fn makeInlineBlock(layout: *BlockLayoutContext, context: *LayoutContext, box_tre
     const containing_block_logical_height = layout.flow_block_used_logical_heights.items[layout.flow_block_used_logical_heights.items.len - 1].height;
 
     const specified_sizes = FlowBlockComputedSizes{
-        .content_width = context.getSpecifiedValue(.box_gen, .content_width),
-        .horizontal_edges = context.getSpecifiedValue(.box_gen, .horizontal_edges),
-        .content_height = context.getSpecifiedValue(.box_gen, .content_height),
-        .vertical_edges = context.getSpecifiedValue(.box_gen, .vertical_edges),
+        .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
+        .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
+        .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
+        .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
     };
-    const border_styles = context.getSpecifiedValue(.box_gen, .border_styles);
+    const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     var computed_sizes: FlowBlockComputedSizes = undefined;
     var used_sizes: FlowBlockUsedSizes = undefined;
     try inlineBlockSolveSizes(specified_sizes, containing_block_logical_width, containing_block_logical_height, border_styles, &computed_sizes, &used_sizes);
 
-    context.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
-    context.setComputedValue(.box_gen, .horizontal_edges, computed_sizes.horizontal_edges);
-    context.setComputedValue(.box_gen, .content_height, computed_sizes.content_height);
-    context.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
-    context.setComputedValue(.box_gen, .border_styles, border_styles);
+    computer.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
+    computer.setComputedValue(.box_gen, .horizontal_edges, computed_sizes.horizontal_edges);
+    computer.setComputedValue(.box_gen, .content_height, computed_sizes.content_height);
+    computer.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
+    computer.setComputedValue(.box_gen, .border_styles, border_styles);
 
     const BF = FlowBlockUsedSizes.AutoBitfield;
     if (used_sizes.auto_bitfield.bits & BF.inline_size_bit == 0) {
@@ -2136,13 +1873,13 @@ fn createBlock(box_tree: *BoxTree) !Block {
     };
 }
 
-fn blockBoxSolveOtherProperties(context: *LayoutContext, box_tree: *BoxTree, block_box_index: BlockBoxIndex) !void {
+fn blockBoxSolveOtherProperties(computer: *StyleComputer, box_tree: *BoxTree, block_box_index: BlockBoxIndex) !void {
     const specified = .{
-        .color = context.getSpecifiedValue(.cosmetic, .color),
-        .border_colors = context.getSpecifiedValue(.cosmetic, .border_colors),
-        .border_styles = context.getSpecifiedValue(.cosmetic, .border_styles),
-        .background1 = context.getSpecifiedValue(.cosmetic, .background1),
-        .background2 = context.getSpecifiedValue(.cosmetic, .background2),
+        .color = computer.getSpecifiedValue(.cosmetic, .color),
+        .border_colors = computer.getSpecifiedValue(.cosmetic, .border_colors),
+        .border_styles = computer.getSpecifiedValue(.cosmetic, .border_styles),
+        .background1 = computer.getSpecifiedValue(.cosmetic, .background1),
+        .background2 = computer.getSpecifiedValue(.cosmetic, .background2),
     };
 
     const current_color = getCurrentColor(specified.color.color);
@@ -2161,11 +1898,11 @@ fn blockBoxSolveOtherProperties(context: *LayoutContext, box_tree: *BoxTree, blo
     background2_ptr.* = try solveBackground2(specified.background2, box_offsets_ptr, borders_ptr);
 
     // TODO: Pretending that specified values are computed values...
-    context.setComputedValue(.cosmetic, .color, specified.color);
-    context.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
-    context.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
-    context.setComputedValue(.cosmetic, .background1, specified.background1);
-    context.setComputedValue(.cosmetic, .background2, specified.background2);
+    computer.setComputedValue(.cosmetic, .color, specified.color);
+    computer.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
+    computer.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
+    computer.setComputedValue(.cosmetic, .background1, specified.background1);
+    computer.setComputedValue(.cosmetic, .background2, specified.background2);
 }
 
 fn blockBoxFillOtherPropertiesWithDefaults(box_tree: *BoxTree, block_box_index: BlockBoxIndex) void {
@@ -2174,21 +1911,21 @@ fn blockBoxFillOtherPropertiesWithDefaults(box_tree: *BoxTree, block_box_index: 
     box_tree.blocks.background2.items[block_box_index] = .{};
 }
 
-fn inlineBoxSolveOtherProperties(context: *LayoutContext, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
+fn inlineBoxSolveOtherProperties(computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
     const specified = .{
-        .color = context.getSpecifiedValue(.cosmetic, .color),
-        .border_colors = context.getSpecifiedValue(.cosmetic, .border_colors),
-        .border_styles = context.getSpecifiedValue(.cosmetic, .border_styles),
-        .background1 = context.getSpecifiedValue(.cosmetic, .background1),
-        .background2 = context.getSpecifiedValue(.cosmetic, .background2), // TODO: Inline boxes don't need background2
+        .color = computer.getSpecifiedValue(.cosmetic, .color),
+        .border_colors = computer.getSpecifiedValue(.cosmetic, .border_colors),
+        .border_styles = computer.getSpecifiedValue(.cosmetic, .border_styles),
+        .background1 = computer.getSpecifiedValue(.cosmetic, .background1),
+        .background2 = computer.getSpecifiedValue(.cosmetic, .background2), // TODO: Inline boxes don't need background2
     };
 
     // TODO: Pretending that specified values are computed values...
-    context.setComputedValue(.cosmetic, .color, specified.color);
-    context.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
-    context.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
-    context.setComputedValue(.cosmetic, .background1, specified.background1);
-    context.setComputedValue(.cosmetic, .background2, specified.background2);
+    computer.setComputedValue(.cosmetic, .color, specified.color);
+    computer.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
+    computer.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
+    computer.setComputedValue(.cosmetic, .background1, specified.background1);
+    computer.setComputedValue(.cosmetic, .background2, specified.background2);
 
     const current_color = getCurrentColor(specified.color.color);
 
@@ -2315,19 +2052,19 @@ pub fn createInlineBox(box_tree: *BoxTree, ifc: *InlineFormattingContext) !Inlin
     return @intCast(InlineBoxIndex, old_size);
 }
 
-fn createInlineFormattingContext(layout: *InlineLayoutContext, context: *LayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) Error!void {
-    ifc.font = context.root_font.font;
+fn createInlineFormattingContext(layout: *InlineLayoutContext, computer: *StyleComputer, box_tree: *BoxTree, ifc: *InlineFormattingContext) Error!void {
+    ifc.font = computer.root_font.font;
     {
-        const initial_interval = context.intervals.items[context.intervals.items.len - 1];
+        const initial_interval = computer.intervals.items[computer.intervals.items.len - 1];
         ifc.ensureTotalCapacity(box_tree.allocator, initial_interval.end - initial_interval.begin + 1) catch {};
     }
 
     try ifcPushRootInlineBox(layout, box_tree, ifc);
     layout.next_element = while (true) {
-        const interval = &context.intervals.items[context.intervals.items.len - 1];
+        const interval = &computer.intervals.items[computer.intervals.items.len - 1];
         if (layout.inline_box_depth == 0) {
             if (interval.begin != interval.end) {
-                const should_terminate = try ifcRunOnce(layout, context, interval, box_tree, ifc);
+                const should_terminate = try ifcRunOnce(layout, computer, interval, box_tree, ifc);
                 if (should_terminate) {
                     break interval.begin;
                 }
@@ -2336,10 +2073,10 @@ fn createInlineFormattingContext(layout: *InlineLayoutContext, context: *LayoutC
             }
         } else {
             if (interval.begin != interval.end) {
-                const should_terminate = try ifcRunOnce(layout, context, interval, box_tree, ifc);
+                const should_terminate = try ifcRunOnce(layout, computer, interval, box_tree, ifc);
                 assert(!should_terminate);
             } else {
-                try ifcPopInlineBox(layout, context, box_tree, ifc);
+                try ifcPopInlineBox(layout, computer, box_tree, ifc);
             }
         }
     } else unreachable;
@@ -2366,24 +2103,24 @@ fn ifcPopRootInlineBox(layout: *InlineLayoutContext, box_tree: *BoxTree, ifc: *I
 /// A return value of true means that a terminating element was encountered.
 fn ifcRunOnce(
     layout: *InlineLayoutContext,
-    context: *LayoutContext,
-    interval: *Interval,
+    computer: *StyleComputer,
+    interval: *StyleComputer.Interval,
     box_tree: *BoxTree,
     ifc: *InlineFormattingContext,
 ) !bool {
     const element = interval.begin;
-    const skip = context.element_tree_skips[element];
+    const skip = computer.element_tree_skips[element];
 
-    context.setElement(.box_gen, element);
-    const specified = context.getSpecifiedValue(.box_gen, .box_style);
+    computer.setElement(.box_gen, element);
+    const specified = computer.getSpecifiedValue(.box_gen, .box_style);
     const computed = solveBoxStyle(specified, .NonRoot);
     // TODO: Check position and flaot properties
     switch (computed.display) {
         .text => {
             assert(skip == 1);
             interval.begin += skip;
-            context.element_index_to_generated_box[element] = .text;
-            const text = context.getText();
+            box_tree.element_index_to_generated_box[element] = .text;
+            const text = computer.getText();
             // TODO: Do proper font matching.
             if (ifc.font == hb.hb_font_get_empty()) @panic("TODO: Found text, but no font was specified.");
             try ifcAddText(box_tree, ifc, text, ifc.font);
@@ -2391,21 +2128,21 @@ fn ifcRunOnce(
         .inline_ => {
             interval.begin += skip;
             const inline_box_index = try createInlineBox(box_tree, ifc);
-            try inlineBoxSetData(layout, context, ifc, inline_box_index);
+            try inlineBoxSetData(layout, computer, ifc, inline_box_index);
 
-            context.element_index_to_generated_box[element] = .{ .inline_box = .{ .ifc_index = layout.ifc_index, .index = inline_box_index } };
-            context.setComputedValue(.box_gen, .box_style, computed);
+            box_tree.element_index_to_generated_box[element] = .{ .inline_box = .{ .ifc_index = layout.ifc_index, .index = inline_box_index } };
+            computer.setComputedValue(.box_gen, .box_style, computed);
             { // TODO: Grabbing useless data to satisfy inheritance...
                 const data = .{
-                    .content_width = context.getSpecifiedValue(.box_gen, .content_width),
-                    .content_height = context.getSpecifiedValue(.box_gen, .content_height),
-                    .z_index = context.getSpecifiedValue(.box_gen, .z_index),
-                    .font = context.getSpecifiedValue(.box_gen, .font),
+                    .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
+                    .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
+                    .z_index = computer.getSpecifiedValue(.box_gen, .z_index),
+                    .font = computer.getSpecifiedValue(.box_gen, .font),
                 };
-                context.setComputedValue(.box_gen, .content_width, data.content_width);
-                context.setComputedValue(.box_gen, .content_height, data.content_height);
-                context.setComputedValue(.box_gen, .z_index, data.z_index);
-                context.setComputedValue(.box_gen, .font, data.font);
+                computer.setComputedValue(.box_gen, .content_width, data.content_width);
+                computer.setComputedValue(.box_gen, .content_height, data.content_height);
+                computer.setComputedValue(.box_gen, .z_index, data.z_index);
+                computer.setComputedValue(.box_gen, .font, data.font);
             }
 
             try ifcAddBoxStart(box_tree, ifc, inline_box_index);
@@ -2413,7 +2150,7 @@ fn ifcRunOnce(
             if (skip != 1) {
                 layout.inline_box_depth += 1;
                 try layout.index.append(layout.allocator, inline_box_index);
-                try context.pushElement(.box_gen);
+                try computer.pushElement(.box_gen);
             } else {
                 // Optimized path for inline boxes with no children.
                 // It is a shorter version of ifcPopInlineBox.
@@ -2422,13 +2159,13 @@ fn ifcRunOnce(
         },
         .inline_block => {
             interval.begin += skip;
-            context.setComputedValue(.box_gen, .box_style, computed);
+            computer.setComputedValue(.box_gen, .box_style, computed);
             const block_layout = layout.block_layout;
-            const box = try makeInlineBlock(block_layout, context, box_tree);
-            context.element_index_to_generated_box[element] = box;
+            const box = try makeInlineBlock(block_layout, computer, box_tree);
+            box_tree.element_index_to_generated_box[element] = box;
 
-            const specified_z_index = context.getSpecifiedValue(.box_gen, .z_index);
-            context.setComputedValue(.box_gen, .z_index, specified_z_index);
+            const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
+            computer.setComputedValue(.box_gen, .z_index, specified_z_index);
             const stacking_context_type: StackingContextType = switch (computed.position) {
                 .static => StackingContextType{ .is_non_parent = try createStackingContext(block_layout, box_tree, box.block_box, 0) },
                 // TODO: Position the block using the values of the 'inset' family of properties.
@@ -2446,16 +2183,16 @@ fn ifcRunOnce(
 
             { // TODO: Grabbing useless data to satisfy inheritance...
                 const data = .{
-                    .font = context.getSpecifiedValue(.box_gen, .font),
+                    .font = computer.getSpecifiedValue(.box_gen, .font),
                 };
-                context.setComputedValue(.box_gen, .font, data.font);
+                computer.setComputedValue(.box_gen, .font, data.font);
             }
 
-            try context.pushElement(.box_gen);
+            try computer.pushElement(.box_gen);
 
             nosuspend {
                 const frame = try layout.getFrame();
-                frame.* = async runUntilStackSizeIsRestored(block_layout, context, box_tree);
+                frame.* = async runUntilStackSizeIsRestored(block_layout, computer, box_tree);
                 try await frame.*;
             }
 
@@ -2474,7 +2211,7 @@ fn ifcRunOnce(
         },
         .none => {
             interval.begin += skip;
-            std.mem.set(GeneratedBox, context.element_index_to_generated_box[element .. element + skip], .none);
+            std.mem.set(GeneratedBox, box_tree.element_index_to_generated_box[element .. element + skip], .none);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -2482,11 +2219,11 @@ fn ifcRunOnce(
     return false;
 }
 
-fn ifcPopInlineBox(layout: *InlineLayoutContext, context: *LayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
+fn ifcPopInlineBox(layout: *InlineLayoutContext, computer: *StyleComputer, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     layout.inline_box_depth -= 1;
     const inline_box_index = layout.index.pop();
     try ifcAddBoxEnd(box_tree, ifc, inline_box_index);
-    context.popElement(.box_gen);
+    computer.popElement(.box_gen);
 }
 
 fn ifcAddBoxStart(box_tree: *BoxTree, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
@@ -2588,12 +2325,12 @@ fn rootInlineBoxSetData(ifc: *InlineFormattingContext, inline_box_index: InlineB
     ifc.margins.items[inline_box_index] = .{ .start = 0, .end = 0 };
 }
 
-fn inlineBoxSetData(layout: *InlineLayoutContext, context: *LayoutContext, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
+fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
     const specified = .{
-        .horizontal_edges = context.getSpecifiedValue(.box_gen, .horizontal_edges),
-        .vertical_edges = context.getSpecifiedValue(.box_gen, .vertical_edges),
-        .border_styles = context.getSpecifiedValue(.box_gen, .border_styles),
+        .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
+        .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
+        .border_styles = computer.getSpecifiedValue(.box_gen, .border_styles),
     };
 
     var computed: struct {
@@ -2797,9 +2534,9 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, context: *LayoutContext, ifc: 
     computed.vertical_edges.margin_start = specified.vertical_edges.margin_start;
     computed.vertical_edges.margin_end = specified.vertical_edges.margin_end;
 
-    context.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
-    context.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
-    context.setComputedValue(.box_gen, .border_styles, specified.border_styles);
+    computer.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
+    computer.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
+    computer.setComputedValue(.box_gen, .border_styles, specified.border_styles);
 
     ifc.inline_start.items[inline_box_index] = .{ .border = used.border_inline_start, .padding = used.padding_inline_start };
     ifc.inline_end.items[inline_box_index] = .{ .border = used.border_inline_end, .padding = used.padding_inline_end };

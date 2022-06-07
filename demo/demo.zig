@@ -295,7 +295,12 @@ const ProgramState = struct {
         sdl.SDL_GetWindowSize(window, &result.width, &result.height);
         result.timer = try std.time.Timer.start();
 
-        result.box_tree = try zss.layout.doLayout(element_tree.*, cascaded_values.*, allocator, .{ .w = pixelToZssUnit(result.width), .h = pixelToZssUnit(result.height) });
+        result.box_tree = try zss.layout.doLayout(
+            element_tree.*,
+            cascaded_values.*,
+            allocator,
+            .{ .width = @intCast(u32, result.width), .height = @intCast(u32, result.height) },
+        );
         errdefer result.box_tree.deinit();
 
         result.last_layout_time = result.timer.read();
@@ -314,7 +319,12 @@ const ProgramState = struct {
 
     fn updateBoxTree(self: *Self, allocator: Allocator) !void {
         self.timer.reset();
-        var new_box_tree = try zss.layout.doLayout(self.element_tree.*, self.cascaded_values.*, allocator, .{ .w = pixelToZssUnit(self.width), .h = pixelToZssUnit(self.height) });
+        var new_box_tree = try zss.layout.doLayout(
+            self.element_tree.*,
+            self.cascaded_values.*,
+            allocator,
+            .{ .width = @intCast(u32, self.width), .height = @intCast(u32, self.height) },
+        );
         self.last_layout_time = self.timer.read();
         self.box_tree.deinit();
         self.box_tree = new_box_tree;

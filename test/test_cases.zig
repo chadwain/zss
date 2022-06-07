@@ -1,7 +1,6 @@
 const zss = @import("zss");
 const properties = zss.properties;
 const ZssUnit = zss.used_values.ZssUnit;
-const units_per_pixel = zss.used_values.units_per_pixel;
 const ElementTree = zss.ElementTree;
 const ElementIndex = zss.ElementIndex;
 const ElementRef = zss.ElementRef;
@@ -17,8 +16,8 @@ const hb = @import("harfbuzz");
 pub const TestCase = struct {
     element_tree: ElementTree,
     cascaded_values: CascadedValueStore,
-    width: ZssUnit,
-    height: ZssUnit,
+    width: u32,
+    height: u32,
     face: hb.FT_Face,
     font: ?*hb.hb_font_t,
 
@@ -77,8 +76,8 @@ pub const TreeData = struct {
         var result = TestCase{
             .element_tree = self.element_tree,
             .cascaded_values = self.cascaded_values,
-            .width = @intCast(ZssUnit, self.width * units_per_pixel),
-            .height = @intCast(ZssUnit, self.height * units_per_pixel),
+            .width = self.width,
+            .height = self.height,
             .face = undefined,
             .font = undefined,
         };

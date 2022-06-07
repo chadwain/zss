@@ -345,11 +345,24 @@ pub const StackingContext = struct {
 // NOTE: This might benefit from being a SparseSkipTree instead.
 pub const StackingContextTree = SkipTree(StackingContextIndex, StackingContext);
 
+/// The type of box(es) that an element generates.
+pub const GeneratedBox = union(enum) {
+    /// The element generated no boxes.
+    none,
+    /// The element generated a single block box.
+    block_box: BlockBoxIndex,
+    /// The element generated a single inline box.
+    inline_box: struct { ifc_index: InlineFormattingContextIndex, index: InlineBoxIndex },
+    /// The element generated text.
+    text,
+};
+
 /// The result of layout.
 pub const BoxTree = struct {
     blocks: BlockBoxTree = .{},
     inlines: ArrayListUnmanaged(*InlineFormattingContext) = .{},
     stacking_contexts: StackingContextTree = .{},
+    element_index_to_generated_box: []GeneratedBox,
     allocator: Allocator,
 
     const Self = @This();
@@ -365,6 +378,7 @@ pub const BoxTree = struct {
             ifc_list.deinit(self.allocator);
         }
         self.stacking_contexts.deinit(self.allocator);
+        self.allocator.free(self.element_index_to_generated_box);
     }
 };
 

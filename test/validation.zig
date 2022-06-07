@@ -33,7 +33,7 @@ test "validation" {
             test_case.element_tree,
             test_case.cascaded_values,
             allocator,
-            .{ .w = test_case.width, .h = test_case.height },
+            .{ .width = test_case.width, .height = test_case.height },
         );
         defer box_tree.deinit();
 

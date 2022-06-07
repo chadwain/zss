@@ -88,7 +88,7 @@ test "sdl" {
 
         const case = data.toTestCase(library);
         defer case.deinit();
-        var box_tree = try zss.layout.doLayout(case.element_tree, case.cascaded_values, allocator, .{ .w = case.width, .h = case.height });
+        var box_tree = try zss.layout.doLayout(case.element_tree, case.cascaded_values, allocator, .{ .width = case.width, .height = case.height });
         defer box_tree.deinit();
 
         const root_sizes: struct { width: i32, height: i32 } = if (box_tree.blocks.skips.items.len > 1) blk: {
