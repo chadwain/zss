@@ -134,10 +134,10 @@ pub fn deinitStage(self: *Self, comptime stage: Stage) void {
     }
 }
 
-pub fn setElement(self: *Self, comptime stage: Stage, index: ElementIndex) void {
-    const ref = self.element_tree_refs[index];
+pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: ElementIndex) void {
+    const ref = self.element_tree_refs[child];
     self.this_element = .{
-        .index = index,
+        .index = child,
         .ref = ref,
         .all = if (self.cascaded_values.all.get(ref)) |value| value.all else .undeclared,
     };
@@ -145,6 +145,46 @@ pub fn setElement(self: *Self, comptime stage: Stage, index: ElementIndex) void 
     const current_stage = &@field(self.stage, @tagName(stage));
     current_stage.current_flags = .{};
     current_stage.current_values = undefined;
+}
+
+pub fn setElementForwardSeeking(self: *Self, comptime stage: Stage, child: ElementIndex, allocator: Allocator) !void {
+    const parent = parent: {
+        while (self.element_stack.items.len > 0) {
+            const element = self.element_stack.items[self.element_stack.items.len - 1];
+            if (child >= element and child < element + self.element_tree_skips[element]) {
+                const interval = &self.intervals.items[self.intervals.items.len - 1];
+                while (interval.begin != interval.end) {
+                    const skip = self.element_tree_skips[interval.begin];
+                    if (child < interval.begin + skip) {
+                        break :parent interval.begin;
+                    }
+                    interval.begin += skip;
+                }
+                unreachable;
+            } else {
+                self.popElement(stage);
+            }
+        } else {
+            break :parent root_element;
+        }
+    };
+
+    const current_stage = &@field(self.stage, @tagName(stage));
+    var iterator = zss.SkipTreeIterator(ElementIndex).init(parent, self.element_tree_skips);
+    while (iterator.index != child) : (iterator = iterator.nextParent(child, self.element_tree_skips)) {
+        assert(!iterator.empty());
+        self.setElementDirectChild(stage, iterator.index);
+        inline for (std.meta.fields(@TypeOf(current_stage.current_values))) |field_info| {
+            const property = comptime std.meta.stringToEnum(zss.properties.AggregatePropertyEnum, field_info.name).?;
+            const specified = self.getSpecifiedValue(stage, property);
+            const computed = try self.compute(property, specified);
+            self.setComputedValue(stage, property, computed);
+        }
+        try self.pushElement(stage, allocator);
+    }
+
+    assert(iterator.index == child);
+    self.setElement(stage, child);
 }
 
 pub fn setComputedValue(self: *Self, comptime stage: Stage, comptime property: zss.properties.AggregatePropertyEnum, value: property.Value()) void {
