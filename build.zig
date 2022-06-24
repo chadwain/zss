@@ -5,11 +5,11 @@ const Pkg = std.build.Pkg;
 const pkgs = struct {
     const harfbuzz = Pkg{
         .name = "harfbuzz",
-        .path = .{ .path = "dependencies/harfbuzz.zig" },
+        .source = .{ .path = "dependencies/harfbuzz.zig" },
     };
     const SDL2 = Pkg{
         .name = "SDL2",
-        .path = .{ .path = "dependencies/SDL2.zig" },
+        .source = .{ .path = "dependencies/SDL2.zig" },
     };
 };
 
@@ -48,7 +48,7 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
     validation_tests.addPackage(pkgs.harfbuzz);
     validation_tests.addPackage(Pkg{
         .name = "zss",
-        .path = .{ .path = "zss.zig" },
+        .source = .{ .path = "zss.zig" },
         .dependencies = &[_]Pkg{pkgs.harfbuzz},
     });
     const validation_tests_step = b.step("test-validation", "Run validation tests");
@@ -63,7 +63,7 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
     memory_tests.addPackage(pkgs.harfbuzz);
     memory_tests.addPackage(Pkg{
         .name = "zss",
-        .path = .{ .path = "zss.zig" },
+        .source = .{ .path = "zss.zig" },
         .dependencies = &[_]Pkg{pkgs.harfbuzz},
     });
     const memory_tests_step = b.step("test-memory", "Run memory tests");
@@ -80,7 +80,7 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
     sdl_tests.addPackage(pkgs.SDL2);
     sdl_tests.addPackage(Pkg{
         .name = "zss",
-        .path = .{ .path = "zss.zig" },
+        .source = .{ .path = "zss.zig" },
         .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2 },
     });
     const sdl_tests_step = b.step("test-sdl", "Run SDL tests");
@@ -98,7 +98,7 @@ fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) voi
     demo_exe.addPackage(pkgs.SDL2);
     demo_exe.addPackage(Pkg{
         .name = "zss",
-        .path = .{ .path = "zss.zig" },
+        .source = .{ .path = "zss.zig" },
         .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2 },
     });
     demo_exe.linkLibC();

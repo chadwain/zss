@@ -36,7 +36,8 @@ const hb = @import("harfbuzz");
 pub const Error = error{
     InvalidValue,
     OutOfMemory,
-    Overflow,
+    TooManyBlocks,
+    TooManyIfcs,
 };
 
 pub const ViewportSize = struct {
@@ -997,7 +998,7 @@ fn makeInlineFormattingContext(
 
     try layout.layout_mode.append(layout.allocator, .InlineFormattingContext);
 
-    const ifc_index = try std.math.cast(InlineFormattingContextIndex, box_tree.inlines.items.len);
+    const ifc_index = std.math.cast(InlineFormattingContextIndex, box_tree.inlines.items.len) orelse return error.TooManyIfcs;
     const ifc = ifc: {
         const result_ptr = try box_tree.inlines.addOne(box_tree.allocator);
         errdefer _ = box_tree.inlines.pop();
@@ -1856,7 +1857,7 @@ const Block = struct {
 };
 
 fn createBlock(box_tree: *BoxTree) !Block {
-    const index = try std.math.cast(BlockBoxIndex, box_tree.blocks.skips.items.len);
+    const index = std.math.cast(BlockBoxIndex, box_tree.blocks.skips.items.len) orelse return error.TooManyBlocks;
     return Block{
         .index = index,
         .skip = try box_tree.blocks.skips.addOne(box_tree.allocator),

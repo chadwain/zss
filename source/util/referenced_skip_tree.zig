@@ -83,9 +83,9 @@ pub fn ReferencedSkipTree(comptime IndexType: type, comptime ReferenceType: type
         }
 
         pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: Index) error{ OutOfRefs, OutOfMemory }!void {
-            const additional = std.math.cast(Ref, count -| self.list.len) catch return error.OutOfRefs;
+            const additional = std.math.cast(Ref, count -| self.list.len) orelse return error.OutOfRefs;
             _ = std.math.add(Ref, self.next_ref, additional) catch return error.OutOfRefs;
-            const count_usize = std.math.cast(usize, count) catch return error.OutOfMemory;
+            const count_usize = std.math.cast(usize, count) orelse return error.OutOfMemory;
             try self.list.ensureTotalCapacity(allocator, count_usize);
         }
 
