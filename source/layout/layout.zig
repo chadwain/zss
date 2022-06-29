@@ -544,12 +544,27 @@ const FlowBlockUsedSizes = struct {
     auto_bitfield: AutoBitfield = .{},
 
     const AutoBitfield = struct {
-        const inline_size_bit = 4;
-        const margin_inline_start_bit = 2;
-        const margin_inline_end_bit = 1;
-
         bits: u3 = 0,
+
+        const Bit = enum(u3) {
+            inline_size = 1,
+            margin_inline_start = 2,
+            margin_inline_end = 4,
+        };
     };
+
+    inline fn setAutoBit(self: *FlowBlockUsedSizes, comptime bit: AutoBitfield.Bit) void {
+        self.auto_bitfield.bits |= @enumToInt(bit);
+        @field(self, @tagName(bit)) = 0;
+    }
+
+    inline fn allAutoBitsUnset(self: FlowBlockUsedSizes) bool {
+        return self.auto_bitfield.bits == 0;
+    }
+
+    inline fn isAutoBitSet(self: FlowBlockUsedSizes, comptime bit: AutoBitfield.Bit) bool {
+        return self.auto_bitfield.bits & @enumToInt(bit) != 0;
+    }
 
     fn getUsedLogicalHeights(self: FlowBlockUsedSizes) UsedLogicalHeights {
         return UsedLogicalHeights{
@@ -572,7 +587,6 @@ fn flowBlockSolveWidths(
     // TODO: Any relative units must be converted to absolute units to form the computed value.
 
     assert(containing_block_logical_width >= 0);
-    const BF = FlowBlockUsedSizes.AutoBitfield;
 
     {
         const multiplier = borderWidthMultiplier(border_styles.left);
@@ -687,8 +701,7 @@ fn flowBlockSolveWidths(
         },
         .auto => {
             computed.content_width.size = .auto;
-            used.auto_bitfield.bits |= BF.inline_size_bit;
-            used.inline_size = 0;
+            used.setAutoBit(.inline_size);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -703,8 +716,7 @@ fn flowBlockSolveWidths(
         },
         .auto => {
             computed.horizontal_edges.margin_start = .auto;
-            used.auto_bitfield.bits |= BF.margin_inline_start_bit;
-            used.margin_inline_start = 0;
+            used.setAutoBit(.margin_inline_start);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -719,8 +731,7 @@ fn flowBlockSolveWidths(
         },
         .auto => {
             computed.horizontal_edges.margin_end = .auto;
-            used.auto_bitfield.bits |= BF.margin_inline_end_bit;
-            used.margin_inline_end = 0;
+            used.setAutoBit(.margin_inline_end);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -905,33 +916,25 @@ fn flowBlockSolveVerticalEdges(
     }
 }
 
-/// This function expects that if 'inline-size', 'margin-inline-start', or 'margin-inline-end' computed to 'auto',
-/// the corresponding field in `used.auto_bitfield` has been initialized to 0.
 fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_logical_width: ZssUnit) void {
-    const BF = FlowBlockUsedSizes.AutoBitfield;
-
-    if (used.auto_bitfield.bits & BF.inline_size_bit != 0) assert(used.inline_size == 0);
-    if (used.auto_bitfield.bits & BF.margin_inline_start_bit != 0) assert(used.margin_inline_start == 0);
-    if (used.auto_bitfield.bits & BF.margin_inline_end_bit != 0) assert(used.margin_inline_end == 0);
-
     const content_margin_space = containing_block_logical_width - (used.border_inline_start + used.border_inline_end + used.padding_inline_start + used.padding_inline_end);
-    if (used.auto_bitfield.bits == 0) {
+    if (used.allAutoBitsUnset()) {
         // None of the values were auto, so one of the margins must be set according to the other values.
         // TODO the margin that gets set is determined by the 'direction' property
         used.inline_size = clampSize(used.inline_size, used.min_inline_size, used.max_inline_size);
         used.margin_inline_end = content_margin_space - used.inline_size - used.margin_inline_start;
-    } else if (used.auto_bitfield.bits & BF.inline_size_bit == 0) {
+    } else if (!used.isAutoBitSet(.inline_size)) {
         // 'inline-size' is not auto, but at least one of 'margin-inline-start' and 'margin-inline-end' is.
         // If there is only one "auto", then that value gets the remaining margin space.
         // Else, there are 2 "auto"s, and both values get half the remaining margin space.
-        const start = used.auto_bitfield.bits & BF.margin_inline_start_bit;
-        const end = used.auto_bitfield.bits & BF.margin_inline_end_bit;
-        const shr_amount = @boolToInt(start | end == BF.margin_inline_start_bit | BF.margin_inline_end_bit);
+        const start = used.isAutoBitSet(.margin_inline_start);
+        const end = used.isAutoBitSet(.margin_inline_end);
+        const shr_amount = @boolToInt(start and end);
         used.inline_size = clampSize(used.inline_size, used.min_inline_size, used.max_inline_size);
         const leftover_margin = std.math.max(0, content_margin_space - (used.inline_size + used.margin_inline_start + used.margin_inline_end));
         // TODO the margin that gets the extra 1 unit shall be determined by the 'direction' property
-        if (start != 0) used.margin_inline_start = leftover_margin >> shr_amount;
-        if (end != 0) used.margin_inline_end = (leftover_margin >> shr_amount) + @mod(leftover_margin, 2);
+        if (start) used.margin_inline_start = leftover_margin >> shr_amount;
+        if (end) used.margin_inline_end = (leftover_margin >> shr_amount) + @mod(leftover_margin, 2);
     } else {
         // 'inline-size' is auto, so it is set according to the other values.
         // The margin values don't need to change.
@@ -1219,8 +1222,7 @@ fn makeInlineBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tr
     computer.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
     computer.setComputedValue(.box_gen, .border_styles, border_styles);
 
-    const BF = FlowBlockUsedSizes.AutoBitfield;
-    if (used_sizes.auto_bitfield.bits & BF.inline_size_bit == 0) {
+    if (!used_sizes.isAutoBitSet(.inline_size)) {
         flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
         try pushFlowBlock(layout, block.index, used_sizes);
         return GeneratedBox{ .block_box = block.index };
@@ -1396,10 +1398,8 @@ fn inlineBlockSolveSizes(
             used.inline_size = clampSize(try positivePercentage(value, containing_block_logical_width), used.min_inline_size, used.max_inline_size);
         },
         .auto => {
-            const BF = FlowBlockUsedSizes.AutoBitfield;
             computed.content_width.size = .auto;
-            used.inline_size = 0;
-            used.auto_bitfield.bits |= BF.inline_size_bit;
+            used.setAutoBit(.inline_size);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -1780,8 +1780,7 @@ fn stfAnalyzeFlowBlock(layout: *ShrinkToFitLayoutContext, computer: *StyleComput
         used.border_inline_start + used.border_inline_end +
         used.padding_inline_start + used.padding_inline_end;
 
-    const BF = FlowBlockUsedSizes.AutoBitfield;
-    if (used.auto_bitfield.bits & BF.inline_size_bit == 0) {
+    if (!used.isAutoBitSet(.inline_size)) {
         const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
         parent_auto_width.* = std.math.max(parent_auto_width.*, used.inline_size + edge_width);
         try layout.setObjectData(.flow_normal, used);
@@ -1813,8 +1812,6 @@ fn stfFlowBlockSolveContentWidth(
     computed: *zss.properties.ContentSize,
     used: *FlowBlockUsedSizes,
 ) !void {
-    const BF = FlowBlockUsedSizes.AutoBitfield;
-
     switch (specified.min_size) {
         .px => |value| {
             computed.min_size = .{ .px = value };
@@ -1849,14 +1846,12 @@ fn stfFlowBlockSolveContentWidth(
         },
         .percentage => |value| {
             computed.size = .{ .percentage = value };
-            used.inline_size = 0;
-            used.auto_bitfield.bits |= BF.inline_size_bit;
+            used.setAutoBit(.inline_size);
             return;
         },
         .auto => {
             computed.size = .auto;
-            used.inline_size = 0;
-            used.auto_bitfield.bits |= BF.inline_size_bit;
+            used.setAutoBit(.inline_size);
             return;
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
@@ -1869,8 +1864,6 @@ fn stfFlowBlockSolveHorizontalEdges(
     computed: *zss.properties.BoxEdges,
     used: *FlowBlockUsedSizes,
 ) !void {
-    const BF = FlowBlockUsedSizes.AutoBitfield;
-
     {
         const multiplier = borderWidthMultiplier(border_styles.left);
         switch (specified.border_start) {
@@ -1954,13 +1947,11 @@ fn stfFlowBlockSolveHorizontalEdges(
         },
         .percentage => |value| {
             computed.margin_start = .{ .percentage = value };
-            used.margin_inline_start = 0;
-            used.auto_bitfield.bits |= BF.margin_inline_start_bit;
+            used.setAutoBit(.margin_inline_start);
         },
         .auto => {
             computed.margin_start = .auto;
-            used.margin_inline_start = 0;
-            used.auto_bitfield.bits |= BF.margin_inline_start_bit;
+            used.setAutoBit(.margin_inline_start);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -1971,13 +1962,11 @@ fn stfFlowBlockSolveHorizontalEdges(
         },
         .percentage => |value| {
             computed.margin_end = .{ .percentage = value };
-            used.margin_inline_end = 0;
-            used.auto_bitfield.bits |= BF.margin_inline_end_bit;
+            used.setAutoBit(.margin_inline_end);
         },
         .auto => {
             computed.margin_end = .auto;
-            used.margin_inline_end = 0;
-            used.auto_bitfield.bits |= BF.margin_inline_end_bit;
+            used.setAutoBit(.margin_inline_end);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
