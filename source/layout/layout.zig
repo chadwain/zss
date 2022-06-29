@@ -455,7 +455,7 @@ fn makeFlowBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree
         .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
     };
     var computed_sizes: FlowBlockComputedSizes = undefined;
-    var used_sizes: FlowBlockUsedSizes = undefined;
+    var used_sizes = FlowBlockUsedSizes{};
     try flowBlockSolveWidths(specified_sizes, containing_block_logical_width, border_styles, &computed_sizes, &used_sizes);
     try flowBlockSolveContentHeight(specified_sizes, containing_block_logical_height, &computed_sizes, &used_sizes);
     try flowBlockSolveVerticalEdges(specified_sizes, containing_block_logical_width, border_styles, &computed_sizes, &used_sizes);
@@ -521,34 +521,34 @@ const FlowBlockComputedSizes = struct {
 };
 
 const FlowBlockUsedSizes = struct {
-    border_inline_start: ZssUnit,
-    border_inline_end: ZssUnit,
-    padding_inline_start: ZssUnit,
-    padding_inline_end: ZssUnit,
-    margin_inline_start: ZssUnit,
-    margin_inline_end: ZssUnit,
-    inline_size: ZssUnit,
-    min_inline_size: ZssUnit,
-    max_inline_size: ZssUnit,
+    border_inline_start: ZssUnit = undefined,
+    border_inline_end: ZssUnit = undefined,
+    padding_inline_start: ZssUnit = undefined,
+    padding_inline_end: ZssUnit = undefined,
+    margin_inline_start: ZssUnit = undefined,
+    margin_inline_end: ZssUnit = undefined,
+    inline_size: ZssUnit = undefined,
+    min_inline_size: ZssUnit = undefined,
+    max_inline_size: ZssUnit = undefined,
 
-    border_block_start: ZssUnit,
-    border_block_end: ZssUnit,
-    padding_block_start: ZssUnit,
-    padding_block_end: ZssUnit,
-    margin_block_start: ZssUnit,
-    margin_block_end: ZssUnit,
-    block_size: ?ZssUnit, // TODO: Make this non-optional
-    min_block_size: ZssUnit,
-    max_block_size: ZssUnit,
+    border_block_start: ZssUnit = undefined,
+    border_block_end: ZssUnit = undefined,
+    padding_block_start: ZssUnit = undefined,
+    padding_block_end: ZssUnit = undefined,
+    margin_block_start: ZssUnit = undefined,
+    margin_block_end: ZssUnit = undefined,
+    block_size: ?ZssUnit = undefined, // TODO: Make this non-optional
+    min_block_size: ZssUnit = undefined,
+    max_block_size: ZssUnit = undefined,
 
-    auto_bitfield: AutoBitfield,
+    auto_bitfield: AutoBitfield = .{},
 
     const AutoBitfield = struct {
         const inline_size_bit = 4;
         const margin_inline_start_bit = 2;
         const margin_inline_end_bit = 1;
 
-        bits: u3,
+        bits: u3 = 0,
     };
 
     fn getUsedLogicalHeights(self: FlowBlockUsedSizes) UsedLogicalHeights {
@@ -573,7 +573,6 @@ fn flowBlockSolveWidths(
 
     assert(containing_block_logical_width >= 0);
     const BF = FlowBlockUsedSizes.AutoBitfield;
-    used.auto_bitfield.bits = 0;
 
     {
         const multiplier = borderWidthMultiplier(border_styles.left);
@@ -1046,7 +1045,7 @@ fn makeInlineFormattingContext(
 }
 
 const IFCLineSplitState = struct {
-    cursor: ZssUnit = 0,
+    cursor: ZssUnit,
     line_box: InlineFormattingContext.LineBox,
     inline_blocks_in_this_line_box: ArrayListUnmanaged(InlineBlockInfo),
     top_height: ZssUnit,
@@ -1204,8 +1203,15 @@ fn makeInlineBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tr
     };
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     var computed_sizes: FlowBlockComputedSizes = undefined;
-    var used_sizes: FlowBlockUsedSizes = undefined;
-    try inlineBlockSolveSizes(specified_sizes, containing_block_logical_width, containing_block_logical_height, border_styles, &computed_sizes, &used_sizes);
+    var used_sizes = FlowBlockUsedSizes{};
+    try inlineBlockSolveSizes(
+        specified_sizes,
+        containing_block_logical_width,
+        containing_block_logical_height,
+        border_styles,
+        &computed_sizes,
+        &used_sizes,
+    );
 
     computer.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
     computer.setComputedValue(.box_gen, .horizontal_edges, computed_sizes.horizontal_edges);
@@ -1219,7 +1225,20 @@ fn makeInlineBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tr
         try pushFlowBlock(layout, block.index, used_sizes);
         return GeneratedBox{ .block_box = block.index };
     } else {
-        @panic("TODO: Inline-block with 'width: auto'");
+        {
+            const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
+            computer.setComputedValue(.box_gen, .z_index, specified_z_index);
+            const specified_font = computer.getSpecifiedValue(.box_gen, .font);
+            computer.setComputedValue(.box_gen, .font, specified_font);
+        }
+
+        const available_width = containing_block_logical_width -
+            (used_sizes.margin_inline_start + used_sizes.margin_inline_end +
+            used_sizes.border_inline_start + used_sizes.border_inline_end +
+            used_sizes.padding_inline_start + used_sizes.padding_inline_end);
+        var stf_layout = try ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, used_sizes, available_width);
+        defer stf_layout.deinit();
+        return try shrinkToFitLayout(&stf_layout, computer, box_tree);
     }
 }
 
@@ -1366,8 +1385,6 @@ fn inlineBlockSolveSizes(
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-
-    used.auto_bitfield.bits = 0;
 
     switch (specified.content_width.size) {
         .px => |value| {
@@ -1552,47 +1569,94 @@ const StfObject = struct {
         flow_normal,
         flow_stf,
         none,
+
+        fn ObjectDataType(comptime tag: Tag) type {
+            return switch (tag) {
+                .flow_normal, .flow_stf => FlowBlockUsedSizes,
+                .none => void,
+            };
+        }
     };
 };
 
 const ShrinkToFitLayoutContext = struct {
     object_tree: MultiArrayList(StfObject) = .{},
+    object_data: ArrayListUnmanaged(u8) = .{},
     object_stack: MultiArrayList(IndexAndSkip) = .{},
+
+    widths: MultiArrayList(StfWidths) = .{},
+    heights: MultiArrayList(UsedLogicalHeights) = .{},
+
+    allocator: Allocator,
 
     const IndexAndSkip = struct {
         index: ElementIndex,
         skip: ElementIndex,
     };
 
-    fn init(allocator: Allocator, tag: StfObject.Tag, element: ElementRef) !ShrinkToFitLayoutContext {
-        switch (tag) {
-            .flow_stf => {},
-            .flow_normal, .none => unreachable,
-        }
+    const StfWidths = struct {
+        auto: ZssUnit,
+        available: ZssUnit,
+    };
 
-        var result = ShrinkToFitLayoutContext{};
-        try result.object_tree.append(allocator, .{ .skip = undefined, .tag = tag, .element = element });
-        try result.object_stack.append(allocator, .{ .index = undefined, .skip = 0 });
-        try result.object_stack.append(allocator, .{ .index = 0, .skip = 1 });
+    fn initFlow(allocator: Allocator, computer: *StyleComputer, used_sizes: FlowBlockUsedSizes, available_width: ZssUnit) !ShrinkToFitLayoutContext {
+        const element = computer.this_element.ref;
+        try computer.pushElement(.box_gen);
+
+        var result = ShrinkToFitLayoutContext{ .allocator = allocator };
+        errdefer result.deinit();
+        try result.object_tree.append(result.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
+        try result.setObjectData(.flow_stf, used_sizes);
+        try result.object_stack.append(result.allocator, .{ .index = 0, .skip = 1 });
+        try stfPushFlowBlock(&result, used_sizes, available_width);
         return result;
+    }
+
+    fn deinit(self: *ShrinkToFitLayoutContext) void {
+        self.object_tree.deinit(self.allocator);
+        self.object_data.deinit(self.allocator);
+        self.object_stack.deinit(self.allocator);
+
+        self.widths.deinit(self.allocator);
+        self.heights.deinit(self.allocator);
+    }
+
+    fn setObjectData(self: *ShrinkToFitLayoutContext, comptime tag: StfObject.Tag, data: tag.ObjectDataType()) !void {
+        _ = self;
+        _ = tag;
+        _ = data;
+        // TODO: Set the object data
     }
 };
 
-fn shrinkToFitLayout(layout: *ShrinkToFitLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
+fn shrinkToFitLayout(layout: *ShrinkToFitLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !GeneratedBox {
+    try stfBuildObjectTree(layout, computer);
+    _ = box_tree;
+    // try stfRealizeObjects(layout, box_tree);
+    std.debug.print(
+        "\nObject tree\n\t(skip) {any}\n\t(tag) {any}\n\t(element) {any}\n",
+        .{ layout.object_tree.items(.skip), layout.object_tree.items(.tag), layout.object_tree.items(.element) },
+    );
+    @panic("TODO");
+}
+
+fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleComputer) !void {
     assert(layout.object_tree.len == 1);
-    assert(layout.object_stack.len == 2);
-    while (layout.object_stack.len > 1) {
-        const parent_object_index = layout.object_stack.items(.index)[layout.object_stack.len - 1];
-        const parent_object_tag = layout.object_tree.items(.tag)[parent_object_index];
-        switch (parent_object_tag) {
+    assert(layout.object_stack.len > 0);
+    while (layout.object_stack.len > 0) {
+        const object_index = layout.object_stack.items(.index)[layout.object_stack.len - 1];
+        const object_tag = layout.object_tree.items(.tag)[object_index];
+        switch (object_tag) {
             .flow_stf => {
                 const interval = &computer.intervals.items[computer.intervals.items.len - 1];
                 if (interval.begin != interval.end) {
                     const element = interval.begin;
                     const skip = computer.element_tree_skips[element];
+                    computer.setElementDirectChild(.box_gen, element);
 
                     const specified = computer.getSpecifiedValue(.box_gen, .box_style);
                     const computed = solveBoxStyle(specified, .NonRoot);
+                    computer.setComputedValue(.box_gen, .box_style, computed);
 
                     switch (computed.display) {
                         .block => {
@@ -1602,12 +1666,22 @@ fn shrinkToFitLayout(layout: *ShrinkToFitLayoutContext, computer: *StyleComputer
 
                             switch (tag) {
                                 .flow_normal => {
-                                    try layout.object_tree.append(layout.allocator, .{ .skip = 1, .tag = tag, .element = element });
-                                    layout.object_tree.items(.skip)[parent_object_index] += 1;
+                                    try layout.object_tree.append(layout.allocator, .{ .skip = 1, .tag = .flow_normal, .element = element });
+                                    layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
                                 },
                                 .flow_stf => {
-                                    try layout.object_stack.append(layout.allocator, .{ .index = layout.object_tree.len, .skip = 1 });
-                                    try layout.object_tree.append(layout.allocator, .{ .skip = undefined, .tag = tag, .element = element });
+                                    try layout.object_stack.append(layout.allocator, .{ .index = @intCast(ElementIndex, layout.object_tree.len), .skip = 1 });
+                                    try layout.object_tree.append(layout.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
+
+                                    { // TODO: Delete this
+                                        const stuff = .{
+                                            .z_index = computer.getSpecifiedValue(.box_gen, .z_index),
+                                            .font = computer.getSpecifiedValue(.box_gen, .font),
+                                        };
+                                        computer.setComputedValue(.box_gen, .z_index, stuff.z_index);
+                                        computer.setComputedValue(.box_gen, .font, stuff.font);
+                                    }
+
                                     try computer.pushElement(.box_gen);
                                 },
                                 else => unreachable,
@@ -1617,29 +1691,66 @@ fn shrinkToFitLayout(layout: *ShrinkToFitLayoutContext, computer: *StyleComputer
                         },
                         .none => {
                             try layout.object_tree.append(layout.allocator, .{ .skip = 1, .tag = .none, .element = element });
-                            layout.object_tree.items(.skip)[parent_object_index] += 1;
+                            layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
                             interval.begin += skip;
                         },
                         .inline_, .inline_block, .text => @panic("TODO: Shrink to fit text"),
                         .initial, .inherit, .unset, .undeclared => unreachable,
                     }
                 } else {
-                    stfPopFlowBlock(layout);
+                    const auto_width = stfPopFlowBlock(layout);
+
                     const skip = layout.object_stack.pop().skip;
-                    layout.object_tree.items(.skip)[parent_object_index] = skip;
-                    layout.object_stack.items(.skip)[layout.object_stack.len - 1] += skip;
+                    layout.object_tree.items(.skip)[object_index] = skip;
+
+                    if (layout.object_stack.len > 0) {
+                        const parent_object_index = layout.object_stack.items(.index)[layout.object_stack.len - 1];
+                        const parent_object_tag = layout.object_tree.items(.tag)[parent_object_index];
+                        switch (parent_object_tag) {
+                            .flow_stf => {
+                                const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
+                                parent_auto_width.* = std.math.max(parent_auto_width.*, auto_width);
+                            },
+                            .flow_normal, .none => unreachable,
+                        }
+
+                        layout.object_stack.items(.skip)[layout.object_stack.len - 1] += skip;
+                    }
                 }
             },
             .flow_normal, .none => unreachable,
         }
     }
+}
 
-    _ = box_tree;
-    std.debug.print(
-        "Object tree\n\t(skip) {any}\n\t(tag) {any}\n\t(element) {any}\n",
-        .{ layout.object_tree.items(.skip), .layout.object_tree.items(.tag), .layout.object_tree.items(.element) },
-    );
-    @panic("TODO");
+fn stfRealizeObjects(layout: *ShrinkToFitLayoutContext, box_tree: *BoxTree) !void {
+    const skips = layout.object_tree.items(.skip);
+    const tags = layout.object_tree.items(.tag);
+
+    var stack = ArrayListUnmanaged(){};
+    defer stack.deinit(layout.allocator);
+    try stack.append(layout.allocator, .{ .begin = 0, .end = skips[0] });
+
+    while (stack.items.len > 0) {
+        const interval = &stack.items[stack.items.len - 1];
+        if (interval.begin != interval.end) {
+            const index = interval.begin;
+            const skip = skips[index];
+            interval.begin += skip;
+
+            const tag = tags[index];
+            switch (tag) {
+                .flow_stf => {
+                    const block = try createBlock(box_tree);
+                    block.properties.* = .{};
+                    const used_sizes = layout.getObjectData(.flow_stf);
+                    flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
+                },
+            }
+        } else {
+            _ = stack.pop();
+        }
+    }
 }
 
 fn stfAnalyzeFlowBlock(layout: *ShrinkToFitLayoutContext, computer: *StyleComputer) !StfObject.Tag {
@@ -1647,92 +1758,86 @@ fn stfAnalyzeFlowBlock(layout: *ShrinkToFitLayoutContext, computer: *StyleComput
         .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
         .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
-        .vertical_edges = undefined,
+        .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges), // TODO: Not needed
     };
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     var computed: FlowBlockComputedSizes = undefined;
-    var used: FlowBlockUsedSizes = undefined;
+    var used = FlowBlockUsedSizes{};
 
-    const width_optional = try stfFlowBlockSolveContentWidth(specified.content_width, &computed.content_width);
-    const edge_width = try stfFlowBlockSolveHorizontalEdges(specified.horizontal_edges, border_styles, &computed.horizontal_edges);
-    const containing_block_logical_height = layout.flow_block_used_logical_heights.items[layout.flow_block_used_logical_heights.items.len - 1].height;
+    try stfFlowBlockSolveContentWidth(specified.content_width, &computed.content_width, &used);
+    try stfFlowBlockSolveHorizontalEdges(specified.horizontal_edges, border_styles, &computed.horizontal_edges, &used);
+    const containing_block_logical_height = layout.heights.items(.height)[layout.heights.len - 1];
     try flowBlockSolveContentHeight(specified, containing_block_logical_height, &computed, &used);
-    if (width_optional) |width| {
-        const parent_auto_width = &layout.shrink_to_fit_auto_width.items[layout.shrink_to_fit_auto_width.items.len - 1];
-        parent_auto_width.* = std.math.max(parent_auto_width.*, width + edge_width);
+    try flowBlockSolveVerticalEdges(specified, 0, border_styles, &computed, &used);
+
+    computer.setComputedValue(.box_gen, .content_width, computed.content_width);
+    computer.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
+    computer.setComputedValue(.box_gen, .content_height, computed.content_height);
+    computer.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
+    computer.setComputedValue(.box_gen, .border_styles, border_styles);
+
+    const edge_width = used.margin_inline_start + used.margin_inline_end +
+        used.border_inline_start + used.border_inline_end +
+        used.padding_inline_start + used.padding_inline_end;
+
+    const BF = FlowBlockUsedSizes.AutoBitfield;
+    if (used.auto_bitfield.bits & BF.inline_size_bit == 0) {
+        const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
+        parent_auto_width.* = std.math.max(parent_auto_width.*, used.inline_size + edge_width);
+        try layout.setObjectData(.flow_normal, used);
         return StfObject.Tag.flow_normal;
     } else {
-        const parent_available_width = layout.shrink_to_fit_available_width.items[layout.shrink_to_fit_available_width.items.len - 1];
+        const parent_available_width = layout.widths.items(.available)[layout.widths.len - 1];
         const available_width = std.math.max(0, parent_available_width - edge_width);
+        try layout.setObjectData(.flow_stf, used);
         try stfPushFlowBlock(layout, used, available_width);
         return StfObject.Tag.flow_stf;
     }
 }
 
-fn stfPushFlowBlock(layout: *BlockLayoutContext, used_sizes: FlowBlockUsedSizes, available_width: ZssUnit) !void {
+fn stfPushFlowBlock(layout: *ShrinkToFitLayoutContext, used_sizes: FlowBlockUsedSizes, available_width: ZssUnit) !void {
     // The allocations here must have corresponding deallocations in stfPopFlowBlock.
-    try layout.auto_width.append(layout.allocator, 0);
-    try layout.available_width.append(layout.allocator, available_width);
+    try layout.widths.append(layout.allocator, .{ .auto = 0, .available = available_width });
     try layout.heights.append(layout.allocator, used_sizes.getUsedLogicalHeights());
 }
 
-fn stfPopFlowBlock(layout: *BlockLayoutContext, parent_tag: StfObject.Tag) void {
+fn stfPopFlowBlock(layout: *ShrinkToFitLayoutContext) ZssUnit {
     // The deallocations here must correspond to allocations in stfPushFlowBlock.
-    const auto_width = layout.auto_width.pop();
-    _ = layout.available_width.pop();
+    const auto_width = layout.widths.pop().auto;
     _ = layout.heights.pop();
-
-    switch (parent_tag) {
-        .flow_stf => {
-            const parent_auto_width = &layout.auto_width.items[layout.auto_width.items.len - 1];
-            parent_auto_width.* = std.math.max(parent_auto_width.*, auto_width);
-        },
-        .flow_normal, .none => unreachable,
-    }
+    return auto_width;
 }
 
 fn stfFlowBlockSolveContentWidth(
     specified: zss.properties.ContentSize,
     computed: *zss.properties.ContentSize,
-) !?ZssUnit {
-    switch (specified.size) {
-        .percentage => |value| {
-            computed.size = .{ .percentage = value };
-            return null;
-        },
-        .auto => {
-            computed.size = .auto;
-            return null;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-        else => {},
-    }
+    used: *FlowBlockUsedSizes,
+) !void {
+    const BF = FlowBlockUsedSizes.AutoBitfield;
 
-    var min_width: ZssUnit = undefined;
-    var max_width: ZssUnit = undefined;
     switch (specified.min_size) {
         .px => |value| {
             computed.min_size = .{ .px = value };
-            min_width = try positiveLength(.px, value);
+            used.min_inline_size = try positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.min_size = .{ .percentage = value };
-            min_width = 0;
+            used.min_inline_size = 0;
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.max_size) {
         .px => |value| {
             computed.max_size = .{ .px = value };
-            max_width = try positiveLength(.px, value);
+            used.max_inline_size = try positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.max_size = .{ .percentage = value };
-            max_width = std.math.maxInt(ZssUnit);
+            used.max_inline_size = std.math.maxInt(ZssUnit);
         },
         .none => {
             computed.max_size = .none;
-            max_width = std.math.maxInt(ZssUnit);
+            used.max_inline_size = std.math.maxInt(ZssUnit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -1740,10 +1845,20 @@ fn stfFlowBlockSolveContentWidth(
     switch (specified.size) {
         .px => |value| {
             computed.size = .{ .px = value };
-            const width = try positiveLength(.px, value);
-            return clampSize(width, min_width, max_width);
+            used.inline_size = clampSize(try positiveLength(.px, value), used.min_inline_size, used.max_inline_size);
         },
-        .percentage, .auto => unreachable,
+        .percentage => |value| {
+            computed.size = .{ .percentage = value };
+            used.inline_size = 0;
+            used.auto_bitfield.bits |= BF.inline_size_bit;
+            return;
+        },
+        .auto => {
+            computed.size = .auto;
+            used.inline_size = 0;
+            used.auto_bitfield.bits |= BF.inline_size_bit;
+            return;
+        },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
@@ -1752,8 +1867,9 @@ fn stfFlowBlockSolveHorizontalEdges(
     specified: zss.properties.BoxEdges,
     border_styles: zss.properties.BorderStyles,
     computed: *zss.properties.BoxEdges,
-) !ZssUnit {
-    var result: ZssUnit = 0;
+    used: *FlowBlockUsedSizes,
+) !void {
+    const BF = FlowBlockUsedSizes.AutoBitfield;
 
     {
         const multiplier = borderWidthMultiplier(border_styles.left);
@@ -1761,22 +1877,22 @@ fn stfFlowBlockSolveHorizontalEdges(
             .px => |value| {
                 const width = value * multiplier;
                 computed.border_start = .{ .px = width };
-                result += try positiveLength(.px, width);
+                used.border_inline_start = try positiveLength(.px, width);
             },
             .thin => {
                 const width = borderWidth(.thin) * multiplier;
                 computed.border_start = .{ .px = width };
-                result += positiveLength(.px, width) catch unreachable;
+                used.border_inline_start = positiveLength(.px, width) catch unreachable;
             },
             .medium => {
                 const width = borderWidth(.medium) * multiplier;
                 computed.border_start = .{ .px = width };
-                result += positiveLength(.px, width) catch unreachable;
+                used.border_inline_start = positiveLength(.px, width) catch unreachable;
             },
             .thick => {
                 const width = borderWidth(.thick) * multiplier;
                 computed.border_start = .{ .px = width };
-                result += positiveLength(.px, width) catch unreachable;
+                used.border_inline_start = positiveLength(.px, width) catch unreachable;
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -1787,22 +1903,22 @@ fn stfFlowBlockSolveHorizontalEdges(
             .px => |value| {
                 const width = value * multiplier;
                 computed.border_end = .{ .px = width };
-                result += try positiveLength(.px, width);
+                used.border_inline_end = try positiveLength(.px, width);
             },
             .thin => {
                 const width = borderWidth(.thin) * multiplier;
                 computed.border_end = .{ .px = width };
-                result += positiveLength(.px, width) catch unreachable;
+                used.border_inline_end = positiveLength(.px, width) catch unreachable;
             },
             .medium => {
                 const width = borderWidth(.medium) * multiplier;
                 computed.border_end = .{ .px = width };
-                result += positiveLength(.px, width) catch unreachable;
+                used.border_inline_end = positiveLength(.px, width) catch unreachable;
             },
             .thick => {
                 const width = borderWidth(.thick) * multiplier;
                 computed.border_end = .{ .px = width };
-                result += positiveLength(.px, width) catch unreachable;
+                used.border_inline_end = positiveLength(.px, width) catch unreachable;
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -1811,40 +1927,60 @@ fn stfFlowBlockSolveHorizontalEdges(
     switch (specified.padding_start) {
         .px => |value| {
             computed.padding_start = .{ .px = value };
-            result += try positiveLength(.px, value);
+            used.padding_inline_start = try positiveLength(.px, value);
         },
-        .percentage => |value| computed.padding_start = .{ .percentage = value },
+        .percentage => |value| {
+            computed.padding_start = .{ .percentage = value };
+            used.padding_inline_start = 0;
+        },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.padding_end) {
         .px => |value| {
             computed.padding_end = .{ .px = value };
-            result += try positiveLength(.px, value);
+            used.padding_inline_end = try positiveLength(.px, value);
         },
-        .percentage => |value| computed.padding_end = .{ .percentage = value },
+        .percentage => |value| {
+            computed.padding_end = .{ .percentage = value };
+            used.padding_inline_end = 0;
+        },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     switch (specified.margin_start) {
         .px => |value| {
             computed.margin_start = .{ .px = value };
-            result += length(.px, value);
+            used.margin_inline_start = length(.px, value);
         },
-        .percentage => |value| computed.margin_start = .{ .percentage = value },
-        .auto => computed.margin_start = .auto,
+        .percentage => |value| {
+            computed.margin_start = .{ .percentage = value };
+            used.margin_inline_start = 0;
+            used.auto_bitfield.bits |= BF.margin_inline_start_bit;
+        },
+        .auto => {
+            computed.margin_start = .auto;
+            used.margin_inline_start = 0;
+            used.auto_bitfield.bits |= BF.margin_inline_start_bit;
+        },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.margin_end) {
         .px => |value| {
             computed.margin_end = .{ .px = value };
-            result += length(.px, value);
+            used.margin_inline_end = length(.px, value);
         },
-        .percentage => |value| computed.margin_end = .{ .percentage = value },
-        .auto => computed.margin_end = .auto,
+        .percentage => |value| {
+            computed.margin_end = .{ .percentage = value };
+            used.margin_inline_end = 0;
+            used.auto_bitfield.bits |= BF.margin_inline_end_bit;
+        },
+        .auto => {
+            computed.margin_end = .auto;
+            used.margin_inline_end = 0;
+            used.auto_bitfield.bits |= BF.margin_inline_end_bit;
+        },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-
-    return result;
 }
 
 const Block = struct {
