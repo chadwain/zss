@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const ArrayListAlignedUnmanaged = std.ArrayListAlignedUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../../zss.zig");
@@ -444,6 +445,7 @@ fn makeFlowBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree
     block.skip.* = undefined;
     block.properties.* = .{};
 
+    // TODO: Replace statements like these by making them arguments to the function.
     const containing_block_logical_width = layout.flow_block_used_logical_width.items[layout.flow_block_used_logical_width.items.len - 1];
     const containing_block_logical_height = layout.flow_block_used_logical_heights.items[layout.flow_block_used_logical_heights.items.len - 1].height;
 
@@ -553,16 +555,25 @@ const FlowBlockUsedSizes = struct {
         };
     };
 
-    inline fn setAutoBit(self: *FlowBlockUsedSizes, comptime bit: AutoBitfield.Bit) void {
-        self.auto_bitfield.bits |= @enumToInt(bit);
-        @field(self, @tagName(bit)) = 0;
+    fn set(self: *FlowBlockUsedSizes, comptime bit: AutoBitfield.Bit, value: ?ZssUnit) void {
+        if (value) |v| {
+            self.auto_bitfield.bits &= (~@enumToInt(bit));
+            @field(self, @tagName(bit)) = v;
+        } else {
+            self.auto_bitfield.bits |= @enumToInt(bit);
+            @field(self, @tagName(bit)) = 0;
+        }
     }
 
-    inline fn allAutoBitsUnset(self: FlowBlockUsedSizes) bool {
+    fn get(self: FlowBlockUsedSizes, comptime bit: AutoBitfield.Bit) ?ZssUnit {
+        return if (self.isAutoBitSet(bit)) null else @field(self, @tagName(bit));
+    }
+
+    fn allAutoBitsUnset(self: FlowBlockUsedSizes) bool {
         return self.auto_bitfield.bits == 0;
     }
 
-    inline fn isAutoBitSet(self: FlowBlockUsedSizes, comptime bit: AutoBitfield.Bit) bool {
+    fn isAutoBitSet(self: FlowBlockUsedSizes, comptime bit: AutoBitfield.Bit) bool {
         return self.auto_bitfield.bits & @enumToInt(bit) != 0;
     }
 
@@ -701,7 +712,7 @@ fn flowBlockSolveWidths(
         },
         .auto => {
             computed.content_width.size = .auto;
-            used.setAutoBit(.inline_size);
+            used.set(.inline_size, null);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -716,7 +727,7 @@ fn flowBlockSolveWidths(
         },
         .auto => {
             computed.horizontal_edges.margin_start = .auto;
-            used.setAutoBit(.margin_inline_start);
+            used.set(.margin_inline_start, null);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -731,7 +742,7 @@ fn flowBlockSolveWidths(
         },
         .auto => {
             computed.horizontal_edges.margin_end = .auto;
-            used.setAutoBit(.margin_inline_end);
+            used.set(.margin_inline_end, null);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -916,6 +927,7 @@ fn flowBlockSolveVerticalEdges(
     }
 }
 
+/// This implements the constraints described in CSS2.2§10.3.3.
 fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_logical_width: ZssUnit) void {
     const content_margin_space = containing_block_logical_width - (used.border_inline_start + used.border_inline_end + used.padding_inline_start + used.padding_inline_end);
     if (used.allAutoBitsUnset()) {
@@ -981,11 +993,11 @@ fn flowBlockFinishLayout(box_offsets: *used_values.BoxOffsets, used_logical_heig
 fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_bottom: ZssUnit, parent_auto_logical_height: *ZssUnit) void {
     const margin_top = box_offsets.border_pos.y;
     box_offsets.border_pos.y += parent_auto_logical_height.*;
-    parent_auto_logical_height.* += box_offsets.border_size.h + margin_top + margin_bottom;
+    advanceFlow(parent_auto_logical_height, box_offsets.border_size.h + margin_top + margin_bottom);
 }
 
-fn advanceFlow(parent_auto_logical_height: *ZssUnit, height: ZssUnit) void {
-    parent_auto_logical_height.* += height;
+fn advanceFlow(parent_auto_logical_height: *ZssUnit, amount: ZssUnit) void {
+    parent_auto_logical_height.* += amount;
 }
 
 fn makeInlineFormattingContext(
@@ -1191,10 +1203,7 @@ fn splitIntoLineBoxes(
 }
 
 fn makeInlineBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !GeneratedBox {
-    const block = try createBlock(box_tree);
-    block.skip.* = undefined;
-    block.properties.* = .{};
-
+    // TODO: Replace statements like these by making them arguments to the function.
     const containing_block_logical_width = layout.flow_block_used_logical_width.items[layout.flow_block_used_logical_width.items.len - 1];
     const containing_block_logical_height = layout.flow_block_used_logical_heights.items[layout.flow_block_used_logical_heights.items.len - 1].height;
 
@@ -1223,11 +1232,14 @@ fn makeInlineBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tr
     computer.setComputedValue(.box_gen, .border_styles, border_styles);
 
     if (!used_sizes.isAutoBitSet(.inline_size)) {
+        const block = try createBlock(box_tree);
+        block.skip.* = undefined;
+        block.properties.* = .{};
         flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
         try pushFlowBlock(layout, block.index, used_sizes);
         return GeneratedBox{ .block_box = block.index };
     } else {
-        {
+        { // TODO: Delete this
             const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
             computer.setComputedValue(.box_gen, .z_index, specified_z_index);
             const specified_font = computer.getSpecifiedValue(.box_gen, .font);
@@ -1342,7 +1354,7 @@ fn inlineBlockSolveSizes(
         },
         .auto => {
             computed.horizontal_edges.margin_start = .auto;
-            used.margin_inline_start = 0;
+            used.set(.margin_inline_start, null);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -1357,7 +1369,7 @@ fn inlineBlockSolveSizes(
         },
         .auto => {
             computed.horizontal_edges.margin_end = .auto;
-            used.margin_inline_end = 0;
+            used.set(.margin_inline_end, null);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -1399,7 +1411,7 @@ fn inlineBlockSolveSizes(
         },
         .auto => {
             computed.content_width.size = .auto;
-            used.setAutoBit(.inline_size);
+            used.set(.inline_size, null);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -1560,92 +1572,140 @@ fn inlineBlockSolveSizes(
     }
 }
 
-const StfObject = struct {
-    skip: ElementIndex,
-    tag: Tag,
-    element: ElementRef,
+const StfObjects = struct {
+    tree: MultiArrayList(Object) = .{},
+    data: ArrayListAlignedUnmanaged([data_chunk_size]u8, data_max_alignment) = .{},
+
+    const data_chunk_size = 4;
+    const data_max_alignment = 4;
+
+    const Index = ElementIndex;
+    const Skip = Index;
+    const DataIndex = usize;
 
     const Tag = enum {
         flow_normal,
         flow_stf,
         none,
+    };
 
-        fn ObjectDataType(comptime tag: Tag) type {
+    const DataTag = enum {
+        flow,
+
+        fn Type(comptime tag: DataTag) type {
             return switch (tag) {
-                .flow_normal, .flow_stf => FlowBlockUsedSizes,
-                .none => void,
+                .flow => FlowBlockUsedSizes,
             };
         }
     };
+
+    const Object = struct {
+        skip: Skip,
+        tag: Tag,
+        element: ElementRef,
+    };
+
+    fn allocData(objects: *StfObjects, allocator: Allocator, comptime tag: DataTag) !*tag.Type() {
+        const Data = tag.Type();
+        const size = @sizeOf(Data);
+        const num_chunks = zss.util.divCeil(size, data_chunk_size);
+        try objects.data.ensureUnusedCapacity(allocator, num_chunks);
+        objects.data.items.len += num_chunks;
+        const chunks = objects.data.items[objects.data.items.len - num_chunks ..];
+        const bytes = @ptrCast([*]align(data_max_alignment) u8, chunks.ptr)[0..size];
+        return std.mem.bytesAsValue(Data, bytes);
+    }
+
+    fn getLastDataIndex(objects: *const StfObjects, comptime tag: DataTag) DataIndex {
+        const Data = tag.Type();
+        const size = @sizeOf(Data);
+        const num_chunks = zss.util.divCeil(size, data_chunk_size);
+        return objects.data.items.len - num_chunks;
+    }
+
+    fn getData(objects: *const StfObjects, comptime tag: DataTag, data_index: DataIndex) *tag.Type() {
+        const Data = tag.Type();
+        const size = @sizeOf(Data);
+        const num_chunks = zss.util.divCeil(size, data_chunk_size);
+        const chunks = objects.data.items[data_index..][0..num_chunks];
+        const bytes = @ptrCast([*]align(data_max_alignment) u8, chunks)[0..size];
+        return std.mem.bytesAsValue(Data, bytes);
+    }
+
+    fn getData2(objects: *const StfObjects, comptime tag: DataTag, data_index: *DataIndex) *tag.Type() {
+        const Data = tag.Type();
+        const size = @sizeOf(Data);
+        const num_chunks = zss.util.divCeil(size, data_chunk_size);
+        defer data_index.* += num_chunks;
+        return getData(objects, tag, data_index.*);
+    }
 };
 
 const ShrinkToFitLayoutContext = struct {
-    object_tree: MultiArrayList(StfObject) = .{},
-    object_data: ArrayListUnmanaged(u8) = .{},
-    object_stack: MultiArrayList(IndexAndSkip) = .{},
+    objects: StfObjects = .{},
+    object_stack: MultiArrayList(ObjectStackItem) = .{},
 
-    widths: MultiArrayList(StfWidths) = .{},
-    heights: MultiArrayList(UsedLogicalHeights) = .{},
+    widths: MultiArrayList(Widths) = .{},
+    heights: MultiArrayList(Heights) = .{},
 
     allocator: Allocator,
 
-    const IndexAndSkip = struct {
-        index: ElementIndex,
-        skip: ElementIndex,
+    const ObjectStackItem = struct {
+        index: StfObjects.Index,
+        skip: StfObjects.Skip,
+        data_index: StfObjects.DataIndex,
     };
 
-    const StfWidths = struct {
+    const Widths = struct {
         auto: ZssUnit,
         available: ZssUnit,
     };
 
+    const Heights = struct {
+        auto: ZssUnit,
+        used: ?ZssUnit,
+    };
+
     fn initFlow(allocator: Allocator, computer: *StyleComputer, used_sizes: FlowBlockUsedSizes, available_width: ZssUnit) !ShrinkToFitLayoutContext {
-        const element = computer.this_element.ref;
+        const element = computer.this_element.index;
         try computer.pushElement(.box_gen);
 
         var result = ShrinkToFitLayoutContext{ .allocator = allocator };
         errdefer result.deinit();
-        try result.object_tree.append(result.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
-        try result.setObjectData(.flow_stf, used_sizes);
-        try result.object_stack.append(result.allocator, .{ .index = 0, .skip = 1 });
+        try result.objects.tree.append(result.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
+        const data_ptr: *FlowBlockUsedSizes = try result.objects.allocData(result.allocator, .flow);
+        data_ptr.* = used_sizes;
+        try result.object_stack.append(result.allocator, .{ .index = 0, .skip = 1, .data_index = result.objects.getLastDataIndex(.flow) });
         try stfPushFlowBlock(&result, used_sizes, available_width);
         return result;
     }
 
     fn deinit(self: *ShrinkToFitLayoutContext) void {
-        self.object_tree.deinit(self.allocator);
-        self.object_data.deinit(self.allocator);
+        self.objects.tree.deinit(self.allocator);
+        self.objects.data.deinit(self.allocator);
         self.object_stack.deinit(self.allocator);
 
         self.widths.deinit(self.allocator);
         self.heights.deinit(self.allocator);
     }
-
-    fn setObjectData(self: *ShrinkToFitLayoutContext, comptime tag: StfObject.Tag, data: tag.ObjectDataType()) !void {
-        _ = self;
-        _ = tag;
-        _ = data;
-        // TODO: Set the object data
-    }
 };
 
 fn shrinkToFitLayout(layout: *ShrinkToFitLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !GeneratedBox {
     try stfBuildObjectTree(layout, computer);
-    _ = box_tree;
-    // try stfRealizeObjects(layout, box_tree);
+    try stfRealizeObjects(layout.objects, layout.allocator, computer.element_tree_skips, box_tree);
     std.debug.print(
         "\nObject tree\n\t(skip) {any}\n\t(tag) {any}\n\t(element) {any}\n",
-        .{ layout.object_tree.items(.skip), layout.object_tree.items(.tag), layout.object_tree.items(.element) },
+        .{ layout.objects.tree.items(.skip), layout.objects.tree.items(.tag), layout.objects.tree.items(.element) },
     );
     @panic("TODO");
 }
 
 fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleComputer) !void {
-    assert(layout.object_tree.len == 1);
+    assert(layout.objects.tree.len == 1);
     assert(layout.object_stack.len > 0);
     while (layout.object_stack.len > 0) {
         const object_index = layout.object_stack.items(.index)[layout.object_stack.len - 1];
-        const object_tag = layout.object_tree.items(.tag)[object_index];
+        const object_tag = layout.objects.tree.items(.tag)[object_index];
         switch (object_tag) {
             .flow_stf => {
                 const interval = &computer.intervals.items[computer.intervals.items.len - 1];
@@ -1666,12 +1726,17 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleCompute
 
                             switch (tag) {
                                 .flow_normal => {
-                                    try layout.object_tree.append(layout.allocator, .{ .skip = 1, .tag = .flow_normal, .element = element });
+                                    try layout.objects.tree.append(layout.allocator, .{ .skip = 1, .tag = .flow_normal, .element = element });
                                     layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
+                                    interval.begin += skip;
                                 },
                                 .flow_stf => {
-                                    try layout.object_stack.append(layout.allocator, .{ .index = @intCast(ElementIndex, layout.object_tree.len), .skip = 1 });
-                                    try layout.object_tree.append(layout.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
+                                    try layout.object_stack.append(layout.allocator, .{
+                                        .index = @intCast(StfObjects.Index, layout.objects.tree.len),
+                                        .skip = 1,
+                                        .data_index = layout.objects.getLastDataIndex(.flow),
+                                    });
+                                    try layout.objects.tree.append(layout.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
 
                                     { // TODO: Delete this
                                         const stuff = .{
@@ -1682,15 +1747,14 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleCompute
                                         computer.setComputedValue(.box_gen, .font, stuff.font);
                                     }
 
+                                    interval.begin += skip;
                                     try computer.pushElement(.box_gen);
                                 },
                                 else => unreachable,
                             }
-
-                            interval.begin += skip;
                         },
                         .none => {
-                            try layout.object_tree.append(layout.allocator, .{ .skip = 1, .tag = .none, .element = element });
+                            try layout.objects.tree.append(layout.allocator, .{ .skip = 1, .tag = .none, .element = element });
                             layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
                             interval.begin += skip;
                         },
@@ -1698,23 +1762,32 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleCompute
                         .initial, .inherit, .unset, .undeclared => unreachable,
                     }
                 } else {
-                    const auto_width = stfPopFlowBlock(layout);
+                    const info = layout.object_stack.pop();
+                    layout.objects.tree.items(.skip)[object_index] = info.skip;
 
-                    const skip = layout.object_stack.pop().skip;
-                    layout.object_tree.items(.skip)[object_index] = skip;
+                    const auto_width = layout.widths.pop().auto;
+                    const auto_height = layout.heights.pop().auto;
+                    const used: *FlowBlockUsedSizes = layout.objects.getData(.flow, info.data_index);
+                    used.set(.inline_size, auto_width);
+                    used.block_size = used.block_size orelse clampSize(auto_height, used.min_block_size, used.max_block_size);
 
                     if (layout.object_stack.len > 0) {
                         const parent_object_index = layout.object_stack.items(.index)[layout.object_stack.len - 1];
-                        const parent_object_tag = layout.object_tree.items(.tag)[parent_object_index];
+                        const parent_object_tag = layout.objects.tree.items(.tag)[parent_object_index];
                         switch (parent_object_tag) {
                             .flow_stf => {
                                 const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
                                 parent_auto_width.* = std.math.max(parent_auto_width.*, auto_width);
+                                const parent_auto_logical_height = &layout.heights.items(.auto)[layout.heights.len - 1];
+                                advanceFlow(parent_auto_logical_height, used.block_size.? +
+                                    used.margin_block_start + used.margin_block_end +
+                                    used.border_block_start + used.border_block_end +
+                                    used.padding_block_start + used.padding_block_end);
                             },
                             .flow_normal, .none => unreachable,
                         }
 
-                        layout.object_stack.items(.skip)[layout.object_stack.len - 1] += skip;
+                        layout.object_stack.items(.skip)[layout.object_stack.len - 1] += info.skip;
                     }
                 }
             },
@@ -1723,52 +1796,126 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleCompute
     }
 }
 
-fn stfRealizeObjects(layout: *ShrinkToFitLayoutContext, box_tree: *BoxTree) !void {
-    const skips = layout.object_tree.items(.skip);
-    const tags = layout.object_tree.items(.tag);
+const ShrinkToFitLayoutContext2 = struct {
+    objects: MultiArrayList(struct { tag: StfObjects.Tag, interval: Interval }) = .{},
+    blocks: MultiArrayList(struct { index: BlockBoxIndex, skip: BlockBoxSkip }) = .{},
+    widths: ArrayListUnmanaged(ZssUnit) = .{},
 
-    var stack = ArrayListUnmanaged(){};
-    defer stack.deinit(layout.allocator);
-    try stack.append(layout.allocator, .{ .begin = 0, .end = skips[0] });
+    const Interval = struct {
+        begin: StfObjects.Index,
+        end: StfObjects.Index,
+    };
 
-    while (stack.items.len > 0) {
-        const interval = &stack.items[stack.items.len - 1];
-        if (interval.begin != interval.end) {
-            const index = interval.begin;
-            const skip = skips[index];
-            interval.begin += skip;
+    fn deinit(layout: *ShrinkToFitLayoutContext2, allocator: Allocator) void {
+        layout.objects.deinit(allocator);
+        layout.blocks.deinit(allocator);
+        layout.widths.deinit(allocator);
+    }
+};
 
-            const tag = tags[index];
-            switch (tag) {
-                .flow_stf => {
-                    const block = try createBlock(box_tree);
-                    block.properties.* = .{};
-                    const used_sizes = layout.getObjectData(.flow_stf);
-                    flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
-                },
-            }
-        } else {
-            _ = stack.pop();
+fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, element_tree_skips: []const ElementIndex, box_tree: *BoxTree) !void {
+    const skips = objects.tree.items(.skip);
+    const tags = objects.tree.items(.tag);
+    const elements = objects.tree.items(.element);
+
+    var data_index: StfObjects.DataIndex = 0;
+    var layout = ShrinkToFitLayoutContext2{};
+    defer layout.deinit(allocator);
+
+    {
+        const skip = skips[0];
+        const tag = tags[0];
+        const element = elements[0];
+        switch (tag) {
+            .flow_stf => {
+                const block = try createBlock(box_tree);
+                block.properties.* = .{};
+
+                const used_sizes: *FlowBlockUsedSizes = objects.getData2(.flow, &data_index);
+                flowBlockSetData(used_sizes.*, block.box_offsets, block.borders, block.margins);
+                box_tree.element_index_to_generated_box[element] = .{ .block_box = block.index };
+
+                try layout.blocks.append(allocator, .{ .index = block.index, .skip = 1 });
+                try layout.widths.append(allocator, used_sizes.get(.inline_size).?);
+            },
+            .flow_normal, .none => unreachable,
+        }
+
+        try layout.objects.append(allocator, .{ .tag = undefined, .interval = .{ .begin = 0, .end = skip } });
+        try layout.objects.append(allocator, .{ .tag = tag, .interval = .{ .begin = 1, .end = skip } });
+    }
+
+    while (layout.objects.len > 1) {
+        const parent_tag = layout.objects.items(.tag)[layout.objects.len - 1];
+        const interval = &layout.objects.items(.interval)[layout.objects.len - 1];
+        switch (parent_tag) {
+            .flow_stf => if (interval.begin != interval.end) {
+                const index = interval.begin;
+                const skip = skips[index];
+                interval.begin += skip;
+
+                const containing_block_logical_width = layout.widths.items[layout.widths.items.len - 1];
+
+                const tag = tags[index];
+                const element = elements[index];
+                switch (tag) {
+                    .flow_stf => {
+                        const block = try createBlock(box_tree);
+                        block.properties.* = .{};
+
+                        const used_sizes: *FlowBlockUsedSizes = objects.getData2(.flow, &data_index);
+                        flowBlockAdjustWidthAndMargins(used_sizes, containing_block_logical_width);
+                        flowBlockSetData(used_sizes.*, block.box_offsets, block.borders, block.margins);
+                        box_tree.element_index_to_generated_box[element] = .{ .block_box = block.index };
+
+                        try layout.objects.append(allocator, .{ .tag = .flow_stf, .interval = .{ .begin = index + 1, .end = index + skip } });
+                        try layout.blocks.append(allocator, .{ .index = block.index, .skip = 1 });
+                        try layout.widths.append(allocator, used_sizes.inline_size);
+                    },
+                    .flow_normal => {
+                        // const block = try createBlock(box_tree);
+                        // block.properties.* = .{};
+                        // const used_sizes: *const FlowBlockUsedSizes = layout.getData2(.flow_normal, &data_index);
+                        // // TODO: Need to call flowBlockAdjustWidthAndMargins?
+                        // flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
+                        // box_tree.element_index_to_generated_box[element] = .{ .block_box = block.index };
+                        @panic("TODO"); // Must call runUntilStackSizeIsRestored
+                    },
+                    .none => {
+                        std.mem.set(GeneratedBox, box_tree.element_index_to_generated_box[element..][0..element_tree_skips[element]], .none);
+                    },
+                }
+            } else {
+                _ = layout.objects.pop();
+                const block = layout.blocks.pop();
+                _ = layout.widths.pop();
+
+                box_tree.blocks.skips.items[block.index] = block.skip;
+                // TODO: flowBlockFinishLayout
+            },
+            .flow_normal, .none => unreachable,
         }
     }
 }
 
-fn stfAnalyzeFlowBlock(layout: *ShrinkToFitLayoutContext, computer: *StyleComputer) !StfObject.Tag {
+fn stfAnalyzeFlowBlock(layout: *ShrinkToFitLayoutContext, computer: *StyleComputer) !StfObjects.Tag {
     const specified = FlowBlockComputedSizes{
         .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
         .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
-        .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges), // TODO: Not needed
+        .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
     };
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     var computed: FlowBlockComputedSizes = undefined;
-    var used = FlowBlockUsedSizes{};
+    const used: *FlowBlockUsedSizes = try layout.objects.allocData(layout.allocator, .flow);
+    used.* = .{};
 
-    try stfFlowBlockSolveContentWidth(specified.content_width, &computed.content_width, &used);
-    try stfFlowBlockSolveHorizontalEdges(specified.horizontal_edges, border_styles, &computed.horizontal_edges, &used);
-    const containing_block_logical_height = layout.heights.items(.height)[layout.heights.len - 1];
-    try flowBlockSolveContentHeight(specified, containing_block_logical_height, &computed, &used);
-    try flowBlockSolveVerticalEdges(specified, 0, border_styles, &computed, &used);
+    try stfFlowBlockSolveContentWidth(specified.content_width, &computed.content_width, used);
+    try stfFlowBlockSolveHorizontalEdges(specified.horizontal_edges, border_styles, &computed.horizontal_edges, used);
+    // TODO: Replace statements like these by making them arguments to the function.
+    const containing_block_logical_height = layout.heights.items(.used)[layout.heights.len - 1];
+    try flowBlockSolveContentHeight(specified, containing_block_logical_height, &computed, used);
+    try flowBlockSolveVerticalEdges(specified, 0, border_styles, &computed, used);
 
     computer.setComputedValue(.box_gen, .content_width, computed.content_width);
     computer.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
@@ -1783,29 +1930,27 @@ fn stfAnalyzeFlowBlock(layout: *ShrinkToFitLayoutContext, computer: *StyleComput
     if (!used.isAutoBitSet(.inline_size)) {
         const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
         parent_auto_width.* = std.math.max(parent_auto_width.*, used.inline_size + edge_width);
-        try layout.setObjectData(.flow_normal, used);
-        return StfObject.Tag.flow_normal;
+        return StfObjects.Tag.flow_normal;
     } else {
         const parent_available_width = layout.widths.items(.available)[layout.widths.len - 1];
         const available_width = std.math.max(0, parent_available_width - edge_width);
-        try layout.setObjectData(.flow_stf, used);
-        try stfPushFlowBlock(layout, used, available_width);
-        return StfObject.Tag.flow_stf;
+        try stfPushFlowBlock(layout, used.*, available_width);
+        return StfObjects.Tag.flow_stf;
     }
 }
 
 fn stfPushFlowBlock(layout: *ShrinkToFitLayoutContext, used_sizes: FlowBlockUsedSizes, available_width: ZssUnit) !void {
     // The allocations here must have corresponding deallocations in stfPopFlowBlock.
     try layout.widths.append(layout.allocator, .{ .auto = 0, .available = available_width });
-    try layout.heights.append(layout.allocator, used_sizes.getUsedLogicalHeights());
+    try layout.heights.append(layout.allocator, .{ .auto = 0, .used = used_sizes.block_size });
 }
 
-fn stfPopFlowBlock(layout: *ShrinkToFitLayoutContext) ZssUnit {
-    // The deallocations here must correspond to allocations in stfPushFlowBlock.
-    const auto_width = layout.widths.pop().auto;
-    _ = layout.heights.pop();
-    return auto_width;
-}
+// fn stfPopFlowBlock(layout: *ShrinkToFitLayoutContext) ZssUnit {
+// // The deallocations here must correspond to allocations in stfPushFlowBlock.
+// const auto_width = layout.widths.pop().auto;
+// _ = layout.heights.pop();
+// return auto_width;
+// }
 
 fn stfFlowBlockSolveContentWidth(
     specified: zss.properties.ContentSize,
@@ -1846,12 +1991,12 @@ fn stfFlowBlockSolveContentWidth(
         },
         .percentage => |value| {
             computed.size = .{ .percentage = value };
-            used.setAutoBit(.inline_size);
+            used.set(.inline_size, null);
             return;
         },
         .auto => {
             computed.size = .auto;
-            used.setAutoBit(.inline_size);
+            used.set(.inline_size, null);
             return;
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
@@ -1947,11 +2092,11 @@ fn stfFlowBlockSolveHorizontalEdges(
         },
         .percentage => |value| {
             computed.margin_start = .{ .percentage = value };
-            used.setAutoBit(.margin_inline_start);
+            used.set(.margin_inline_start, null);
         },
         .auto => {
             computed.margin_start = .auto;
-            used.setAutoBit(.margin_inline_start);
+            used.set(.margin_inline_start, null);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -1962,11 +2107,11 @@ fn stfFlowBlockSolveHorizontalEdges(
         },
         .percentage => |value| {
             computed.margin_end = .{ .percentage = value };
-            used.setAutoBit(.margin_inline_end);
+            used.set(.margin_inline_end, null);
         },
         .auto => {
             computed.margin_end = .auto;
-            used.setAutoBit(.margin_inline_end);
+            used.set(.margin_inline_end, null);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
