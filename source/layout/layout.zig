@@ -483,7 +483,7 @@ fn pushFlowBlock(
     try layout.layout_mode.append(layout.allocator, .Flow);
     try layout.index.append(layout.allocator, block_box_index);
     try layout.skip.append(layout.allocator, 1);
-    try layout.flow_block_used_logical_width.append(layout.allocator, used_sizes.inline_size);
+    try layout.flow_block_used_logical_width.append(layout.allocator, used_sizes.get(.inline_size).?);
     try layout.flow_block_auto_logical_height.append(layout.allocator, 0);
     try layout.flow_block_used_logical_heights.append(layout.allocator, used_sizes.getUsedLogicalHeights());
 }
@@ -527,9 +527,9 @@ const FlowBlockUsedSizes = struct {
     border_inline_end: ZssUnit,
     padding_inline_start: ZssUnit,
     padding_inline_end: ZssUnit,
-    margin_inline_start: ZssUnit,
-    margin_inline_end: ZssUnit,
-    inline_size: ZssUnit,
+    margin_inline_start_untagged: ZssUnit,
+    margin_inline_end_untagged: ZssUnit,
+    inline_size_untagged: ZssUnit,
     min_inline_size: ZssUnit,
     max_inline_size: ZssUnit,
 
@@ -539,45 +539,40 @@ const FlowBlockUsedSizes = struct {
     padding_block_end: ZssUnit,
     margin_block_start: ZssUnit,
     margin_block_end: ZssUnit,
-    block_size: ZssUnit,
+    block_size_untagged: ZssUnit,
     min_block_size: ZssUnit,
     max_block_size: ZssUnit,
 
-    auto_bitfield: AutoBitfield,
+    auto_bitfield: u4,
 
-    const AutoBitfield = struct {
-        bits: u4 = 0,
-
-        const Bit = enum(u4) {
-            inline_size = 1,
-            margin_inline_start = 2,
-            margin_inline_end = 4,
-            block_size = 8,
-        };
+    const Bit = enum(u4) {
+        inline_size = 1,
+        margin_inline_start = 2,
+        margin_inline_end = 4,
+        block_size = 8,
     };
 
-    fn set(self: *FlowBlockUsedSizes, comptime bit: AutoBitfield.Bit, value: ?ZssUnit) void {
+    fn set(self: *FlowBlockUsedSizes, comptime bit: Bit, value: ?ZssUnit) void {
         if (value) |v| {
-            self.auto_bitfield.bits &= (~@enumToInt(bit));
-            @field(self, @tagName(bit)) = v;
+            self.auto_bitfield &= (~@enumToInt(bit));
+            @field(self, @tagName(bit) ++ "_untagged") = v;
         } else {
-            self.auto_bitfield.bits |= @enumToInt(bit);
-            @field(self, @tagName(bit)) = 0;
+            self.auto_bitfield |= @enumToInt(bit);
+            @field(self, @tagName(bit) ++ "_untagged") = 0;
         }
     }
 
-    fn get(self: FlowBlockUsedSizes, comptime bit: AutoBitfield.Bit) ?ZssUnit {
-        return if (self.isAutoBitSet(bit)) null else @field(self, @tagName(bit));
+    fn get(self: FlowBlockUsedSizes, comptime bit: Bit) ?ZssUnit {
+        return if (self.isAutoBitSet(bit)) null else @field(self, @tagName(bit) ++ "_untagged");
     }
 
-    fn inlineSizeAndMarginsAreAuto(self: FlowBlockUsedSizes) bool {
-        const B = AutoBitfield.Bit;
-        const mask = @enumToInt(B.inline_size) | @enumToInt(B.margin_inline_start) | @enumToInt(B.margin_inline_end);
-        return self.auto_bitfield.bits & mask == 0;
+    fn inlineSizeAndMarginsAreNotAuto(self: FlowBlockUsedSizes) bool {
+        const mask = @enumToInt(Bit.inline_size) | @enumToInt(Bit.margin_inline_start) | @enumToInt(Bit.margin_inline_end);
+        return self.auto_bitfield & mask == 0;
     }
 
-    fn isAutoBitSet(self: FlowBlockUsedSizes, comptime bit: AutoBitfield.Bit) bool {
-        return self.auto_bitfield.bits & @enumToInt(bit) != 0;
+    fn isAutoBitSet(self: FlowBlockUsedSizes, comptime bit: Bit) bool {
+        return self.auto_bitfield & @enumToInt(bit) != 0;
     }
 
     fn getUsedLogicalHeights(self: FlowBlockUsedSizes) UsedLogicalHeights {
@@ -932,12 +927,13 @@ fn flowBlockSolveVerticalEdges(
 
 /// This implements the constraints described in CSS2.2§10.3.3.
 fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_logical_width: ZssUnit) void {
-    const content_margin_space = containing_block_logical_width - (used.border_inline_start + used.border_inline_end + used.padding_inline_start + used.padding_inline_end);
-    if (used.inlineSizeAndMarginsAreAuto()) {
+    const content_margin_space = containing_block_logical_width -
+        (used.border_inline_start + used.border_inline_end + used.padding_inline_start + used.padding_inline_end);
+    if (used.inlineSizeAndMarginsAreNotAuto()) {
         // None of the values were auto, so one of the margins must be set according to the other values.
         // TODO the margin that gets set is determined by the 'direction' property
-        used.inline_size = clampSize(used.inline_size, used.min_inline_size, used.max_inline_size);
-        used.margin_inline_end = content_margin_space - used.inline_size - used.margin_inline_start;
+        used.set(.inline_size, clampSize(used.inline_size_untagged, used.min_inline_size, used.max_inline_size));
+        used.set(.margin_inline_end, content_margin_space - used.inline_size_untagged - used.margin_inline_start_untagged);
     } else if (!used.isAutoBitSet(.inline_size)) {
         // 'inline-size' is not auto, but at least one of 'margin-inline-start' and 'margin-inline-end' is.
         // If there is only one "auto", then that value gets the remaining margin space.
@@ -945,15 +941,20 @@ fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_lo
         const start = used.isAutoBitSet(.margin_inline_start);
         const end = used.isAutoBitSet(.margin_inline_end);
         const shr_amount = @boolToInt(start and end);
-        used.inline_size = clampSize(used.inline_size, used.min_inline_size, used.max_inline_size);
-        const leftover_margin = std.math.max(0, content_margin_space - (used.inline_size + used.margin_inline_start + used.margin_inline_end));
+        used.set(.inline_size, clampSize(used.inline_size_untagged, used.min_inline_size, used.max_inline_size));
+        const leftover_margin = std.math.max(0, content_margin_space -
+            (used.inline_size_untagged + used.margin_inline_start_untagged + used.margin_inline_end_untagged));
         // TODO the margin that gets the extra 1 unit shall be determined by the 'direction' property
-        if (start) used.margin_inline_start = leftover_margin >> shr_amount;
-        if (end) used.margin_inline_end = (leftover_margin >> shr_amount) + @mod(leftover_margin, 2);
+        if (start) used.set(.margin_inline_start, leftover_margin >> shr_amount);
+        if (end) used.set(.margin_inline_end, (leftover_margin >> shr_amount) + @mod(leftover_margin, 2));
     } else {
         // 'inline-size' is auto, so it is set according to the other values.
         // The margin values don't need to change.
-        used.inline_size = clampSize(content_margin_space - used.margin_inline_start - used.margin_inline_end, used.min_inline_size, used.max_inline_size);
+        used.set(.inline_size, clampSize(
+            content_margin_space - used.margin_inline_start_untagged - used.margin_inline_end_untagged,
+            used.min_inline_size,
+            used.max_inline_size,
+        ));
     }
 }
 
@@ -964,16 +965,16 @@ fn flowBlockSetData(
     margins: *used_values.Margins,
 ) void {
     // horizontal
-    box_offsets.border_pos.x = used.margin_inline_start;
+    box_offsets.border_pos.x = used.get(.margin_inline_start).?;
     box_offsets.content_pos.x = used.border_inline_start + used.padding_inline_start;
-    box_offsets.content_size.w = used.inline_size;
+    box_offsets.content_size.w = used.get(.inline_size).?;
     box_offsets.border_size.w = box_offsets.content_pos.x + box_offsets.content_size.w + used.padding_inline_end + used.border_inline_end;
 
     borders.left = used.border_inline_start;
     borders.right = used.border_inline_end;
 
-    margins.left = used.margin_inline_start;
-    margins.right = used.margin_inline_end;
+    margins.left = used.get(.margin_inline_start).?;
+    margins.right = used.get(.margin_inline_end).?;
 
     // vertical
     box_offsets.border_pos.y = used.margin_block_start;
@@ -1250,7 +1251,7 @@ fn makeInlineBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tr
         }
 
         const available_width = containing_block_logical_width -
-            (used_sizes.margin_inline_start + used_sizes.margin_inline_end +
+            (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
             used_sizes.border_inline_start + used_sizes.border_inline_end +
             used_sizes.padding_inline_start + used_sizes.padding_inline_end);
         var stf_layout = try ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, used_sizes, available_width);
@@ -1873,7 +1874,7 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, element_tree_ski
 
                         try layout.objects.append(allocator, .{ .tag = .flow_stf, .interval = .{ .begin = index + 1, .end = index + skip } });
                         try layout.blocks.append(allocator, .{ .index = block.index, .skip = 1 });
-                        try layout.widths.append(allocator, used_sizes.inline_size);
+                        try layout.widths.append(allocator, used_sizes.get(.inline_size).?);
                     },
                     .flow_normal => {
                         // const block = try createBlock(box_tree);
@@ -1925,13 +1926,13 @@ fn stfAnalyzeFlowBlock(layout: *ShrinkToFitLayoutContext, computer: *StyleComput
     computer.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
     computer.setComputedValue(.box_gen, .border_styles, border_styles);
 
-    const edge_width = used.margin_inline_start + used.margin_inline_end +
+    const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
         used.border_inline_start + used.border_inline_end +
         used.padding_inline_start + used.padding_inline_end;
 
-    if (!used.isAutoBitSet(.inline_size)) {
+    if (used.get(.inline_size)) |inline_size| {
         const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
-        parent_auto_width.* = std.math.max(parent_auto_width.*, used.inline_size + edge_width);
+        parent_auto_width.* = std.math.max(parent_auto_width.*, inline_size + edge_width);
         return StfObjects.Tag.flow_normal;
     } else {
         const parent_available_width = layout.widths.items(.available)[layout.widths.len - 1];
@@ -1944,7 +1945,7 @@ fn stfAnalyzeFlowBlock(layout: *ShrinkToFitLayoutContext, computer: *StyleComput
 fn stfPushFlowBlock(layout: *ShrinkToFitLayoutContext, used_sizes: FlowBlockUsedSizes, available_width: ZssUnit) !void {
     // The allocations here must have corresponding deallocations in stfPopFlowBlock.
     try layout.widths.append(layout.allocator, .{ .auto = 0, .available = available_width });
-    try layout.heights.append(layout.allocator, .{ .auto = 0, .used = used_sizes.block_size });
+    try layout.heights.append(layout.allocator, .{ .auto = 0, .used = used_sizes.get(.block_size) });
 }
 
 // fn stfPopFlowBlock(layout: *ShrinkToFitLayoutContext) ZssUnit {
