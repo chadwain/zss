@@ -1070,6 +1070,7 @@ fn makeInlineFormattingContext(
 
     assert(layout.layout_mode.pop() == .InlineFormattingContext);
 
+    // TODO: There's a good chance `interval` is a dangling reference
     interval.begin = inline_layout.next_element;
 
     const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
@@ -1388,7 +1389,7 @@ fn inlineBlockSolveSizes(
         },
         .auto => {
             computed.horizontal_edges.margin_start = .auto;
-            used.set(.margin_inline_start, null);
+            used.set(.margin_inline_start, 0);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -1403,7 +1404,7 @@ fn inlineBlockSolveSizes(
         },
         .auto => {
             computed.horizontal_edges.margin_end = .auto;
-            used.set(.margin_inline_end, null);
+            used.set(.margin_inline_end, 0);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
