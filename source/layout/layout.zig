@@ -161,7 +161,7 @@ const LayoutMode = enum {
 
 const IsRoot = enum { Root, NonRoot };
 
-const UsedLogicalHeights = struct {
+const UsedContentHeight = struct {
     height: ?ZssUnit,
     min_height: ZssUnit,
     max_height: ZssUnit,
@@ -188,9 +188,9 @@ const BlockLayoutContext = struct {
     index: ArrayListUnmanaged(BlockBoxIndex) = .{},
     skip: ArrayListUnmanaged(BlockBoxSkip) = .{},
 
-    flow_block_used_logical_width: ArrayListUnmanaged(ZssUnit) = .{},
-    flow_block_auto_logical_height: ArrayListUnmanaged(ZssUnit) = .{},
-    flow_block_used_logical_heights: ArrayListUnmanaged(UsedLogicalHeights) = .{},
+    width: ArrayListUnmanaged(ZssUnit) = .{},
+    auto_height: ArrayListUnmanaged(ZssUnit) = .{},
+    heights: ArrayListUnmanaged(UsedContentHeight) = .{},
 
     fn deinit(self: *BlockLayoutContext) void {
         self.anonymous_block_boxes.deinit(self.allocator);
@@ -202,9 +202,9 @@ const BlockLayoutContext = struct {
         self.index.deinit(self.allocator);
         self.skip.deinit(self.allocator);
 
-        self.flow_block_used_logical_width.deinit(self.allocator);
-        self.flow_block_auto_logical_height.deinit(self.allocator);
-        self.flow_block_used_logical_heights.deinit(self.allocator);
+        self.width.deinit(self.allocator);
+        self.auto_height.deinit(self.allocator);
+        self.heights.deinit(self.allocator);
     }
 };
 
@@ -317,9 +317,12 @@ fn runOnce(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *Box
                 };
                 computer.setComputedValue(.box_gen, .box_style, computed.box_style);
 
+                const containing_block_width = layout.width.items[layout.width.items.len - 1];
+                const containing_block_height = layout.heights.items[layout.heights.items.len - 1].height;
+
                 switch (computed.box_style.display) {
                     .block => {
-                        const box = try makeFlowBlock(layout, computer, box_tree);
+                        const box = try makeFlowBlock(layout, computer, box_tree, containing_block_width, containing_block_height);
                         box_tree.element_index_to_generated_box[element] = box;
 
                         const z_index = computer.getSpecifiedValue(.box_gen, .z_index); // TODO: Useless info
@@ -355,9 +358,12 @@ fn runOnce(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *Box
                 };
                 computer.setComputedValue(.box_gen, .box_style, computed.box_style);
 
+                const containing_block_width = layout.width.items[layout.width.items.len - 1];
+                const containing_block_height = layout.heights.items[layout.heights.items.len - 1].height;
+
                 switch (computed.box_style.display) {
                     .block => {
-                        const box = try makeFlowBlock(layout, computer, box_tree);
+                        const box = try makeFlowBlock(layout, computer, box_tree, containing_block_width, containing_block_height);
                         box_tree.element_index_to_generated_box[element] = box;
 
                         const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
@@ -381,8 +387,15 @@ fn runOnce(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *Box
                         try computer.pushElement(.box_gen);
                     },
                     .inline_, .inline_block, .text => {
-                        const containing_block_logical_width = layout.flow_block_used_logical_width.items[layout.flow_block_used_logical_width.items.len - 1];
-                        return makeInlineFormattingContext(layout, computer, box_tree, interval, containing_block_logical_width, .Normal);
+                        return makeInlineFormattingContext(
+                            layout,
+                            computer,
+                            box_tree,
+                            interval,
+                            containing_block_width,
+                            containing_block_height,
+                            .Normal,
+                        );
                     },
                     .none => {
                         std.mem.set(GeneratedBox, box_tree.element_index_to_generated_box[element .. element + skip], .none);
@@ -422,8 +435,8 @@ fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleCompu
     try layout.layout_mode.append(layout.allocator, .InitialContainingBlock);
     try layout.index.append(layout.allocator, block.index);
     try layout.skip.append(layout.allocator, 1);
-    try layout.flow_block_used_logical_width.append(layout.allocator, width);
-    try layout.flow_block_used_logical_heights.append(layout.allocator, UsedLogicalHeights{
+    try layout.width.append(layout.allocator, width);
+    try layout.heights.append(layout.allocator, UsedContentHeight{
         .height = height,
         .min_height = height,
         .max_height = height,
@@ -434,20 +447,22 @@ fn popInitialContainingBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) vo
     assert(layout.layout_mode.pop() == .InitialContainingBlock);
     assert(layout.index.pop() == initial_containing_block);
     const skip = layout.skip.pop();
-    _ = layout.flow_block_used_logical_width.pop();
-    _ = layout.flow_block_used_logical_heights.pop();
+    _ = layout.width.pop();
+    _ = layout.heights.pop();
 
     box_tree.blocks.skips.items[initial_containing_block] = skip;
 }
 
-fn makeFlowBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !GeneratedBox {
+fn makeFlowBlock(
+    layout: *BlockLayoutContext,
+    computer: *StyleComputer,
+    box_tree: *BoxTree,
+    containing_block_width: ZssUnit,
+    containing_block_height: ?ZssUnit,
+) !GeneratedBox {
     const block = try createBlock(box_tree);
     block.skip.* = undefined;
     block.properties.* = .{};
-
-    // TODO: Replace statements like these by making them arguments to the function.
-    const containing_block_logical_width = layout.flow_block_used_logical_width.items[layout.flow_block_used_logical_width.items.len - 1];
-    const containing_block_logical_height = layout.flow_block_used_logical_heights.items[layout.flow_block_used_logical_heights.items.len - 1].height;
 
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     const specified_sizes = FlowBlockComputedSizes{
@@ -458,10 +473,10 @@ fn makeFlowBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree
     };
     var computed_sizes: FlowBlockComputedSizes = undefined;
     var used_sizes: FlowBlockUsedSizes = undefined;
-    try flowBlockSolveWidths(specified_sizes, containing_block_logical_width, border_styles, &computed_sizes, &used_sizes);
-    try flowBlockSolveContentHeight(specified_sizes, containing_block_logical_height, &computed_sizes, &used_sizes);
-    try flowBlockSolveVerticalEdges(specified_sizes, containing_block_logical_width, border_styles, &computed_sizes, &used_sizes);
-    flowBlockAdjustWidthAndMargins(&used_sizes, containing_block_logical_width);
+    try flowBlockSolveWidths(specified_sizes, containing_block_width, border_styles, &computed_sizes, &used_sizes);
+    try flowBlockSolveContentHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &used_sizes);
+    try flowBlockSolveVerticalEdges(specified_sizes.vertical_edges, containing_block_width, border_styles, &computed_sizes.vertical_edges, &used_sizes);
+    flowBlockAdjustWidthAndMargins(&used_sizes, containing_block_width);
     flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
 
     computer.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
@@ -483,9 +498,9 @@ fn pushFlowBlock(
     try layout.layout_mode.append(layout.allocator, .Flow);
     try layout.index.append(layout.allocator, block_box_index);
     try layout.skip.append(layout.allocator, 1);
-    try layout.flow_block_used_logical_width.append(layout.allocator, used_sizes.get(.inline_size).?);
-    try layout.flow_block_auto_logical_height.append(layout.allocator, 0);
-    try layout.flow_block_used_logical_heights.append(layout.allocator, used_sizes.getUsedLogicalHeights());
+    try layout.width.append(layout.allocator, used_sizes.get(.inline_size).?);
+    try layout.auto_height.append(layout.allocator, 0);
+    try layout.heights.append(layout.allocator, used_sizes.getUsedContentHeight());
 }
 
 fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
@@ -493,23 +508,23 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
     assert(layout.layout_mode.pop() == .Flow);
     const block_box_index = layout.index.pop();
     const skip = layout.skip.pop();
-    const used_logical_width = layout.flow_block_used_logical_width.pop();
-    const auto_logical_height = layout.flow_block_auto_logical_height.pop();
-    const used_logical_heights = layout.flow_block_used_logical_heights.pop();
+    const width = layout.width.pop();
+    const auto_height = layout.auto_height.pop();
+    const heights = layout.heights.pop();
 
     box_tree.blocks.skips.items[block_box_index] = skip;
     const box_offsets = &box_tree.blocks.box_offsets.items[block_box_index];
-    assert(box_offsets.content_size.w == used_logical_width);
-    flowBlockFinishLayout(box_offsets, used_logical_heights, auto_logical_height);
+    assert(box_offsets.content_size.w == width);
+    flowBlockFinishLayout(box_offsets, heights, auto_height);
 
     const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
     switch (parent_layout_mode) {
         .InitialContainingBlock => layout.skip.items[layout.skip.items.len - 1] += skip,
         .Flow => {
             layout.skip.items[layout.skip.items.len - 1] += skip;
-            const parent_auto_logical_height = &layout.flow_block_auto_logical_height.items[layout.flow_block_auto_logical_height.items.len - 1];
+            const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
             const margin_bottom = box_tree.blocks.margins.items[block_box_index].bottom;
-            addBlockToFlow(box_offsets, margin_bottom, parent_auto_logical_height);
+            addBlockToFlow(box_offsets, margin_bottom, parent_auto_height);
         },
         .InlineFormattingContext => layout.skip.items[layout.skip.items.len - 1] += skip,
     }
@@ -575,8 +590,8 @@ const FlowBlockUsedSizes = struct {
         return self.auto_bitfield & @enumToInt(bit) != 0;
     }
 
-    fn getUsedLogicalHeights(self: FlowBlockUsedSizes) UsedLogicalHeights {
-        return UsedLogicalHeights{
+    fn getUsedContentHeight(self: FlowBlockUsedSizes) UsedContentHeight {
+        return UsedContentHeight{
             .height = self.get(.block_size),
             .min_height = self.min_block_size,
             .max_height = self.max_block_size,
@@ -587,7 +602,7 @@ const FlowBlockUsedSizes = struct {
 /// This is an implementation of CSS2§10.2, CSS2§10.3.3, and CSS2§10.4.
 fn flowBlockSolveWidths(
     specified: FlowBlockComputedSizes,
-    containing_block_logical_width: ZssUnit,
+    containing_block_width: ZssUnit,
     border_styles: zss.properties.BorderStyles,
     computed: *FlowBlockComputedSizes,
     used: *FlowBlockUsedSizes,
@@ -595,7 +610,7 @@ fn flowBlockSolveWidths(
     // TODO: Also use the logical properties ('inline-size', 'border-inline-start', etc.) to determine lengths.
     // TODO: Any relative units must be converted to absolute units to form the computed value.
 
-    assert(containing_block_logical_width >= 0);
+    assert(containing_block_width >= 0);
 
     {
         const multiplier = borderWidthMultiplier(border_styles.left);
@@ -656,7 +671,7 @@ fn flowBlockSolveWidths(
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_start = .{ .percentage = value };
-            used.padding_inline_start = try positivePercentage(value, containing_block_logical_width);
+            used.padding_inline_start = try positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -667,7 +682,7 @@ fn flowBlockSolveWidths(
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_end = .{ .percentage = value };
-            used.padding_inline_end = try positivePercentage(value, containing_block_logical_width);
+            used.padding_inline_end = try positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -679,7 +694,7 @@ fn flowBlockSolveWidths(
         },
         .percentage => |value| {
             computed.content_width.min_size = .{ .percentage = value };
-            used.min_inline_size = try positivePercentage(value, containing_block_logical_width);
+            used.min_inline_size = try positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -690,7 +705,7 @@ fn flowBlockSolveWidths(
         },
         .percentage => |value| {
             computed.content_width.max_size = .{ .percentage = value };
-            used.max_inline_size = try positivePercentage(value, containing_block_logical_width);
+            used.max_inline_size = try positivePercentage(value, containing_block_width);
         },
         .none => {
             computed.content_width.max_size = .none;
@@ -706,7 +721,7 @@ fn flowBlockSolveWidths(
         },
         .percentage => |value| {
             computed.content_width.size = .{ .percentage = value };
-            used.set(.inline_size, try positivePercentage(value, containing_block_logical_width));
+            used.set(.inline_size, try positivePercentage(value, containing_block_width));
         },
         .auto => {
             computed.content_width.size = .auto;
@@ -721,7 +736,7 @@ fn flowBlockSolveWidths(
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_start = .{ .percentage = value };
-            used.set(.margin_inline_start, percentage(value, containing_block_logical_width));
+            used.set(.margin_inline_start, percentage(value, containing_block_width));
         },
         .auto => {
             computed.horizontal_edges.margin_start = .auto;
@@ -736,7 +751,7 @@ fn flowBlockSolveWidths(
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_end = .{ .percentage = value };
-            used.set(.margin_inline_end, percentage(value, containing_block_logical_width));
+            used.set(.margin_inline_end, percentage(value, containing_block_width));
         },
         .auto => {
             computed.horizontal_edges.margin_end = .auto;
@@ -747,59 +762,59 @@ fn flowBlockSolveWidths(
 }
 
 fn flowBlockSolveContentHeight(
-    specified: FlowBlockComputedSizes,
-    containing_block_logical_height: ?ZssUnit,
-    computed: *FlowBlockComputedSizes,
+    specified: zss.properties.ContentSize,
+    containing_block_height: ?ZssUnit,
+    computed: *zss.properties.ContentSize,
     used: *FlowBlockUsedSizes,
 ) !void {
-    if (containing_block_logical_height) |h| assert(h >= 0);
+    if (containing_block_height) |h| assert(h >= 0);
 
-    switch (specified.content_height.min_size) {
+    switch (specified.min_size) {
         .px => |value| {
-            computed.content_height.min_size = .{ .px = value };
+            computed.min_size = .{ .px = value };
             used.min_block_size = try positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.content_height.min_size = .{ .percentage = value };
-            used.min_block_size = if (containing_block_logical_height) |s|
+            computed.min_size = .{ .percentage = value };
+            used.min_block_size = if (containing_block_height) |s|
                 try positivePercentage(value, s)
             else
                 0;
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.content_height.max_size) {
+    switch (specified.max_size) {
         .px => |value| {
-            computed.content_height.max_size = .{ .px = value };
+            computed.max_size = .{ .px = value };
             used.max_block_size = try positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.content_height.max_size = .{ .percentage = value };
-            used.max_block_size = if (containing_block_logical_height) |s|
+            computed.max_size = .{ .percentage = value };
+            used.max_block_size = if (containing_block_height) |s|
                 try positivePercentage(value, s)
             else
                 std.math.maxInt(ZssUnit);
         },
         .none => {
-            computed.content_height.max_size = .none;
+            computed.max_size = .none;
             used.max_block_size = std.math.maxInt(ZssUnit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.content_height.size) {
+    switch (specified.size) {
         .px => |value| {
-            computed.content_height.size = .{ .px = value };
+            computed.size = .{ .px = value };
             used.set(.block_size, clampSize(try positiveLength(.px, value), used.min_block_size, used.max_block_size));
         },
         .percentage => |value| {
-            computed.content_height.size = .{ .percentage = value };
-            used.set(.block_size, if (containing_block_logical_height) |h|
+            computed.size = .{ .percentage = value };
+            used.set(.block_size, if (containing_block_height) |h|
                 clampSize(try positivePercentage(value, h), used.min_block_size, used.max_block_size)
             else
                 null);
         },
         .auto => {
-            computed.content_height.size = .auto;
+            computed.size = .auto;
             used.set(.block_size, null);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
@@ -808,38 +823,38 @@ fn flowBlockSolveContentHeight(
 
 /// This is an implementation of CSS2§10.5 and CSS2§10.6.3.
 fn flowBlockSolveVerticalEdges(
-    specified: FlowBlockComputedSizes,
-    containing_block_logical_width: ZssUnit,
+    specified: zss.properties.BoxEdges,
+    containing_block_width: ZssUnit,
     border_styles: zss.properties.BorderStyles,
-    computed: *FlowBlockComputedSizes,
+    computed: *zss.properties.BoxEdges,
     used: *FlowBlockUsedSizes,
 ) !void {
     // TODO: Also use the logical properties ('block-size', 'border-block-start', etc.) to determine lengths.
     // TODO: Any relative units must be converted to absolute units to form the computed value.
 
-    assert(containing_block_logical_width >= 0);
+    assert(containing_block_width >= 0);
 
     {
         const multiplier = borderWidthMultiplier(border_styles.top);
-        switch (specified.vertical_edges.border_start) {
+        switch (specified.border_start) {
             .px => |value| {
                 const width = value * multiplier;
-                computed.vertical_edges.border_start = .{ .px = width };
+                computed.border_start = .{ .px = width };
                 used.border_block_start = try positiveLength(.px, width);
             },
             .thin => {
                 const width = borderWidth(.thin) * multiplier;
-                computed.vertical_edges.border_start = .{ .px = width };
+                computed.border_start = .{ .px = width };
                 used.border_block_start = positiveLength(.px, width) catch unreachable;
             },
             .medium => {
                 const width = borderWidth(.medium) * multiplier;
-                computed.vertical_edges.border_start = .{ .px = width };
+                computed.border_start = .{ .px = width };
                 used.border_block_start = positiveLength(.px, width) catch unreachable;
             },
             .thick => {
                 const width = borderWidth(.thick) * multiplier;
-                computed.vertical_edges.border_start = .{ .px = width };
+                computed.border_start = .{ .px = width };
                 used.border_block_start = positiveLength(.px, width) catch unreachable;
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
@@ -847,78 +862,78 @@ fn flowBlockSolveVerticalEdges(
     }
     {
         const multiplier = borderWidthMultiplier(border_styles.bottom);
-        switch (specified.vertical_edges.border_end) {
+        switch (specified.border_end) {
             .px => |value| {
                 const width = value * multiplier;
-                computed.vertical_edges.border_end = .{ .px = width };
+                computed.border_end = .{ .px = width };
                 used.border_block_end = try positiveLength(.px, width);
             },
             .thin => {
                 const width = borderWidth(.thin) * multiplier;
-                computed.vertical_edges.border_end = .{ .px = width };
+                computed.border_end = .{ .px = width };
                 used.border_block_end = positiveLength(.px, width) catch unreachable;
             },
             .medium => {
                 const width = borderWidth(.medium) * multiplier;
-                computed.vertical_edges.border_end = .{ .px = width };
+                computed.border_end = .{ .px = width };
                 used.border_block_end = positiveLength(.px, width) catch unreachable;
             },
             .thick => {
                 const width = borderWidth(.thick) * multiplier;
-                computed.vertical_edges.border_end = .{ .px = width };
+                computed.border_end = .{ .px = width };
                 used.border_block_end = positiveLength(.px, width) catch unreachable;
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
-    switch (specified.vertical_edges.padding_start) {
+    switch (specified.padding_start) {
         .px => |value| {
-            computed.vertical_edges.padding_start = .{ .px = value };
+            computed.padding_start = .{ .px = value };
             used.padding_block_start = try positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.vertical_edges.padding_start = .{ .percentage = value };
-            used.padding_block_start = try positivePercentage(value, containing_block_logical_width);
+            computed.padding_start = .{ .percentage = value };
+            used.padding_block_start = try positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.vertical_edges.padding_end) {
+    switch (specified.padding_end) {
         .px => |value| {
-            computed.vertical_edges.padding_end = .{ .px = value };
+            computed.padding_end = .{ .px = value };
             used.padding_block_end = try positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.vertical_edges.padding_end = .{ .percentage = value };
-            used.padding_block_end = try positivePercentage(value, containing_block_logical_width);
+            computed.padding_end = .{ .percentage = value };
+            used.padding_block_end = try positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.vertical_edges.margin_start) {
+    switch (specified.margin_start) {
         .px => |value| {
-            computed.vertical_edges.margin_start = .{ .px = value };
+            computed.margin_start = .{ .px = value };
             used.margin_block_start = length(.px, value);
         },
         .percentage => |value| {
-            computed.vertical_edges.margin_start = .{ .percentage = value };
-            used.margin_block_start = percentage(value, containing_block_logical_width);
+            computed.margin_start = .{ .percentage = value };
+            used.margin_block_start = percentage(value, containing_block_width);
         },
         .auto => {
-            computed.vertical_edges.margin_start = .auto;
+            computed.margin_start = .auto;
             used.margin_block_start = 0;
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.vertical_edges.margin_end) {
+    switch (specified.margin_end) {
         .px => |value| {
-            computed.vertical_edges.margin_end = .{ .px = value };
+            computed.margin_end = .{ .px = value };
             used.margin_block_end = length(.px, value);
         },
         .percentage => |value| {
-            computed.vertical_edges.margin_end = .{ .percentage = value };
-            used.margin_block_end = percentage(value, containing_block_logical_width);
+            computed.margin_end = .{ .percentage = value };
+            used.margin_block_end = percentage(value, containing_block_width);
         },
         .auto => {
-            computed.vertical_edges.margin_end = .auto;
+            computed.margin_end = .auto;
             used.margin_block_end = 0;
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
@@ -926,8 +941,8 @@ fn flowBlockSolveVerticalEdges(
 }
 
 /// This implements the constraints described in CSS2.2§10.3.3.
-fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_logical_width: ZssUnit) void {
-    const content_margin_space = containing_block_logical_width -
+fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_width: ZssUnit) void {
+    const content_margin_space = containing_block_width -
         (used.border_inline_start + used.border_inline_end + used.padding_inline_start + used.padding_inline_end);
     if (used.inlineSizeAndMarginsAreNotAuto()) {
         // None of the values were auto, so one of the margins must be set according to the other values.
@@ -988,24 +1003,24 @@ fn flowBlockSetData(
     margins.bottom = used.margin_block_end;
 }
 
-fn flowBlockSetData2(used_logical_height: ZssUnit, box_offsets: *used_values.BoxOffsets) void {
-    box_offsets.content_size.h = used_logical_height;
-    box_offsets.border_size.h += used_logical_height;
+fn flowBlockSetData2(used_height: ZssUnit, box_offsets: *used_values.BoxOffsets) void {
+    box_offsets.content_size.h = used_height;
+    box_offsets.border_size.h += used_height;
 }
 
-fn flowBlockFinishLayout(box_offsets: *used_values.BoxOffsets, used_logical_heights: UsedLogicalHeights, auto_logical_height: ZssUnit) void {
-    const used_logical_height = used_logical_heights.height orelse clampSize(auto_logical_height, used_logical_heights.min_height, used_logical_heights.max_height);
-    flowBlockSetData2(used_logical_height, box_offsets);
+fn flowBlockFinishLayout(box_offsets: *used_values.BoxOffsets, heights: UsedContentHeight, auto_height: ZssUnit) void {
+    const used_height = heights.height orelse clampSize(auto_height, heights.min_height, heights.max_height);
+    flowBlockSetData2(used_height, box_offsets);
 }
 
-fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_bottom: ZssUnit, parent_auto_logical_height: *ZssUnit) void {
+fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_bottom: ZssUnit, parent_auto_height: *ZssUnit) void {
     const margin_top = box_offsets.border_pos.y;
-    box_offsets.border_pos.y += parent_auto_logical_height.*;
-    advanceFlow(parent_auto_logical_height, box_offsets.border_size.h + margin_top + margin_bottom);
+    box_offsets.border_pos.y += parent_auto_height.*;
+    advanceFlow(parent_auto_height, box_offsets.border_size.h + margin_top + margin_bottom);
 }
 
-fn advanceFlow(parent_auto_logical_height: *ZssUnit, amount: ZssUnit) void {
-    parent_auto_logical_height.* += amount;
+fn advanceFlow(parent_auto_height: *ZssUnit, amount: ZssUnit) void {
+    parent_auto_height.* += amount;
 }
 
 fn makeInlineFormattingContext(
@@ -1013,10 +1028,11 @@ fn makeInlineFormattingContext(
     computer: *StyleComputer,
     box_tree: *BoxTree,
     interval: *StyleComputer.Interval,
-    containing_block_logical_width: ZssUnit,
+    containing_block_width: ZssUnit,
+    containing_block_height: ?ZssUnit,
     mode: enum { Normal, ShrinkToFit },
 ) !void {
-    assert(containing_block_logical_width >= 0);
+    assert(containing_block_width >= 0);
 
     try layout.layout_mode.append(layout.allocator, .InlineFormattingContext);
 
@@ -1036,13 +1052,15 @@ fn makeInlineFormattingContext(
     try sc_ifcs.append(box_tree.allocator, ifc_index);
 
     const percentage_base_unit: ZssUnit = switch (mode) {
-        .Normal => containing_block_logical_width,
+        .Normal => containing_block_width,
         .ShrinkToFit => 0,
     };
 
     var inline_layout = InlineLayoutContext{
         .allocator = layout.allocator,
         .block_layout = layout,
+        .containing_block_width = containing_block_width,
+        .containing_block_height = containing_block_height,
         .percentage_base_unit = percentage_base_unit,
         .ifc_index = ifc_index,
     };
@@ -1058,10 +1076,10 @@ fn makeInlineFormattingContext(
     switch (parent_layout_mode) {
         .InitialContainingBlock => unreachable,
         .Flow => {
-            const parent_auto_logical_height = &layout.flow_block_auto_logical_height.items[layout.flow_block_auto_logical_height.items.len - 1];
-            ifc.origin = ZssVector{ .x = 0, .y = parent_auto_logical_height.* };
-            const line_split_result = try splitIntoLineBoxes(computer.allocator, box_tree, ifc, containing_block_logical_width);
-            advanceFlow(parent_auto_logical_height, line_split_result.logical_height);
+            const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
+            ifc.origin = ZssVector{ .x = 0, .y = parent_auto_height.* };
+            const line_split_result = try splitIntoLineBoxes(computer.allocator, box_tree, ifc, containing_block_width);
+            advanceFlow(parent_auto_height, line_split_result.height);
         },
         .InlineFormattingContext => unreachable,
     }
@@ -1122,7 +1140,7 @@ const IFCLineSplitState = struct {
 };
 
 const IFCLineSplitResult = struct {
-    logical_height: ZssUnit,
+    height: ZssUnit,
 };
 
 fn splitIntoLineBoxes(
@@ -1203,7 +1221,7 @@ fn splitIntoLineBoxes(
     }
 
     return IFCLineSplitResult{
-        .logical_height = if (ifc.line_boxes.items.len > 0)
+        .height = if (ifc.line_boxes.items.len > 0)
             ifc.line_boxes.items[ifc.line_boxes.items.len - 1].baseline + s.bottom_height
         else
             0, // TODO: This is never reached because the root inline box always creates at least 1 line box.
@@ -1215,11 +1233,13 @@ const InlineBlockType = union(enum) {
     stf,
 };
 
-fn makeInlineBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !InlineBlockType {
-    // TODO: Replace statements like these by making them arguments to the function.
-    const containing_block_logical_width = layout.flow_block_used_logical_width.items[layout.flow_block_used_logical_width.items.len - 1];
-    const containing_block_logical_height = layout.flow_block_used_logical_heights.items[layout.flow_block_used_logical_heights.items.len - 1].height;
-
+fn makeInlineBlock(
+    layout: *BlockLayoutContext,
+    computer: *StyleComputer,
+    box_tree: *BoxTree,
+    containing_block_width: ZssUnit,
+    containing_block_height: ?ZssUnit,
+) !InlineBlockType {
     const specified_sizes = FlowBlockComputedSizes{
         .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
@@ -1231,8 +1251,8 @@ fn makeInlineBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tr
     var used_sizes: FlowBlockUsedSizes = undefined;
     try inlineBlockSolveSizes(
         specified_sizes,
-        containing_block_logical_width,
-        containing_block_logical_height,
+        containing_block_width,
+        containing_block_height,
         border_styles,
         &computed_sizes,
         &used_sizes,
@@ -1259,7 +1279,7 @@ fn makeInlineBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tr
             computer.setComputedValue(.box_gen, .font, specified_font);
         }
 
-        const available_width = containing_block_logical_width -
+        const available_width = containing_block_width -
             (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
             used_sizes.border_inline_start + used_sizes.border_inline_end +
             used_sizes.padding_inline_start + used_sizes.padding_inline_end);
@@ -1272,14 +1292,14 @@ fn makeInlineBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tr
 
 fn inlineBlockSolveSizes(
     specified: FlowBlockComputedSizes,
-    containing_block_logical_width: ZssUnit,
-    containing_block_logical_height: ?ZssUnit,
+    containing_block_width: ZssUnit,
+    containing_block_height: ?ZssUnit,
     border_styles: zss.properties.BorderStyles,
     computed: *FlowBlockComputedSizes,
     used: *FlowBlockUsedSizes,
 ) !void {
-    assert(containing_block_logical_width >= 0);
-    if (containing_block_logical_height) |h| assert(h >= 0);
+    assert(containing_block_width >= 0);
+    if (containing_block_height) |h| assert(h >= 0);
 
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
 
@@ -1342,7 +1362,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_start = .{ .percentage = value };
-            used.padding_inline_start = try positivePercentage(value, containing_block_logical_width);
+            used.padding_inline_start = try positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -1353,7 +1373,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_end = .{ .percentage = value };
-            used.padding_inline_end = try positivePercentage(value, containing_block_logical_width);
+            used.padding_inline_end = try positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -1364,7 +1384,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_start = .{ .percentage = value };
-            used.set(.margin_inline_start, percentage(value, containing_block_logical_width));
+            used.set(.margin_inline_start, percentage(value, containing_block_width));
         },
         .auto => {
             computed.horizontal_edges.margin_start = .auto;
@@ -1379,7 +1399,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_end = .{ .percentage = value };
-            used.set(.margin_inline_end, percentage(value, containing_block_logical_width));
+            used.set(.margin_inline_end, percentage(value, containing_block_width));
         },
         .auto => {
             computed.horizontal_edges.margin_end = .auto;
@@ -1394,7 +1414,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.content_width.min_size = .{ .percentage = value };
-            used.min_inline_size = try positivePercentage(value, containing_block_logical_width);
+            used.min_inline_size = try positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -1405,7 +1425,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.content_width.max_size = .{ .percentage = value };
-            used.max_inline_size = try positivePercentage(value, containing_block_logical_width);
+            used.max_inline_size = try positivePercentage(value, containing_block_width);
         },
         .none => {
             computed.content_width.max_size = .none;
@@ -1421,7 +1441,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.content_width.size = .{ .percentage = value };
-            used.set(.inline_size, clampSize(try positivePercentage(value, containing_block_logical_width), used.min_inline_size, used.max_inline_size));
+            used.set(.inline_size, clampSize(try positivePercentage(value, containing_block_width), used.min_inline_size, used.max_inline_size));
         },
         .auto => {
             computed.content_width.size = .auto;
@@ -1489,7 +1509,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.vertical_edges.padding_start = .{ .percentage = value };
-            used.padding_block_start = try positivePercentage(value, containing_block_logical_width);
+            used.padding_block_start = try positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -1500,7 +1520,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.vertical_edges.padding_end = .{ .percentage = value };
-            used.padding_block_end = try positivePercentage(value, containing_block_logical_width);
+            used.padding_block_end = try positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -1511,7 +1531,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.vertical_edges.margin_start = .{ .percentage = value };
-            used.margin_block_start = percentage(value, containing_block_logical_width);
+            used.margin_block_start = percentage(value, containing_block_width);
         },
         .auto => {
             computed.vertical_edges.margin_start = .auto;
@@ -1526,7 +1546,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.vertical_edges.margin_end = .{ .percentage = value };
-            used.margin_block_end = percentage(value, containing_block_logical_width);
+            used.margin_block_end = percentage(value, containing_block_width);
         },
         .auto => {
             computed.vertical_edges.margin_end = .auto;
@@ -1541,7 +1561,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.content_height.min_size = .{ .percentage = value };
-            used.min_block_size = if (containing_block_logical_height) |h|
+            used.min_block_size = if (containing_block_height) |h|
                 try positivePercentage(value, h)
             else
                 0;
@@ -1555,7 +1575,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.content_height.max_size = .{ .percentage = value };
-            used.max_block_size = if (containing_block_logical_height) |h|
+            used.max_block_size = if (containing_block_height) |h|
                 try positivePercentage(value, h)
             else
                 std.math.maxInt(ZssUnit);
@@ -1573,7 +1593,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.content_height.size = .{ .percentage = value };
-            used.set(.block_size, if (containing_block_logical_height) |h|
+            used.set(.block_size, if (containing_block_height) |h|
                 clampSize(try positivePercentage(value, h), used.min_block_size, used.max_block_size)
             else
                 null);
@@ -1619,22 +1639,13 @@ const StfObjects = struct {
         element: ElementIndex,
     };
 
-    fn allocData(objects: *StfObjects, allocator: Allocator, comptime tag: DataTag) !*tag.Type() {
+    fn allocData(objects: *StfObjects, allocator: Allocator, comptime tag: DataTag) !DataIndex {
         const Data = tag.Type();
         const size = @sizeOf(Data);
         const num_chunks = zss.util.divCeil(size, data_chunk_size);
         try objects.data.ensureUnusedCapacity(allocator, num_chunks);
-        objects.data.items.len += num_chunks;
-        const chunks = objects.data.items[objects.data.items.len - num_chunks ..];
-        const bytes = @ptrCast([*]align(data_max_alignment) u8, chunks.ptr)[0..size];
-        return std.mem.bytesAsValue(Data, bytes);
-    }
-
-    fn getLastDataIndex(objects: *const StfObjects, comptime tag: DataTag) DataIndex {
-        const Data = tag.Type();
-        const size = @sizeOf(Data);
-        const num_chunks = zss.util.divCeil(size, data_chunk_size);
-        return objects.data.items.len - num_chunks;
+        defer objects.data.items.len += num_chunks;
+        return objects.data.items.len;
     }
 
     fn getData(objects: *const StfObjects, comptime tag: DataTag, data_index: DataIndex) *tag.Type() {
@@ -1687,9 +1698,10 @@ const ShrinkToFitLayoutContext = struct {
         var result = ShrinkToFitLayoutContext{ .allocator = allocator };
         errdefer result.deinit();
         try result.objects.tree.append(result.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
-        const data_ptr: *FlowBlockUsedSizes = try result.objects.allocData(result.allocator, .flow);
+        const data_index = try result.objects.allocData(result.allocator, .flow);
+        const data_ptr = result.objects.getData(.flow, data_index);
         data_ptr.* = used_sizes;
-        try result.object_stack.append(result.allocator, .{ .index = 0, .skip = 1, .data_index = result.objects.getLastDataIndex(.flow) });
+        try result.object_stack.append(result.allocator, .{ .index = 0, .skip = 1, .data_index = data_index });
         try stfPushFlowBlock(&result, used_sizes, available_width);
         return result;
     }
@@ -1727,39 +1739,49 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleCompute
                     const computed = solveBoxStyle(specified, .NonRoot);
                     computer.setComputedValue(.box_gen, .box_style, computed);
 
+                    const containing_block_height = layout.heights.items(.used)[layout.heights.len - 1];
+
                     switch (computed.display) {
                         .block => {
-                            const tag = try stfAnalyzeFlowBlock(layout, computer);
+                            const data_index = try layout.objects.allocData(layout.allocator, .flow);
+                            const used: *FlowBlockUsedSizes = layout.objects.getData(.flow, data_index);
+                            try stfAnalyzeFlowBlock(computer, used, containing_block_height);
 
                             // TODO: Handle stacking contexts
+                            const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
+                                used.border_inline_start + used.border_inline_end +
+                                used.padding_inline_start + used.padding_inline_end;
 
-                            switch (tag) {
-                                .flow_normal => {
-                                    try layout.objects.tree.append(layout.allocator, .{ .skip = 1, .tag = .flow_normal, .element = element });
-                                    layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
-                                    interval.begin += skip;
-                                },
-                                .flow_stf => {
-                                    try layout.object_stack.append(layout.allocator, .{
-                                        .index = @intCast(StfObjects.Index, layout.objects.tree.len),
-                                        .skip = 1,
-                                        .data_index = layout.objects.getLastDataIndex(.flow),
-                                    });
-                                    try layout.objects.tree.append(layout.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
+                            if (used.get(.inline_size)) |inline_size| {
+                                const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
+                                parent_auto_width.* = std.math.max(parent_auto_width.*, inline_size + edge_width);
 
-                                    { // TODO: Delete this
-                                        const stuff = .{
-                                            .z_index = computer.getSpecifiedValue(.box_gen, .z_index),
-                                            .font = computer.getSpecifiedValue(.box_gen, .font),
-                                        };
-                                        computer.setComputedValue(.box_gen, .z_index, stuff.z_index);
-                                        computer.setComputedValue(.box_gen, .font, stuff.font);
-                                    }
+                                try layout.objects.tree.append(layout.allocator, .{ .skip = 1, .tag = .flow_normal, .element = element });
+                                layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
+                                interval.begin += skip;
+                            } else {
+                                const parent_available_width = layout.widths.items(.available)[layout.widths.len - 1];
+                                const available_width = std.math.max(0, parent_available_width - edge_width);
+                                try stfPushFlowBlock(layout, used.*, available_width);
 
-                                    interval.begin += skip;
-                                    try computer.pushElement(.box_gen);
-                                },
-                                else => unreachable,
+                                try layout.object_stack.append(layout.allocator, .{
+                                    .index = @intCast(StfObjects.Index, layout.objects.tree.len),
+                                    .skip = 1,
+                                    .data_index = data_index,
+                                });
+                                try layout.objects.tree.append(layout.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
+
+                                { // TODO: Delete this
+                                    const stuff = .{
+                                        .z_index = computer.getSpecifiedValue(.box_gen, .z_index),
+                                        .font = computer.getSpecifiedValue(.box_gen, .font),
+                                    };
+                                    computer.setComputedValue(.box_gen, .z_index, stuff.z_index);
+                                    computer.setComputedValue(.box_gen, .font, stuff.font);
+                                }
+
+                                interval.begin += skip;
+                                try computer.pushElement(.box_gen);
                             }
                         },
                         .none => {
@@ -1771,14 +1793,13 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleCompute
                         .initial, .inherit, .unset, .undeclared => unreachable,
                     }
                 } else {
-                    const info = layout.object_stack.pop();
-                    layout.objects.tree.items(.skip)[object_index] = info.skip;
+                    const object_info = layout.object_stack.pop();
+                    layout.objects.tree.items(.skip)[object_info.index] = object_info.skip;
 
-                    const auto_width = layout.widths.pop().auto;
-                    const auto_height = layout.heights.pop().auto;
-                    const used: *FlowBlockUsedSizes = layout.objects.getData(.flow, info.data_index);
-                    used.set(.inline_size, auto_width);
-                    used.set(.block_size, used.get(.block_size) orelse clampSize(auto_height, used.min_block_size, used.max_block_size));
+                    const block_info = stfPopFlowBlock(layout);
+                    const used: *FlowBlockUsedSizes = layout.objects.getData(.flow, object_info.data_index);
+                    used.set(.inline_size, block_info.auto_width);
+                    used.set(.block_size, used.get(.block_size) orelse clampSize(block_info.auto_height, used.min_block_size, used.max_block_size));
 
                     computer.popElement(.box_gen);
 
@@ -1788,7 +1809,7 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleCompute
                         switch (parent_object_tag) {
                             .flow_stf => {
                                 const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
-                                parent_auto_width.* = std.math.max(parent_auto_width.*, auto_width);
+                                parent_auto_width.* = std.math.max(parent_auto_width.*, used.get(.inline_size).?);
                                 const parent_auto_height = &layout.heights.items(.auto)[layout.heights.len - 1];
                                 advanceFlow(parent_auto_height, used.get(.block_size).? +
                                     used.margin_block_start + used.margin_block_end +
@@ -1798,7 +1819,7 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleCompute
                             .flow_normal, .none => unreachable,
                         }
 
-                        layout.object_stack.items(.skip)[layout.object_stack.len - 1] += info.skip;
+                        layout.object_stack.items(.skip)[layout.object_stack.len - 1] += object_info.skip;
                     }
                 }
             },
@@ -1865,7 +1886,7 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, block_layout: *B
                 const skip = skips[index];
                 interval.begin += skip;
 
-                const containing_block_logical_width = layout.widths.items[layout.widths.items.len - 1];
+                const containing_block_width = layout.widths.items[layout.widths.items.len - 1];
 
                 const tag = tags[index];
                 const element = elements[index];
@@ -1875,7 +1896,7 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, block_layout: *B
                         block.properties.* = .{};
 
                         const used_sizes: *FlowBlockUsedSizes = objects.getData2(.flow, &data_index);
-                        flowBlockAdjustWidthAndMargins(used_sizes, containing_block_logical_width);
+                        flowBlockAdjustWidthAndMargins(used_sizes, containing_block_width);
                         flowBlockSetData(used_sizes.*, block.box_offsets, block.borders, block.margins);
                         flowBlockSetData2(used_sizes.get(.block_size).?, block.box_offsets);
                         box_tree.element_index_to_generated_box[element] = .{ .block_box = block.index };
@@ -1915,44 +1936,30 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, block_layout: *B
     }
 }
 
-fn stfAnalyzeFlowBlock(layout: *ShrinkToFitLayoutContext, computer: *StyleComputer) !StfObjects.Tag {
-    const specified = FlowBlockComputedSizes{
+fn stfAnalyzeFlowBlock(
+    computer: *StyleComputer,
+    used: *FlowBlockUsedSizes,
+    containing_block_height: ?ZssUnit,
+) !void {
+    const specified = .{
         .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
         .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
         .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
+        .border_styles = computer.getSpecifiedValue(.box_gen, .border_styles),
     };
-    const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     var computed: FlowBlockComputedSizes = undefined;
-    const used: *FlowBlockUsedSizes = try layout.objects.allocData(layout.allocator, .flow);
 
     try stfFlowBlockSolveContentWidth(specified.content_width, &computed.content_width, used);
-    try stfFlowBlockSolveHorizontalEdges(specified.horizontal_edges, border_styles, &computed.horizontal_edges, used);
-    // TODO: Replace statements like these by making them arguments to the function.
-    const containing_block_logical_height = layout.heights.items(.used)[layout.heights.len - 1];
-    try flowBlockSolveContentHeight(specified, containing_block_logical_height, &computed, used);
-    try flowBlockSolveVerticalEdges(specified, 0, border_styles, &computed, used);
+    try stfFlowBlockSolveHorizontalEdges(specified.horizontal_edges, specified.border_styles, &computed.horizontal_edges, used);
+    try flowBlockSolveContentHeight(specified.content_height, containing_block_height, &computed.content_height, used);
+    try flowBlockSolveVerticalEdges(specified.vertical_edges, 0, specified.border_styles, &computed.vertical_edges, used);
 
     computer.setComputedValue(.box_gen, .content_width, computed.content_width);
     computer.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
     computer.setComputedValue(.box_gen, .content_height, computed.content_height);
     computer.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
-    computer.setComputedValue(.box_gen, .border_styles, border_styles);
-
-    const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
-        used.border_inline_start + used.border_inline_end +
-        used.padding_inline_start + used.padding_inline_end;
-
-    if (used.get(.inline_size)) |inline_size| {
-        const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
-        parent_auto_width.* = std.math.max(parent_auto_width.*, inline_size + edge_width);
-        return StfObjects.Tag.flow_normal;
-    } else {
-        const parent_available_width = layout.widths.items(.available)[layout.widths.len - 1];
-        const available_width = std.math.max(0, parent_available_width - edge_width);
-        try stfPushFlowBlock(layout, used.*, available_width);
-        return StfObjects.Tag.flow_stf;
-    }
+    computer.setComputedValue(.box_gen, .border_styles, specified.border_styles);
 }
 
 fn stfPushFlowBlock(layout: *ShrinkToFitLayoutContext, used_sizes: FlowBlockUsedSizes, available_width: ZssUnit) !void {
@@ -1961,12 +1968,13 @@ fn stfPushFlowBlock(layout: *ShrinkToFitLayoutContext, used_sizes: FlowBlockUsed
     try layout.heights.append(layout.allocator, .{ .auto = 0, .used = used_sizes.get(.block_size) });
 }
 
-// fn stfPopFlowBlock(layout: *ShrinkToFitLayoutContext) ZssUnit {
-// // The deallocations here must correspond to allocations in stfPushFlowBlock.
-// const auto_width = layout.widths.pop().auto;
-// _ = layout.heights.pop();
-// return auto_width;
-// }
+fn stfPopFlowBlock(layout: *ShrinkToFitLayoutContext) struct { auto_width: ZssUnit, auto_height: ZssUnit } {
+    // The deallocations here must correspond to allocations in stfPushFlowBlock.
+    return .{
+        .auto_width = layout.widths.pop().auto,
+        .auto_height = layout.heights.pop().auto,
+    };
+}
 
 fn stfFlowBlockSolveContentWidth(
     specified: zss.properties.ContentSize,
@@ -2008,12 +2016,10 @@ fn stfFlowBlockSolveContentWidth(
         .percentage => |value| {
             computed.size = .{ .percentage = value };
             used.set(.inline_size, null);
-            return;
         },
         .auto => {
             computed.size = .auto;
             used.set(.inline_size, null);
-            return;
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -2299,6 +2305,8 @@ const InlineLayoutContext = struct {
 
     allocator: Allocator,
     block_layout: *BlockLayoutContext,
+    containing_block_width: ZssUnit,
+    containing_block_height: ?ZssUnit,
     percentage_base_unit: ZssUnit,
     ifc_index: InlineFormattingContextIndex,
 
@@ -2442,7 +2450,13 @@ fn ifcRunOnce(
             interval.begin += skip;
             computer.setComputedValue(.box_gen, .box_style, computed);
             const block_layout = layout.block_layout;
-            const inline_block_type = try makeInlineBlock(block_layout, computer, box_tree);
+            const inline_block_type = try makeInlineBlock(
+                block_layout,
+                computer,
+                box_tree,
+                layout.containing_block_width,
+                layout.containing_block_height,
+            );
             const generated_box = switch (inline_block_type) {
                 .normal => |box| generated_box: {
                     box_tree.element_index_to_generated_box[element] = box;

@@ -148,6 +148,7 @@ pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: ElementI
 }
 
 pub fn setElementForwardSeeking(self: *Self, comptime stage: Stage, child: ElementIndex, allocator: Allocator) !void {
+    if (self.element_stack.items.len > 0) assert(child >= self.intervals.items[self.intervals.items.len - 1].begin);
     const parent = parent: {
         while (self.element_stack.items.len > 0) {
             const element = self.element_stack.items[self.element_stack.items.len - 1];
