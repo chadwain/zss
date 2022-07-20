@@ -578,13 +578,21 @@ const FlowBlockUsedSizes = struct {
     };
 
     fn set(self: *FlowBlockUsedSizes, comptime bit: Bit, value: ?ZssUnit) void {
-        if (value) |v| {
-            self.auto_bitfield &= (~@enumToInt(bit));
-            @field(self, @tagName(bit) ++ "_untagged") = v;
-        } else {
-            self.auto_bitfield |= @enumToInt(bit);
-            @field(self, @tagName(bit) ++ "_untagged") = 0;
-        }
+        const clamped_value = clamped_value: {
+            if (value) |v| {
+                self.auto_bitfield &= (~@enumToInt(bit));
+                break :clamped_value switch (bit) {
+                    .inline_size => clampSize(v, self.min_inline_size, self.max_inline_size),
+                    .margin_inline_start, .margin_inline_end => v,
+                    .block_size => clampSize(v, self.min_block_size, self.max_block_size),
+                };
+            } else {
+                self.auto_bitfield |= @enumToInt(bit);
+                break :clamped_value 0;
+            }
+        };
+
+        @field(self, @tagName(bit) ++ "_untagged") = clamped_value;
     }
 
     fn get(self: FlowBlockUsedSizes, comptime bit: Bit) ?ZssUnit {
@@ -814,12 +822,12 @@ fn flowBlockSolveContentHeight(
     switch (specified.size) {
         .px => |value| {
             computed.size = .{ .px = value };
-            used.set(.block_size, clampSize(try positiveLength(.px, value), used.min_block_size, used.max_block_size));
+            used.set(.block_size, try positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.size = .{ .percentage = value };
             used.set(.block_size, if (containing_block_height) |h|
-                clampSize(try positivePercentage(value, h), used.min_block_size, used.max_block_size)
+                try positivePercentage(value, h)
             else
                 null);
         },
@@ -957,7 +965,6 @@ fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_wi
     if (used.inlineSizeAndMarginsAreNotAuto()) {
         // None of the values were auto, so one of the margins must be set according to the other values.
         // TODO the margin that gets set is determined by the 'direction' property
-        used.set(.inline_size, clampSize(used.inline_size_untagged, used.min_inline_size, used.max_inline_size));
         used.set(.margin_inline_end, content_margin_space - used.inline_size_untagged - used.margin_inline_start_untagged);
     } else if (!used.isAutoBitSet(.inline_size)) {
         // 'inline-size' is not auto, but at least one of 'margin-inline-start' and 'margin-inline-end' is.
@@ -966,7 +973,6 @@ fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_wi
         const start = used.isAutoBitSet(.margin_inline_start);
         const end = used.isAutoBitSet(.margin_inline_end);
         const shr_amount = @boolToInt(start and end);
-        used.set(.inline_size, clampSize(used.inline_size_untagged, used.min_inline_size, used.max_inline_size));
         const leftover_margin = std.math.max(0, content_margin_space -
             (used.inline_size_untagged + used.margin_inline_start_untagged + used.margin_inline_end_untagged));
         // TODO the margin that gets the extra 1 unit shall be determined by the 'direction' property
@@ -975,11 +981,7 @@ fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_wi
     } else {
         // 'inline-size' is auto, so it is set according to the other values.
         // The margin values don't need to change.
-        used.set(.inline_size, clampSize(
-            content_margin_space - used.margin_inline_start_untagged - used.margin_inline_end_untagged,
-            used.min_inline_size,
-            used.max_inline_size,
-        ));
+        used.set(.inline_size, content_margin_space - used.margin_inline_start_untagged - used.margin_inline_end_untagged);
     }
 }
 
@@ -1452,11 +1454,11 @@ fn inlineBlockSolveSizes(
     switch (specified.content_width.size) {
         .px => |value| {
             computed.content_width.size = .{ .px = value };
-            used.set(.inline_size, clampSize(try positiveLength(.px, value), used.min_inline_size, used.max_inline_size));
+            used.set(.inline_size, try positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.content_width.size = .{ .percentage = value };
-            used.set(.inline_size, clampSize(try positivePercentage(value, containing_block_width), used.min_inline_size, used.max_inline_size));
+            used.set(.inline_size, try positivePercentage(value, containing_block_width));
         },
         .auto => {
             computed.content_width.size = .auto;
@@ -1604,12 +1606,12 @@ fn inlineBlockSolveSizes(
     switch (specified.content_height.size) {
         .px => |value| {
             computed.content_height.size = .{ .px = value };
-            used.set(.block_size, clampSize(try positiveLength(.px, value), used.min_block_size, used.max_block_size));
+            used.set(.block_size, try positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.content_height.size = .{ .percentage = value };
             used.set(.block_size, if (containing_block_height) |h|
-                clampSize(try positivePercentage(value, h), used.min_block_size, used.max_block_size)
+                try positivePercentage(value, h)
             else
                 null);
         },
@@ -2059,7 +2061,7 @@ fn stfFlowBlockSolveContentWidth(
     switch (specified.size) {
         .px => |value| {
             computed.size = .{ .px = value };
-            used.set(.inline_size, clampSize(try positiveLength(.px, value), used.min_inline_size, used.max_inline_size));
+            used.set(.inline_size, try positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.size = .{ .percentage = value };
