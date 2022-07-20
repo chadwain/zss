@@ -135,6 +135,14 @@ pub fn deinitStage(self: *Self, comptime stage: Stage) void {
 }
 
 pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: ElementIndex) void {
+    assert((self.element_stack.items.len == 0) or blk: {
+        const parent = self.element_stack.items[self.element_stack.items.len - 1].index;
+        var iterator = zss.SkipTreeIterator(ElementIndex).init(parent, self.element_tree_skips);
+        while (!iterator.empty()) : (iterator = iterator.nextSibling(self.element_tree_skips)) {
+            if (iterator.index == parent) break :blk true;
+        } else break :blk false;
+    });
+
     const ref = self.element_tree_refs[child];
     self.this_element = .{
         .index = child,
@@ -147,11 +155,12 @@ pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: ElementI
     current_stage.current_values = undefined;
 }
 
-pub fn setElementForwardSeeking(self: *Self, comptime stage: Stage, child: ElementIndex, allocator: Allocator) !void {
-    if (self.element_stack.items.len > 0) assert(child >= self.intervals.items[self.intervals.items.len - 1].begin);
+pub fn setElementForwardSeeking(self: *Self, comptime stage: Stage, child: ElementIndex) !void {
+    assert(child >= (if (self.element_stack.items.len > 0) self.intervals.items[self.intervals.items.len - 1].begin else self.this_element.index));
+
     const parent = parent: {
         while (self.element_stack.items.len > 0) {
-            const element = self.element_stack.items[self.element_stack.items.len - 1];
+            const element = self.element_stack.items[self.element_stack.items.len - 1].index;
             if (child >= element and child < element + self.element_tree_skips[element]) {
                 const interval = &self.intervals.items[self.intervals.items.len - 1];
                 while (interval.begin != interval.end) {
@@ -170,22 +179,15 @@ pub fn setElementForwardSeeking(self: *Self, comptime stage: Stage, child: Eleme
         }
     };
 
-    const current_stage = &@field(self.stage, @tagName(stage));
     var iterator = zss.SkipTreeIterator(ElementIndex).init(parent, self.element_tree_skips);
     while (iterator.index != child) : (iterator = iterator.nextParent(child, self.element_tree_skips)) {
         assert(!iterator.empty());
         self.setElementDirectChild(stage, iterator.index);
-        inline for (std.meta.fields(@TypeOf(current_stage.current_values))) |field_info| {
-            const property = comptime std.meta.stringToEnum(zss.properties.AggregatePropertyEnum, field_info.name).?;
-            const specified = self.getSpecifiedValue(stage, property);
-            const computed = try self.compute(property, specified);
-            self.setComputedValue(stage, property, computed);
-        }
-        try self.pushElement(stage, allocator);
+        try self.computeAndPushElement(stage);
     }
 
     assert(iterator.index == child);
-    self.setElement(stage, child);
+    self.setElementDirectChild(stage, child);
 }
 
 pub fn setComputedValue(self: *Self, comptime stage: Stage, comptime property: zss.properties.AggregatePropertyEnum, value: property.Value()) void {
@@ -212,6 +214,18 @@ pub fn pushElement(self: *Self, comptime stage: Stage) !void {
         const value = @field(values, field_info.name);
         try @field(current_stage.value_stack, field_info.name).append(self.allocator, value);
     }
+}
+
+pub fn computeAndPushElement(self: *Self, comptime stage: Stage) !void {
+    const current_stage = &@field(self.stage, @tagName(stage));
+    inline for (std.meta.fields(@TypeOf(current_stage.current_values))) |field_info| {
+        @setEvalBranchQuota(10000);
+        const property = comptime std.meta.stringToEnum(zss.properties.AggregatePropertyEnum, field_info.name).?;
+        const specified = self.getSpecifiedValue(stage, property);
+        const computed = try self.compute(stage, property, specified);
+        self.setComputedValue(stage, property, computed);
+    }
+    try self.pushElement(stage);
 }
 
 pub fn popElement(self: *Self, comptime stage: Stage) void {
@@ -307,4 +321,113 @@ pub fn getSpecifiedValue(
     }
 
     return cascaded_value.?;
+}
+
+fn compute(self: Self, comptime stage: Stage, comptime property: zss.properties.AggregatePropertyEnum, specified: property.Value()) !property.Value() {
+    {
+        const current_stage = @field(self.stage, @tagName(stage));
+        if (@field(current_stage.current_flags, @tagName(property))) {
+            return @field(current_stage.current_values, @tagName(property));
+        }
+    }
+
+    const layout = @import("./layout.zig");
+
+    switch (property) {
+        .box_style => if (self.this_element.index == root_element) {
+            return layout.solveBoxStyle(specified, .Root);
+        } else {
+            return layout.solveBoxStyle(specified, .NonRoot);
+        },
+        .content_width, .content_height => return zss.properties.ContentSize{
+            .size = switch (specified.size) {
+                .px => |value| .{ .px = value },
+                .percentage => |value| .{ .percentage = value },
+                .auto => .auto,
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            },
+            .min_size = switch (specified.min_size) {
+                .px => |value| .{ .px = value },
+                .percentage => |value| .{ .percentage = value },
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            },
+            .max_size = switch (specified.max_size) {
+                .px => |value| .{ .px = value },
+                .percentage => |value| .{ .percentage = value },
+                .none => .none,
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            },
+        },
+        .horizontal_edges, .vertical_edges => {
+            const border_styles = try self.compute(stage, .border_styles, self.getSpecifiedValue(stage, .border_styles));
+            return zss.properties.BoxEdges{
+                .padding_start = switch (specified.padding_start) {
+                    .px => |value| .{ .px = value },
+                    .percentage => |value| .{ .percentage = value },
+                    .initial, .inherit, .unset, .undeclared => unreachable,
+                },
+                .padding_end = switch (specified.padding_end) {
+                    .px => |value| .{ .px = value },
+                    .percentage => |value| .{ .percentage = value },
+                    .initial, .inherit, .unset, .undeclared => unreachable,
+                },
+                .border_start = blk: {
+                    const multiplier = layout.borderWidthMultiplier(if (property == .horizontal_edges) border_styles.left else border_styles.top);
+                    break :blk @as(zss.values.BorderWidth, switch (specified.border_start) {
+                        .px => |value| .{ .px = value },
+                        .thin => .{ .px = layout.borderWidth(.thin) * multiplier },
+                        .medium => .{ .px = layout.borderWidth(.medium) * multiplier },
+                        .thick => .{ .px = layout.borderWidth(.thick) * multiplier },
+                        .initial, .inherit, .unset, .undeclared => unreachable,
+                    });
+                },
+                .border_end = blk: {
+                    const multiplier = layout.borderWidthMultiplier(if (property == .horizontal_edges) border_styles.right else border_styles.bottom);
+                    break :blk @as(zss.values.BorderWidth, switch (specified.border_end) {
+                        .px => |value| .{ .px = value },
+                        .thin => .{ .px = layout.borderWidth(.thin) * multiplier },
+                        .medium => .{ .px = layout.borderWidth(.medium) * multiplier },
+                        .thick => .{ .px = layout.borderWidth(.thick) * multiplier },
+                        .initial, .inherit, .unset, .undeclared => unreachable,
+                    });
+                },
+                .margin_start = switch (specified.margin_start) {
+                    .px => |value| .{ .px = value },
+                    .percentage => |value| .{ .percentage = value },
+                    .auto => .auto,
+                    .initial, .inherit, .unset, .undeclared => unreachable,
+                },
+                .margin_end = switch (specified.margin_end) {
+                    .px => |value| .{ .px = value },
+                    .percentage => |value| .{ .percentage = value },
+                    .auto => .auto,
+                    .initial, .inherit, .unset, .undeclared => unreachable,
+                },
+            };
+        },
+        .border_styles => return specified,
+        .z_index => return zss.properties.ZIndex{
+            .z_index = switch (specified.z_index) {
+                .integer => |value| .{ .integer = value },
+                .auto => .auto,
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            },
+        },
+        .font => return zss.properties.Font{
+            .font = switch (specified.font) {
+                .font => |font| .{ .font = font },
+                .zss_default => .zss_default,
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            },
+        },
+        .border_colors,
+        .background1,
+        .background2,
+        .color,
+        .insets,
+        .direction,
+        .unicode_bidi,
+        .custom,
+        => @compileError("TODO: compute(" ++ @typeName(property.Value()) ++ ")"),
+    }
 }
