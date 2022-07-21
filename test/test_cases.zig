@@ -287,11 +287,12 @@ pub fn getTestData() !ArrayList(TreeData) {
         break :blk tree_data;
     });
     try list.append(blk: {
-        var tree_data = try TreeData.init(5, &.{ .box_style, .content_width, .content_height, .horizontal_edges, .vertical_edges, .background1, .text });
+        var tree_data = try TreeData.init(6, &.{ .box_style, .content_width, .content_height, .horizontal_edges, .vertical_edges, .background1, .text });
         const root = tree_data.createRoot();
         const root_0 = tree_data.insertChild(root);
         const root_0_0 = tree_data.insertChild(root_0);
         const root_0_1 = tree_data.insertChild(root_0);
+        const root_0_2 = tree_data.insertChild(root_0);
         const root_1 = tree_data.insertChild(root);
 
         tree_data.set(.box_style, root, .{ .display = .block });
@@ -301,7 +302,7 @@ pub fn getTestData() !ArrayList(TreeData) {
         tree_data.set(.background1, root_0, .{ .color = .{ .rgba = 0x208050ff } });
 
         tree_data.set(.box_style, root_0_0, .{ .display = .block });
-        tree_data.set(.content_width, root_0_0, .{ .size = .{ .px = 70 } });
+        tree_data.set(.content_width, root_0_0, .{ .size = .{ .px = 100 } });
         tree_data.set(.content_height, root_0_0, .{ .size = .{ .px = 50 } });
         tree_data.set(.horizontal_edges, root_0_0, .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } });
         tree_data.set(.vertical_edges, root_0_0, .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } });
@@ -309,8 +310,15 @@ pub fn getTestData() !ArrayList(TreeData) {
 
         tree_data.set(.box_style, root_0_1, .{ .display = .none });
 
+        tree_data.set(.box_style, root_0_2, .{ .display = .block });
+        tree_data.set(.content_width, root_0_2, .{ .size = .{ .px = 70 } });
+        tree_data.set(.content_height, root_0_2, .{ .size = .{ .px = 70 } });
+        tree_data.set(.horizontal_edges, root_0_2, .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } });
+        tree_data.set(.vertical_edges, root_0_2, .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } });
+        tree_data.set(.background1, root_0_2, .{ .color = .{ .rgba = 0x36ab8fff }, .clip = .content_box });
+
         tree_data.set(.box_style, root_1, .{ .display = .text });
-        tree_data.set(.text, root_1, .{ .text = strings[0] });
+        tree_data.set(.text, root_1, .{ .text = strings[1] });
         break :blk tree_data;
     });
     //    try list.append(blk: {
