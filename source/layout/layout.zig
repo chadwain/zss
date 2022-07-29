@@ -1080,8 +1080,6 @@ fn makeInlineFormattingContext(
 
     assert(layout.layout_mode.pop() == .InlineFormattingContext);
 
-    computer.intervals.items[computer.intervals.items.len - 1].begin = inline_layout.next_element;
-
     if (layout.layout_mode.items.len > 0) {
         const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
         switch (parent_layout_mode) {
@@ -1089,7 +1087,7 @@ fn makeInlineFormattingContext(
             .Flow => {
                 const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
                 ifc.origin = ZssVector{ .x = 0, .y = parent_auto_height.* };
-                const line_split_result = try splitIntoLineBoxes(computer.allocator, box_tree, ifc, containing_block_width);
+                const line_split_result = try splitIntoLineBoxes(layout.allocator, box_tree, ifc, containing_block_width);
                 advanceFlow(parent_auto_height, line_split_result.height);
             },
             .InlineFormattingContext => unreachable,
@@ -2334,8 +2332,6 @@ const InlineLayoutContext = struct {
     percentage_base_unit: ZssUnit,
     ifc_index: InlineFormattingContextIndex,
 
-    next_element: ElementIndex = undefined,
-
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
     runUntilStackSizeIsRestored_frame: ?*@Frame(runUntilStackSizeIsRestored) = null,
@@ -2373,17 +2369,13 @@ fn createInlineFormattingContext(layout: *InlineLayoutContext, computer: *StyleC
     }
 
     try ifcPushRootInlineBox(layout, box_tree, ifc);
-    layout.next_element = while (true) {
+    while (true) {
         const interval = &computer.intervals.items[computer.intervals.items.len - 1];
         if (layout.inline_box_depth == 0) {
             if (interval.begin != interval.end) {
                 const should_terminate = try ifcRunOnce(layout, computer, interval, box_tree, ifc);
-                if (should_terminate) {
-                    break interval.begin;
-                }
-            } else {
-                break interval.begin;
-            }
+                if (should_terminate) break;
+            } else break;
         } else {
             if (interval.begin != interval.end) {
                 const should_terminate = try ifcRunOnce(layout, computer, interval, box_tree, ifc);
@@ -2392,7 +2384,7 @@ fn createInlineFormattingContext(layout: *InlineLayoutContext, computer: *StyleC
                 try ifcPopInlineBox(layout, computer, box_tree, ifc);
             }
         }
-    } else unreachable;
+    }
     try ifcPopRootInlineBox(layout, box_tree, ifc);
 
     try ifc.metrics.resize(box_tree.allocator, ifc.glyph_indeces.items.len);
