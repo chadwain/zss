@@ -156,7 +156,6 @@ fn getCurrentColor(col: zss.values.Color) used_values.Color {
 const LayoutMode = enum {
     InitialContainingBlock,
     Flow,
-    InlineFormattingContext,
 };
 
 const IsRoot = enum { Root, NonRoot };
@@ -415,7 +414,6 @@ fn runOnce(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *Box
                 computer.popElement(.box_gen);
             }
         },
-        .InlineFormattingContext => unreachable,
     }
 }
 
@@ -533,7 +531,6 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
                 const margin_bottom = box_tree.blocks.margins.items[block_box_index].bottom;
                 addBlockToFlow(box_offsets, margin_bottom, parent_auto_height);
             },
-            .InlineFormattingContext => layout.skip.items[layout.skip.items.len - 1] += skip,
         }
     }
 }
@@ -1043,8 +1040,7 @@ fn makeInlineFormattingContext(
     containing_block_height: ?ZssUnit,
 ) !void {
     assert(containing_block_width >= 0);
-
-    try layout.layout_mode.append(layout.allocator, .InlineFormattingContext);
+    assert(if (containing_block_height) |h| h >= 0 else true);
 
     const ifc_index = std.math.cast(InlineFormattingContextIndex, box_tree.inlines.items.len) orelse return error.TooManyIfcs;
     const ifc = ifc: {
@@ -1078,22 +1074,15 @@ fn makeInlineFormattingContext(
 
     try createInlineFormattingContext(&inline_layout, computer, box_tree, ifc);
 
-    assert(layout.layout_mode.pop() == .InlineFormattingContext);
-
-    if (layout.layout_mode.items.len > 0) {
-        const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
-        switch (parent_layout_mode) {
-            .InitialContainingBlock => unreachable,
-            .Flow => {
-                const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-                ifc.origin = ZssVector{ .x = 0, .y = parent_auto_height.* };
-                const line_split_result = try splitIntoLineBoxes(layout.allocator, box_tree, ifc, containing_block_width);
-                advanceFlow(parent_auto_height, line_split_result.height);
-            },
-            .InlineFormattingContext => unreachable,
-        }
-    } else {
-        @panic("TODO");
+    const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
+    switch (parent_layout_mode) {
+        .InitialContainingBlock => unreachable,
+        .Flow => {
+            const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
+            ifc.origin = ZssVector{ .x = 0, .y = parent_auto_height.* };
+            const line_split_result = try splitIntoLineBoxes(layout.allocator, box_tree, ifc, containing_block_width);
+            advanceFlow(parent_auto_height, line_split_result.height);
+        },
     }
 }
 
@@ -2514,6 +2503,9 @@ fn ifcRunOnce(
 
                 box_tree.element_index_to_generated_box[element] = .{ .block_box = block.index };
                 try ifcAddInlineBlock(box_tree, ifc, block.index);
+
+                // Update the parent layout context.
+                block_layout.skip.items[block_layout.skip.items.len - 1] += box_tree.blocks.skips.items[block.index];
             } else {
                 // TODO: Create a stacking context
                 { // TODO: Grabbing useless data to satisfy inheritance...
