@@ -63,6 +63,9 @@ pub fn doLayout(
     };
     defer computer.deinit();
 
+    var sc = StackingContexts{ .allocator = allocator };
+    defer sc.deinit();
+
     var layout = BlockLayoutContext{ .allocator = allocator };
     defer layout.deinit();
 
@@ -77,7 +80,7 @@ pub fn doLayout(
         computer.stage = .{ .box_gen = .{} };
         defer computer.deinitStage(.box_gen);
 
-        try doBoxGeneration(&layout, &computer, &box_tree);
+        try doBoxGeneration(&layout, &sc, &computer, &box_tree);
         computer.assertEmptyStage(.box_gen);
     }
 
@@ -166,23 +169,12 @@ const UsedContentHeight = struct {
     max_height: ZssUnit,
 };
 
-const StackingContextTypeTag = enum { none, is_parent, is_non_parent };
-const StackingContextType = union(StackingContextTypeTag) {
-    none: void,
-    is_parent: StackingContextIndex,
-    is_non_parent: StackingContextIndex,
-};
-
 const BlockLayoutContext = struct {
     allocator: Allocator,
 
     processed_root_element: bool = false,
     anonymous_block_boxes: ArrayListUnmanaged(BlockBoxIndex) = .{},
     layout_mode: ArrayListUnmanaged(LayoutMode) = .{},
-
-    stacking_context_type: ArrayListUnmanaged(StackingContextType) = .{},
-    stacking_context_index: ArrayListUnmanaged(StackingContextIndex) = .{},
-    current_stacking_context: StackingContextIndex = undefined,
 
     index: ArrayListUnmanaged(BlockBoxIndex) = .{},
     skip: ArrayListUnmanaged(BlockBoxSkip) = .{},
@@ -195,9 +187,6 @@ const BlockLayoutContext = struct {
         self.anonymous_block_boxes.deinit(self.allocator);
         self.layout_mode.deinit(self.allocator);
 
-        self.stacking_context_type.deinit(self.allocator);
-        self.stacking_context_index.deinit(self.allocator);
-
         self.index.deinit(self.allocator);
         self.skip.deinit(self.allocator);
 
@@ -207,7 +196,7 @@ const BlockLayoutContext = struct {
     }
 };
 
-fn doBoxGeneration(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
+fn doBoxGeneration(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
     if (computer.element_tree_skips.len > 0) {
         box_tree.blocks.ensureTotalCapacity(box_tree.allocator, computer.element_tree_skips[root_element] + 1) catch {};
     }
@@ -215,7 +204,7 @@ fn doBoxGeneration(layout: *BlockLayoutContext, computer: *StyleComputer, box_tr
     try makeInitialContainingBlock(layout, computer, box_tree);
     if (layout.layout_mode.items.len == 0) return;
 
-    try runUntilStackSizeIsRestored(layout, computer, box_tree);
+    try runUntilStackSizeIsRestored(layout, sc, computer, box_tree);
 }
 
 fn doCosmeticLayout(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
@@ -282,21 +271,21 @@ fn doCosmeticLayout(layout: *BlockLayoutContext, computer: *StyleComputer, box_t
     }
 }
 
-fn runFully(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
+fn runFully(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
     assert(layout.layout_mode.items.len == 1);
     while (layout.layout_mode.items.len > 0) {
-        try runOnce(layout, computer, box_tree);
+        try runOnce(layout, sc, computer, box_tree);
     }
 }
 
-fn runUntilStackSizeIsRestored(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
+fn runUntilStackSizeIsRestored(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
     const stack_size = layout.layout_mode.items.len;
     while (layout.layout_mode.items.len >= stack_size) {
-        try runOnce(layout, computer, box_tree);
+        try runOnce(layout, sc, computer, box_tree);
     }
 }
 
-fn runOnce(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
+fn runOnce(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
     const layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
     switch (layout_mode) {
         .InitialContainingBlock => {
@@ -333,8 +322,8 @@ fn runOnce(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *Box
 
                         const z_index = computer.getSpecifiedValue(.box_gen, .z_index); // TODO: Useless info
                         computer.setComputedValue(.box_gen, .z_index, z_index);
-                        const stacking_context_type = StackingContextType{ .is_parent = try createRootStackingContext(box_tree, box.block_box, 0) };
-                        try pushStackingContext(layout, stacking_context_type);
+                        const stacking_context_type = StackingContexts.Data{ .is_parent = try StackingContexts.createRootStackingContext(box_tree, box.block_box, 0) };
+                        try sc.pushStackingContext(stacking_context_type);
 
                         try computer.pushElement(.box_gen);
                     },
@@ -374,12 +363,12 @@ fn runOnce(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *Box
 
                         const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
                         computer.setComputedValue(.box_gen, .z_index, specified_z_index);
-                        const stacking_context_type: StackingContextType = switch (computed.box_style.position) {
+                        const stacking_context_type: StackingContexts.Data = switch (computed.box_style.position) {
                             .static => .none,
                             // TODO: Position the block using the values of the 'inset' family of properties.
                             .relative => switch (specified_z_index.z_index) {
-                                .integer => |z_index| StackingContextType{ .is_parent = try createStackingContext(layout, box_tree, box.block_box, z_index) },
-                                .auto => StackingContextType{ .is_non_parent = try createStackingContext(layout, box_tree, box.block_box, 0) },
+                                .integer => |z_index| StackingContexts.Data{ .is_parent = try sc.createStackingContext(box_tree, box.block_box, z_index) },
+                                .auto => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, box.block_box, 0) },
                                 .initial, .inherit, .unset, .undeclared => unreachable,
                             },
                             .absolute => @panic("TODO: absolute positioning"),
@@ -387,7 +376,7 @@ fn runOnce(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *Box
                             .sticky => @panic("TODO: sticky positioning"),
                             .initial, .inherit, .unset, .undeclared => unreachable,
                         };
-                        try pushStackingContext(layout, stacking_context_type);
+                        try sc.pushStackingContext(stacking_context_type);
 
                         interval.begin += skip;
                         try computer.pushElement(.box_gen);
@@ -395,6 +384,7 @@ fn runOnce(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *Box
                     .inline_, .inline_block, .text => {
                         return makeInlineFormattingContext(
                             layout,
+                            sc,
                             computer,
                             box_tree,
                             .Normal,
@@ -410,7 +400,7 @@ fn runOnce(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *Box
                 }
             } else {
                 popFlowBlock(layout, box_tree);
-                popStackingContext(layout);
+                sc.popStackingContext();
                 computer.popElement(.box_gen);
             }
         },
@@ -1033,6 +1023,7 @@ fn advanceFlow(parent_auto_height: *ZssUnit, amount: ZssUnit) void {
 
 fn makeInlineFormattingContext(
     layout: *BlockLayoutContext,
+    sc: *StackingContexts,
     computer: *StyleComputer,
     box_tree: *BoxTree,
     mode: enum { Normal, ShrinkToFit },
@@ -1054,7 +1045,7 @@ fn makeInlineFormattingContext(
         break :ifc result;
     };
 
-    const sc_ifcs = &box_tree.stacking_contexts.multi_list.items(.ifcs)[layout.current_stacking_context];
+    const sc_ifcs = &box_tree.stacking_contexts.multi_list.items(.ifcs)[sc.current];
     try sc_ifcs.append(box_tree.allocator, ifc_index);
 
     const percentage_base_unit: ZssUnit = switch (mode) {
@@ -1072,7 +1063,7 @@ fn makeInlineFormattingContext(
     };
     defer inline_layout.deinit();
 
-    try createInlineFormattingContext(&inline_layout, computer, box_tree, ifc);
+    try createInlineFormattingContext(&inline_layout, sc, computer, box_tree, ifc);
 
     const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
     switch (parent_layout_mode) {
@@ -1682,13 +1673,13 @@ const ShrinkToFitLayoutContext = struct {
     }
 };
 
-fn shrinkToFitLayout(layout: *ShrinkToFitLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
+fn shrinkToFitLayout(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
     const stf_root_element = computer.this_element.index;
     const saved_element_stack_len = computer.element_stack.items.len;
     try stfBuildObjectTree(layout, computer);
     computer.setElementDirectChild(.box_gen, stf_root_element);
     try computer.computeAndPushElement(.box_gen);
-    try stfRealizeObjects(layout.objects, layout.allocator, computer, box_tree);
+    try stfRealizeObjects(layout.objects, layout.allocator, sc, computer, box_tree);
 
     while (computer.element_stack.items.len > saved_element_stack_len) {
         computer.popElement(.box_gen);
@@ -1817,7 +1808,7 @@ const ShrinkToFitLayoutContext2 = struct {
     }
 };
 
-fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, computer: *StyleComputer, box_tree: *BoxTree) !void {
+fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
     const skips = objects.tree.items(.skip);
     const tags = objects.tree.items(.tag);
     const elements = objects.tree.items(.element);
@@ -1890,14 +1881,14 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, computer: *Style
                         var new_block_layout = BlockLayoutContext{ .allocator = allocator };
                         defer new_block_layout.deinit();
                         try pushFlowBlock(&new_block_layout, block.index, used_sizes.*);
-                        try pushStackingContext(&new_block_layout, .none); // TODO: Don't do this
+                        try sc.pushStackingContext(.none); // TODO: Don't do this
                         try computer.setElementAny(.box_gen, element);
                         try computer.computeAndPushElement(.box_gen);
                         var frame = try allocator.create(@Frame(runFully));
                         defer allocator.destroy(frame);
 
                         nosuspend {
-                            frame.* = async runFully(&new_block_layout, computer, box_tree);
+                            frame.* = async runFully(&new_block_layout, sc, computer, box_tree);
                             try await frame.*;
                         }
 
@@ -2244,72 +2235,86 @@ fn inlineRootBoxSolveOtherProperties(ifc: *InlineFormattingContext) void {
     ifc.background1.items[0] = .{};
 }
 
-fn createRootStackingContext(box_tree: *BoxTree, block_box_index: BlockBoxIndex, z_index: ZIndex) !StackingContextIndex {
-    assert(box_tree.stacking_contexts.size() == 0);
-    try box_tree.stacking_contexts.ensureTotalCapacity(box_tree.allocator, 1);
-    const result = box_tree.stacking_contexts.createRootAssumeCapacity(.{ .z_index = z_index, .block_box = block_box_index, .ifcs = .{} });
-    box_tree.blocks.properties.items[block_box_index].creates_stacking_context = true;
-    return result;
-}
+const StackingContexts = struct {
+    tag: ArrayListUnmanaged(Tag) = .{},
+    index: ArrayListUnmanaged(StackingContextIndex) = .{},
+    current: StackingContextIndex = undefined,
+    allocator: Allocator,
 
-fn createStackingContext(layout: *BlockLayoutContext, box_tree: *BoxTree, block_box_index: BlockBoxIndex, z_index: ZIndex) !StackingContextIndex {
-    try box_tree.stacking_contexts.ensureTotalCapacity(box_tree.allocator, box_tree.stacking_contexts.size() + 1);
-    const sc_tree_slice = &box_tree.stacking_contexts.multi_list.slice();
-    const sc_tree_skips = sc_tree_slice.items(.__skip);
-    const sc_tree_z_index = sc_tree_slice.items(.z_index);
+    const Tag = enum { none, is_parent, is_non_parent };
+    const Data = union(Tag) {
+        none: void,
+        is_parent: StackingContextIndex,
+        is_non_parent: StackingContextIndex,
+    };
 
-    const parent_stacking_context_index = layout.stacking_context_index.items[layout.stacking_context_index.items.len - 1];
-    var current = parent_stacking_context_index + 1;
-    const end = parent_stacking_context_index + sc_tree_skips[parent_stacking_context_index];
-    while (current < end and z_index >= sc_tree_z_index[current]) {
-        current += sc_tree_skips[current];
+    fn deinit(sc: *StackingContexts) void {
+        sc.tag.deinit(sc.allocator);
+        sc.index.deinit(sc.allocator);
     }
 
-    for (layout.stacking_context_index.items) |index| {
-        sc_tree_skips[index] += 1;
+    fn createRootStackingContext(box_tree: *BoxTree, block_box_index: BlockBoxIndex, z_index: ZIndex) !StackingContextIndex {
+        assert(box_tree.stacking_contexts.size() == 0);
+        try box_tree.stacking_contexts.ensureTotalCapacity(box_tree.allocator, 1);
+        const result = box_tree.stacking_contexts.createRootAssumeCapacity(.{ .z_index = z_index, .block_box = block_box_index, .ifcs = .{} });
+        box_tree.blocks.properties.items[block_box_index].creates_stacking_context = true;
+        return result;
     }
 
-    box_tree.stacking_contexts.multi_list.insertAssumeCapacity(current, .{ .__skip = 1, .z_index = z_index, .block_box = block_box_index, .ifcs = .{} });
-    box_tree.blocks.properties.items[block_box_index].creates_stacking_context = true;
-    return current;
-}
+    fn createStackingContext(sc: *StackingContexts, box_tree: *BoxTree, block_box_index: BlockBoxIndex, z_index: ZIndex) !StackingContextIndex {
+        try box_tree.stacking_contexts.ensureTotalCapacity(box_tree.allocator, box_tree.stacking_contexts.size() + 1);
+        const sc_tree_slice = box_tree.stacking_contexts.multi_list.slice();
+        const sc_tree_skips = sc_tree_slice.items(.__skip);
+        const sc_tree_z_index = sc_tree_slice.items(.z_index);
 
-fn pushStackingContext(layout: *BlockLayoutContext, stacking_context_type: StackingContextType) !void {
-    try layout.stacking_context_type.append(layout.allocator, stacking_context_type);
-    switch (stacking_context_type) {
-        .none => {},
-        .is_parent => |sc_index| {
-            layout.current_stacking_context = sc_index;
-            try layout.stacking_context_index.append(layout.allocator, sc_index);
-        },
-        .is_non_parent => |sc_index| {
-            layout.current_stacking_context = sc_index;
-        },
+        const parent_index = sc.index.items[sc.index.items.len - 1];
+        var current = parent_index + 1;
+        const end = parent_index + sc_tree_skips[parent_index];
+        while (current < end and z_index >= sc_tree_z_index[current]) {
+            current += sc_tree_skips[current];
+        }
+
+        for (sc.index.items) |index| {
+            sc_tree_skips[index] += 1;
+        }
+
+        box_tree.stacking_contexts.multi_list.insertAssumeCapacity(current, .{ .__skip = 1, .z_index = z_index, .block_box = block_box_index, .ifcs = .{} });
+        box_tree.blocks.properties.items[block_box_index].creates_stacking_context = true;
+        return current;
     }
-}
 
-fn popStackingContext(layout: *BlockLayoutContext) void {
-    const stacking_context_type = layout.stacking_context_type.pop();
-    switch (stacking_context_type) {
-        .none => {},
-        .is_parent => {
-            _ = layout.stacking_context_index.pop();
-            if (layout.layout_mode.items.len > 0) {
-                const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
-                if (parent_layout_mode != .InitialContainingBlock) {
-                    layout.current_stacking_context = layout.stacking_context_index.items[layout.stacking_context_index.items.len - 1];
+    fn pushStackingContext(sc: *StackingContexts, data: Data) !void {
+        try sc.tag.append(sc.allocator, @as(Tag, data));
+        switch (data) {
+            .none => {},
+            .is_parent => |sc_index| {
+                sc.current = sc_index;
+                try sc.index.append(sc.allocator, sc_index);
+            },
+            .is_non_parent => |sc_index| {
+                sc.current = sc_index;
+            },
+        }
+    }
+
+    fn popStackingContext(sc: *StackingContexts) void {
+        const tag = sc.tag.pop();
+        switch (tag) {
+            .none => {},
+            .is_parent => {
+                _ = sc.index.pop();
+                if (sc.tag.items.len > 0) {
+                    sc.current = sc.index.items[sc.index.items.len - 1];
                 } else {
-                    layout.current_stacking_context = undefined;
+                    sc.current = undefined;
                 }
-            } else {
-                @panic("TODO");
-            }
-        },
-        .is_non_parent => {
-            layout.current_stacking_context = layout.stacking_context_index.items[layout.stacking_context_index.items.len - 1];
-        },
+            },
+            .is_non_parent => {
+                sc.current = sc.index.items[sc.index.items.len - 1];
+            },
+        }
     }
-}
+};
 
 const InlineLayoutContext = struct {
     const Self = @This();
@@ -2350,7 +2355,13 @@ pub fn createInlineBox(box_tree: *BoxTree, ifc: *InlineFormattingContext) !Inlin
     return @intCast(InlineBoxIndex, old_size);
 }
 
-fn createInlineFormattingContext(layout: *InlineLayoutContext, computer: *StyleComputer, box_tree: *BoxTree, ifc: *InlineFormattingContext) Error!void {
+fn createInlineFormattingContext(
+    layout: *InlineLayoutContext,
+    sc: *StackingContexts,
+    computer: *StyleComputer,
+    box_tree: *BoxTree,
+    ifc: *InlineFormattingContext,
+) Error!void {
     ifc.font = computer.root_font.font;
     {
         const initial_interval = computer.intervals.items[computer.intervals.items.len - 1];
@@ -2362,12 +2373,12 @@ fn createInlineFormattingContext(layout: *InlineLayoutContext, computer: *StyleC
         const interval = &computer.intervals.items[computer.intervals.items.len - 1];
         if (layout.inline_box_depth == 0) {
             if (interval.begin != interval.end) {
-                const should_terminate = try ifcRunOnce(layout, computer, interval, box_tree, ifc);
+                const should_terminate = try ifcRunOnce(layout, sc, computer, interval, box_tree, ifc);
                 if (should_terminate) break;
             } else break;
         } else {
             if (interval.begin != interval.end) {
-                const should_terminate = try ifcRunOnce(layout, computer, interval, box_tree, ifc);
+                const should_terminate = try ifcRunOnce(layout, sc, computer, interval, box_tree, ifc);
                 assert(!should_terminate);
             } else {
                 try ifcPopInlineBox(layout, computer, box_tree, ifc);
@@ -2397,6 +2408,7 @@ fn ifcPopRootInlineBox(layout: *InlineLayoutContext, box_tree: *BoxTree, ifc: *I
 /// A return value of true means that a terminating element was encountered.
 fn ifcRunOnce(
     layout: *InlineLayoutContext,
+    sc: *StackingContexts,
     computer: *StyleComputer,
     interval: *StyleComputer.Interval,
     box_tree: *BoxTree,
@@ -2471,12 +2483,12 @@ fn ifcRunOnce(
 
                 const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
                 computer.setComputedValue(.box_gen, .z_index, specified_z_index);
-                const stacking_context_type: StackingContextType = switch (computed.position) {
-                    .static => StackingContextType{ .is_non_parent = try createStackingContext(block_layout, box_tree, block.index, 0) },
+                const stacking_context_type: StackingContexts.Data = switch (computed.position) {
+                    .static => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, block.index, 0) },
                     // TODO: Position the block using the values of the 'inset' family of properties.
                     .relative => switch (specified_z_index.z_index) {
-                        .integer => |z_index| StackingContextType{ .is_parent = try createStackingContext(block_layout, box_tree, block.index, z_index) },
-                        .auto => StackingContextType{ .is_non_parent = try createStackingContext(block_layout, box_tree, block.index, 0) },
+                        .integer => |z_index| StackingContexts.Data{ .is_parent = try sc.createStackingContext(box_tree, block.index, z_index) },
+                        .auto => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, block.index, 0) },
                         .initial, .inherit, .unset, .undeclared => unreachable,
                     },
                     .absolute => @panic("TODO: absolute positioning"),
@@ -2484,7 +2496,7 @@ fn ifcRunOnce(
                     .sticky => @panic("TODO: sticky positioning"),
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 };
-                try pushStackingContext(block_layout, stacking_context_type);
+                try sc.pushStackingContext(stacking_context_type);
 
                 { // TODO: Grabbing useless data to satisfy inheritance...
                     const data = .{
@@ -2497,7 +2509,7 @@ fn ifcRunOnce(
 
                 const frame = try layout.getFrame();
                 nosuspend {
-                    frame.* = async runUntilStackSizeIsRestored(block_layout, computer, box_tree);
+                    frame.* = async runUntilStackSizeIsRestored(block_layout, sc, computer, box_tree);
                     try await frame.*;
                 }
 
@@ -2521,7 +2533,7 @@ fn ifcRunOnce(
                     used_sizes.padding_inline_start + used_sizes.padding_inline_end);
                 var stf_layout = try ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, used_sizes, available_width);
                 defer stf_layout.deinit();
-                try shrinkToFitLayout(&stf_layout, computer, box_tree);
+                try shrinkToFitLayout(&stf_layout, sc, computer, box_tree);
 
                 const generated_box = box_tree.element_index_to_generated_box[element];
                 const block_box_index = generated_box.block_box;

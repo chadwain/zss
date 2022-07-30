@@ -264,7 +264,7 @@ pub fn getTestData() !ArrayList(TreeData) {
         break :blk tree_data;
     });
     try list.append(blk: {
-        var tree_data = try TreeData.init(3, &.{ .box_style, .content_width, .content_height, .background1, .text });
+        var tree_data = try TreeData.init(5, &.{ .box_style, .content_width, .content_height, .background1, .text });
         const root = tree_data.createRoot();
         const root_0 = tree_data.insertChild(root);
         const root_1 = tree_data.insertChild(root);
