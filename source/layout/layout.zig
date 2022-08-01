@@ -2474,6 +2474,12 @@ fn ifcRunOnce(
             );
 
             if (!used_sizes.isAutoBitSet(.inline_size)) {
+                // Push a dummy item onto the stack so that when advanceFlow is called,
+                // it essentially has no effect.
+                // TODO: There should be no need to do this.
+                try block_layout.auto_height.append(block_layout.allocator, 0);
+                defer _ = block_layout.auto_height.pop();
+
                 const block = try createBlock(box_tree);
                 block.skip.* = undefined;
                 block.properties.* = .{};
@@ -2516,8 +2522,7 @@ fn ifcRunOnce(
                 box_tree.element_index_to_generated_box[element] = .{ .block_box = block.index };
                 try ifcAddInlineBlock(box_tree, ifc, block.index);
 
-                // Update the parent layout context.
-                block_layout.skip.items[block_layout.skip.items.len - 1] += box_tree.blocks.skips.items[block.index];
+                // TODO: Update the parent layout context.
             } else {
                 // TODO: Create a stacking context
                 { // TODO: Grabbing useless data to satisfy inheritance...
