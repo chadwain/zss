@@ -159,7 +159,7 @@ fn getCurrentColor(col: zss.values.Color) used_values.Color {
 const LayoutMode = enum {
     InitialContainingBlock,
     Flow,
-    EntryPointInlineBlock,
+    ContainingBlock,
 };
 
 const IsRoot = enum { Root, NonRoot };
@@ -411,7 +411,7 @@ fn runOnce(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleC
                 computer.popElement(.box_gen);
             }
         },
-        .EntryPointInlineBlock => popEntryPointInlineBlock(layout),
+        .ContainingBlock => popContainingBlock(layout),
     }
 }
 
@@ -456,6 +456,22 @@ fn popInitialContainingBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) vo
     _ = layout.heights.pop();
 
     box_tree.blocks.skips.items[initial_containing_block] = skip;
+}
+
+fn pushContainingBlock(layout: *BlockLayoutContext, containing_block_width: ZssUnit, containing_block_height: ?ZssUnit) !void {
+    try layout.layout_mode.append(layout.allocator, .ContainingBlock);
+    try layout.width.append(layout.allocator, containing_block_width);
+    try layout.heights.append(layout.allocator, .{
+        .height = containing_block_height,
+        .min_height = undefined,
+        .max_height = undefined,
+    });
+}
+
+fn popContainingBlock(layout: *BlockLayoutContext) void {
+    assert(layout.layout_mode.pop() == .ContainingBlock);
+    _ = layout.width.pop();
+    _ = layout.heights.pop();
 }
 
 fn makeFlowBlock(
@@ -532,7 +548,7 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
                 const margin_bottom = box_tree.blocks.margins.items[block_box_index].bottom;
                 addBlockToFlow(box_offsets, margin_bottom, parent_auto_height);
             },
-            .EntryPointInlineBlock => {},
+            .ContainingBlock => {},
         }
     }
 }
@@ -1253,22 +1269,6 @@ fn makeInlineBlock(
     computer.setComputedValue(.box_gen, .border_styles, border_styles);
 
     return used;
-}
-
-fn pushEntryPointInlineBlock(layout: *BlockLayoutContext, containing_block_width: ZssUnit, containing_block_height: ?ZssUnit) !void {
-    try layout.layout_mode.append(layout.allocator, .EntryPointInlineBlock);
-    try layout.width.append(layout.allocator, containing_block_width);
-    try layout.heights.append(layout.allocator, .{
-        .height = containing_block_height,
-        .min_height = undefined,
-        .max_height = undefined,
-    });
-}
-
-fn popEntryPointInlineBlock(layout: *BlockLayoutContext) void {
-    assert(layout.layout_mode.pop() == .EntryPointInlineBlock);
-    _ = layout.width.pop();
-    _ = layout.heights.pop();
 }
 
 fn inlineBlockSolveSizes(
@@ -2501,7 +2501,7 @@ fn ifcRunOnce(
             );
 
             if (!used_sizes.isAutoBitSet(.inline_size)) {
-                try pushEntryPointInlineBlock(block_layout, layout.containing_block_width, layout.containing_block_height);
+                try pushContainingBlock(block_layout, layout.containing_block_width, layout.containing_block_height);
 
                 const block = try createBlock(box_tree);
                 block.skip.* = undefined;
@@ -2541,7 +2541,7 @@ fn ifcRunOnce(
                     frame.* = async runUntilStackSizeIsRestored(block_layout, sc, computer, box_tree);
                     try await frame.*;
                 }
-                popEntryPointInlineBlock(block_layout);
+                popContainingBlock(block_layout);
 
                 box_tree.element_index_to_generated_box[element] = .{ .block_box = block.index };
                 try ifcAddInlineBlock(box_tree, ifc, block.index);
