@@ -424,7 +424,10 @@ fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleCompu
     block.borders.* = .{};
     block.margins.* = .{};
 
-    if (computer.element_tree_skips.len == 0) return;
+    if (computer.element_tree_skips.len == 0) {
+        block.skip.* = 1;
+        return;
+    }
 
     try layout.layout_mode.append(layout.allocator, .InitialContainingBlock);
     try layout.index.append(layout.allocator, block.index);
