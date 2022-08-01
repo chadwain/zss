@@ -159,6 +159,7 @@ fn getCurrentColor(col: zss.values.Color) used_values.Color {
 const LayoutMode = enum {
     InitialContainingBlock,
     Flow,
+    EntryPointInlineBlock,
 };
 
 const IsRoot = enum { Root, NonRoot };
@@ -382,8 +383,9 @@ fn runOnce(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleC
                         try computer.pushElement(.box_gen);
                     },
                     .inline_, .inline_block, .text => {
-                        return makeInlineFormattingContext(
-                            layout,
+                        const ifc = try makeInlineFormattingContext(
+                            .{ .normal = layout },
+                            layout.allocator,
                             sc,
                             computer,
                             box_tree,
@@ -391,6 +393,11 @@ fn runOnce(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleC
                             containing_block_width,
                             containing_block_height,
                         );
+                        const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
+                        ifc.parent_block = layout.index.items[layout.index.items.len - 1];
+                        ifc.origin = ZssVector{ .x = 0, .y = parent_auto_height.* };
+                        const line_split_result = try splitIntoLineBoxes(layout.allocator, box_tree, ifc, containing_block_width);
+                        advanceFlow(parent_auto_height, line_split_result.height);
                     },
                     .none => {
                         std.mem.set(GeneratedBox, box_tree.element_index_to_generated_box[element .. element + skip], .none);
@@ -404,6 +411,7 @@ fn runOnce(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleC
                 computer.popElement(.box_gen);
             }
         },
+        .EntryPointInlineBlock => popEntryPointInlineBlock(layout),
     }
 }
 
@@ -524,6 +532,7 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
                 const margin_bottom = box_tree.blocks.margins.items[block_box_index].bottom;
                 addBlockToFlow(box_offsets, margin_bottom, parent_auto_height);
             },
+            .EntryPointInlineBlock => {},
         }
     }
 }
@@ -1025,14 +1034,15 @@ fn advanceFlow(parent_auto_height: *ZssUnit, amount: ZssUnit) void {
 }
 
 fn makeInlineFormattingContext(
-    layout: *BlockLayoutContext,
+    parent: InlineLayoutContext.Parent,
+    allocator: Allocator,
     sc: *StackingContexts,
     computer: *StyleComputer,
     box_tree: *BoxTree,
     mode: enum { Normal, ShrinkToFit },
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
-) !void {
+) !*InlineFormattingContext {
     assert(containing_block_width >= 0);
     assert(if (containing_block_height) |h| h >= 0 else true);
 
@@ -1042,7 +1052,7 @@ fn makeInlineFormattingContext(
         errdefer _ = box_tree.inlines.pop();
         const result = try box_tree.allocator.create(InlineFormattingContext);
         errdefer box_tree.allocator.destroy(result);
-        result.* = .{ .parent_block = layout.index.items[layout.index.items.len - 1], .origin = undefined };
+        result.* = .{ .parent_block = undefined, .origin = undefined };
         errdefer result.deinit(box_tree.allocator);
         result_ptr.* = result;
         break :ifc result;
@@ -1057,8 +1067,8 @@ fn makeInlineFormattingContext(
     };
 
     var inline_layout = InlineLayoutContext{
-        .allocator = layout.allocator,
-        .block_layout = layout,
+        .allocator = allocator,
+        .parent = parent,
         .containing_block_width = containing_block_width,
         .containing_block_height = containing_block_height,
         .percentage_base_unit = percentage_base_unit,
@@ -1067,17 +1077,7 @@ fn makeInlineFormattingContext(
     defer inline_layout.deinit();
 
     try createInlineFormattingContext(&inline_layout, sc, computer, box_tree, ifc);
-
-    const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
-    switch (parent_layout_mode) {
-        .InitialContainingBlock => unreachable,
-        .Flow => {
-            const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-            ifc.origin = ZssVector{ .x = 0, .y = parent_auto_height.* };
-            const line_split_result = try splitIntoLineBoxes(layout.allocator, box_tree, ifc, containing_block_width);
-            advanceFlow(parent_auto_height, line_split_result.height);
-        },
-    }
+    return ifc;
 }
 
 const IFCLineSplitState = struct {
@@ -1253,6 +1253,22 @@ fn makeInlineBlock(
     computer.setComputedValue(.box_gen, .border_styles, border_styles);
 
     return used;
+}
+
+fn pushEntryPointInlineBlock(layout: *BlockLayoutContext, containing_block_width: ZssUnit, containing_block_height: ?ZssUnit) !void {
+    try layout.layout_mode.append(layout.allocator, .EntryPointInlineBlock);
+    try layout.width.append(layout.allocator, containing_block_width);
+    try layout.heights.append(layout.allocator, .{
+        .height = containing_block_height,
+        .min_height = undefined,
+        .max_height = undefined,
+    });
+}
+
+fn popEntryPointInlineBlock(layout: *BlockLayoutContext) void {
+    assert(layout.layout_mode.pop() == .EntryPointInlineBlock);
+    _ = layout.width.pop();
+    _ = layout.heights.pop();
 }
 
 fn inlineBlockSolveSizes(
@@ -2323,7 +2339,7 @@ const InlineLayoutContext = struct {
     const Self = @This();
 
     allocator: Allocator,
-    block_layout: *BlockLayoutContext,
+    parent: Parent,
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
     percentage_base_unit: ZssUnit,
@@ -2332,6 +2348,11 @@ const InlineLayoutContext = struct {
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
     runUntilStackSizeIsRestored_frame: ?*@Frame(runUntilStackSizeIsRestored) = null,
+
+    const Parent = union(enum) {
+        normal: *BlockLayoutContext,
+        stf: *ShrinkToFitLayoutContext2,
+    };
 
     fn deinit(self: *Self) void {
         self.index.deinit(self.allocator);
@@ -2469,7 +2490,10 @@ fn ifcRunOnce(
         .inline_block => {
             interval.begin += skip;
             computer.setComputedValue(.box_gen, .box_style, computed);
-            const block_layout = layout.block_layout;
+            const block_layout = switch (layout.parent) {
+                .normal => |block_layout| block_layout,
+                .stf => @panic("TODO"),
+            };
             const used_sizes = try makeInlineBlock(
                 computer,
                 layout.containing_block_width,
@@ -2477,11 +2501,7 @@ fn ifcRunOnce(
             );
 
             if (!used_sizes.isAutoBitSet(.inline_size)) {
-                // Push a dummy item onto the stack so that when advanceFlow is called,
-                // it essentially has no effect.
-                // TODO: There should be no need to do this.
-                try block_layout.auto_height.append(block_layout.allocator, 0);
-                defer _ = block_layout.auto_height.pop();
+                try pushEntryPointInlineBlock(block_layout, layout.containing_block_width, layout.containing_block_height);
 
                 const block = try createBlock(box_tree);
                 block.skip.* = undefined;
@@ -2521,11 +2541,13 @@ fn ifcRunOnce(
                     frame.* = async runUntilStackSizeIsRestored(block_layout, sc, computer, box_tree);
                     try await frame.*;
                 }
+                popEntryPointInlineBlock(block_layout);
 
                 box_tree.element_index_to_generated_box[element] = .{ .block_box = block.index };
                 try ifcAddInlineBlock(box_tree, ifc, block.index);
 
-                // TODO: Update the parent layout context.
+                // Update the parent layout context.
+                block_layout.skip.items[block_layout.skip.items.len - 1] += box_tree.blocks.skips.items[block.index];
             } else {
                 // TODO: Create a stacking context
                 { // TODO: Grabbing useless data to satisfy inheritance...
