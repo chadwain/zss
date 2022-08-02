@@ -273,7 +273,6 @@ fn doCosmeticLayout(layout: *BlockLayoutContext, computer: *StyleComputer, box_t
 }
 
 fn runFully(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
-    assert(layout.layout_mode.items.len == 1);
     while (layout.layout_mode.items.len > 0) {
         try runOnce(layout, sc, computer, box_tree);
     }
@@ -458,11 +457,11 @@ fn popInitialContainingBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) vo
     box_tree.blocks.skips.items[initial_containing_block] = skip;
 }
 
-fn pushContainingBlock(layout: *BlockLayoutContext, containing_block_width: ZssUnit, containing_block_height: ?ZssUnit) !void {
+fn pushContainingBlock(layout: *BlockLayoutContext, width: ZssUnit, height: ?ZssUnit) !void {
     try layout.layout_mode.append(layout.allocator, .ContainingBlock);
-    try layout.width.append(layout.allocator, containing_block_width);
+    try layout.width.append(layout.allocator, width);
     try layout.heights.append(layout.allocator, .{
-        .height = containing_block_height,
+        .height = height,
         .min_height = undefined,
         .max_height = undefined,
     });
@@ -538,18 +537,16 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
     assert(box_offsets.content_size.w == width);
     flowBlockFinishLayout(box_offsets, heights, auto_height);
 
-    if (layout.layout_mode.items.len > 0) {
-        const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
-        switch (parent_layout_mode) {
-            .InitialContainingBlock => layout.skip.items[layout.skip.items.len - 1] += skip,
-            .Flow => {
-                layout.skip.items[layout.skip.items.len - 1] += skip;
-                const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-                const margin_bottom = box_tree.blocks.margins.items[block_box_index].bottom;
-                addBlockToFlow(box_offsets, margin_bottom, parent_auto_height);
-            },
-            .ContainingBlock => {},
-        }
+    const parent_layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
+    switch (parent_layout_mode) {
+        .InitialContainingBlock => layout.skip.items[layout.skip.items.len - 1] += skip,
+        .Flow => {
+            layout.skip.items[layout.skip.items.len - 1] += skip;
+            const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
+            const margin_bottom = box_tree.blocks.margins.items[block_box_index].bottom;
+            addBlockToFlow(box_offsets, margin_bottom, parent_auto_height);
+        },
+        .ContainingBlock => {},
     }
 }
 
@@ -1812,6 +1809,7 @@ const ShrinkToFitLayoutContext2 = struct {
     objects: MultiArrayList(struct { tag: StfObjects.Tag, interval: Interval, data_index: StfObjects.DataIndex }) = .{},
     blocks: MultiArrayList(struct { index: BlockBoxIndex, skip: BlockBoxSkip }) = .{},
     width: ArrayListUnmanaged(ZssUnit) = .{},
+    height: ArrayListUnmanaged(?ZssUnit) = .{},
     auto_height: ArrayListUnmanaged(ZssUnit) = .{},
 
     const Interval = struct {
@@ -1823,6 +1821,7 @@ const ShrinkToFitLayoutContext2 = struct {
         layout.objects.deinit(allocator);
         layout.blocks.deinit(allocator);
         layout.width.deinit(allocator);
+        layout.height.deinit(allocator);
         layout.auto_height.deinit(allocator);
     }
 };
@@ -1852,6 +1851,7 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, sc: *StackingCon
 
                 try layout.blocks.append(allocator, .{ .index = block.index, .skip = 1 });
                 try layout.width.append(allocator, used_sizes.get(.inline_size).?);
+                try layout.height.append(allocator, used_sizes.get(.block_size));
                 try layout.auto_height.append(allocator, 0);
             },
             .flow_normal, .none => unreachable,
@@ -1886,6 +1886,7 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, sc: *StackingCon
                         try layout.objects.append(allocator, .{ .tag = .flow_stf, .interval = .{ .begin = index + 1, .end = index + skip }, .data_index = data_index });
                         try layout.blocks.append(allocator, .{ .index = block.index, .skip = 1 });
                         try layout.width.append(allocator, used_sizes.get(.inline_size).?);
+                        try layout.height.append(allocator, used_sizes.get(.block_size));
                         try layout.auto_height.append(allocator, 0);
                     },
                     .flow_normal => {
@@ -1899,6 +1900,8 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, sc: *StackingCon
 
                         var new_block_layout = BlockLayoutContext{ .allocator = allocator };
                         defer new_block_layout.deinit();
+                        const containing_block_height = layout.height.items[layout.height.items.len - 1];
+                        try pushContainingBlock(&new_block_layout, containing_block_width, containing_block_height);
                         try pushFlowBlock(&new_block_layout, block.index, used_sizes.*);
                         try sc.pushStackingContext(.none); // TODO: Don't do this
                         try computer.setElementAny(.box_gen, element);
@@ -1928,6 +1931,7 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, sc: *StackingCon
                 const data_index = layout.objects.pop().data_index;
                 const block = layout.blocks.pop();
                 _ = layout.width.pop();
+                _ = layout.height.pop();
                 const auto_height = layout.auto_height.pop();
 
                 const used_sizes = objects.getData(.flow, data_index);
@@ -2501,22 +2505,23 @@ fn ifcRunOnce(
             );
 
             if (!used_sizes.isAutoBitSet(.inline_size)) {
-                try pushContainingBlock(block_layout, layout.containing_block_width, layout.containing_block_height);
+                const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
+                computer.setComputedValue(.box_gen, .z_index, z_index);
+                // TODO: Grabbing useless data to satisfy inheritance...
+                const font = computer.getSpecifiedValue(.box_gen, .font);
+                computer.setComputedValue(.box_gen, .font, font);
+                try computer.pushElement(.box_gen);
 
                 const block = try createBlock(box_tree);
                 block.skip.* = undefined;
                 block.properties.* = .{};
                 flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
-                // TODO: Make a new BlockLayoutContext
-                try pushFlowBlock(block_layout, block.index, used_sizes);
 
-                const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
-                computer.setComputedValue(.box_gen, .z_index, specified_z_index);
                 const stacking_context_type: StackingContexts.Data = switch (computed.position) {
                     .static => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, block.index, 0) },
                     // TODO: Position the block using the values of the 'inset' family of properties.
-                    .relative => switch (specified_z_index.z_index) {
-                        .integer => |z_index| StackingContexts.Data{ .is_parent = try sc.createStackingContext(box_tree, block.index, z_index) },
+                    .relative => switch (z_index.z_index) {
+                        .integer => |integer| StackingContexts.Data{ .is_parent = try sc.createStackingContext(box_tree, block.index, integer) },
                         .auto => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, block.index, 0) },
                         .initial, .inherit, .unset, .undeclared => unreachable,
                     },
@@ -2527,14 +2532,9 @@ fn ifcRunOnce(
                 };
                 try sc.pushStackingContext(stacking_context_type);
 
-                { // TODO: Grabbing useless data to satisfy inheritance...
-                    const data = .{
-                        .font = computer.getSpecifiedValue(.box_gen, .font),
-                    };
-                    computer.setComputedValue(.box_gen, .font, data.font);
-                }
-
-                try computer.pushElement(.box_gen);
+                // TODO: Make a new BlockLayoutContext
+                try pushContainingBlock(block_layout, layout.containing_block_width, layout.containing_block_height);
+                try pushFlowBlock(block_layout, block.index, used_sizes);
 
                 const frame = try layout.getFrame();
                 nosuspend {
