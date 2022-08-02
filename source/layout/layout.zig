@@ -205,7 +205,7 @@ fn doBoxGeneration(layout: *BlockLayoutContext, sc: *StackingContexts, computer:
     try makeInitialContainingBlock(layout, computer, box_tree);
     if (layout.layout_mode.items.len == 0) return;
 
-    try runUntilStackSizeIsRestored(layout, sc, computer, box_tree);
+    try runFully(layout, sc, computer, box_tree);
 }
 
 fn doCosmeticLayout(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
@@ -273,14 +273,8 @@ fn doCosmeticLayout(layout: *BlockLayoutContext, computer: *StyleComputer, box_t
 }
 
 fn runFully(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
+    assert(layout.layout_mode.items.len > 0);
     while (layout.layout_mode.items.len > 0) {
-        try runOnce(layout, sc, computer, box_tree);
-    }
-}
-
-fn runUntilStackSizeIsRestored(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
-    const stack_size = layout.layout_mode.items.len;
-    while (layout.layout_mode.items.len >= stack_size) {
         try runOnce(layout, sc, computer, box_tree);
     }
 }
@@ -382,16 +376,11 @@ fn runOnce(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleC
                         try computer.pushElement(.box_gen);
                     },
                     .inline_, .inline_block, .text => {
-                        const ifc = try makeInlineFormattingContext(
-                            .{ .normal = layout },
-                            layout.allocator,
-                            sc,
-                            computer,
-                            box_tree,
-                            .Normal,
-                            containing_block_width,
-                            containing_block_height,
-                        );
+                        const result = try makeInlineFormattingContext(layout.allocator, sc, computer, box_tree, .Normal, containing_block_width, containing_block_height);
+
+                        layout.skip.items[layout.skip.items.len - 1] += result.total_inline_block_skip;
+
+                        const ifc = box_tree.inlines.items[result.ifc_index];
                         const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
                         ifc.parent_block = layout.index.items[layout.index.items.len - 1];
                         ifc.origin = ZssVector{ .x = 0, .y = parent_auto_height.* };
@@ -1047,7 +1036,6 @@ fn advanceFlow(parent_auto_height: *ZssUnit, amount: ZssUnit) void {
 }
 
 fn makeInlineFormattingContext(
-    parent: InlineLayoutContext.Parent,
     allocator: Allocator,
     sc: *StackingContexts,
     computer: *StyleComputer,
@@ -1055,7 +1043,7 @@ fn makeInlineFormattingContext(
     mode: enum { Normal, ShrinkToFit },
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
-) !*InlineFormattingContext {
+) !InlineLayoutContext.Result {
     assert(containing_block_width >= 0);
     assert(if (containing_block_height) |h| h >= 0 else true);
 
@@ -1081,16 +1069,18 @@ fn makeInlineFormattingContext(
 
     var inline_layout = InlineLayoutContext{
         .allocator = allocator,
-        .parent = parent,
         .containing_block_width = containing_block_width,
         .containing_block_height = containing_block_height,
         .percentage_base_unit = percentage_base_unit,
-        .ifc_index = ifc_index,
+        .result = .{
+            .ifc_index = ifc_index,
+        },
     };
     defer inline_layout.deinit();
 
     try createInlineFormattingContext(&inline_layout, sc, computer, box_tree, ifc);
-    return ifc;
+
+    return inline_layout.result;
 }
 
 const IFCLineSplitState = struct {
@@ -2343,33 +2333,33 @@ const InlineLayoutContext = struct {
     const Self = @This();
 
     allocator: Allocator,
-    parent: Parent,
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
     percentage_base_unit: ZssUnit,
-    ifc_index: InlineFormattingContextIndex,
 
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
-    runUntilStackSizeIsRestored_frame: ?*@Frame(runUntilStackSizeIsRestored) = null,
+    runFully_frame: ?*@Frame(runFully) = null,
 
-    const Parent = union(enum) {
-        normal: *BlockLayoutContext,
-        stf: *ShrinkToFitLayoutContext2,
+    result: Result,
+
+    const Result = struct {
+        ifc_index: InlineFormattingContextIndex,
+        total_inline_block_skip: BlockBoxSkip = 0,
     };
 
     fn deinit(self: *Self) void {
         self.index.deinit(self.allocator);
-        if (self.runUntilStackSizeIsRestored_frame) |frame| {
+        if (self.runFully_frame) |frame| {
             self.allocator.destroy(frame);
         }
     }
 
-    fn getFrame(self: *Self) !*@Frame(runUntilStackSizeIsRestored) {
-        if (self.runUntilStackSizeIsRestored_frame == null) {
-            self.runUntilStackSizeIsRestored_frame = try self.allocator.create(@Frame(runUntilStackSizeIsRestored));
+    fn getFrame(self: *Self) !*@Frame(runFully) {
+        if (self.runFully_frame == null) {
+            self.runFully_frame = try self.allocator.create(@Frame(runFully));
         }
-        return self.runUntilStackSizeIsRestored_frame.?;
+        return self.runFully_frame.?;
     }
 };
 
@@ -2464,7 +2454,7 @@ fn ifcRunOnce(
             const inline_box_index = try createInlineBox(box_tree, ifc);
             try inlineBoxSetData(layout, computer, ifc, inline_box_index);
 
-            box_tree.element_index_to_generated_box[element] = .{ .inline_box = .{ .ifc_index = layout.ifc_index, .index = inline_box_index } };
+            box_tree.element_index_to_generated_box[element] = .{ .inline_box = .{ .ifc_index = layout.result.ifc_index, .index = inline_box_index } };
             computer.setComputedValue(.box_gen, .box_style, computed);
             { // TODO: Grabbing useless data to satisfy inheritance...
                 const data = .{
@@ -2494,10 +2484,6 @@ fn ifcRunOnce(
         .inline_block => {
             interval.begin += skip;
             computer.setComputedValue(.box_gen, .box_style, computed);
-            const block_layout = switch (layout.parent) {
-                .normal => |block_layout| block_layout,
-                .stf => @panic("TODO"),
-            };
             const used_sizes = try makeInlineBlock(
                 computer,
                 layout.containing_block_width,
@@ -2532,22 +2518,18 @@ fn ifcRunOnce(
                 };
                 try sc.pushStackingContext(stacking_context_type);
 
-                // TODO: Make a new BlockLayoutContext
-                try pushContainingBlock(block_layout, layout.containing_block_width, layout.containing_block_height);
-                try pushFlowBlock(block_layout, block.index, used_sizes);
+                var child_layout = BlockLayoutContext{ .allocator = layout.allocator };
+                defer child_layout.deinit();
+                try pushContainingBlock(&child_layout, layout.containing_block_width, layout.containing_block_height);
+                try pushFlowBlock(&child_layout, block.index, used_sizes);
 
                 const frame = try layout.getFrame();
                 nosuspend {
-                    frame.* = async runUntilStackSizeIsRestored(block_layout, sc, computer, box_tree);
+                    frame.* = async runFully(&child_layout, sc, computer, box_tree);
                     try await frame.*;
                 }
-                popContainingBlock(block_layout);
 
                 box_tree.element_index_to_generated_box[element] = .{ .block_box = block.index };
-                try ifcAddInlineBlock(box_tree, ifc, block.index);
-
-                // Update the parent layout context.
-                block_layout.skip.items[block_layout.skip.items.len - 1] += box_tree.blocks.skips.items[block.index];
             } else {
                 // TODO: Create a stacking context
                 { // TODO: Grabbing useless data to satisfy inheritance...
@@ -2564,14 +2546,12 @@ fn ifcRunOnce(
                 var stf_layout = try ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, used_sizes, available_width);
                 defer stf_layout.deinit();
                 try shrinkToFitLayout(&stf_layout, sc, computer, box_tree);
-
-                const generated_box = box_tree.element_index_to_generated_box[element];
-                const block_box_index = generated_box.block_box;
-                try ifcAddInlineBlock(box_tree, ifc, block_box_index);
-
-                // Update the parent layout context.
-                block_layout.skip.items[block_layout.skip.items.len - 1] += box_tree.blocks.skips.items[block_box_index];
             }
+
+            const generated_box = box_tree.element_index_to_generated_box[element];
+            const block_box_index = generated_box.block_box;
+            layout.result.total_inline_block_skip += box_tree.blocks.skips.items[block_box_index];
+            try ifcAddInlineBlock(box_tree, ifc, block_box_index);
         },
         .block => {
             if (layout.inline_box_depth == 0) {
