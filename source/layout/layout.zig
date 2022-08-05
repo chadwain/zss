@@ -1090,7 +1090,7 @@ const IFCLineSplitState = struct {
     top_height: ZssUnit,
     max_top_height: ZssUnit,
     bottom_height: ZssUnit,
-    // longest_line_box_length: ZssUnit,
+    longest_line_box_length: ZssUnit,
 
     const InlineBlockInfo = struct {
         box_offsets: *used_values.BoxOffsets,
@@ -1106,7 +1106,7 @@ const IFCLineSplitState = struct {
             .top_height = top_height,
             .max_top_height = top_height,
             .bottom_height = bottom_height,
-            // .longest_line_box_length = 0,
+            .longest_line_box_length = 0,
         };
     }
 
@@ -1116,7 +1116,7 @@ const IFCLineSplitState = struct {
 
     fn finishLineBox(self: *IFCLineSplitState, origin: ZssVector) void {
         self.line_box.baseline += self.max_top_height;
-        // self.longest_line_box_length = std.math.max(self.longest_line_box_length, self.cursor);
+        self.longest_line_box_length = std.math.max(self.longest_line_box_length, self.cursor);
 
         for (self.inline_blocks_in_this_line_box.items) |info| {
             const offset_x = origin.x + info.cursor;
@@ -1139,6 +1139,7 @@ const IFCLineSplitState = struct {
 
 const IFCLineSplitResult = struct {
     height: ZssUnit,
+    longest_line_box_length: ZssUnit,
 };
 
 fn splitIntoLineBoxes(
@@ -1223,6 +1224,7 @@ fn splitIntoLineBoxes(
             ifc.line_boxes.items[ifc.line_boxes.items.len - 1].baseline + s.bottom_height
         else
             0, // TODO: This is never reached because the root inline box always creates at least 1 line box.
+        .longest_line_box_length = s.longest_line_box_length,
     };
 }
 
@@ -1588,15 +1590,18 @@ const StfObjects = struct {
     const Tag = enum {
         flow_normal,
         flow_stf,
+        ifc,
         none,
     };
 
     const DataTag = enum {
         flow,
+        ifc,
 
         fn Type(comptime tag: DataTag) type {
             return switch (tag) {
                 .flow => FlowBlockUsedSizes,
+                .ifc => struct { layout_result: InlineLayoutContext.Result, line_split_result: IFCLineSplitResult },
             };
         }
     };
@@ -1682,7 +1687,7 @@ const ShrinkToFitLayoutContext = struct {
 fn shrinkToFitLayout(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
     const stf_root_element = computer.this_element.index;
     const saved_element_stack_len = computer.element_stack.items.len;
-    try stfBuildObjectTree(layout, computer);
+    try stfBuildObjectTree(layout, sc, computer, box_tree);
     computer.setElementDirectChild(.box_gen, stf_root_element);
     try computer.computeAndPushElement(.box_gen);
     try stfRealizeObjects(layout.objects, layout.allocator, sc, computer, box_tree);
@@ -1693,7 +1698,7 @@ fn shrinkToFitLayout(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, c
     computer.popElement(.box_gen);
 }
 
-fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleComputer) !void {
+fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
     assert(layout.objects.tree.len == 1);
     assert(layout.object_stack.len > 0);
     while (layout.object_stack.len > 0) {
@@ -1711,6 +1716,7 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleCompute
                     const computed = solveBoxStyle(specified, .NonRoot);
                     computer.setComputedValue(.box_gen, .box_style, computed);
 
+                    const containing_block_available_width = layout.widths.items(.available)[layout.widths.len - 1];
                     const containing_block_height = layout.heights.items[layout.heights.items.len - 1];
 
                     switch (computed.display) {
@@ -1762,7 +1768,36 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleCompute
                             layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
                             interval.begin += skip;
                         },
-                        .inline_, .inline_block, .text => @panic("TODO: Shrink to fit text"),
+                        .inline_, .inline_block, .text => {
+                            _ = sc;
+                            _ = box_tree;
+                            _ = containing_block_available_width;
+                            @panic("TODO: Shrink to fit text");
+
+                            // If this IFC contained inline-block elements, this code would create them before
+                            // their parent block was created, which would be problematic.
+
+                            // const result = try makeInlineFormattingContext(
+                            //     layout.allocator,
+                            //     sc,
+                            //     computer,
+                            //     box_tree,
+                            //     .ShrinkToFit,
+                            //     containing_block_available_width,
+                            //     containing_block_height,
+                            // );
+                            // const ifc = box_tree.inlines.items[result.ifc_index];
+                            // const line_split_result = try splitIntoLineBoxes(layout.allocator, box_tree, ifc, containing_block_available_width);
+
+                            // const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
+                            // parent_auto_width.* = std.math.max(parent_auto_width.*, line_split_result.longest_line_box_length);
+
+                            // const data_index = try layout.objects.allocData(layout.allocator, .ifc);
+                            // const data = layout.objects.getData(.ifc, data_index);
+                            // data.* = .{ .layout_result = result, .line_split_result = line_split_result };
+                            // try layout.objects.tree.append(layout.allocator, .{ .skip = 1, .tag = .ifc, .element = undefined });
+                            // layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
+                        },
                         .initial, .inherit, .unset, .undeclared => unreachable,
                     }
                 } else {
@@ -1783,14 +1818,14 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, computer: *StyleCompute
                                 const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
                                 parent_auto_width.* = std.math.max(parent_auto_width.*, used.get(.inline_size).?);
                             },
-                            .flow_normal, .none => unreachable,
+                            .flow_normal, .ifc, .none => unreachable,
                         }
 
                         layout.object_stack.items(.skip)[layout.object_stack.len - 1] += object_info.skip;
                     }
                 }
             },
-            .flow_normal, .none => unreachable,
+            .flow_normal, .ifc, .none => unreachable,
         }
     }
 }
@@ -1844,7 +1879,7 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, sc: *StackingCon
                 try layout.height.append(allocator, used_sizes.get(.block_size));
                 try layout.auto_height.append(allocator, 0);
             },
-            .flow_normal, .none => unreachable,
+            .flow_normal, .ifc, .none => unreachable,
         }
 
         try layout.objects.append(allocator, .{ .tag = tag, .interval = .{ .begin = 1, .end = skip }, .data_index = data_index });
@@ -1913,6 +1948,16 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, sc: *StackingCon
                         const margin_bottom = box_tree.blocks.margins.items[block.index].bottom;
                         addBlockToFlow(box_offsets, margin_bottom, parent_auto_height);
                     },
+                    .ifc => {
+                        @panic("TODO");
+                        // const data = objects.getData2(.ifc, &data_index_mutable);
+                        // const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
+                        // const ifc = box_tree.inlines.items[data.layout_result.ifc_index];
+                        // ifc.origin = .{ .x = 0, .y = parent_auto_height.* };
+                        // ifc.parent_block = layout.blocks.items(.index)[layout.blocks.len - 1];
+                        // layout.blocks.items(.skip)[layout.blocks.len - 1] += data.layout_result.total_inline_block_skip;
+                        // advanceFlow(parent_auto_height, data.line_split_result.height);
+                    },
                     .none => {
                         std.mem.set(GeneratedBox, box_tree.element_index_to_generated_box[element..][0..computer.element_tree_skips[element]], .none);
                     },
@@ -1938,11 +1983,11 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, sc: *StackingCon
                             const margin_bottom = box_tree.blocks.margins.items[block.index].bottom;
                             addBlockToFlow(box_offsets, margin_bottom, parent_auto_height);
                         },
-                        .flow_normal, .none => unreachable,
+                        .flow_normal, .ifc, .none => unreachable,
                     }
                 }
             },
-            .flow_normal, .none => unreachable,
+            .flow_normal, .ifc, .none => unreachable,
         }
     }
 }
