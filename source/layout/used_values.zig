@@ -360,7 +360,7 @@ pub const GeneratedBox = union(enum) {
 /// The result of layout.
 pub const BoxTree = struct {
     blocks: BlockBoxTree = .{},
-    inlines: ArrayListUnmanaged(*InlineFormattingContext) = .{},
+    ifcs: ArrayListUnmanaged(*InlineFormattingContext) = .{},
     stacking_contexts: StackingContextTree = .{},
     element_index_to_generated_box: []GeneratedBox,
     allocator: Allocator,
@@ -369,11 +369,11 @@ pub const BoxTree = struct {
 
     pub fn deinit(self: *Self) void {
         self.blocks.deinit(self.allocator);
-        for (self.inlines.items) |ifc| {
+        for (self.ifcs.items) |ifc| {
             ifc.deinit(self.allocator);
             self.allocator.destroy(ifc);
         }
-        self.inlines.deinit(self.allocator);
+        self.ifcs.deinit(self.allocator);
         for (self.stacking_contexts.multi_list.items(.ifcs)) |*ifc_list| {
             ifc_list.deinit(self.allocator);
         }

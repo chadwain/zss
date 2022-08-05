@@ -123,7 +123,7 @@ pub fn drawBoxTree(
                 try drawChildBlocks(box_tree.blocks, top.generating_block, allocator, top.translation, clip_rect_zss, renderer, pixel_format);
 
                 for (top.ifcs) |ifc_index| {
-                    const ifc = box_tree.inlines.items[ifc_index];
+                    const ifc = box_tree.ifcs.items[ifc_index];
                     var tr = top.translation;
                     var it = zss.SkipTreeIterator(BlockBoxIndex).init(top.generating_block, box_tree.blocks.skips.items);
                     while (!it.empty()) : (it = it.firstChild(box_tree.blocks.skips.items)) {

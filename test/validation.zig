@@ -38,8 +38,8 @@ test "validation" {
         defer box_tree.deinit();
 
         try validateStackingContexts(&box_tree);
-        for (box_tree.inlines.items) |inl| {
-            try validateInline(inl);
+        for (box_tree.ifcs.items) |ifc| {
+            try validateInline(ifc);
         }
 
         std.debug.print("success", .{});

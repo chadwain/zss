@@ -214,9 +214,9 @@ fn doCosmeticLayout(layout: *BlockLayoutContext, computer: *StyleComputer, box_t
     try box_tree.blocks.background1.resize(box_tree.allocator, num_created_boxes);
     try box_tree.blocks.background2.resize(box_tree.allocator, num_created_boxes);
 
-    for (box_tree.inlines.items) |inline_| {
-        try inline_.background1.resize(box_tree.allocator, inline_.inline_start.items.len);
-        inlineRootBoxSolveOtherProperties(inline_);
+    for (box_tree.ifcs.items) |ifc| {
+        try ifc.background1.resize(box_tree.allocator, ifc.inline_start.items.len);
+        inlineRootBoxSolveOtherProperties(ifc);
     }
 
     // TODO: Don't make another interval stack
@@ -240,7 +240,7 @@ fn doCosmeticLayout(layout: *BlockLayoutContext, computer: *StyleComputer, box_t
                 .none, .text => continue,
                 .block_box => |index| try blockBoxSolveOtherProperties(computer, box_tree, index),
                 .inline_box => |box_spec| {
-                    const ifc = box_tree.inlines.items[box_spec.ifc_index];
+                    const ifc = box_tree.ifcs.items[box_spec.ifc_index];
                     inlineBoxSolveOtherProperties(computer, ifc, box_spec.index);
                 },
             }
@@ -249,7 +249,7 @@ fn doCosmeticLayout(layout: *BlockLayoutContext, computer: *StyleComputer, box_t
             if (element == root_element) {
                 const computed_color = computer.stage.cosmetic.current_values.color;
                 const used_color = getCurrentColor(computed_color.color);
-                for (box_tree.inlines.items) |ifc| {
+                for (box_tree.ifcs.items) |ifc| {
                     ifc.font_color_rgba = used_color;
                 }
             }
@@ -380,7 +380,7 @@ fn runOnce(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleC
 
                         layout.skip.items[layout.skip.items.len - 1] += result.total_inline_block_skip;
 
-                        const ifc = box_tree.inlines.items[result.ifc_index];
+                        const ifc = box_tree.ifcs.items[result.ifc_index];
                         const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
                         ifc.parent_block = layout.index.items[layout.index.items.len - 1];
                         ifc.origin = ZssVector{ .x = 0, .y = parent_auto_height.* };
@@ -1047,10 +1047,10 @@ fn makeInlineFormattingContext(
     assert(containing_block_width >= 0);
     assert(if (containing_block_height) |h| h >= 0 else true);
 
-    const ifc_index = std.math.cast(InlineFormattingContextIndex, box_tree.inlines.items.len) orelse return error.TooManyIfcs;
+    const ifc_index = std.math.cast(InlineFormattingContextIndex, box_tree.ifcs.items.len) orelse return error.TooManyIfcs;
     const ifc = ifc: {
-        const result_ptr = try box_tree.inlines.addOne(box_tree.allocator);
-        errdefer _ = box_tree.inlines.pop();
+        const result_ptr = try box_tree.ifcs.addOne(box_tree.allocator);
+        errdefer _ = box_tree.ifcs.pop();
         const result = try box_tree.allocator.create(InlineFormattingContext);
         errdefer box_tree.allocator.destroy(result);
         result.* = .{ .parent_block = undefined, .origin = undefined };
@@ -1786,7 +1786,7 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, 
                             //     containing_block_available_width,
                             //     containing_block_height,
                             // );
-                            // const ifc = box_tree.inlines.items[result.ifc_index];
+                            // const ifc = box_tree.ifcs.items[result.ifc_index];
                             // const line_split_result = try splitIntoLineBoxes(layout.allocator, box_tree, ifc, containing_block_available_width);
 
                             // const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
@@ -1952,7 +1952,7 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, sc: *StackingCon
                         @panic("TODO");
                         // const data = objects.getData2(.ifc, &data_index_mutable);
                         // const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-                        // const ifc = box_tree.inlines.items[data.layout_result.ifc_index];
+                        // const ifc = box_tree.ifcs.items[data.layout_result.ifc_index];
                         // ifc.origin = .{ .x = 0, .y = parent_auto_height.* };
                         // ifc.parent_block = layout.blocks.items(.index)[layout.blocks.len - 1];
                         // layout.blocks.items(.skip)[layout.blocks.len - 1] += data.layout_result.total_inline_block_skip;
