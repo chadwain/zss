@@ -626,7 +626,6 @@ fn flowBlockSolveWidths(
     used: *FlowBlockUsedSizes,
 ) !void {
     // TODO: Also use the logical properties ('inline-size', 'border-inline-start', etc.) to determine lengths.
-    // TODO: Any relative units must be converted to absolute units to form the computed value.
 
     assert(containing_block_width >= 0);
 
@@ -848,7 +847,6 @@ fn flowBlockSolveVerticalEdges(
     used: *FlowBlockUsedSizes,
 ) !void {
     // TODO: Also use the logical properties ('block-size', 'border-block-start', etc.) to determine lengths.
-    // TODO: Any relative units must be converted to absolute units to form the computed value.
 
     assert(containing_block_width >= 0);
 
@@ -1928,7 +1926,8 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, sc: *StackingCon
                         const containing_block_height = layout.height.items[layout.height.items.len - 1];
                         try pushContainingBlock(&new_block_layout, containing_block_width, containing_block_height);
                         try pushFlowBlock(&new_block_layout, block.index, used_sizes.*);
-                        try sc.pushStackingContext(.none); // TODO: Don't do this
+                        // TODO: The stacking context that gets pushed should be determined when building the object tree.
+                        try sc.pushStackingContext(.none);
                         try computer.setElementAny(.box_gen, element);
                         try computer.computeAndPushElement(.box_gen);
                         var frame = try allocator.create(@Frame(runFully));
