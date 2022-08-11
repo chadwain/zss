@@ -83,7 +83,7 @@ pub const TreeData = struct {
         };
 
         if (result.element_tree.size() > 0) {
-            assert(hb.FT_New_Face(library, self.font, 0, &result.face) == 0);
+            assert(hb.FT_New_Face(library, self.font.ptr, 0, &result.face) == 0);
             assert(hb.FT_Set_Char_Size(result.face, 0, @intCast(c_int, self.font_size) * 64, 96, 96) == 0);
 
             result.font = blk: {

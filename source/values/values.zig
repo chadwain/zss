@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 pub const All = enum {
     initial,
     inherit,
@@ -237,7 +239,10 @@ pub const BackgroundImage = union(enum) {
         };
 
         data: *Data,
-        getNaturalSizeFn: fn (data: *Data) Dimensions,
+        getNaturalSizeFn: switch (builtin.zig_backend) {
+            .stage1 => fn (data: *Data) Dimensions,
+            else => *const fn (data: *Data) Dimensions,
+        },
 
         pub fn getNaturalSize(self: *Object) Dimensions {
             return self.getNaturalSizeFn(self.data);

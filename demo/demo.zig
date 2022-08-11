@@ -83,7 +83,7 @@ pub fn main() !u8 {
     defer assert(hb.FT_Done_FreeType(library) == hb.FT_Err_Ok);
 
     var face: hb.FT_Face = undefined;
-    if (hb.FT_New_Face(library, args.font_filename, 0, &face) != hb.FT_Err_Ok) {
+    if (hb.FT_New_Face(library, args.font_filename.ptr, 0, &face) != hb.FT_Err_Ok) {
         stderr.print("Error loading font file: {s}\n", .{args.font_filename}) catch {};
         return 1;
     }
@@ -346,7 +346,7 @@ fn sdlMainLoop(
     element_tree: *const ElementTree,
     cascaded_values: *const CascadedValueStore,
 ) !void {
-    const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
+    const pixel_format = @as(?*sdl.SDL_PixelFormat, sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32)) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
 
     var ps = try ProgramState.init(element_tree, cascaded_values, window, renderer, pixel_format, face, allocator);

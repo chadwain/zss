@@ -223,13 +223,13 @@ pub const GlyphAtlas = struct {
         const max_glyph_width = @intCast(u16, zss.util.roundUp(zss.util.divCeil((face.*.bbox.xMax - face.*.bbox.xMin) * face.*.size.*.metrics.x_ppem, face.*.units_per_EM), 4));
         const max_glyph_height = @intCast(u16, zss.util.roundUp(zss.util.divCeil((face.*.bbox.yMax - face.*.bbox.yMin) * face.*.size.*.metrics.y_ppem, face.*.units_per_EM), 4));
 
-        const surface = sdl.SDL_CreateRGBSurfaceWithFormat(
+        const surface = @as(?*sdl.SDL_Surface, sdl.SDL_CreateRGBSurfaceWithFormat(
             0,
             max_glyph_width,
             max_glyph_height,
             32,
             pixel_format.*.format,
-        ) orelse return error.SDL_Error;
+        )) orelse return error.SDL_Error;
         errdefer sdl.SDL_FreeSurface(surface);
         assert(sdl.SDL_FillRect(surface, null, sdl.SDL_MapRGBA(pixel_format, 0, 0, 0, 0)) == 0);
 

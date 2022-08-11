@@ -1930,13 +1930,7 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, sc: *StackingCon
                         try sc.pushStackingContext(.none);
                         try computer.setElementAny(.box_gen, element);
                         try computer.computeAndPushElement(.box_gen);
-                        var frame = try allocator.create(@Frame(runFully));
-                        defer allocator.destroy(frame);
-
-                        nosuspend {
-                            frame.* = async runFully(&new_block_layout, sc, computer, box_tree);
-                            try await frame.*;
-                        }
+                        try runFully(&new_block_layout, sc, computer, box_tree);
 
                         computer.popElement(.box_gen);
 
@@ -2383,7 +2377,6 @@ const InlineLayoutContext = struct {
 
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
-    runFully_frame: ?*@Frame(runFully) = null,
 
     result: Result,
 
@@ -2394,16 +2387,6 @@ const InlineLayoutContext = struct {
 
     fn deinit(self: *Self) void {
         self.index.deinit(self.allocator);
-        if (self.runFully_frame) |frame| {
-            self.allocator.destroy(frame);
-        }
-    }
-
-    fn getFrame(self: *Self) !*@Frame(runFully) {
-        if (self.runFully_frame == null) {
-            self.runFully_frame = try self.allocator.create(@Frame(runFully));
-        }
-        return self.runFully_frame.?;
     }
 };
 
@@ -2567,11 +2550,7 @@ fn ifcRunOnce(
                 try pushContainingBlock(&child_layout, layout.containing_block_width, layout.containing_block_height);
                 try pushFlowBlock(&child_layout, block.index, used_sizes);
 
-                const frame = try layout.getFrame();
-                nosuspend {
-                    frame.* = async runFully(&child_layout, sc, computer, box_tree);
-                    try await frame.*;
-                }
+                try runFully(&child_layout, sc, computer, box_tree);
 
                 box_tree.element_index_to_generated_box[element] = .{ .block_box = block.index };
             } else {

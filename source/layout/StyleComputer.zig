@@ -244,7 +244,8 @@ pub fn getSpecifiedValue(
     // Find the value using the cascaded value tree.
     // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do this.
     const store = @field(self.cascaded_values, @tagName(property));
-    var cascaded_value: ?Value = if (store.get(self.this_element.ref)) |*value| cascaded_value: {
+    var cascaded_value: ?Value = cascaded_value: {
+        var value = store.get(self.this_element.ref) orelse break :cascaded_value null;
         if (property == .color) {
             // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
             if (value.color == .current_color) {
@@ -252,8 +253,8 @@ pub fn getSpecifiedValue(
             }
         }
 
-        break :cascaded_value value.*;
-    } else null;
+        break :cascaded_value value;
+    };
 
     const default: enum { inherit, initial } = default: {
         // Use the value of the 'all' property.
@@ -301,10 +302,9 @@ pub fn getSpecifiedValue(
                 .inherited => sub_property.* = @field(inherited_value, field_info.name),
                 .not_inherited => sub_property.* = @field(initial_value, field_info.name),
             },
-            .undeclared => if (default == .inherit) {
-                sub_property.* = @field(inherited_value, field_info.name);
-            } else {
-                sub_property.* = @field(initial_value, field_info.name);
+            .undeclared => switch (default) {
+                .inherit => sub_property.* = @field(inherited_value, field_info.name),
+                .initial => sub_property.* = @field(initial_value, field_info.name),
             },
             else => {},
         }

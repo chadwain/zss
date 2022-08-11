@@ -44,7 +44,7 @@ pub fn drawToSurface(
             try r.drawBoxTree(box_tree, renderer, pixel_format, glyph_atlas, allocator, vp, tr);
             sdl.SDL_RenderPresent(renderer);
             assert(sdl.SDL_RenderReadPixels(renderer, &vp, buffer.*.format.*.format, buffer.*.pixels, buffer.*.pitch) == 0);
-            assert(sdl.SDL_BlitSurface(buffer, null, surface, &.{ .x = i * tw, .y = j * th, .w = tw, .h = th }) == 0);
+            assert(sdl.SDL_BlitSurface(buffer, null, surface, &sdl.SDL_Rect{ .x = i * tw, .y = j * th, .w = tw, .h = th }) == 0);
         }
     }
 
@@ -61,7 +61,7 @@ test "sdl" {
     assert(sdl.SDL_CreateWindowAndRenderer(wwidth, wheight, sdl.SDL_WINDOW_SHOWN | sdl.SDL_WINDOW_MINIMIZED, &window, &renderer) == 0);
     defer sdl.SDL_DestroyWindow(window);
     defer sdl.SDL_DestroyRenderer(renderer);
-    const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
+    const pixel_format = @as(?*sdl.SDL_PixelFormat, sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32)) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
     const texture = sdl.SDL_CreateTexture(renderer, pixel_format.*.format, sdl.SDL_TEXTUREACCESS_TARGET, wwidth, wheight);
     defer sdl.SDL_DestroyTexture(texture);
@@ -118,7 +118,7 @@ test "sdl" {
         defer sdl.SDL_FreeSurface(surface);
         const filename = try std.fmt.allocPrintZ(allocator, results_path ++ "/{:0>2}.bmp", .{i});
         defer allocator.free(filename);
-        if (sdl.SDL_SaveBMP(surface, filename) != 0) {
+        if (sdl.SDL_SaveBMP(surface, filename.ptr) != 0) {
             std.log.err("sdl: couldn't save test {}, skipping", .{i});
             continue;
         }
