@@ -13,6 +13,8 @@ const pkgs = struct {
     };
 };
 
+// All of our artifacts will be built with stage1 because zss uses async/await.
+
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
     const target = b.standardTargetOptions(.{});
@@ -20,6 +22,7 @@ pub fn build(b: *Builder) void {
     const zss_lib = b.addStaticLibrary("zss", "zss.zig");
     zss_lib.setBuildMode(mode);
     zss_lib.setTarget(target);
+    zss_lib.use_stage1 = true;
     zss_lib.install();
 
     addTests(b, mode, target);
@@ -36,6 +39,7 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
     lib_tests.linkLibC();
     lib_tests.linkSystemLibrary("harfbuzz");
     lib_tests.linkSystemLibrary("freetype2");
+    lib_tests.use_stage1 = true;
     const lib_tests_step = b.step("test-lib", "Run library tests");
     lib_tests_step.dependOn(&lib_tests.step);
 
@@ -51,6 +55,7 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
         .source = .{ .path = "zss.zig" },
         .dependencies = &[_]Pkg{pkgs.harfbuzz},
     });
+    validation_tests.use_stage1 = true;
     const validation_tests_step = b.step("test-validation", "Run validation tests");
     validation_tests_step.dependOn(&validation_tests.step);
 
@@ -66,6 +71,7 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
         .source = .{ .path = "zss.zig" },
         .dependencies = &[_]Pkg{pkgs.harfbuzz},
     });
+    memory_tests.use_stage1 = true;
     const memory_tests_step = b.step("test-memory", "Run memory tests");
     memory_tests_step.dependOn(&memory_tests.step);
 
@@ -83,6 +89,7 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
         .source = .{ .path = "zss.zig" },
         .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2 },
     });
+    sdl_tests.use_stage1 = true;
     const sdl_tests_step = b.step("test-sdl", "Run SDL tests");
     sdl_tests_step.dependOn(&sdl_tests.step);
 
@@ -108,6 +115,7 @@ fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) voi
     demo_exe.linkSystemLibrary("SDL2_image");
     demo_exe.setBuildMode(mode);
     demo_exe.setTarget(target);
+    demo_exe.use_stage1 = true;
     demo_exe.install();
 
     var demo_cmd = demo_exe.run();

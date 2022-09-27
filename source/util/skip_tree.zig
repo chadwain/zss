@@ -31,11 +31,11 @@ pub fn SkipTree(comptime IndexType: type, comptime ValueSpec: type) type {
 
     const fields = @typeInfo(ValueSpec).Struct.fields;
 
-    const MultiElem = @Type(std.builtin.TypeInfo{ .Struct = .{
+    const MultiElem = @Type(std.builtin.Type{ .Struct = .{
         .layout = .Auto,
         .decls = &.{},
         .is_tuple = false,
-        .fields = &[_]std.builtin.TypeInfo.StructField{
+        .fields = &[_]std.builtin.Type.StructField{
             .{
                 .name = "__skip",
                 .field_type = IndexType,
@@ -192,11 +192,11 @@ pub fn SparseSkipTree(comptime IndexType: type, comptime ValueSpec: type) type {
 
     const fields = @typeInfo(ValueSpec).Struct.fields;
 
-    const MultiElem = @Type(std.builtin.TypeInfo{ .Struct = .{
+    const MultiElem = @Type(std.builtin.Type{ .Struct = .{
         .layout = .Auto,
         .decls = &.{},
         .is_tuple = false,
-        .fields = &[_]std.builtin.TypeInfo.StructField{
+        .fields = &[_]std.builtin.Type.StructField{
             .{
                 .name = "__skip",
                 .field_type = IndexType,
@@ -325,7 +325,6 @@ test "SkipTree and SparseSkipTree" {
     const root_0_1_0 = st.appendChildAssumeCapacity(root_0_1, .{});
     const root_1 = st.appendChildAssumeCapacity(root, .{});
     const root_1_0 = st.appendChildAssumeCapacity(root_1, .{});
-    _ = root_0_0_0;
     _ = root_0_0_1;
     _ = root_0_1_0;
     _ = root_1_0;
@@ -353,7 +352,7 @@ pub fn SSTSeeker(comptime SST: type) type {
     const sst_value_fields = std.meta.fields(SST.Value);
 
     const SlicePointers = SlicePointers: {
-        var fields: [sst_value_fields.len]std.builtin.TypeInfo.StructField = undefined;
+        var fields: [sst_value_fields.len]std.builtin.Type.StructField = undefined;
         inline for (sst_value_fields) |field, i| {
             fields[i] = .{
                 .name = field.name,
@@ -363,7 +362,7 @@ pub fn SSTSeeker(comptime SST: type) type {
                 .alignment = @alignOf([*]const field.field_type),
             };
         }
-        break :SlicePointers @Type(std.builtin.TypeInfo{ .Struct = .{
+        break :SlicePointers @Type(std.builtin.Type{ .Struct = .{
             .layout = .Auto,
             .fields = &fields,
             .decls = &.{},

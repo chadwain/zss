@@ -29,11 +29,11 @@ pub fn ReferencedSkipTree(comptime IndexType: type, comptime ReferenceType: type
 
     const fields = @typeInfo(ValueType).Struct.fields;
 
-    const ListElement = @Type(std.builtin.TypeInfo{ .Struct = .{
+    const ListElement = @Type(std.builtin.Type{ .Struct = .{
         .layout = .Auto,
         .decls = &.{},
         .is_tuple = false,
-        .fields = &[_]std.builtin.TypeInfo.StructField{
+        .fields = &[_]std.builtin.Type.StructField{
             .{
                 .name = "__skip",
                 .field_type = IndexType,
