@@ -117,46 +117,62 @@ pub const Background2 = struct {
     origin: Origin = .Padding,
 };
 
+pub const BlockBoxProperties = struct {
+    creates_stacking_context: bool = false,
+    subtree_root: ?SubtreeIndex = null,
+    contents: bool = false,
+};
+
+pub const SubtreeIndex = u16;
 pub const BlockBoxIndex = u16;
+pub const BlockBox = struct {
+    subtree: SubtreeIndex,
+    index: BlockBoxIndex,
+};
 pub const BlockBoxSkip = BlockBoxIndex;
 pub const BlockBoxCount = BlockBoxIndex;
 
 pub const BlockBoxTree = struct {
-    skips: ArrayListUnmanaged(BlockBoxIndex) = .{},
-    box_offsets: ArrayListUnmanaged(BoxOffsets) = .{},
-    borders: ArrayListUnmanaged(Borders) = .{},
-    margins: ArrayListUnmanaged(Margins) = .{},
-    border_colors: ArrayListUnmanaged(BorderColor) = .{},
-    background1: ArrayListUnmanaged(Background1) = .{},
-    background2: ArrayListUnmanaged(Background2) = .{},
-    properties: ArrayListUnmanaged(BoxProperties) = .{},
+    subtrees: ArrayListUnmanaged(Subtree) = .{},
 
-    const Self = @This();
+    pub const Subtree = struct {
+        skips: ArrayListUnmanaged(BlockBoxIndex) = .{},
+        box_offsets: ArrayListUnmanaged(BoxOffsets) = .{},
+        borders: ArrayListUnmanaged(Borders) = .{},
+        margins: ArrayListUnmanaged(Margins) = .{},
+        border_colors: ArrayListUnmanaged(BorderColor) = .{},
+        background1: ArrayListUnmanaged(Background1) = .{},
+        background2: ArrayListUnmanaged(Background2) = .{},
+        properties: ArrayListUnmanaged(BlockBoxProperties) = .{},
 
-    pub const BoxProperties = struct {
-        creates_stacking_context: bool = false,
+        pub fn deinit(subtree: *Subtree, allocator: Allocator) void {
+            subtree.skips.deinit(allocator);
+            subtree.box_offsets.deinit(allocator);
+            subtree.borders.deinit(allocator);
+            subtree.margins.deinit(allocator);
+            subtree.border_colors.deinit(allocator);
+            subtree.background1.deinit(allocator);
+            subtree.background2.deinit(allocator);
+            subtree.properties.deinit(allocator);
+        }
+
+        pub fn ensureTotalCapacity(subtree: *Subtree, allocator: Allocator, capacity: usize) !void {
+            try subtree.skips.ensureTotalCapacity(allocator, capacity);
+            try subtree.box_offsets.ensureTotalCapacity(allocator, capacity);
+            try subtree.borders.ensureTotalCapacity(allocator, capacity);
+            try subtree.margins.ensureTotalCapacity(allocator, capacity);
+            try subtree.border_colors.ensureTotalCapacity(allocator, capacity);
+            try subtree.background1.ensureTotalCapacity(allocator, capacity);
+            try subtree.background2.ensureTotalCapacity(allocator, capacity);
+            try subtree.properties.ensureTotalCapacity(allocator, capacity);
+        }
     };
 
-    pub fn deinit(self: *Self, allocator: Allocator) void {
-        self.skips.deinit(allocator);
-        self.box_offsets.deinit(allocator);
-        self.borders.deinit(allocator);
-        self.margins.deinit(allocator);
-        self.border_colors.deinit(allocator);
-        self.background1.deinit(allocator);
-        self.background2.deinit(allocator);
-        self.properties.deinit(allocator);
-    }
-
-    pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, capacity: usize) !void {
-        try self.skips.ensureTotalCapacity(allocator, capacity);
-        try self.box_offsets.ensureTotalCapacity(allocator, capacity);
-        try self.borders.ensureTotalCapacity(allocator, capacity);
-        try self.margins.ensureTotalCapacity(allocator, capacity);
-        try self.border_colors.ensureTotalCapacity(allocator, capacity);
-        try self.background1.ensureTotalCapacity(allocator, capacity);
-        try self.background2.ensureTotalCapacity(allocator, capacity);
-        try self.properties.ensureTotalCapacity(allocator, capacity);
+    fn deinit(tree: *BlockBoxTree, allocator: Allocator) void {
+        for (tree.subtrees.items) |*subtree| {
+            subtree.deinit(allocator);
+        }
+        tree.subtrees.deinit(allocator);
     }
 };
 
@@ -173,8 +189,10 @@ pub const InlineFormattingContextIndex = u16;
 /// function to recover and interpret that data. Note that this data still has metrics associated with it.
 /// That metrics data is found in the same array index as that of the first glyph index (the one that was 0).
 pub const InlineFormattingContext = struct {
-    parent_block: BlockBoxIndex,
+    parent_block: BlockBox,
     origin: ZssVector,
+    // TODO: Make this optional
+    subtree_index: SubtreeIndex,
 
     glyph_indeces: ArrayListUnmanaged(GlyphIndex) = .{},
     metrics: ArrayListUnmanaged(Metrics) = .{},
@@ -301,10 +319,6 @@ pub const InlineFormattingContext = struct {
         pub fn encodeLineBreak() GlyphIndex {
             return @bitCast(GlyphIndex, Special{ .kind = @intToEnum(Kind, @enumToInt(LayoutInternalKind.LineBreak)), .data = undefined });
         }
-
-        pub fn encodeContinuationBlock(index: InlineBoxIndex) GlyphIndex {
-            return @bitCast(GlyphIndex, Special{ .kind = @intToEnum(Kind, @enumToInt(LayoutInternalKind.ContinuationBlock)), .data = index });
-        }
     };
 
     pub fn deinit(self: *@This(), allocator: Allocator) void {
@@ -337,7 +351,7 @@ pub const StackingContext = struct {
     /// The z-index of this stacking context.
     z_index: ZIndex,
     /// The block box that creates this stacking context.
-    block_box: BlockBoxIndex,
+    block_box: BlockBox,
     /// The list of inline formatting contexts in this stacking context.
     ifcs: ArrayListUnmanaged(InlineFormattingContextIndex),
 };
@@ -350,7 +364,7 @@ pub const GeneratedBox = union(enum) {
     /// The element generated no boxes.
     none,
     /// The element generated a single block box.
-    block_box: BlockBoxIndex,
+    block_box: BlockBox,
     /// The element generated a single inline box.
     inline_box: struct { ifc_index: InlineFormattingContextIndex, index: InlineBoxIndex },
     /// The element generated text.

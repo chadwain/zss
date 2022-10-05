@@ -21,8 +21,12 @@ const ZssVector = used_values.ZssVector;
 const units_per_pixel = used_values.units_per_pixel;
 const BlockBoxIndex = used_values.BlockBoxIndex;
 const initial_containing_block = @as(BlockBoxIndex, 0);
+const BlockBox = used_values.BlockBox;
 const BlockBoxSkip = used_values.BlockBoxSkip;
 const BlockBoxCount = used_values.BlockBoxCount;
+const BlockSubtree = BlockBoxTree.Subtree;
+const BlockSubtreeIndex = used_values.SubtreeIndex;
+const initial_subtree = @as(BlockSubtreeIndex, 0);
 const BlockBoxTree = used_values.BlockBoxTree;
 const StackingContextIndex = used_values.StackingContextIndex;
 const ZIndex = used_values.ZIndex;
@@ -38,6 +42,7 @@ const hb = @import("harfbuzz");
 pub const Error = error{
     InvalidValue,
     OutOfMemory,
+    TooManyBlockSubtrees,
     TooManyBlocks,
     TooManyIfcs,
 };
@@ -58,6 +63,7 @@ pub fn doLayout(
         .element_tree_skips = element_tree.tree.list.items(.__skip),
         .element_tree_refs = element_tree.tree.list.items(.__ref),
         .cascaded_values = &cascaded_value_tree,
+        // TODO: Store viewport_size in a LayoutInputs struct instead of the StyleComputer
         .viewport_size = viewport_size,
         .stage = undefined,
         .allocator = allocator,
@@ -175,9 +181,10 @@ const BlockLayoutContext = struct {
     allocator: Allocator,
 
     processed_root_element: bool = false,
-    anonymous_block_boxes: ArrayListUnmanaged(BlockBoxIndex) = .{},
+    anonymous_block_boxes: ArrayListUnmanaged(BlockBox) = .{},
     layout_mode: ArrayListUnmanaged(LayoutMode) = .{},
 
+    subtree: ArrayListUnmanaged(BlockSubtreeIndex) = .{},
     index: ArrayListUnmanaged(BlockBoxIndex) = .{},
     skip: ArrayListUnmanaged(BlockBoxSkip) = .{},
 
@@ -189,6 +196,7 @@ const BlockLayoutContext = struct {
         self.anonymous_block_boxes.deinit(self.allocator);
         self.layout_mode.deinit(self.allocator);
 
+        self.subtree.deinit(self.allocator);
         self.index.deinit(self.allocator);
         self.skip.deinit(self.allocator);
 
@@ -199,19 +207,20 @@ const BlockLayoutContext = struct {
 };
 
 fn doBoxGeneration(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
-    if (computer.element_tree_skips.len > 0) {
-        box_tree.blocks.ensureTotalCapacity(box_tree.allocator, computer.element_tree_skips[root_element] + 1) catch {};
-    }
-
     try makeInitialContainingBlock(layout, computer, box_tree);
+    if (computer.element_tree_skips.len > 0) {
+        box_tree.blocks.subtrees.items[initial_subtree].ensureTotalCapacity(box_tree.allocator, computer.element_tree_skips[root_element] + 1) catch {};
+    }
     try runFully(layout, sc, computer, box_tree);
 }
 
 fn doCosmeticLayout(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
-    const num_created_boxes = box_tree.blocks.skips.items[0];
-    try box_tree.blocks.border_colors.resize(box_tree.allocator, num_created_boxes);
-    try box_tree.blocks.background1.resize(box_tree.allocator, num_created_boxes);
-    try box_tree.blocks.background2.resize(box_tree.allocator, num_created_boxes);
+    for (box_tree.blocks.subtrees.items) |*subtree| {
+        const num_created_boxes = subtree.skips.items[0];
+        try subtree.border_colors.resize(box_tree.allocator, num_created_boxes);
+        try subtree.background1.resize(box_tree.allocator, num_created_boxes);
+        try subtree.background2.resize(box_tree.allocator, num_created_boxes);
+    }
 
     for (box_tree.ifcs.items) |ifc| {
         try ifc.background1.resize(box_tree.allocator, ifc.inline_start.items.len);
@@ -237,7 +246,7 @@ fn doCosmeticLayout(layout: *BlockLayoutContext, computer: *StyleComputer, box_t
             const box_type = box_tree.element_index_to_generated_box[element];
             switch (box_type) {
                 .none, .text => continue,
-                .block_box => |index| try blockBoxSolveOtherProperties(computer, box_tree, index),
+                .block_box => |block_box| try blockBoxSolveOtherProperties(computer, box_tree, block_box),
                 .inline_box => |box_spec| {
                     const ifc = box_tree.ifcs.items[box_spec.ifc_index];
                     inlineBoxSolveOtherProperties(computer, ifc, box_spec.index);
@@ -265,9 +274,9 @@ fn doCosmeticLayout(layout: *BlockLayoutContext, computer: *StyleComputer, box_t
         }
     }
 
-    blockBoxFillOtherPropertiesWithDefaults(box_tree, initial_containing_block);
-    for (layout.anonymous_block_boxes.items) |anon_index| {
-        blockBoxFillOtherPropertiesWithDefaults(box_tree, anon_index);
+    blockBoxFillOtherPropertiesWithDefaults(box_tree, .{ .subtree = initial_subtree, .index = initial_containing_block });
+    for (layout.anonymous_block_boxes.items) |anon_block| {
+        blockBoxFillOtherPropertiesWithDefaults(box_tree, anon_block);
     }
 }
 
@@ -305,12 +314,13 @@ fn runOnce(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleC
                 };
                 computer.setComputedValue(.box_gen, .box_style, computed.box_style);
 
+                const subtree_index = layout.subtree.items[layout.subtree.items.len - 1];
                 const containing_block_width = layout.width.items[layout.width.items.len - 1];
                 const containing_block_height = layout.heights.items[layout.heights.items.len - 1].height;
 
                 switch (computed.box_style.display) {
                     .block => {
-                        const box = try makeFlowBlock(layout, computer, box_tree, containing_block_width, containing_block_height);
+                        const box = try makeFlowBlock(layout, computer, box_tree, subtree_index, containing_block_width, containing_block_height);
                         box_tree.element_index_to_generated_box[element] = box;
 
                         const z_index = computer.getSpecifiedValue(.box_gen, .z_index); // TODO: Useless info
@@ -346,12 +356,13 @@ fn runOnce(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleC
                 };
                 computer.setComputedValue(.box_gen, .box_style, computed.box_style);
 
+                const subtree_index = layout.subtree.items[layout.subtree.items.len - 1];
                 const containing_block_width = layout.width.items[layout.width.items.len - 1];
                 const containing_block_height = layout.heights.items[layout.heights.items.len - 1].height;
 
                 switch (computed.box_style.display) {
                     .block => {
-                        const box = try makeFlowBlock(layout, computer, box_tree, containing_block_width, containing_block_height);
+                        const box = try makeFlowBlock(layout, computer, box_tree, subtree_index, containing_block_width, containing_block_height);
                         box_tree.element_index_to_generated_box[element] = box;
 
                         const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
@@ -375,11 +386,18 @@ fn runOnce(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleC
                     .inline_, .inline_block, .text => {
                         const result = try makeInlineFormattingContext(layout.allocator, sc, computer, box_tree, .Normal, containing_block_width, containing_block_height);
 
-                        layout.skip.items[layout.skip.items.len - 1] += result.total_inline_block_skip;
-
                         const ifc = box_tree.ifcs.items[result.ifc_index];
+
+                        {
+                            const subtree = &box_tree.blocks.subtrees.items[subtree_index];
+                            const block = try createBlock(box_tree, subtree);
+                            block.skip.* = 1;
+                            block.properties.* = .{ .subtree_root = ifc.subtree_index };
+                            layout.skip.items[layout.skip.items.len - 1] += 1;
+                        }
+
                         const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-                        ifc.parent_block = layout.index.items[layout.index.items.len - 1];
+                        ifc.parent_block = .{ .subtree = subtree_index, .index = layout.index.items[layout.index.items.len - 1] };
                         ifc.origin = ZssVector{ .x = 0, .y = parent_auto_height.* };
                         const line_split_result = try splitIntoLineBoxes(layout.allocator, box_tree, ifc, containing_block_width);
                         advanceFlow(parent_auto_height, line_split_result.height);
@@ -404,7 +422,12 @@ fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleCompu
     const width = @intCast(ZssUnit, computer.viewport_size.width * units_per_pixel);
     const height = @intCast(ZssUnit, computer.viewport_size.height * units_per_pixel);
 
-    const block = try createBlock(box_tree);
+    const subtree_index = std.math.cast(BlockSubtreeIndex, box_tree.blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees;
+    assert(subtree_index == initial_subtree);
+    const subtree = try box_tree.blocks.subtrees.addOne(box_tree.allocator);
+    subtree.* = .{};
+
+    const block = try createBlock(box_tree, subtree);
     assert(block.index == initial_containing_block);
     block.skip.* = undefined;
     block.properties.* = .{};
@@ -418,6 +441,7 @@ fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleCompu
     block.margins.* = .{};
 
     try layout.layout_mode.append(layout.allocator, .InitialContainingBlock);
+    try layout.subtree.append(layout.allocator, subtree_index);
     try layout.index.append(layout.allocator, block.index);
     try layout.skip.append(layout.allocator, 1);
     try layout.width.append(layout.allocator, width);
@@ -430,12 +454,13 @@ fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleCompu
 
 fn popInitialContainingBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
     assert(layout.layout_mode.pop() == .InitialContainingBlock);
+    assert(layout.subtree.pop() == initial_subtree);
     assert(layout.index.pop() == initial_containing_block);
     const skip = layout.skip.pop();
     _ = layout.width.pop();
     _ = layout.heights.pop();
 
-    box_tree.blocks.skips.items[initial_containing_block] = skip;
+    box_tree.blocks.subtrees.items[initial_subtree].skips.items[initial_containing_block] = skip;
 }
 
 fn pushContainingBlock(layout: *BlockLayoutContext, width: ZssUnit, height: ?ZssUnit) !void {
@@ -458,10 +483,12 @@ fn makeFlowBlock(
     layout: *BlockLayoutContext,
     computer: *StyleComputer,
     box_tree: *BoxTree,
+    subtree_index: BlockSubtreeIndex,
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
 ) !GeneratedBox {
-    const block = try createBlock(box_tree);
+    const subtree = &box_tree.blocks.subtrees.items[subtree_index];
+    const block = try createBlock(box_tree, subtree);
     block.skip.* = undefined;
     block.properties.* = .{};
 
@@ -486,17 +513,19 @@ fn makeFlowBlock(
     computer.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
     computer.setComputedValue(.box_gen, .border_styles, border_styles);
 
-    try pushFlowBlock(layout, block.index, used_sizes);
-    return GeneratedBox{ .block_box = block.index };
+    try pushFlowBlock(layout, subtree_index, block.index, used_sizes);
+    return GeneratedBox{ .block_box = .{ .subtree = subtree_index, .index = block.index } };
 }
 
 fn pushFlowBlock(
     layout: *BlockLayoutContext,
+    subtree_index: BlockSubtreeIndex,
     block_box_index: BlockBoxIndex,
     used_sizes: FlowBlockUsedSizes,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowBlock.
     try layout.layout_mode.append(layout.allocator, .Flow);
+    try layout.subtree.append(layout.allocator, subtree_index);
     try layout.index.append(layout.allocator, block_box_index);
     try layout.skip.append(layout.allocator, 1);
     try layout.width.append(layout.allocator, used_sizes.get(.inline_size).?);
@@ -507,14 +536,16 @@ fn pushFlowBlock(
 fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
     // The deallocations here must correspond to allocations in pushFlowBlock.
     assert(layout.layout_mode.pop() == .Flow);
+    const subtree_index = layout.subtree.pop();
     const block_box_index = layout.index.pop();
     const skip = layout.skip.pop();
     const width = layout.width.pop();
     const auto_height = layout.auto_height.pop();
     const heights = layout.heights.pop();
 
-    box_tree.blocks.skips.items[block_box_index] = skip;
-    const box_offsets = &box_tree.blocks.box_offsets.items[block_box_index];
+    const subtree = &box_tree.blocks.subtrees.items[subtree_index];
+    subtree.skips.items[block_box_index] = skip;
+    const box_offsets = &subtree.box_offsets.items[block_box_index];
     assert(box_offsets.content_size.w == width);
     flowBlockFinishLayout(box_offsets, heights, auto_height);
 
@@ -524,7 +555,7 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
         .Flow => {
             layout.skip.items[layout.skip.items.len - 1] += skip;
             const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-            const margin_bottom = box_tree.blocks.margins.items[block_box_index].bottom;
+            const margin_bottom = subtree.margins.items[block_box_index].bottom;
             addBlockToFlow(box_offsets, margin_bottom, parent_auto_height);
         },
         .ContainingBlock => {},
@@ -1037,13 +1068,19 @@ fn makeInlineFormattingContext(
     assert(containing_block_width >= 0);
     assert(if (containing_block_height) |h| h >= 0 else true);
 
+    const subtree_index = std.math.cast(BlockSubtreeIndex, box_tree.blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees;
+    const subtree = try box_tree.blocks.subtrees.addOne(box_tree.allocator);
+    subtree.* = .{};
+    const block = try createBlock(box_tree, subtree);
+    block.properties.* = .{ .contents = true };
+
     const ifc_index = std.math.cast(InlineFormattingContextIndex, box_tree.ifcs.items.len) orelse return error.TooManyIfcs;
     const ifc = ifc: {
         const result_ptr = try box_tree.ifcs.addOne(box_tree.allocator);
         errdefer _ = box_tree.ifcs.pop();
         const result = try box_tree.allocator.create(InlineFormattingContext);
         errdefer box_tree.allocator.destroy(result);
-        result.* = .{ .parent_block = undefined, .origin = undefined };
+        result.* = .{ .parent_block = undefined, .origin = undefined, .subtree_index = subtree_index };
         errdefer result.deinit(box_tree.allocator);
         result_ptr.* = result;
         break :ifc result;
@@ -1068,7 +1105,8 @@ fn makeInlineFormattingContext(
     };
     defer inline_layout.deinit();
 
-    try createInlineFormattingContext(&inline_layout, sc, computer, box_tree, ifc);
+    try createInlineFormattingContext(&inline_layout, sc, computer, box_tree, subtree, ifc);
+    block.skip.* = inline_layout.result.subtree_root_skip;
 
     return inline_layout.result;
 }
@@ -1140,6 +1178,8 @@ fn splitIntoLineBoxes(
 ) !IFCLineSplitResult {
     assert(max_line_box_length >= 0);
 
+    const subtree = &box_tree.blocks.subtrees.items[ifc.subtree_index];
+
     var font_extents: hb.hb_font_extents_t = undefined;
     // TODO assuming ltr direction
     assert(hb.hb_font_get_h_extents(ifc.font, &font_extents) != 0);
@@ -1183,8 +1223,8 @@ fn splitIntoLineBoxes(
             switch (@intToEnum(InlineFormattingContext.Special.LayoutInternalKind, @enumToInt(special.kind))) {
                 .InlineBlock => {
                     const block_box_index = @as(BlockBoxIndex, special.data);
-                    const box_offsets = &box_tree.blocks.box_offsets.items[block_box_index];
-                    const margins = box_tree.blocks.margins.items[block_box_index];
+                    const box_offsets = &subtree.box_offsets.items[block_box_index];
+                    const margins = subtree.margins.items[block_box_index];
                     const margin_box_height = box_offsets.border_size.h + margins.top + margins.bottom;
                     s.max_top_height = std.math.max(s.max_top_height, margin_box_height);
                     try s.inline_blocks_in_this_line_box.append(
@@ -1946,7 +1986,7 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, sc: *StackingCon
                         // const ifc = box_tree.ifcs.items[data.layout_result.ifc_index];
                         // ifc.origin = .{ .x = 0, .y = parent_auto_height.* };
                         // ifc.parent_block = layout.blocks.items(.index)[layout.blocks.len - 1];
-                        // layout.blocks.items(.skip)[layout.blocks.len - 1] += data.layout_result.total_inline_block_skip;
+                        // layout.blocks.items(.skip)[layout.blocks.len - 1] += data.layout_result.subtree_root_skip;
                         // advanceFlow(parent_auto_height, data.line_split_result.height);
                     },
                     .none => {
@@ -2192,22 +2232,22 @@ const Block = struct {
     box_offsets: *used_values.BoxOffsets,
     borders: *used_values.Borders,
     margins: *used_values.Margins,
-    properties: *BlockBoxTree.BoxProperties,
+    properties: *used_values.BlockBoxProperties,
 };
 
-fn createBlock(box_tree: *BoxTree) !Block {
-    const index = std.math.cast(BlockBoxIndex, box_tree.blocks.skips.items.len) orelse return error.TooManyBlocks;
+fn createBlock(box_tree: *BoxTree, subtree: *BlockSubtree) !Block {
+    const index = std.math.cast(BlockBoxIndex, subtree.skips.items.len) orelse return error.TooManyBlocks;
     return Block{
         .index = index,
-        .skip = try box_tree.blocks.skips.addOne(box_tree.allocator),
-        .box_offsets = try box_tree.blocks.box_offsets.addOne(box_tree.allocator),
-        .borders = try box_tree.blocks.borders.addOne(box_tree.allocator),
-        .margins = try box_tree.blocks.margins.addOne(box_tree.allocator),
-        .properties = try box_tree.blocks.properties.addOne(box_tree.allocator),
+        .skip = try subtree.skips.addOne(box_tree.allocator),
+        .box_offsets = try subtree.box_offsets.addOne(box_tree.allocator),
+        .borders = try subtree.borders.addOne(box_tree.allocator),
+        .margins = try subtree.margins.addOne(box_tree.allocator),
+        .properties = try subtree.properties.addOne(box_tree.allocator),
     };
 }
 
-fn blockBoxSolveOtherProperties(computer: *StyleComputer, box_tree: *BoxTree, block_box_index: BlockBoxIndex) !void {
+fn blockBoxSolveOtherProperties(computer: *StyleComputer, box_tree: *BoxTree, block_box: BlockBox) !void {
     const specified = .{
         .color = computer.getSpecifiedValue(.cosmetic, .color),
         .border_colors = computer.getSpecifiedValue(.cosmetic, .border_colors),
@@ -2218,16 +2258,18 @@ fn blockBoxSolveOtherProperties(computer: *StyleComputer, box_tree: *BoxTree, bl
 
     const current_color = getCurrentColor(specified.color.color);
 
-    const box_offsets_ptr = &box_tree.blocks.box_offsets.items[block_box_index];
-    const borders_ptr = &box_tree.blocks.borders.items[block_box_index];
+    const subtree = &box_tree.blocks.subtrees.items[block_box.subtree];
 
-    const border_colors_ptr = &box_tree.blocks.border_colors.items[block_box_index];
+    const box_offsets_ptr = &subtree.box_offsets.items[block_box.index];
+    const borders_ptr = &subtree.borders.items[block_box.index];
+
+    const border_colors_ptr = &subtree.border_colors.items[block_box.index];
     border_colors_ptr.* = solveBorderColors(specified.border_colors, current_color);
 
     solveBorderStyles(specified.border_styles);
 
-    const background1_ptr = &box_tree.blocks.background1.items[block_box_index];
-    const background2_ptr = &box_tree.blocks.background2.items[block_box_index];
+    const background1_ptr = &subtree.background1.items[block_box.index];
+    const background2_ptr = &subtree.background2.items[block_box.index];
     background1_ptr.* = solveBackground1(specified.background1, current_color);
     background2_ptr.* = try solveBackground2(specified.background2, box_offsets_ptr, borders_ptr);
 
@@ -2239,10 +2281,11 @@ fn blockBoxSolveOtherProperties(computer: *StyleComputer, box_tree: *BoxTree, bl
     computer.setComputedValue(.cosmetic, .background2, specified.background2);
 }
 
-fn blockBoxFillOtherPropertiesWithDefaults(box_tree: *BoxTree, block_box_index: BlockBoxIndex) void {
-    box_tree.blocks.border_colors.items[block_box_index] = .{};
-    box_tree.blocks.background1.items[block_box_index] = .{};
-    box_tree.blocks.background2.items[block_box_index] = .{};
+fn blockBoxFillOtherPropertiesWithDefaults(box_tree: *BoxTree, block_box: BlockBox) void {
+    const subtree = &box_tree.blocks.subtrees.items[block_box.subtree];
+    subtree.border_colors.items[block_box.index] = .{};
+    subtree.background1.items[block_box.index] = .{};
+    subtree.background2.items[block_box.index] = .{};
 }
 
 fn inlineBoxSolveOtherProperties(computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
@@ -2302,15 +2345,15 @@ const StackingContexts = struct {
         sc.index.deinit(sc.allocator);
     }
 
-    fn createRootStackingContext(box_tree: *BoxTree, block_box_index: BlockBoxIndex, z_index: ZIndex) !StackingContextIndex {
+    fn createRootStackingContext(box_tree: *BoxTree, block_box: BlockBox, z_index: ZIndex) !StackingContextIndex {
         assert(box_tree.stacking_contexts.size() == 0);
         try box_tree.stacking_contexts.ensureTotalCapacity(box_tree.allocator, 1);
-        const result = box_tree.stacking_contexts.createRootAssumeCapacity(.{ .z_index = z_index, .block_box = block_box_index, .ifcs = .{} });
-        box_tree.blocks.properties.items[block_box_index].creates_stacking_context = true;
+        const result = box_tree.stacking_contexts.createRootAssumeCapacity(.{ .z_index = z_index, .block_box = block_box, .ifcs = .{} });
+        box_tree.blocks.subtrees.items[block_box.subtree].properties.items[block_box.index].creates_stacking_context = true;
         return result;
     }
 
-    fn createStackingContext(sc: *StackingContexts, box_tree: *BoxTree, block_box_index: BlockBoxIndex, z_index: ZIndex) !StackingContextIndex {
+    fn createStackingContext(sc: *StackingContexts, box_tree: *BoxTree, block_box: BlockBox, z_index: ZIndex) !StackingContextIndex {
         try box_tree.stacking_contexts.ensureTotalCapacity(box_tree.allocator, box_tree.stacking_contexts.size() + 1);
         const sc_tree_slice = box_tree.stacking_contexts.multi_list.slice();
         const sc_tree_skips = sc_tree_slice.items(.__skip);
@@ -2327,8 +2370,8 @@ const StackingContexts = struct {
             sc_tree_skips[index] += 1;
         }
 
-        box_tree.stacking_contexts.multi_list.insertAssumeCapacity(current, .{ .__skip = 1, .z_index = z_index, .block_box = block_box_index, .ifcs = .{} });
-        box_tree.blocks.properties.items[block_box_index].creates_stacking_context = true;
+        box_tree.stacking_contexts.multi_list.insertAssumeCapacity(current, .{ .__skip = 1, .z_index = z_index, .block_box = block_box, .ifcs = .{} });
+        box_tree.blocks.subtrees.items[block_box.subtree].properties.items[block_box.index].creates_stacking_context = true;
         return current;
     }
 
@@ -2381,7 +2424,7 @@ const InlineLayoutContext = struct {
 
     const Result = struct {
         ifc_index: InlineFormattingContextIndex,
-        total_inline_block_skip: BlockBoxSkip = 0,
+        subtree_root_skip: BlockBoxSkip = 1,
     };
 
     fn deinit(self: *Self) void {
@@ -2414,6 +2457,7 @@ fn createInlineFormattingContext(
     sc: *StackingContexts,
     computer: *StyleComputer,
     box_tree: *BoxTree,
+    subtree: *BlockSubtree,
     ifc: *InlineFormattingContext,
 ) Error!void {
     ifc.font = computer.root_font.font;
@@ -2427,12 +2471,12 @@ fn createInlineFormattingContext(
         const interval = &computer.intervals.items[computer.intervals.items.len - 1];
         if (layout.inline_box_depth == 0) {
             if (interval.begin != interval.end) {
-                const should_terminate = try ifcRunOnce(layout, sc, computer, interval, box_tree, ifc);
+                const should_terminate = try ifcRunOnce(layout, sc, computer, interval, box_tree, subtree, ifc);
                 if (should_terminate) break;
             } else break;
         } else {
             if (interval.begin != interval.end) {
-                const should_terminate = try ifcRunOnce(layout, sc, computer, interval, box_tree, ifc);
+                const should_terminate = try ifcRunOnce(layout, sc, computer, interval, box_tree, subtree, ifc);
                 assert(!should_terminate);
             } else {
                 try ifcPopInlineBox(layout, computer, box_tree, ifc);
@@ -2442,7 +2486,7 @@ fn createInlineFormattingContext(
     try ifcPopRootInlineBox(layout, box_tree, ifc);
 
     try ifc.metrics.resize(box_tree.allocator, ifc.glyph_indeces.items.len);
-    ifcSolveMetrics(box_tree, ifc);
+    ifcSolveMetrics(ifc, subtree);
 }
 
 fn ifcPushRootInlineBox(layout: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
@@ -2466,6 +2510,7 @@ fn ifcRunOnce(
     computer: *StyleComputer,
     interval: *StyleComputer.Interval,
     box_tree: *BoxTree,
+    subtree: *BlockSubtree,
     ifc: *InlineFormattingContext,
 ) !bool {
     const element = interval.begin;
@@ -2534,17 +2579,19 @@ fn ifcRunOnce(
                 computer.setComputedValue(.box_gen, .font, font);
                 try computer.pushElement(.box_gen);
 
-                const block = try createBlock(box_tree);
+                const block = try createBlock(box_tree, subtree);
                 block.skip.* = undefined;
                 block.properties.* = .{};
                 flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
 
+                const block_box = BlockBox{ .subtree = ifc.subtree_index, .index = block.index };
+
                 const stacking_context_type: StackingContexts.Data = switch (computed.position) {
-                    .static => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, block.index, 0) },
+                    .static => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, block_box, 0) },
                     // TODO: Position the block using the values of the 'inset' family of properties.
                     .relative => switch (z_index.z_index) {
-                        .integer => |integer| StackingContexts.Data{ .is_parent = try sc.createStackingContext(box_tree, block.index, integer) },
-                        .auto => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, block.index, 0) },
+                        .integer => |integer| StackingContexts.Data{ .is_parent = try sc.createStackingContext(box_tree, block_box, integer) },
+                        .auto => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, block_box, 0) },
                         .initial, .inherit, .unset, .undeclared => unreachable,
                     },
                     .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(computed.position)}),
@@ -2555,7 +2602,7 @@ fn ifcRunOnce(
                 var child_layout = BlockLayoutContext{ .allocator = layout.allocator };
                 defer child_layout.deinit();
                 try pushContainingBlock(&child_layout, layout.containing_block_width, layout.containing_block_height);
-                try pushFlowBlock(&child_layout, block.index, used_sizes);
+                try pushFlowBlock(&child_layout, ifc.subtree_index, block.index, used_sizes);
 
                 const frame = try layout.getFrame();
                 nosuspend {
@@ -2563,29 +2610,30 @@ fn ifcRunOnce(
                     try await frame.*;
                 }
 
-                box_tree.element_index_to_generated_box[element] = .{ .block_box = block.index };
+                box_tree.element_index_to_generated_box[element] = .{ .block_box = block_box };
             } else {
-                // TODO: Create a stacking context
-                { // TODO: Grabbing useless data to satisfy inheritance...
-                    const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
-                    computer.setComputedValue(.box_gen, .z_index, specified_z_index);
-                    const specified_font = computer.getSpecifiedValue(.box_gen, .font);
-                    computer.setComputedValue(.box_gen, .font, specified_font);
-                }
+                panic("TODO: Shrink-to-fit inline blocks", .{});
+                // // TODO: Create a stacking context
+                // { // TODO: Grabbing useless data to satisfy inheritance...
+                //     const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
+                //     computer.setComputedValue(.box_gen, .z_index, specified_z_index);
+                //     const specified_font = computer.getSpecifiedValue(.box_gen, .font);
+                //     computer.setComputedValue(.box_gen, .font, specified_font);
+                // }
 
-                const available_width = layout.containing_block_width -
-                    (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
-                    used_sizes.border_inline_start + used_sizes.border_inline_end +
-                    used_sizes.padding_inline_start + used_sizes.padding_inline_end);
-                var stf_layout = try ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, used_sizes, available_width);
-                defer stf_layout.deinit();
-                try shrinkToFitLayout(&stf_layout, sc, computer, box_tree);
+                // const available_width = layout.containing_block_width -
+                //     (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
+                //     used_sizes.border_inline_start + used_sizes.border_inline_end +
+                //     used_sizes.padding_inline_start + used_sizes.padding_inline_end);
+                // var stf_layout = try ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, used_sizes, available_width);
+                // defer stf_layout.deinit();
+                // try shrinkToFitLayout(&stf_layout, sc, computer, box_tree);
             }
 
             const generated_box = box_tree.element_index_to_generated_box[element];
-            const block_box_index = generated_box.block_box;
-            layout.result.total_inline_block_skip += box_tree.blocks.skips.items[block_box_index];
-            try ifcAddInlineBlock(box_tree, ifc, block_box_index);
+            const block_box = generated_box.block_box;
+            layout.result.subtree_root_skip += box_tree.blocks.subtrees.items[block_box.subtree].skips.items[block_box.index];
+            try ifcAddInlineBlock(box_tree, ifc, block_box.index);
         },
         .block => {
             if (layout.inline_box_depth == 0) {
@@ -2931,7 +2979,7 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
     ifc.margins.items[inline_box_index] = .{ .start = used.margin_inline_start, .end = used.margin_inline_end };
 }
 
-fn ifcSolveMetrics(box_tree: *BoxTree, ifc: *InlineFormattingContext) void {
+fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree) void {
     const num_glyphs = ifc.glyph_indeces.items.len;
     var i: usize = 0;
     while (i < num_glyphs) : (i += 1) {
@@ -2954,7 +3002,7 @@ fn ifcSolveMetrics(box_tree: *BoxTree, ifc: *InlineFormattingContext) void {
                 },
                 .InlineBlock => {
                     const block_box_index = @as(BlockBoxIndex, special.data);
-                    setMetricsInlineBlock(metrics, box_tree, block_box_index);
+                    setMetricsInlineBlock(metrics, subtree, block_box_index);
                 },
                 .LineBreak => setMetricsLineBreak(metrics),
                 .ContinuationBlock => panic("TODO: Continuation block metrics", .{}),
@@ -2999,9 +3047,9 @@ fn setMetricsLineBreak(metrics: *InlineFormattingContext.Metrics) void {
     metrics.* = .{ .offset = 0, .advance = 0, .width = 0 };
 }
 
-fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, box_tree: *BoxTree, block_box_index: BlockBoxIndex) void {
-    const box_offsets = box_tree.blocks.box_offsets.items[block_box_index];
-    const margins = box_tree.blocks.margins.items[block_box_index];
+fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, subtree: *BlockSubtree, block_box_index: BlockBoxIndex) void {
+    const box_offsets = subtree.box_offsets.items[block_box_index];
+    const margins = subtree.margins.items[block_box_index];
 
     const width = box_offsets.border_size.w;
     const advance = width + margins.left + margins.right;
