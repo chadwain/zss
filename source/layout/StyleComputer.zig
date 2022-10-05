@@ -301,6 +301,7 @@ pub fn getSpecifiedValue(
                 .inherited => sub_property.* = @field(inherited_value, field_info.name),
                 .not_inherited => sub_property.* = @field(initial_value, field_info.name),
             },
+            // TODO: Make this a switch statement
             .undeclared => if (default == .inherit) {
                 sub_property.* = @field(inherited_value, field_info.name);
             } else {

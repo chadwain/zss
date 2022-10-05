@@ -203,8 +203,6 @@ fn doBoxGeneration(layout: *BlockLayoutContext, sc: *StackingContexts, computer:
     }
 
     try makeInitialContainingBlock(layout, computer, box_tree);
-    if (layout.layout_mode.items.len == 0) return;
-
     try runFully(layout, sc, computer, box_tree);
 }
 
@@ -273,7 +271,6 @@ fn doCosmeticLayout(layout: *BlockLayoutContext, computer: *StyleComputer, box_t
 }
 
 fn runFully(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
-    assert(layout.layout_mode.items.len > 0);
     while (layout.layout_mode.items.len > 0) {
         try runOnce(layout, sc, computer, box_tree);
     }
@@ -285,6 +282,7 @@ fn runOnce(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleC
         .InitialContainingBlock => {
             if (!layout.processed_root_element) {
                 layout.processed_root_element = true;
+                if (computer.element_tree_skips.len == 0) return;
 
                 const element = root_element;
                 const skip = computer.element_tree_skips[element];
@@ -419,11 +417,6 @@ fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleCompu
     };
     block.borders.* = .{};
     block.margins.* = .{};
-
-    if (computer.element_tree_skips.len == 0) {
-        block.skip.* = 1;
-        return;
-    }
 
     try layout.layout_mode.append(layout.allocator, .InitialContainingBlock);
     try layout.index.append(layout.allocator, block.index);
