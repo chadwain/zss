@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const panic = std.debug.panic;
 const sdl = @import("SDL2");
 const util = @import("../../util/util.zig");
 const Ratio = util.Ratio;
@@ -317,7 +318,7 @@ fn getBackgroundImageRepeatInfo(
                 };
             }
         },
-        .Round => @panic("TODO SDL: Background image round repeat style"),
+        .Round => panic("TODO SDL: Background image round repeat style", .{}),
     };
 }
 

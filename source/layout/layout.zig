@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const ArrayListAlignedUnmanaged = std.ArrayListAlignedUnmanaged;
@@ -363,9 +364,7 @@ fn runOnce(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleC
                                 .auto => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, box.block_box, 0) },
                                 .initial, .inherit, .unset, .undeclared => unreachable,
                             },
-                            .absolute => @panic("TODO: absolute positioning"),
-                            .fixed => @panic("TODO: fixed positioning"),
-                            .sticky => @panic("TODO: sticky positioning"),
+                            .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(computed.box_style.position)}),
                             .initial, .inherit, .unset, .undeclared => unreachable,
                         };
                         try sc.pushStackingContext(stacking_context_type);
@@ -1167,7 +1166,7 @@ fn splitIntoLineBoxes(
                     s.newLineBox(2);
                     continue;
                 },
-                .ContinuationBlock => @panic("TODO Continuation blocks"),
+                .ContinuationBlock => panic("TODO: Continuation blocks", .{}),
                 else => {},
             }
         }
@@ -1194,7 +1193,7 @@ fn splitIntoLineBoxes(
                     );
                 },
                 .LineBreak => unreachable,
-                .ContinuationBlock => @panic("TODO Continuation blocks"),
+                .ContinuationBlock => panic("TODO: Continuation blocks", .{}),
                 else => {},
             }
             s.line_box.elements[1] += 2;
@@ -1763,7 +1762,7 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, 
                             _ = sc;
                             _ = box_tree;
                             _ = containing_block_available_width;
-                            @panic("TODO: Shrink to fit text");
+                            panic("TODO: Shrink to fit text", .{});
 
                             // If this IFC contained inline-block elements, this code would create them before
                             // their parent block was created, which would be problematic.
@@ -1941,7 +1940,7 @@ fn stfRealizeObjects(objects: StfObjects, allocator: Allocator, sc: *StackingCon
                         addBlockToFlow(box_offsets, margin_bottom, parent_auto_height);
                     },
                     .ifc => {
-                        @panic("TODO");
+                        panic("TODO: IFC's within shrink-to-fit", .{});
                         // const data = objects.getData2(.ifc, &data_index_mutable);
                         // const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
                         // const ifc = box_tree.ifcs.items[data.layout_result.ifc_index];
@@ -2483,7 +2482,7 @@ fn ifcRunOnce(
             box_tree.element_index_to_generated_box[element] = .text;
             const text = computer.getText();
             // TODO: Do proper font matching.
-            if (ifc.font == hb.hb_font_get_empty()) @panic("TODO: Found text, but no font was specified.");
+            if (ifc.font == hb.hb_font_get_empty()) panic("TODO: Found text, but no font was specified.", .{});
             try ifcAddText(box_tree, ifc, text, ifc.font);
         },
         .inline_ => {
@@ -2548,9 +2547,7 @@ fn ifcRunOnce(
                         .auto => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, block.index, 0) },
                         .initial, .inherit, .unset, .undeclared => unreachable,
                     },
-                    .absolute => @panic("TODO: absolute positioning"),
-                    .fixed => @panic("TODO: fixed positioning"),
-                    .sticky => @panic("TODO: sticky positioning"),
+                    .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(computed.position)}),
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 };
                 try sc.pushStackingContext(stacking_context_type);
@@ -2594,7 +2591,7 @@ fn ifcRunOnce(
             if (layout.inline_box_depth == 0) {
                 return true;
             } else {
-                @panic("TODO: Blocks within inline contexts");
+                panic("TODO: Blocks within inline contexts", .{});
                 //try ifc.glyph_indeces.appendSlice(box_tree.allocator, &.{ 0, undefined });
             }
         },
@@ -2960,7 +2957,7 @@ fn ifcSolveMetrics(box_tree: *BoxTree, ifc: *InlineFormattingContext) void {
                     setMetricsInlineBlock(metrics, box_tree, block_box_index);
                 },
                 .LineBreak => setMetricsLineBreak(metrics),
-                .ContinuationBlock => @panic("TODO Continuation block metrics"),
+                .ContinuationBlock => panic("TODO: Continuation block metrics", .{}),
             }
         } else {
             setMetricsGlyph(metrics, ifc.font, glyph_index);
