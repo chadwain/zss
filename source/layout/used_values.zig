@@ -130,7 +130,6 @@ pub const BlockBox = struct {
     index: BlockBoxIndex,
 };
 pub const BlockBoxSkip = BlockBoxIndex;
-pub const BlockBoxCount = BlockBoxIndex;
 
 pub const BlockBoxTree = struct {
     subtrees: ArrayListUnmanaged(Subtree) = .{},
