@@ -43,60 +43,29 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
     const lib_tests_step = b.step("test-lib", "Run library tests");
     lib_tests_step.dependOn(&lib_tests.step);
 
-    var validation_tests = b.addTest("test/validation.zig");
-    validation_tests.setBuildMode(mode);
-    validation_tests.setTarget(target);
-    validation_tests.linkLibC();
-    validation_tests.linkSystemLibrary("harfbuzz");
-    validation_tests.linkSystemLibrary("freetype2");
-    validation_tests.addPackage(pkgs.harfbuzz);
-    validation_tests.addPackage(Pkg{
+    var test_suite = b.addExecutable("test-suite", "test/testing.zig");
+    test_suite.setBuildMode(mode);
+    test_suite.setTarget(target);
+    test_suite.linkLibC();
+    test_suite.linkSystemLibrary("harfbuzz");
+    test_suite.linkSystemLibrary("freetype2");
+    test_suite.addPackage(pkgs.harfbuzz);
+    test_suite.addPackage(Pkg{
         .name = "zss",
         .source = .{ .path = "zss.zig" },
         .dependencies = &[_]Pkg{pkgs.harfbuzz},
     });
-    validation_tests.use_stage1 = true;
-    const validation_tests_step = b.step("test-validation", "Run validation tests");
-    validation_tests_step.dependOn(&validation_tests.step);
+    test_suite.use_stage1 = true;
+    test_suite.install();
 
-    var memory_tests = b.addTest("test/memory.zig");
-    memory_tests.setBuildMode(mode);
-    memory_tests.setTarget(target);
-    memory_tests.linkLibC();
-    memory_tests.linkSystemLibrary("harfbuzz");
-    memory_tests.linkSystemLibrary("freetype2");
-    memory_tests.addPackage(pkgs.harfbuzz);
-    memory_tests.addPackage(Pkg{
-        .name = "zss",
-        .source = .{ .path = "zss.zig" },
-        .dependencies = &[_]Pkg{pkgs.harfbuzz},
-    });
-    memory_tests.use_stage1 = true;
-    const memory_tests_step = b.step("test-memory", "Run memory tests");
-    memory_tests_step.dependOn(&memory_tests.step);
+    var run_test_suite = test_suite.run();
+    run_test_suite.step.dependOn(&test_suite.step);
 
-    var sdl_tests = b.addTest("test/sdl.zig");
-    sdl_tests.setBuildMode(mode);
-    sdl_tests.setTarget(target);
-    sdl_tests.linkLibC();
-    sdl_tests.linkSystemLibrary("harfbuzz");
-    sdl_tests.linkSystemLibrary("freetype2");
-    sdl_tests.linkSystemLibrary("SDL2");
-    sdl_tests.addPackage(pkgs.harfbuzz);
-    sdl_tests.addPackage(pkgs.SDL2);
-    sdl_tests.addPackage(Pkg{
-        .name = "zss",
-        .source = .{ .path = "zss.zig" },
-        .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2 },
-    });
-    sdl_tests.use_stage1 = true;
-    const sdl_tests_step = b.step("test-sdl", "Run SDL tests");
-    sdl_tests_step.dependOn(&sdl_tests.step);
+    const test_suite_step = b.step("test-suite", "Run the test suite");
+    test_suite_step.dependOn(&run_test_suite.step);
 
     all_tests_step.dependOn(&lib_tests.step);
-    all_tests_step.dependOn(&validation_tests.step);
-    all_tests_step.dependOn(&memory_tests.step);
-    all_tests_step.dependOn(&sdl_tests.step);
+    all_tests_step.dependOn(&run_test_suite.step);
 }
 
 fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {

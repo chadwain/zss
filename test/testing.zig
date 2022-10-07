@@ -1,106 +1,109 @@
 const zss = @import("zss");
-const properties = zss.properties;
-const ZssUnit = zss.used_values.ZssUnit;
 const ElementTree = zss.ElementTree;
-const ElementIndex = zss.ElementIndex;
-const ElementRef = zss.ElementRef;
 const CascadedValueStore = zss.CascadedValueStore;
 
 const std = @import("std");
 const assert = std.debug.assert;
-const allocator = std.testing.allocator;
-const ArrayList = std.ArrayList;
 
 const hb = @import("harfbuzz");
 
-pub const TestCase = struct {
-    element_tree: ElementTree,
-    cascaded_values: CascadedValueStore,
-    width: u32,
-    height: u32,
-    face: hb.FT_Face,
-    font: ?*hb.hb_font_t,
+pub const Test = @import("./Test.zig");
 
-    pub fn deinit(self: @This()) void {
-        if (self.font) |font| {
-            hb.hb_font_destroy(font);
-            _ = hb.FT_Done_Face(self.face);
-        }
+pub const allocator = gpa.allocator();
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+
+var library: hb.FT_Library = undefined;
+
+pub fn main() !void {
+    defer assert(!gpa.deinit());
+
+    assert(hb.FT_Init_FreeType(&library) == 0);
+    defer _ = hb.FT_Done_FreeType(library);
+
+    var tests: [all_tests.len]Test = undefined;
+    inline for (all_tests) |test_info, i| {
+        setupTest(&tests[i], test_info);
     }
-};
+    defer for (tests) |*t| {
+        deinitTest(t);
+    };
 
-pub const TreeData = struct {
-    element_tree: ElementTree,
-    cascaded_values: CascadedValueStore,
-    width: u32 = 400,
-    height: u32 = 400,
-    font: [:0]const u8 = fonts[0],
-    font_size: u32 = 12,
-    font_color: u32 = 0xffffffff,
+    try @import("./validation.zig").run(&tests);
+    std.debug.print("\n", .{});
+    try @import("./memory.zig").run(&tests);
+    // try @import("./sdl.zig").run(&tests);
+}
 
-    const store_fields = std.meta.fields(CascadedValueStore);
-    const FieldEnum = std.meta.FieldEnum(CascadedValueStore);
+fn setupTest(t: *Test, info: TestInfo) void {
+    t.* = Test{ .name = undefined, .ft_face = undefined, .hb_font = undefined };
+    info[1](t);
+    t.name = info[0];
 
-    fn init(num_elements: ElementIndex, comptime fields: []const FieldEnum) !TreeData {
-        var result: TreeData = .{
-            .element_tree = .{},
-            .cascaded_values = .{ .font = undefined },
-        };
-        try result.element_tree.ensureTotalCapacity(allocator, num_elements);
-        try result.cascaded_values.font.ensureTotalCapacity(allocator, num_elements);
-        try result.cascaded_values.color.ensureTotalCapacity(allocator, num_elements);
-        inline for (fields) |field| {
-            try @field(result.cascaded_values, @tagName(field)).ensureTotalCapacity(allocator, num_elements);
-        }
-        return result;
-    }
+    if (t.element_tree.size() > 0) {
+        assert(hb.FT_New_Face(library, t.font, 0, &t.ft_face) == 0);
+        assert(hb.FT_Set_Char_Size(t.ft_face, 0, @intCast(c_int, t.font_size) * 64, 96, 96) == 0);
 
-    pub fn deinit(self: *TreeData) void {
-        self.element_tree.deinit(allocator);
-        self.cascaded_values.deinit(allocator);
-    }
-
-    fn createRoot(self: *TreeData) ElementRef {
-        return self.element_tree.createRootAssumeCapacity();
-    }
-
-    fn insertChild(self: *TreeData, parent: ElementRef) ElementRef {
-        return self.element_tree.appendChildAssumeCapacity(parent);
-    }
-
-    fn set(self: *TreeData, comptime field: FieldEnum, element_ref: ElementRef, value: store_fields[@enumToInt(field)].field_type.Value) void {
-        @field(self.cascaded_values, @tagName(field)).setAssumeCapacity(element_ref, value);
-    }
-
-    pub fn toTestCase(self: TreeData, library: hb.FT_Library) TestCase {
-        var result = TestCase{
-            .element_tree = self.element_tree,
-            .cascaded_values = self.cascaded_values,
-            .width = self.width,
-            .height = self.height,
-            .face = undefined,
-            .font = undefined,
+        t.hb_font = blk: {
+            const hb_font = hb.hb_ft_font_create_referenced(t.ft_face).?;
+            hb.hb_ft_font_set_funcs(hb_font);
+            break :blk hb_font;
         };
 
-        if (result.element_tree.size() > 0) {
-            assert(hb.FT_New_Face(library, self.font, 0, &result.face) == 0);
-            assert(hb.FT_Set_Char_Size(result.face, 0, @intCast(c_int, self.font_size) * 64, 96, 96) == 0);
+        t.cascaded_values.font.ensureUnusedCapacity(allocator, 1) catch @panic("");
+        t.cascaded_values.color.ensureUnusedCapacity(allocator, 1) catch @panic("");
+        t.cascaded_values.font.setAssumeCapacity(0, .{ .font = .{ .font = t.hb_font.? } });
+        t.cascaded_values.color.setAssumeCapacity(0, .{ .color = .{ .rgba = t.font_color } });
+    } else {
+        t.ft_face = undefined;
+        t.hb_font = null;
+    }
+}
 
-            result.font = blk: {
-                const hb_font = hb.hb_ft_font_create_referenced(result.face).?;
-                hb.hb_ft_font_set_funcs(hb_font);
-                break :blk hb_font;
-            };
+fn deinitTest(t: *Test) void {
+    t.element_tree.deinit(allocator);
+    t.cascaded_values.deinit(allocator);
+    if (t.hb_font) |font| {
+        hb.hb_font_destroy(font);
+        _ = hb.FT_Done_Face(t.ft_face);
+    }
+}
 
-            result.cascaded_values.font.setAssumeCapacity(0, .{ .font = .{ .font = result.font.? } });
-            result.cascaded_values.color.setAssumeCapacity(0, .{ .color = .{ .rgba = self.font_color } });
+pub const TestInfo = std.meta.Tuple(&[2]type{ []const u8, fn (*Test) void });
+
+const all_tests = blk: {
+    const modules = [_]type{
+        @import("./tests/empty_tree.zig"),
+        @import("./tests/single_element.zig"),
+        @import("./tests/two_elements.zig"),
+        @import("./tests/block_inline_text.zig"),
+    };
+
+    var num_tests = 0;
+    for (modules) |m| {
+        if (@hasDecl(m, "tests")) {
+            if (!std.meta.trait.is(.Array)(@TypeOf(m.tests)) or std.meta.Child(@TypeOf(m.tests)) != TestInfo) {
+                @compileError("field 'tests' of struct '" ++ @typeName(m) ++ "' must be of type [N]" ++ @typeName(TestInfo));
+            }
+            num_tests += m.tests.len;
         } else {
-            result.face = undefined;
-            result.font = null;
+            num_tests += 1;
         }
-
-        return result;
     }
+
+    var result: [num_tests]TestInfo = undefined;
+    var i = 0;
+    for (modules) |m| {
+        if (@hasDecl(m, "tests")) {
+            for (m.tests) |test_info| {
+                result[i] = TestInfo{ m.name ++ " - " ++ test_info[0], test_info[1] };
+                i += 1;
+            }
+        } else {
+            result[i] = TestInfo{ m.name, m.setup };
+            i += 1;
+        }
+    }
+    break :blk result;
 };
 
 pub const strings = [_][]const u8{
@@ -112,7 +115,7 @@ pub const fonts = [_][:0]const u8{
     "demo/NotoSans-Regular.ttf",
 };
 
-pub const border_color_sets = [_][]const properties.BorderColors{
+pub const border_color_sets = [_][]const zss.properties.BorderColors{
     &.{
         .{ .inline_start_color = .{ .rgba = 0x1e3c7bff }, .inline_end_color = .{ .rgba = 0xc5b6f7ff }, .block_start_color = .{ .rgba = 0x8e5085ff }, .block_end_color = .{ .rgba = 0xfdc409ff } },
         .{ .inline_start_color = .{ .rgba = 0xe5bb0dff }, .inline_end_color = .{ .rgba = 0x46eefcff }, .block_start_color = .{ .rgba = 0xa4504bff }, .block_end_color = .{ .rgba = 0xb43430ff } },
@@ -125,75 +128,11 @@ pub const border_color_sets = [_][]const properties.BorderColors{
     },
 };
 
+const ArrayList = undefined;
+const TreeData = undefined;
+
 pub fn getTestData() !ArrayList(TreeData) {
     var list = ArrayList(TreeData).init(allocator);
-    try list.append(blk: {
-        var tree_data = try TreeData.init(0, &.{});
-        break :blk tree_data;
-    });
-    try list.append(blk: {
-        var tree_data = try TreeData.init(1, &.{.box_style});
-        const root = tree_data.createRoot();
-
-        tree_data.set(.box_style, root, .{ .display = .block });
-        break :blk tree_data;
-    });
-    try list.append(blk: {
-        var tree_data = try TreeData.init(2, &.{.box_style});
-        const root = tree_data.createRoot();
-        const root_0 = tree_data.insertChild(root);
-
-        tree_data.set(.box_style, root, .{ .display = .block });
-        tree_data.set(.box_style, root_0, .{ .display = .block });
-        break :blk tree_data;
-    });
-    try list.append(blk: {
-        var tree_data = try TreeData.init(2, &.{.box_style});
-        const root = tree_data.createRoot();
-        const root_0 = tree_data.insertChild(root);
-
-        tree_data.set(.box_style, root, .{ .display = .block });
-        tree_data.set(.box_style, root_0, .{ .display = .inline_ });
-        break :blk tree_data;
-    });
-    try list.append(blk: {
-        var tree_data = try TreeData.init(1, &.{.box_style});
-        const root = tree_data.createRoot();
-
-        tree_data.set(.box_style, root, .{ .display = .inline_ });
-        break :blk tree_data;
-    });
-    try list.append(blk: {
-        var tree_data = try TreeData.init(1, &.{ .box_style, .text });
-        const root = tree_data.createRoot();
-
-        tree_data.set(.box_style, root, .{ .display = .text });
-        tree_data.set(.text, root, .{ .text = strings[0] });
-        break :blk tree_data;
-    });
-    try list.append(blk: {
-        var tree_data = try TreeData.init(2, &.{ .box_style, .text });
-        const root = tree_data.createRoot();
-        const root_0 = tree_data.insertChild(root);
-
-        tree_data.set(.box_style, root, .{ .display = .inline_ });
-        tree_data.set(.box_style, root_0, .{ .display = .text });
-        tree_data.set(.text, root_0, .{ .text = strings[0] });
-        break :blk tree_data;
-    });
-    try list.append(blk: {
-        var tree_data = try TreeData.init(3, &.{ .box_style, .text });
-        const root = tree_data.createRoot();
-        const root_0 = tree_data.insertChild(root);
-        const root_0_0 = tree_data.insertChild(root_0);
-
-        tree_data.set(.box_style, root, .{ .display = .block });
-        tree_data.set(.box_style, root_0, .{ .display = .inline_ });
-        tree_data.set(.box_style, root_0_0, .{ .display = .text });
-        tree_data.set(.text, root_0_0, .{ .text = strings[0] });
-        tree_data.font_size = 18;
-        break :blk tree_data;
-    });
     try list.append(blk: {
         var tree_data = try TreeData.init(2, &.{ .box_style, .content_width, .content_height, .horizontal_edges, .background1 });
         const root = tree_data.createRoot();

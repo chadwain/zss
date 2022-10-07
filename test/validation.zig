@@ -5,35 +5,22 @@ const ZssUnit = used.ZssUnit;
 const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
-const allocator = std.testing.allocator;
 
-const cases = @import("./test_cases.zig");
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+const allocator = gpa.allocator();
 
-const hb = @import("harfbuzz");
+pub fn run(tests: []const zss.testing.Test) !void {
+    defer assert(!gpa.deinit());
 
-test "validation" {
-    var all_test_data = try cases.getTestData();
-    defer {
-        for (all_test_data.items) |*data| data.deinit();
-        all_test_data.deinit();
-    }
-
-    var library: hb.FT_Library = undefined;
-    assert(hb.FT_Init_FreeType(&library) == 0);
-    defer _ = hb.FT_Done_FreeType(library);
-
-    std.debug.print("\n", .{});
-    for (all_test_data.items) |data, i| {
-        std.debug.print("validate box tree {}... ", .{i});
+    for (tests) |t, i| {
+        std.debug.print("validation: ({}/{}) \"{s}\" ... ", .{ i, tests.len, t.name });
         defer std.debug.print("\n", .{});
 
-        const test_case = data.toTestCase(library);
-        defer test_case.deinit();
         var box_tree = try zss.layout.doLayout(
-            test_case.element_tree,
-            test_case.cascaded_values,
+            t.element_tree,
+            t.cascaded_values,
             allocator,
-            .{ .width = test_case.width, .height = test_case.height },
+            .{ .width = t.width, .height = t.height },
         );
         defer box_tree.deinit();
 
@@ -44,6 +31,8 @@ test "validation" {
 
         std.debug.print("success", .{});
     }
+
+    std.debug.print("validation: all {} tests passed\n", .{tests.len});
 }
 
 fn validateInline(inl: *used.InlineFormattingContext) !void {

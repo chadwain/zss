@@ -29,6 +29,10 @@ pub fn Store(comptime ValueType: type) type {
             return self.map.ensureTotalCapacity(allocator, count);
         }
 
+        pub fn ensureUnusedCapacity(self: *@This(), allocator: Allocator, count: Map.Size) !void {
+            return self.map.ensureUnusedCapacity(allocator, count);
+        }
+
         pub fn setAssumeCapacity(self: *@This(), key: Key, v: Value) void {
             self.map.putAssumeCapacity(key, v);
         }
