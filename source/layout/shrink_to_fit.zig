@@ -57,7 +57,7 @@ const StfObjects = struct {
         fn Type(comptime tag: DataTag) type {
             return switch (tag) {
                 .flow => FlowBlockUsedSizes,
-                .ifc => struct { layout_result: inline_layout.InlineLayoutContext.Result, line_split_result: inline_layout.IFCLineSplitResult },
+                .ifc => struct { subtree_index: BlockSubtreeIndex, layout_result: inline_layout.InlineLayoutContext.Result, line_split_result: inline_layout.IFCLineSplitResult },
             };
         }
     };
@@ -230,25 +230,35 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, 
                             interval.begin += skip;
                         },
                         .inline_, .inline_block, .text => {
+                            const new_subtree_index = std.math.cast(BlockSubtreeIndex, box_tree.blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees;
+                            const new_subtree = try box_tree.blocks.subtrees.addOne(box_tree.allocator);
+                            new_subtree.* = .{};
+                            const new_subtree_block = try normal.createBlock(box_tree, new_subtree);
+
                             const result = try inline_layout.makeInlineFormattingContext(
                                 layout.allocator,
                                 sc,
                                 computer,
                                 box_tree,
+                                new_subtree_index,
                                 .ShrinkToFit,
                                 containing_block_available_width,
                                 containing_block_height,
                             );
+
+                            new_subtree_block.skip.* = 1 + result.total_inline_block_skip;
+                            new_subtree_block.properties.* = .{ .contents = true };
+
                             const ifc = box_tree.ifcs.items[result.ifc_index];
-                            const line_split_result = try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, ifc, containing_block_available_width);
+                            const line_split_result = try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, new_subtree, ifc, containing_block_available_width);
 
                             const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
                             parent_auto_width.* = std.math.max(parent_auto_width.*, line_split_result.longest_line_box_length);
 
                             const data_index = try layout.objects.allocData(layout.allocator, .ifc);
                             const data = layout.objects.getData(.ifc, data_index);
-                            data.* = .{ .layout_result = result, .line_split_result = line_split_result };
-                            try layout.objects.tree.append(layout.allocator, .{ .skip = 1, .tag = .ifc, .element = undefined });
+                            data.* = .{ .subtree_index = new_subtree_index, .layout_result = result, .line_split_result = line_split_result };
+                            layout.objects.tree.appendAssumeCapacity(.{ .skip = 1, .tag = .ifc, .element = undefined });
                             layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
                         },
                         .initial, .inherit, .unset, .undeclared => unreachable,
@@ -419,28 +429,18 @@ fn stfRealizeObjects(
                         const subtree_index = layout.blocks.items(.subtree)[layout.blocks.len - 1];
                         const subtree = &box_tree.blocks.subtrees.items[subtree_index];
                         const data = objects.getData2(.ifc, &data_index_mutable);
-                        const ifc = box_tree.ifcs.items[data.layout_result.ifc_index];
 
                         {
                             const block = try normal.createBlock(box_tree, subtree);
                             block.skip.* = 1;
-                            block.properties.* = .{ .subtree_root = ifc.subtree_index };
+                            block.properties.* = .{ .subtree_root = data.subtree_index };
                             layout.blocks.items(.skip)[layout.blocks.len - 1] += 1;
                         }
 
+                        const ifc = box_tree.ifcs.items[data.layout_result.ifc_index];
                         const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
                         ifc.origin = .{ .x = 0, .y = parent_auto_height.* };
                         ifc.parent_block = .{ .subtree = subtree_index, .index = layout.blocks.items(.index)[layout.blocks.len - 1] };
-
-                        {
-                            const ifc_subtree = &box_tree.blocks.subtrees.items[ifc.subtree_index];
-                            ifc_subtree.box_offsets.items[0] = .{
-                                .border_pos = .{ .x = 0, .y = parent_auto_height.* },
-                                .border_size = .{ .w = containing_block_width, .h = data.line_split_result.height },
-                                .content_pos = .{ .x = 0, .y = 0 },
-                                .content_size = .{ .w = containing_block_width, .h = data.line_split_result.height },
-                            };
-                        }
 
                         normal.advanceFlow(parent_auto_height, data.line_split_result.height);
                     },

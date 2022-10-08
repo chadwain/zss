@@ -40,6 +40,7 @@ pub const InlineLayoutContext = struct {
     const Self = @This();
 
     allocator: Allocator,
+    subtree_index: BlockSubtreeIndex,
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
     percentage_base_unit: ZssUnit,
@@ -52,7 +53,7 @@ pub const InlineLayoutContext = struct {
 
     pub const Result = struct {
         ifc_index: InlineFormattingContextIndex,
-        subtree_root_skip: BlockBoxSkip = 1,
+        total_inline_block_skip: BlockBoxSkip = 0,
     };
 
     pub fn deinit(self: *Self) void {
@@ -85,6 +86,7 @@ pub fn makeInlineFormattingContext(
     sc: *StackingContexts,
     computer: *StyleComputer,
     box_tree: *BoxTree,
+    subtree_index: BlockSubtreeIndex,
     mode: enum { Normal, ShrinkToFit },
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
@@ -92,21 +94,13 @@ pub fn makeInlineFormattingContext(
     assert(containing_block_width >= 0);
     assert(if (containing_block_height) |h| h >= 0 else true);
 
-    const subtree_index = std.math.cast(BlockSubtreeIndex, box_tree.blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees;
-    const subtree = try box_tree.blocks.subtrees.addOne(box_tree.allocator);
-    subtree.* = .{};
-    const block = try normal.createBlock(box_tree, subtree);
-    block.properties.* = .{ .contents = true };
-    block.borders.* = .{};
-    block.margins.* = .{};
-
     const ifc_index = std.math.cast(InlineFormattingContextIndex, box_tree.ifcs.items.len) orelse return error.TooManyIfcs;
     const ifc = ifc: {
         const result_ptr = try box_tree.ifcs.addOne(box_tree.allocator);
         errdefer _ = box_tree.ifcs.pop();
         const result = try box_tree.allocator.create(InlineFormattingContext);
         errdefer box_tree.allocator.destroy(result);
-        result.* = .{ .parent_block = undefined, .origin = undefined, .subtree_index = subtree_index };
+        result.* = .{ .parent_block = undefined, .origin = undefined };
         errdefer result.deinit(box_tree.allocator);
         result_ptr.* = result;
         break :ifc result;
@@ -122,6 +116,7 @@ pub fn makeInlineFormattingContext(
 
     var inline_layout = InlineLayoutContext{
         .allocator = allocator,
+        .subtree_index = subtree_index,
         .containing_block_width = containing_block_width,
         .containing_block_height = containing_block_height,
         .percentage_base_unit = percentage_base_unit,
@@ -132,8 +127,6 @@ pub fn makeInlineFormattingContext(
     defer inline_layout.deinit();
 
     try createInlineFormattingContext(&inline_layout, sc, computer, box_tree, ifc);
-    box_tree.blocks.subtrees.items[subtree_index].skips.items[0] = inline_layout.result.subtree_root_skip;
-
     return inline_layout.result;
 }
 
@@ -170,7 +163,7 @@ fn createInlineFormattingContext(
     try ifcPopRootInlineBox(layout, box_tree, ifc);
 
     try ifc.metrics.resize(box_tree.allocator, ifc.glyph_indeces.items.len);
-    const subtree = &box_tree.blocks.subtrees.items[ifc.subtree_index];
+    const subtree = &box_tree.blocks.subtrees.items[layout.subtree_index];
     ifcSolveMetrics(ifc, subtree);
 }
 
@@ -254,7 +247,7 @@ fn ifcRunOnce(
                 layout.containing_block_width,
                 layout.containing_block_height,
             );
-            const subtree = &box_tree.blocks.subtrees.items[ifc.subtree_index];
+            const subtree = &box_tree.blocks.subtrees.items[layout.subtree_index];
 
             if (!used_sizes.isFieldAuto(.inline_size)) {
                 const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
@@ -269,7 +262,7 @@ fn ifcRunOnce(
                 block.properties.* = .{};
                 normal.flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
 
-                const block_box = BlockBox{ .subtree = ifc.subtree_index, .index = block.index };
+                const block_box = BlockBox{ .subtree = layout.subtree_index, .index = block.index };
 
                 const stacking_context_type: StackingContexts.Data = switch (computed.position) {
                     .static => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, block_box, 0) },
@@ -287,7 +280,7 @@ fn ifcRunOnce(
                 var child_layout = normal.BlockLayoutContext{ .allocator = layout.allocator };
                 defer child_layout.deinit();
                 try normal.pushContainingBlock(&child_layout, layout.containing_block_width, layout.containing_block_height);
-                try normal.pushFlowBlock(&child_layout, ifc.subtree_index, block.index, used_sizes);
+                try normal.pushFlowBlock(&child_layout, layout.subtree_index, block.index, used_sizes);
 
                 const frame = try layout.getFrame();
                 nosuspend {
@@ -313,13 +306,13 @@ fn ifcRunOnce(
                     used_sizes.padding_inline_start + used_sizes.padding_inline_end);
                 var stf_layout = try stf.ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, element, used_sizes, available_width);
                 defer stf_layout.deinit();
-                try stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree, ifc.subtree_index);
+                try stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree, layout.subtree_index);
             }
 
             const generated_box = box_tree.element_index_to_generated_box[element];
             const block_box = generated_box.block_box;
-            if (block_box.subtree == ifc.subtree_index) {
-                layout.result.subtree_root_skip += box_tree.blocks.subtrees.items[block_box.subtree].skips.items[block_box.index];
+            if (block_box.subtree == layout.subtree_index) {
+                layout.result.total_inline_block_skip += box_tree.blocks.subtrees.items[block_box.subtree].skips.items[block_box.index];
             } else {
                 panic("TODO: Inline block in a different subtree than parent IFC", .{});
             }
@@ -1139,12 +1132,11 @@ pub const IFCLineSplitResult = struct {
 pub fn splitIntoLineBoxes(
     allocator: Allocator,
     box_tree: *BoxTree,
+    subtree: *BlockSubtree,
     ifc: *InlineFormattingContext,
     max_line_box_length: ZssUnit,
 ) !IFCLineSplitResult {
     assert(max_line_box_length >= 0);
-
-    const subtree = &box_tree.blocks.subtrees.items[ifc.subtree_index];
 
     var font_extents: hb.hb_font_extents_t = undefined;
     // TODO assuming ltr direction

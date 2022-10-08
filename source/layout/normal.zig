@@ -175,32 +175,24 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                         try computer.pushElement(.box_gen);
                     },
                     .inline_, .inline_block, .text => {
-                        const result = try inline_layout.makeInlineFormattingContext(layout.allocator, sc, computer, box_tree, .Normal, containing_block_width, containing_block_height);
+                        const result = try inline_layout.makeInlineFormattingContext(
+                            layout.allocator,
+                            sc,
+                            computer,
+                            box_tree,
+                            subtree_index,
+                            .Normal,
+                            containing_block_width,
+                            containing_block_height,
+                        );
+                        layout.skip.items[layout.skip.items.len - 1] += result.total_inline_block_skip;
 
+                        const subtree = &box_tree.blocks.subtrees.items[subtree_index];
                         const ifc = box_tree.ifcs.items[result.ifc_index];
-
-                        {
-                            const subtree = &box_tree.blocks.subtrees.items[subtree_index];
-                            const block = try createBlock(box_tree, subtree);
-                            block.skip.* = 1;
-                            block.properties.* = .{ .subtree_root = ifc.subtree_index };
-                            layout.skip.items[layout.skip.items.len - 1] += 1;
-                        }
-
                         const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
                         ifc.parent_block = .{ .subtree = subtree_index, .index = layout.index.items[layout.index.items.len - 1] };
                         ifc.origin = ZssVector{ .x = 0, .y = parent_auto_height.* };
-                        const line_split_result = try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, ifc, containing_block_width);
-
-                        {
-                            const ifc_subtree = &box_tree.blocks.subtrees.items[ifc.subtree_index];
-                            ifc_subtree.box_offsets.items[0] = .{
-                                .border_pos = .{ .x = 0, .y = parent_auto_height.* },
-                                .border_size = .{ .w = containing_block_width, .h = line_split_result.height },
-                                .content_pos = .{ .x = 0, .y = 0 },
-                                .content_size = .{ .w = containing_block_width, .h = line_split_result.height },
-                            };
-                        }
+                        const line_split_result = try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, subtree, ifc, containing_block_width);
 
                         advanceFlow(parent_auto_height, line_split_result.height);
                     },

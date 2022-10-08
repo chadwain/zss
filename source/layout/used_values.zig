@@ -190,8 +190,6 @@ pub const InlineFormattingContextIndex = u16;
 pub const InlineFormattingContext = struct {
     parent_block: BlockBox,
     origin: ZssVector,
-    // TODO: Make this optional
-    subtree_index: SubtreeIndex,
 
     glyph_indeces: ArrayListUnmanaged(GlyphIndex) = .{},
     metrics: ArrayListUnmanaged(Metrics) = .{},

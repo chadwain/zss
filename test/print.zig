@@ -68,6 +68,11 @@ fn printBlocks(box_tree: BoxTree, stdout: anytype, allocator: Allocator) !void {
                 const new_subtree = &subtrees[subtree_index];
                 try subtree_stack.append(allocator, .{ .index = subtree_index, .subtree = new_subtree, .index_of_root = block_stack.items.len });
                 try block_stack.append(allocator, .{ .begin = 0, .end = new_subtree.skips.items[0], .indent = top.indent + 1 });
+            } else if (subtree.subtree.properties.items[index].contents) {
+                try stdout.writeByteNTimes(' ', top.indent * 4);
+                try stdout.print("contents subtree={} index={} skip={}\n", .{ subtree.index, index, skip });
+
+                try block_stack.append(allocator, .{ .begin = index + 1, .end = index + subtree.subtree.skips.items[index], .indent = top.indent + 1 });
             } else {
                 const box_offsets = subtree.subtree.box_offsets.items[index];
                 const borders = subtree.subtree.borders.items[index];
