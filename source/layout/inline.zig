@@ -47,9 +47,15 @@ pub const InlineLayoutContext = struct {
 
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
-    mainLoop_frame: ?*@Frame(normal.mainLoop) = null,
+    nested_layout_frame: ?*NestedLayoutFrame = null,
 
     result: Result,
+
+    // This is extern to disable tag checking at runtime
+    const NestedLayoutFrame = extern union {
+        normal: @Frame(normal.mainLoop),
+        stf: @Frame(stf.shrinkToFitLayout),
+    };
 
     pub const Result = struct {
         ifc_index: InlineFormattingContextIndex,
@@ -58,16 +64,16 @@ pub const InlineLayoutContext = struct {
 
     pub fn deinit(self: *Self) void {
         self.index.deinit(self.allocator);
-        if (self.mainLoop_frame) |frame| {
+        if (self.nested_layout_frame) |frame| {
             self.allocator.destroy(frame);
         }
     }
 
-    fn getFrame(self: *Self) !*@Frame(normal.mainLoop) {
-        if (self.mainLoop_frame == null) {
-            self.mainLoop_frame = try self.allocator.create(@Frame(normal.mainLoop));
+    fn getFrame(self: *Self) !*NestedLayoutFrame {
+        if (self.nested_layout_frame == null) {
+            self.nested_layout_frame = try self.allocator.create(NestedLayoutFrame);
         }
-        return self.mainLoop_frame.?;
+        return self.nested_layout_frame.?;
     }
 };
 
@@ -248,6 +254,7 @@ fn ifcRunOnce(
                 layout.containing_block_height,
             );
             const subtree = &box_tree.blocks.subtrees.items[layout.subtree_index];
+            const frame = try layout.getFrame();
 
             if (!used_sizes.isFieldAuto(.inline_size)) {
                 const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
@@ -282,10 +289,9 @@ fn ifcRunOnce(
                 try normal.pushContainingBlock(&child_layout, layout.containing_block_width, layout.containing_block_height);
                 try normal.pushFlowBlock(&child_layout, layout.subtree_index, block.index, used_sizes);
 
-                const frame = try layout.getFrame();
                 nosuspend {
-                    frame.* = async normal.mainLoop(&child_layout, sc, computer, box_tree);
-                    try await frame.*;
+                    frame.normal = async normal.mainLoop(&child_layout, sc, computer, box_tree);
+                    try await frame.normal;
                 }
 
                 box_tree.element_index_to_generated_box[element] = .{ .block_box = block_box };
@@ -306,7 +312,11 @@ fn ifcRunOnce(
                     used_sizes.padding_inline_start + used_sizes.padding_inline_end);
                 var stf_layout = try stf.ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, element, used_sizes, available_width);
                 defer stf_layout.deinit();
-                try stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree, layout.subtree_index);
+
+                nosuspend {
+                    frame.stf = async stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree, layout.subtree_index);
+                    try await frame.stf;
+                }
             }
 
             const generated_box = box_tree.element_index_to_generated_box[element];
