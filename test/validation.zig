@@ -13,7 +13,7 @@ pub fn run(tests: []const zss.testing.Test) !void {
     defer assert(!gpa.deinit());
 
     for (tests) |t, i| {
-        std.debug.print("validation: ({}/{}) \"{s}\" ... ", .{ i, tests.len, t.name });
+        std.debug.print("validation: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
         defer std.debug.print("\n", .{});
 
         var box_tree = try zss.layout.doLayout(

@@ -58,6 +58,11 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
     test_suite.use_stage1 = true;
     test_suite.install();
 
+    const test_category_filter = b.option([]const []const u8, "tests", "List of test categories to run");
+    const test_suite_options = b.addOptions();
+    test_suite.addOptions("build_options", test_suite_options);
+    test_suite_options.addOption([]const []const u8, "tests", test_category_filter orelse &[_][]const u8{ "validation", "memory" });
+
     var run_test_suite = test_suite.run();
     run_test_suite.step.dependOn(&test_suite.step);
 

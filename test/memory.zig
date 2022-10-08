@@ -1,5 +1,4 @@
 const zss = @import("zss");
-const ZssSize = zss.used_values.ZssSize;
 const ElementTree = zss.ElementTree;
 const CascadedValueStore = zss.CascadedValueStore;
 const ViewportSize = zss.layout.ViewportSize;
@@ -13,7 +12,7 @@ pub fn run(tests: []const zss.testing.Test) !void {
     const allocator = gpa.allocator();
 
     for (tests) |t, i| {
-        std.debug.print("memory safety: ({}/{}) \"{s}\" ... ", .{ i, tests.len, t.name });
+        std.debug.print("memory safety: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
         defer std.debug.print("\n", .{});
 
         const viewport_size = ViewportSize{ .width = t.width, .height = t.height };

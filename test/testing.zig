@@ -14,6 +14,22 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
 var library: hb.FT_Library = undefined;
 
+const Category = enum {
+    validation,
+    memory,
+};
+
+const categories = blk: {
+    const build_options = @import("build_options");
+    const tests = build_options.tests;
+
+    var result: [tests.len]Category = undefined;
+    for (tests) |t, i| {
+        result[i] = std.meta.stringToEnum(Category, t).?;
+    }
+    break :blk result;
+};
+
 pub fn main() !void {
     defer assert(!gpa.deinit());
 
@@ -28,10 +44,15 @@ pub fn main() !void {
         deinitTest(t);
     };
 
-    try @import("./validation.zig").run(&tests);
-    std.debug.print("\n", .{});
-    try @import("./memory.zig").run(&tests);
-    // try @import("./sdl.zig").run(&tests);
+    for (categories) |c, i| {
+        switch (c) {
+            .validation => try @import("./validation.zig").run(&tests),
+            .memory => try @import("./memory.zig").run(&tests),
+        }
+        if (i + 1 < categories.len) {
+            std.debug.print("\n", .{});
+        }
+    }
 }
 
 fn setupTest(t: *Test, info: TestInfo) void {
@@ -131,7 +152,7 @@ pub const border_color_sets = [_][]const zss.properties.BorderColors{
 const ArrayList = undefined;
 const TreeData = undefined;
 
-pub fn getTestData() !ArrayList(TreeData) {
+fn getTestData() !ArrayList(TreeData) {
     var list = ArrayList(TreeData).init(allocator);
     try list.append(blk: {
         var tree_data = try TreeData.init(2, &.{ .box_style, .content_width, .content_height, .horizontal_edges, .background1 });
@@ -305,7 +326,7 @@ pub fn getTestData() !ArrayList(TreeData) {
     return list;
 }
 
-pub const tree_data_old = [_]TreeData{
+const tree_data_old = [_]TreeData{
     .{
         .structure = &.{ 7, 2, 1, 1, 2, 1, 1 },
         .display = &.{ .{ .block = {} }, .{ .block = {} }, .{ .text = {} }, .{ .text = {} }, .{ .inline_block = {} }, .{ .text = {} }, .{ .text = {} } },
