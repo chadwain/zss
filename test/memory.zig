@@ -11,9 +11,11 @@ pub fn run(tests: []const zss.testing.Test) !void {
     defer assert(!gpa.deinit());
     const allocator = gpa.allocator();
 
+    const stdout = std.io.getStdOut().writer();
+
     for (tests) |t, i| {
-        std.debug.print("memory safety: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
-        defer std.debug.print("\n", .{});
+        try stdout.print("memory safety: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
+        defer stdout.writeAll("\n") catch {};
 
         const viewport_size = ViewportSize{ .width = t.width, .height = t.height };
         try std.testing.checkAllAllocationFailures(allocator, testFn, .{
@@ -22,10 +24,10 @@ pub fn run(tests: []const zss.testing.Test) !void {
             viewport_size,
         });
 
-        std.debug.print("success", .{});
+        try stdout.writeAll("success");
     }
 
-    std.debug.print("memory safety: all {} tests passed\n", .{tests.len});
+    try stdout.print("memory safety: all {} tests passed\n", .{tests.len});
 }
 
 fn testFn(allocator: std.mem.Allocator, element_tree: *const ElementTree, cascaded_values: *const CascadedValueStore, viewport_size: ViewportSize) !void {

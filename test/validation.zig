@@ -12,9 +12,11 @@ const allocator = gpa.allocator();
 pub fn run(tests: []const zss.testing.Test) !void {
     defer assert(!gpa.deinit());
 
+    const stdout = std.io.getStdOut().writer();
+
     for (tests) |t, i| {
-        std.debug.print("validation: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
-        defer std.debug.print("\n", .{});
+        try stdout.print("validation: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
+        defer stdout.print("\n", .{}) catch {};
 
         var box_tree = try zss.layout.doLayout(
             t.element_tree,
@@ -29,10 +31,10 @@ pub fn run(tests: []const zss.testing.Test) !void {
             try validateInline(ifc);
         }
 
-        std.debug.print("success", .{});
+        try stdout.print("success", .{});
     }
 
-    std.debug.print("validation: all {} tests passed\n", .{tests.len});
+    try stdout.print("validation: all {} tests passed\n", .{tests.len});
 }
 
 fn validateInline(inl: *used.InlineFormattingContext) !void {

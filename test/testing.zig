@@ -17,6 +17,7 @@ var library: hb.FT_Library = undefined;
 const Category = enum {
     validation,
     memory,
+    print,
 };
 
 const categories = blk: {
@@ -25,7 +26,7 @@ const categories = blk: {
 
     var result: [tests.len]Category = undefined;
     for (tests) |t, i| {
-        result[i] = std.meta.stringToEnum(Category, t).?;
+        result[i] = std.meta.stringToEnum(Category, t) orelse @compileError("Invalid test category: " ++ t);
     }
     break :blk result;
 };
@@ -48,6 +49,7 @@ pub fn main() !void {
         switch (c) {
             .validation => try @import("./validation.zig").run(&tests),
             .memory => try @import("./memory.zig").run(&tests),
+            .print => try @import("./print.zig").run(&tests),
         }
         if (i + 1 < categories.len) {
             std.debug.print("\n", .{});
@@ -97,6 +99,7 @@ const all_tests = blk: {
         @import("./tests/single_element.zig"),
         @import("./tests/two_elements.zig"),
         @import("./tests/block_inline_text.zig"),
+        @import("./tests/shrink_to_fit.zig"),
     };
 
     var num_tests = 0;
