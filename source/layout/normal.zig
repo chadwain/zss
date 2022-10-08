@@ -39,7 +39,7 @@ const LayoutMode = enum {
     ContainingBlock,
 };
 
-const UsedContentHeight = struct {
+pub const UsedContentHeight = struct {
     height: ?ZssUnit,
     min_height: ZssUnit,
     max_height: ZssUnit,
@@ -191,6 +191,17 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                         ifc.parent_block = .{ .subtree = subtree_index, .index = layout.index.items[layout.index.items.len - 1] };
                         ifc.origin = ZssVector{ .x = 0, .y = parent_auto_height.* };
                         const line_split_result = try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, ifc, containing_block_width);
+
+                        {
+                            const ifc_subtree = &box_tree.blocks.subtrees.items[ifc.subtree_index];
+                            ifc_subtree.box_offsets.items[0] = .{
+                                .border_pos = .{ .x = 0, .y = parent_auto_height.* },
+                                .border_size = .{ .w = containing_block_width, .h = line_split_result.height },
+                                .content_pos = .{ .x = 0, .y = 0 },
+                                .content_size = .{ .w = containing_block_width, .h = line_split_result.height },
+                            };
+                        }
+
                         advanceFlow(parent_auto_height, line_split_result.height);
                     },
                     .none => {
@@ -295,7 +306,7 @@ fn makeFlowBlock(
     try flowBlockSolveWidths(specified_sizes, containing_block_width, border_styles, &computed_sizes, &used_sizes);
     try flowBlockSolveContentHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &used_sizes);
     try flowBlockSolveVerticalEdges(specified_sizes.vertical_edges, containing_block_width, border_styles, &computed_sizes.vertical_edges, &used_sizes);
-    normalFlowBlockAdjustWidthAndMargins(&used_sizes, containing_block_width);
+    flowBlockAdjustWidthAndMargins(&used_sizes, containing_block_width);
     flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
 
     computer.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
@@ -383,7 +394,7 @@ pub const FlowBlockUsedSizes = struct {
 
     auto_bitfield: u4,
 
-    const PossiblyAutoField = enum(u4) {
+    pub const PossiblyAutoField = enum(u4) {
         inline_size = 1,
         margin_inline_start = 2,
         margin_inline_end = 4,
@@ -408,11 +419,11 @@ pub const FlowBlockUsedSizes = struct {
         @field(self, @tagName(field) ++ "_untagged") = clamped_value;
     }
 
-    fn get(self: FlowBlockUsedSizes, comptime field: PossiblyAutoField) ?ZssUnit {
+    pub fn get(self: FlowBlockUsedSizes, comptime field: PossiblyAutoField) ?ZssUnit {
         return if (self.isFieldAuto(field)) null else @field(self, @tagName(field) ++ "_untagged");
     }
 
-    fn inlineSizeAndMarginsAreNotAuto(self: FlowBlockUsedSizes) bool {
+    pub fn inlineSizeAndMarginsAreNotAuto(self: FlowBlockUsedSizes) bool {
         const mask = @enumToInt(PossiblyAutoField.inline_size) |
             @enumToInt(PossiblyAutoField.margin_inline_start) |
             @enumToInt(PossiblyAutoField.margin_inline_end);
@@ -423,7 +434,7 @@ pub const FlowBlockUsedSizes = struct {
         return self.auto_bitfield & @enumToInt(field) != 0;
     }
 
-    fn getUsedContentHeight(self: FlowBlockUsedSizes) UsedContentHeight {
+    pub fn getUsedContentHeight(self: FlowBlockUsedSizes) UsedContentHeight {
         return UsedContentHeight{
             .height = self.get(.block_size),
             .min_height = self.min_block_size,
@@ -593,7 +604,7 @@ fn flowBlockSolveWidths(
     }
 }
 
-fn flowBlockSolveContentHeight(
+pub fn flowBlockSolveContentHeight(
     specified: zss.properties.ContentSize,
     containing_block_height: ?ZssUnit,
     computed: *zss.properties.ContentSize,
@@ -654,7 +665,7 @@ fn flowBlockSolveContentHeight(
 }
 
 /// This is an implementation of CSS2§10.5 and CSS2§10.6.3.
-fn flowBlockSolveVerticalEdges(
+pub fn flowBlockSolveVerticalEdges(
     specified: zss.properties.BoxEdges,
     containing_block_width: ZssUnit,
     border_styles: zss.properties.BorderStyles,
@@ -773,7 +784,7 @@ fn flowBlockSolveVerticalEdges(
 
 /// Changes the used sizes of a flow block that is in normal flow.
 /// This implements the constraints described in CSS2.2§10.3.3.
-fn normalFlowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_width: ZssUnit) void {
+pub fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_width: ZssUnit) void {
     const content_margin_space = containing_block_width -
         (used.border_inline_start + used.border_inline_end + used.padding_inline_start + used.padding_inline_end);
     if (used.inlineSizeAndMarginsAreNotAuto()) {
@@ -834,22 +845,22 @@ fn flowBlockSetData2(used_height: ZssUnit, box_offsets: *used_values.BoxOffsets)
     box_offsets.border_size.h += used_height;
 }
 
-fn flowBlockFinishLayout(box_offsets: *used_values.BoxOffsets, heights: UsedContentHeight, auto_height: ZssUnit) void {
+pub fn flowBlockFinishLayout(box_offsets: *used_values.BoxOffsets, heights: UsedContentHeight, auto_height: ZssUnit) void {
     const used_height = heights.height orelse solve.clampSize(auto_height, heights.min_height, heights.max_height);
     flowBlockSetData2(used_height, box_offsets);
 }
 
-fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_bottom: ZssUnit, parent_auto_height: *ZssUnit) void {
+pub fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_bottom: ZssUnit, parent_auto_height: *ZssUnit) void {
     const margin_top = box_offsets.border_pos.y;
     box_offsets.border_pos.y += parent_auto_height.*;
     advanceFlow(parent_auto_height, box_offsets.border_size.h + margin_top + margin_bottom);
 }
 
-fn advanceFlow(parent_auto_height: *ZssUnit, amount: ZssUnit) void {
+pub fn advanceFlow(parent_auto_height: *ZssUnit, amount: ZssUnit) void {
     parent_auto_height.* += amount;
 }
 
-const Block = struct {
+pub const Block = struct {
     index: BlockBoxIndex,
     skip: *BlockBoxSkip,
     box_offsets: *used_values.BoxOffsets,

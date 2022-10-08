@@ -7,9 +7,11 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const zss = @import("../../zss.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 
-const common = @import("./normal.zig");
-const FlowBlockComputedSizes = common.FlowBlockComputedSizes;
-const FlowBlockUsedSizes = common.FlowBlockUsedSizes;
+const normal = @import("./normal.zig");
+const FlowBlockComputedSizes = normal.FlowBlockComputedSizes;
+const FlowBlockUsedSizes = normal.FlowBlockUsedSizes;
+
+const stf = @import("./shrink_to_fit.zig");
 
 const solve = @import("./solve.zig");
 const StackingContexts = @import("./StackingContexts.zig");
@@ -34,7 +36,7 @@ const BoxTree = used_values.BoxTree;
 
 const hb = @import("harfbuzz");
 
-const InlineLayoutContext = struct {
+pub const InlineLayoutContext = struct {
     const Self = @This();
 
     allocator: Allocator,
@@ -44,31 +46,31 @@ const InlineLayoutContext = struct {
 
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
-    mainLoop_frame: ?*@Frame(common.mainLoop) = null,
+    mainLoop_frame: ?*@Frame(normal.mainLoop) = null,
 
     result: Result,
 
-    const Result = struct {
+    pub const Result = struct {
         ifc_index: InlineFormattingContextIndex,
         subtree_root_skip: BlockBoxSkip = 1,
     };
 
-    fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self) void {
         self.index.deinit(self.allocator);
         if (self.mainLoop_frame) |frame| {
             self.allocator.destroy(frame);
         }
     }
 
-    fn getFrame(self: *Self) !*@Frame(common.mainLoop) {
+    fn getFrame(self: *Self) !*@Frame(normal.mainLoop) {
         if (self.mainLoop_frame == null) {
-            self.mainLoop_frame = try self.allocator.create(@Frame(common.mainLoop));
+            self.mainLoop_frame = try self.allocator.create(@Frame(normal.mainLoop));
         }
         return self.mainLoop_frame.?;
     }
 };
 
-pub fn createInlineBox(box_tree: *BoxTree, ifc: *InlineFormattingContext) !InlineBoxIndex {
+fn createInlineBox(box_tree: *BoxTree, ifc: *InlineFormattingContext) !InlineBoxIndex {
     const old_size = ifc.inline_start.items.len;
     _ = try ifc.inline_start.addOne(box_tree.allocator);
     _ = try ifc.inline_end.addOne(box_tree.allocator);
@@ -76,6 +78,63 @@ pub fn createInlineBox(box_tree: *BoxTree, ifc: *InlineFormattingContext) !Inlin
     _ = try ifc.block_end.addOne(box_tree.allocator);
     _ = try ifc.margins.addOne(box_tree.allocator);
     return @intCast(InlineBoxIndex, old_size);
+}
+
+pub fn makeInlineFormattingContext(
+    allocator: Allocator,
+    sc: *StackingContexts,
+    computer: *StyleComputer,
+    box_tree: *BoxTree,
+    mode: enum { Normal, ShrinkToFit },
+    containing_block_width: ZssUnit,
+    containing_block_height: ?ZssUnit,
+) zss.layout.Error!InlineLayoutContext.Result {
+    assert(containing_block_width >= 0);
+    assert(if (containing_block_height) |h| h >= 0 else true);
+
+    const subtree_index = std.math.cast(BlockSubtreeIndex, box_tree.blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees;
+    const subtree = try box_tree.blocks.subtrees.addOne(box_tree.allocator);
+    subtree.* = .{};
+    const block = try normal.createBlock(box_tree, subtree);
+    block.properties.* = .{ .contents = true };
+    block.borders.* = .{};
+    block.margins.* = .{};
+
+    const ifc_index = std.math.cast(InlineFormattingContextIndex, box_tree.ifcs.items.len) orelse return error.TooManyIfcs;
+    const ifc = ifc: {
+        const result_ptr = try box_tree.ifcs.addOne(box_tree.allocator);
+        errdefer _ = box_tree.ifcs.pop();
+        const result = try box_tree.allocator.create(InlineFormattingContext);
+        errdefer box_tree.allocator.destroy(result);
+        result.* = .{ .parent_block = undefined, .origin = undefined, .subtree_index = subtree_index };
+        errdefer result.deinit(box_tree.allocator);
+        result_ptr.* = result;
+        break :ifc result;
+    };
+
+    const sc_ifcs = &box_tree.stacking_contexts.multi_list.items(.ifcs)[sc.current];
+    try sc_ifcs.append(box_tree.allocator, ifc_index);
+
+    const percentage_base_unit: ZssUnit = switch (mode) {
+        .Normal => containing_block_width,
+        .ShrinkToFit => 0,
+    };
+
+    var inline_layout = InlineLayoutContext{
+        .allocator = allocator,
+        .containing_block_width = containing_block_width,
+        .containing_block_height = containing_block_height,
+        .percentage_base_unit = percentage_base_unit,
+        .result = .{
+            .ifc_index = ifc_index,
+        },
+    };
+    defer inline_layout.deinit();
+
+    try createInlineFormattingContext(&inline_layout, sc, computer, box_tree, ifc);
+    box_tree.blocks.subtrees.items[subtree_index].skips.items[0] = inline_layout.result.subtree_root_skip;
+
+    return inline_layout.result;
 }
 
 fn createInlineFormattingContext(
@@ -205,10 +264,10 @@ fn ifcRunOnce(
                 computer.setComputedValue(.box_gen, .font, font);
                 try computer.pushElement(.box_gen);
 
-                const block = try common.createBlock(box_tree, subtree);
+                const block = try normal.createBlock(box_tree, subtree);
                 block.skip.* = undefined;
                 block.properties.* = .{};
-                common.flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
+                normal.flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
 
                 const block_box = BlockBox{ .subtree = ifc.subtree_index, .index = block.index };
 
@@ -225,40 +284,45 @@ fn ifcRunOnce(
                 };
                 try sc.pushStackingContext(stacking_context_type);
 
-                var child_layout = common.BlockLayoutContext{ .allocator = layout.allocator };
+                var child_layout = normal.BlockLayoutContext{ .allocator = layout.allocator };
                 defer child_layout.deinit();
-                try common.pushContainingBlock(&child_layout, layout.containing_block_width, layout.containing_block_height);
-                try common.pushFlowBlock(&child_layout, ifc.subtree_index, block.index, used_sizes);
+                try normal.pushContainingBlock(&child_layout, layout.containing_block_width, layout.containing_block_height);
+                try normal.pushFlowBlock(&child_layout, ifc.subtree_index, block.index, used_sizes);
 
                 const frame = try layout.getFrame();
                 nosuspend {
-                    frame.* = async common.mainLoop(&child_layout, sc, computer, box_tree);
+                    frame.* = async normal.mainLoop(&child_layout, sc, computer, box_tree);
                     try await frame.*;
                 }
 
                 box_tree.element_index_to_generated_box[element] = .{ .block_box = block_box };
             } else {
-                panic("TODO: Shrink-to-fit inline blocks", .{});
-                // // TODO: Create a stacking context
-                // { // TODO: Grabbing useless data to satisfy inheritance...
-                //     const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
-                //     computer.setComputedValue(.box_gen, .z_index, specified_z_index);
-                //     const specified_font = computer.getSpecifiedValue(.box_gen, .font);
-                //     computer.setComputedValue(.box_gen, .font, specified_font);
-                // }
+                // TODO: Create a stacking context
+                { // TODO: Grabbing useless data to satisfy inheritance...
+                    const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
+                    computer.setComputedValue(.box_gen, .z_index, specified_z_index);
+                    const specified_font = computer.getSpecifiedValue(.box_gen, .font);
+                    computer.setComputedValue(.box_gen, .font, specified_font);
+                }
+                try computer.pushElement(.box_gen);
 
-                // const available_width = layout.containing_block_width -
-                //     (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
-                //     used_sizes.border_inline_start + used_sizes.border_inline_end +
-                //     used_sizes.padding_inline_start + used_sizes.padding_inline_end);
-                // var stf_layout = try ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, used_sizes, available_width);
-                // defer stf_layout.deinit();
-                // try shrinkToFitLayout(&stf_layout, sc, computer, box_tree);
+                // TODO: This value should be either clamped or maximized
+                const available_width = layout.containing_block_width -
+                    (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
+                    used_sizes.border_inline_start + used_sizes.border_inline_end +
+                    used_sizes.padding_inline_start + used_sizes.padding_inline_end);
+                var stf_layout = try stf.ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, element, used_sizes, available_width);
+                defer stf_layout.deinit();
+                try stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree, ifc.subtree_index);
             }
 
             const generated_box = box_tree.element_index_to_generated_box[element];
             const block_box = generated_box.block_box;
-            layout.result.subtree_root_skip += box_tree.blocks.subtrees.items[block_box.subtree].skips.items[block_box.index];
+            if (block_box.subtree == ifc.subtree_index) {
+                layout.result.subtree_root_skip += box_tree.blocks.subtrees.items[block_box.subtree].skips.items[block_box.index];
+            } else {
+                panic("TODO: Inline block in a different subtree than parent IFC", .{});
+            }
             try ifcAddInlineBlock(box_tree, ifc, block_box.index);
         },
         .block => {
@@ -1013,61 +1077,6 @@ fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, subtree: *Bl
     metrics.* = .{ .offset = margins.left, .advance = advance, .width = width };
 }
 
-pub fn makeInlineFormattingContext(
-    allocator: Allocator,
-    sc: *StackingContexts,
-    computer: *StyleComputer,
-    box_tree: *BoxTree,
-    mode: enum { Normal, ShrinkToFit },
-    containing_block_width: ZssUnit,
-    containing_block_height: ?ZssUnit,
-) zss.layout.Error!InlineLayoutContext.Result {
-    assert(containing_block_width >= 0);
-    assert(if (containing_block_height) |h| h >= 0 else true);
-
-    const subtree_index = std.math.cast(BlockSubtreeIndex, box_tree.blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees;
-    const subtree = try box_tree.blocks.subtrees.addOne(box_tree.allocator);
-    subtree.* = .{};
-    const block = try common.createBlock(box_tree, subtree);
-    block.properties.* = .{ .contents = true };
-
-    const ifc_index = std.math.cast(InlineFormattingContextIndex, box_tree.ifcs.items.len) orelse return error.TooManyIfcs;
-    const ifc = ifc: {
-        const result_ptr = try box_tree.ifcs.addOne(box_tree.allocator);
-        errdefer _ = box_tree.ifcs.pop();
-        const result = try box_tree.allocator.create(InlineFormattingContext);
-        errdefer box_tree.allocator.destroy(result);
-        result.* = .{ .parent_block = undefined, .origin = undefined, .subtree_index = subtree_index };
-        errdefer result.deinit(box_tree.allocator);
-        result_ptr.* = result;
-        break :ifc result;
-    };
-
-    const sc_ifcs = &box_tree.stacking_contexts.multi_list.items(.ifcs)[sc.current];
-    try sc_ifcs.append(box_tree.allocator, ifc_index);
-
-    const percentage_base_unit: ZssUnit = switch (mode) {
-        .Normal => containing_block_width,
-        .ShrinkToFit => 0,
-    };
-
-    var inline_layout = InlineLayoutContext{
-        .allocator = allocator,
-        .containing_block_width = containing_block_width,
-        .containing_block_height = containing_block_height,
-        .percentage_base_unit = percentage_base_unit,
-        .result = .{
-            .ifc_index = ifc_index,
-        },
-    };
-    defer inline_layout.deinit();
-
-    try createInlineFormattingContext(&inline_layout, sc, computer, box_tree, ifc);
-    block.skip.* = inline_layout.result.subtree_root_skip;
-
-    return inline_layout.result;
-}
-
 const IFCLineSplitState = struct {
     cursor: ZssUnit,
     line_box: InlineFormattingContext.LineBox,
@@ -1122,7 +1131,7 @@ const IFCLineSplitState = struct {
     }
 };
 
-const IFCLineSplitResult = struct {
+pub const IFCLineSplitResult = struct {
     height: ZssUnit,
     longest_line_box_length: ZssUnit,
 };

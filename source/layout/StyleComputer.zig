@@ -322,13 +322,13 @@ fn compute(self: Self, comptime stage: Stage, comptime property: zss.properties.
         }
     }
 
-    const layout = @import("./layout.zig");
+    const solve = @import("./solve.zig");
 
     switch (property) {
         .box_style => if (self.this_element.index == root_element) {
-            return layout.solveBoxStyle(specified, .Root);
+            return solve.boxStyle(specified, .Root);
         } else {
-            return layout.solveBoxStyle(specified, .NonRoot);
+            return solve.boxStyle(specified, .NonRoot);
         },
         .content_width, .content_height => return zss.properties.ContentSize{
             .size = switch (specified.size) {
@@ -363,22 +363,22 @@ fn compute(self: Self, comptime stage: Stage, comptime property: zss.properties.
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 },
                 .border_start = blk: {
-                    const multiplier = layout.borderWidthMultiplier(if (property == .horizontal_edges) border_styles.left else border_styles.top);
+                    const multiplier = solve.borderWidthMultiplier(if (property == .horizontal_edges) border_styles.left else border_styles.top);
                     break :blk @as(zss.values.BorderWidth, switch (specified.border_start) {
                         .px => |value| .{ .px = value },
-                        .thin => .{ .px = layout.borderWidth(.thin) * multiplier },
-                        .medium => .{ .px = layout.borderWidth(.medium) * multiplier },
-                        .thick => .{ .px = layout.borderWidth(.thick) * multiplier },
+                        .thin => .{ .px = solve.borderWidth(.thin) * multiplier },
+                        .medium => .{ .px = solve.borderWidth(.medium) * multiplier },
+                        .thick => .{ .px = solve.borderWidth(.thick) * multiplier },
                         .initial, .inherit, .unset, .undeclared => unreachable,
                     });
                 },
                 .border_end = blk: {
-                    const multiplier = layout.borderWidthMultiplier(if (property == .horizontal_edges) border_styles.right else border_styles.bottom);
+                    const multiplier = solve.borderWidthMultiplier(if (property == .horizontal_edges) border_styles.right else border_styles.bottom);
                     break :blk @as(zss.values.BorderWidth, switch (specified.border_end) {
                         .px => |value| .{ .px = value },
-                        .thin => .{ .px = layout.borderWidth(.thin) * multiplier },
-                        .medium => .{ .px = layout.borderWidth(.medium) * multiplier },
-                        .thick => .{ .px = layout.borderWidth(.thick) * multiplier },
+                        .thin => .{ .px = solve.borderWidth(.thin) * multiplier },
+                        .medium => .{ .px = solve.borderWidth(.medium) * multiplier },
+                        .thick => .{ .px = solve.borderWidth(.thick) * multiplier },
                         .initial, .inherit, .unset, .undeclared => unreachable,
                     });
                 },
