@@ -1,6 +1,6 @@
 const zss = @import("zss");
 const BoxTree = zss.used_values.BoxTree;
-const Subtree = zss.used_values.BlockBoxTree.Subtree;
+const Subtree = zss.used_values.BlockSubtree;
 const SubtreeIndex = zss.used_values.SubtreeIndex;
 const BlockBoxIndex = zss.used_values.BlockBoxIndex;
 
@@ -51,66 +51,70 @@ fn printBlocks(box_tree: BoxTree, stdout: anytype, allocator: Allocator) !void {
 
     const subtrees = box_tree.blocks.subtrees.items;
     try subtree_stack.append(allocator, .{ .index = 0, .subtree = &subtrees[0], .index_of_root = 0 });
-    try block_stack.append(allocator, .{ .begin = 0, .end = subtrees[0].skips.items[0], .indent = 0 });
+    try block_stack.append(allocator, .{ .begin = 0, .end = subtrees[0].skip.items[0], .indent = 0 });
 
     while (block_stack.items.len > 0) {
         const top = &block_stack.items[block_stack.items.len - 1];
         const subtree = subtree_stack.items[subtree_stack.items.len - 1];
         if (top.begin != top.end) {
             const index = top.begin;
-            const skip = subtree.subtree.skips.items[index];
+            const skip = subtree.subtree.skip.items[index];
             top.begin += skip;
 
-            if (subtree.subtree.properties.items[index].subtree_root) |subtree_index| {
-                try stdout.writeByteNTimes(' ', top.indent * 4);
-                try stdout.print("subtree index={}\n", .{subtree_index});
+            switch (subtree.subtree.type.items[index]) {
+                .subtree_proxy => |subtree_index| {
+                    try stdout.writeByteNTimes(' ', top.indent * 4);
+                    try stdout.print("subtree index={}\n", .{subtree_index});
 
-                const new_subtree = &subtrees[subtree_index];
-                try subtree_stack.append(allocator, .{ .index = subtree_index, .subtree = new_subtree, .index_of_root = block_stack.items.len });
-                try block_stack.append(allocator, .{ .begin = 0, .end = new_subtree.skips.items[0], .indent = top.indent + 1 });
-            } else if (subtree.subtree.properties.items[index].contents) {
-                try stdout.writeByteNTimes(' ', top.indent * 4);
-                try stdout.print("contents subtree={} index={} skip={}\n", .{ subtree.index, index, skip });
+                    const new_subtree = &subtrees[subtree_index];
+                    try subtree_stack.append(allocator, .{ .index = subtree_index, .subtree = new_subtree, .index_of_root = block_stack.items.len });
+                    try block_stack.append(allocator, .{ .begin = 0, .end = skip, .indent = top.indent + 1 });
+                },
+                .contents => {
+                    try stdout.writeByteNTimes(' ', top.indent * 4);
+                    try stdout.print("contents subtree={} index={} skip={}\n", .{ subtree.index, index, skip });
 
-                try block_stack.append(allocator, .{ .begin = index + 1, .end = index + subtree.subtree.skips.items[index], .indent = top.indent + 1 });
-            } else {
-                const box_offsets = subtree.subtree.box_offsets.items[index];
-                const borders = subtree.subtree.borders.items[index];
-                const margins = subtree.subtree.margins.items[index];
-                const width = box_offsets.content_size.w;
-                const height = box_offsets.content_size.h;
-                const anchor = box_offsets.border_pos;
-                const padding_left = box_offsets.content_pos.x - borders.left;
-                const padding_top = box_offsets.content_pos.y - borders.top;
-                const padding_right = box_offsets.border_size.w - box_offsets.content_pos.x - width - borders.right;
-                const padding_bottom = box_offsets.border_size.h - box_offsets.content_pos.y - height - borders.bottom;
+                    try block_stack.append(allocator, .{ .begin = index + 1, .end = index + skip, .indent = top.indent + 1 });
+                },
+                .block => {
+                    const box_offsets = subtree.subtree.box_offsets.items[index];
+                    const borders = subtree.subtree.borders.items[index];
+                    const margins = subtree.subtree.margins.items[index];
+                    const width = box_offsets.content_size.w;
+                    const height = box_offsets.content_size.h;
+                    const anchor = box_offsets.border_pos;
+                    const padding_left = box_offsets.content_pos.x - borders.left;
+                    const padding_top = box_offsets.content_pos.y - borders.top;
+                    const padding_right = box_offsets.border_size.w - box_offsets.content_pos.x - width - borders.right;
+                    const padding_bottom = box_offsets.border_size.h - box_offsets.content_pos.y - height - borders.bottom;
 
-                try stdout.writeByteNTimes(' ', top.indent * 4);
-                try stdout.print(
-                    "block subtree={} index={} skip={} width={} height={} padding={},{},{},{} border={},{},{},{} margin={},{},{},{} anchor={},{}\n",
-                    .{
-                        subtree.index,
-                        index,
-                        subtree.subtree.skips.items[index],
-                        width,
-                        height,
-                        padding_top,
-                        padding_right,
-                        padding_bottom,
-                        padding_left,
-                        borders.top,
-                        borders.right,
-                        borders.bottom,
-                        borders.left,
-                        margins.top,
-                        margins.right,
-                        margins.bottom,
-                        margins.left,
-                        anchor.x,
-                        anchor.y,
-                    },
-                );
-                try block_stack.append(allocator, .{ .begin = index + 1, .end = index + subtree.subtree.skips.items[index], .indent = top.indent + 1 });
+                    try stdout.writeByteNTimes(' ', top.indent * 4);
+                    try stdout.print(
+                        "block subtree={} index={} skip={} width={} height={} padding={},{},{},{} border={},{},{},{} margin={},{},{},{} anchor={},{}\n",
+                        .{
+                            subtree.index,
+                            index,
+                            skip,
+                            width,
+                            height,
+                            padding_top,
+                            padding_right,
+                            padding_bottom,
+                            padding_left,
+                            borders.top,
+                            borders.right,
+                            borders.bottom,
+                            borders.left,
+                            margins.top,
+                            margins.right,
+                            margins.bottom,
+                            margins.left,
+                            anchor.x,
+                            anchor.y,
+                        },
+                    );
+                    try block_stack.append(allocator, .{ .begin = index + 1, .end = index + skip, .indent = top.indent + 1 });
+                },
             }
         } else {
             if (subtree.index_of_root == block_stack.items.len) {

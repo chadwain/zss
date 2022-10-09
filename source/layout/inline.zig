@@ -23,7 +23,7 @@ const units_per_pixel = used_values.units_per_pixel;
 const BlockBoxIndex = used_values.BlockBoxIndex;
 const BlockBox = used_values.BlockBox;
 const BlockBoxSkip = used_values.BlockBoxSkip;
-const BlockSubtree = BlockBoxTree.Subtree;
+const BlockSubtree = used_values.BlockSubtree;
 const BlockSubtreeIndex = used_values.SubtreeIndex;
 const BlockBoxTree = used_values.BlockBoxTree;
 const StackingContextIndex = used_values.StackingContextIndex;
@@ -266,7 +266,7 @@ fn ifcRunOnce(
 
                 const block = try normal.createBlock(box_tree, subtree);
                 block.skip.* = undefined;
-                block.properties.* = .{};
+                block.type.* = .{ .block = .{ .stacking_context = undefined } };
                 normal.flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
 
                 const block_box = BlockBox{ .subtree = layout.subtree_index, .index = block.index };
@@ -283,6 +283,10 @@ fn ifcRunOnce(
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 };
                 try sc.pushStackingContext(stacking_context_type);
+                switch (stacking_context_type) {
+                    .none => block.type.block.stacking_context = null,
+                    .is_parent, .is_non_parent => |sc_index| block.type.block.stacking_context = sc_index,
+                }
 
                 var child_layout = normal.BlockLayoutContext{ .allocator = layout.allocator };
                 defer child_layout.deinit();
@@ -322,7 +326,7 @@ fn ifcRunOnce(
             const generated_box = box_tree.element_index_to_generated_box[element];
             const block_box = generated_box.block_box;
             if (block_box.subtree == layout.subtree_index) {
-                layout.result.total_inline_block_skip += box_tree.blocks.subtrees.items[block_box.subtree].skips.items[block_box.index];
+                layout.result.total_inline_block_skip += box_tree.blocks.subtrees.items[block_box.subtree].skip.items[block_box.index];
             } else {
                 panic("TODO: Inline block in a different subtree than parent IFC", .{});
             }

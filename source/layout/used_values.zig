@@ -117,10 +117,12 @@ pub const Background2 = struct {
     origin: Origin = .Padding,
 };
 
-pub const BlockBoxProperties = struct {
-    creates_stacking_context: bool = false,
-    subtree_root: ?SubtreeIndex = null,
-    contents: bool = false,
+pub const BlockType = union(enum) {
+    block: struct {
+        stacking_context: ?StackingContextIndex,
+    },
+    subtree_proxy: SubtreeIndex,
+    contents,
 };
 
 pub const SubtreeIndex = u16;
@@ -131,41 +133,41 @@ pub const BlockBox = struct {
 };
 pub const BlockBoxSkip = BlockBoxIndex;
 
+pub const BlockSubtree = struct {
+    skip: ArrayListUnmanaged(BlockBoxIndex) = .{},
+    type: ArrayListUnmanaged(BlockType) = .{},
+    box_offsets: ArrayListUnmanaged(BoxOffsets) = .{},
+    borders: ArrayListUnmanaged(Borders) = .{},
+    margins: ArrayListUnmanaged(Margins) = .{},
+    border_colors: ArrayListUnmanaged(BorderColor) = .{},
+    background1: ArrayListUnmanaged(Background1) = .{},
+    background2: ArrayListUnmanaged(Background2) = .{},
+
+    pub fn deinit(subtree: *BlockSubtree, allocator: Allocator) void {
+        subtree.skip.deinit(allocator);
+        subtree.type.deinit(allocator);
+        subtree.box_offsets.deinit(allocator);
+        subtree.borders.deinit(allocator);
+        subtree.margins.deinit(allocator);
+        subtree.border_colors.deinit(allocator);
+        subtree.background1.deinit(allocator);
+        subtree.background2.deinit(allocator);
+    }
+
+    pub fn ensureTotalCapacity(subtree: *BlockSubtree, allocator: Allocator, capacity: usize) !void {
+        try subtree.skip.ensureTotalCapacity(allocator, capacity);
+        try subtree.type.ensureTotalCapacity(allocator, capacity);
+        try subtree.box_offsets.ensureTotalCapacity(allocator, capacity);
+        try subtree.borders.ensureTotalCapacity(allocator, capacity);
+        try subtree.margins.ensureTotalCapacity(allocator, capacity);
+        try subtree.border_colors.ensureTotalCapacity(allocator, capacity);
+        try subtree.background1.ensureTotalCapacity(allocator, capacity);
+        try subtree.background2.ensureTotalCapacity(allocator, capacity);
+    }
+};
+
 pub const BlockBoxTree = struct {
-    subtrees: ArrayListUnmanaged(Subtree) = .{},
-
-    pub const Subtree = struct {
-        skips: ArrayListUnmanaged(BlockBoxIndex) = .{},
-        box_offsets: ArrayListUnmanaged(BoxOffsets) = .{},
-        borders: ArrayListUnmanaged(Borders) = .{},
-        margins: ArrayListUnmanaged(Margins) = .{},
-        border_colors: ArrayListUnmanaged(BorderColor) = .{},
-        background1: ArrayListUnmanaged(Background1) = .{},
-        background2: ArrayListUnmanaged(Background2) = .{},
-        properties: ArrayListUnmanaged(BlockBoxProperties) = .{},
-
-        pub fn deinit(subtree: *Subtree, allocator: Allocator) void {
-            subtree.skips.deinit(allocator);
-            subtree.box_offsets.deinit(allocator);
-            subtree.borders.deinit(allocator);
-            subtree.margins.deinit(allocator);
-            subtree.border_colors.deinit(allocator);
-            subtree.background1.deinit(allocator);
-            subtree.background2.deinit(allocator);
-            subtree.properties.deinit(allocator);
-        }
-
-        pub fn ensureTotalCapacity(subtree: *Subtree, allocator: Allocator, capacity: usize) !void {
-            try subtree.skips.ensureTotalCapacity(allocator, capacity);
-            try subtree.box_offsets.ensureTotalCapacity(allocator, capacity);
-            try subtree.borders.ensureTotalCapacity(allocator, capacity);
-            try subtree.margins.ensureTotalCapacity(allocator, capacity);
-            try subtree.border_colors.ensureTotalCapacity(allocator, capacity);
-            try subtree.background1.ensureTotalCapacity(allocator, capacity);
-            try subtree.background2.ensureTotalCapacity(allocator, capacity);
-            try subtree.properties.ensureTotalCapacity(allocator, capacity);
-        }
-    };
+    subtrees: ArrayListUnmanaged(BlockSubtree) = .{},
 
     fn deinit(tree: *BlockBoxTree, allocator: Allocator) void {
         for (tree.subtrees.items) |*subtree| {

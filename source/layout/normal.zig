@@ -23,7 +23,7 @@ const BlockBoxIndex = used_values.BlockBoxIndex;
 const initial_containing_block = @as(BlockBoxIndex, 0);
 const BlockBox = used_values.BlockBox;
 const BlockBoxSkip = used_values.BlockBoxSkip;
-const BlockSubtree = BlockBoxTree.Subtree;
+const BlockSubtree = used_values.BlockSubtree;
 const BlockSubtreeIndex = used_values.SubtreeIndex;
 const initial_subtree = @as(BlockSubtreeIndex, 0);
 const BlockBoxTree = used_values.BlockBoxTree;
@@ -119,6 +119,7 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                         computer.setComputedValue(.box_gen, .z_index, z_index);
                         const stacking_context_type = StackingContexts.Data{ .is_parent = try StackingContexts.createRootStackingContext(box_tree, box.block_box, 0) };
                         try sc.pushStackingContext(stacking_context_type);
+                        box_tree.blocks.subtrees.items[box.block_box.subtree].type.items[box.block_box.index].block.stacking_context = stacking_context_type.is_parent;
 
                         try computer.pushElement(.box_gen);
                     },
@@ -170,6 +171,12 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                             .initial, .inherit, .unset, .undeclared => unreachable,
                         };
                         try sc.pushStackingContext(stacking_context_type);
+
+                        const block_type = &box_tree.blocks.subtrees.items[box.block_box.subtree].type.items[box.block_box.index];
+                        switch (stacking_context_type) {
+                            .none => block_type.block.stacking_context = null,
+                            .is_parent, .is_non_parent => |sc_index| block_type.block.stacking_context = sc_index,
+                        }
 
                         interval.begin += skip;
                         try computer.pushElement(.box_gen);
@@ -224,7 +231,7 @@ pub fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleC
     const block = try createBlock(box_tree, subtree);
     assert(block.index == initial_containing_block);
     block.skip.* = undefined;
-    block.properties.* = .{};
+    block.type.* = .{ .block = .{ .stacking_context = null } };
     block.box_offsets.* = .{
         .border_pos = .{ .x = 0, .y = 0 },
         .content_pos = .{ .x = 0, .y = 0 },
@@ -254,7 +261,7 @@ fn popInitialContainingBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) vo
     _ = layout.width.pop();
     _ = layout.heights.pop();
 
-    box_tree.blocks.subtrees.items[initial_subtree].skips.items[initial_containing_block] = skip;
+    box_tree.blocks.subtrees.items[initial_subtree].skip.items[initial_containing_block] = skip;
 }
 
 pub fn pushContainingBlock(layout: *BlockLayoutContext, width: ZssUnit, height: ?ZssUnit) !void {
@@ -284,7 +291,7 @@ fn makeFlowBlock(
     const subtree = &box_tree.blocks.subtrees.items[subtree_index];
     const block = try createBlock(box_tree, subtree);
     block.skip.* = undefined;
-    block.properties.* = .{};
+    block.type.* = .{ .block = .{ .stacking_context = undefined } };
 
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     const specified_sizes = FlowBlockComputedSizes{
@@ -338,7 +345,7 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
     const heights = layout.heights.pop();
 
     const subtree = &box_tree.blocks.subtrees.items[subtree_index];
-    subtree.skips.items[block_box_index] = skip;
+    subtree.skip.items[block_box_index] = skip;
     const box_offsets = &subtree.box_offsets.items[block_box_index];
     assert(box_offsets.content_size.w == width);
     flowBlockFinishLayout(box_offsets, heights, auto_height);
@@ -858,17 +865,17 @@ pub const Block = struct {
     box_offsets: *used_values.BoxOffsets,
     borders: *used_values.Borders,
     margins: *used_values.Margins,
-    properties: *used_values.BlockBoxProperties,
+    type: *used_values.BlockType,
 };
 
 pub fn createBlock(box_tree: *BoxTree, subtree: *BlockSubtree) !Block {
-    const index = std.math.cast(BlockBoxIndex, subtree.skips.items.len) orelse return error.TooManyBlocks;
+    const index = std.math.cast(BlockBoxIndex, subtree.skip.items.len) orelse return error.TooManyBlocks;
     return Block{
         .index = index,
-        .skip = try subtree.skips.addOne(box_tree.allocator),
+        .skip = try subtree.skip.addOne(box_tree.allocator),
         .box_offsets = try subtree.box_offsets.addOne(box_tree.allocator),
         .borders = try subtree.borders.addOne(box_tree.allocator),
         .margins = try subtree.margins.addOne(box_tree.allocator),
-        .properties = try subtree.properties.addOne(box_tree.allocator),
+        .type = try subtree.type.addOne(box_tree.allocator),
     };
 }

@@ -37,7 +37,6 @@ pub fn createRootStackingContext(box_tree: *BoxTree, block_box: BlockBox, z_inde
     assert(box_tree.stacking_contexts.size() == 0);
     try box_tree.stacking_contexts.ensureTotalCapacity(box_tree.allocator, 1);
     const result = box_tree.stacking_contexts.createRootAssumeCapacity(.{ .z_index = z_index, .block_box = block_box, .ifcs = .{} });
-    box_tree.blocks.subtrees.items[block_box.subtree].properties.items[block_box.index].creates_stacking_context = true;
     return result;
 }
 
@@ -59,7 +58,6 @@ pub fn createStackingContext(sc: *StackingContexts, box_tree: *BoxTree, block_bo
     }
 
     box_tree.stacking_contexts.multi_list.insertAssumeCapacity(current, .{ .__skip = 1, .z_index = z_index, .block_box = block_box, .ifcs = .{} });
-    box_tree.blocks.subtrees.items[block_box.subtree].properties.items[block_box.index].creates_stacking_context = true;
     return current;
 }
 

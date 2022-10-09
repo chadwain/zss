@@ -235,6 +235,7 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, 
                             new_subtree.* = .{};
                             const new_subtree_block = try normal.createBlock(box_tree, new_subtree);
 
+                            // TODO: This might make stacking contexts out of order
                             const result = try inline_layout.makeInlineFormattingContext(
                                 layout.allocator,
                                 sc,
@@ -247,7 +248,7 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, 
                             );
 
                             new_subtree_block.skip.* = 1 + result.total_inline_block_skip;
-                            new_subtree_block.properties.* = .{ .contents = true };
+                            new_subtree_block.type.* = .contents;
 
                             const ifc = box_tree.ifcs.items[result.ifc_index];
                             const line_split_result = try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, new_subtree, ifc, containing_block_available_width);
@@ -338,7 +339,7 @@ fn stfRealizeObjects(
         switch (tag) {
             .flow_stf => {
                 const block = try normal.createBlock(box_tree, &box_tree.blocks.subtrees.items[initial_subtree]);
-                block.properties.* = .{};
+                block.type.* = .{ .block = .{ .stacking_context = null } };
 
                 const used_sizes: *FlowBlockUsedSizes = objects.getData2(.flow, &data_index_mutable);
                 // NOTE: Should we call normal.flowBlockAdjustWidthAndMargins?
@@ -375,7 +376,7 @@ fn stfRealizeObjects(
                         const subtree_index = layout.blocks.items(.subtree)[layout.blocks.len - 1];
                         const subtree = &box_tree.blocks.subtrees.items[subtree_index];
                         const block = try normal.createBlock(box_tree, subtree);
-                        block.properties.* = .{};
+                        block.type.* = .{ .block = .{ .stacking_context = null } };
 
                         const used_sizes: *FlowBlockUsedSizes = objects.getData2(.flow, &data_index_mutable);
                         normal.flowBlockAdjustWidthAndMargins(used_sizes, containing_block_width);
@@ -392,7 +393,7 @@ fn stfRealizeObjects(
                         const subtree_index = layout.blocks.items(.subtree)[layout.blocks.len - 1];
                         const subtree = &box_tree.blocks.subtrees.items[subtree_index];
                         const block = try normal.createBlock(box_tree, subtree);
-                        block.properties.* = .{};
+                        block.type.* = .{ .block = .{ .stacking_context = null } };
 
                         const used_sizes: *FlowBlockUsedSizes = objects.getData2(.flow, &data_index_mutable);
                         normal.flowBlockAdjustWidthAndMargins(used_sizes, containing_block_width);
@@ -418,7 +419,7 @@ fn stfRealizeObjects(
 
                         computer.popElement(.box_gen);
 
-                        const block_skip = subtree.skips.items[block.index];
+                        const block_skip = subtree.skip.items[block.index];
                         layout.blocks.items(.skip)[layout.blocks.len - 1] += block_skip;
                         const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
                         const box_offsets = &subtree.box_offsets.items[block.index];
@@ -433,7 +434,7 @@ fn stfRealizeObjects(
                         {
                             const block = try normal.createBlock(box_tree, subtree);
                             block.skip.* = 1;
-                            block.properties.* = .{ .subtree_root = data.subtree_index };
+                            block.type.* = .{ .subtree_proxy = data.subtree_index };
                             layout.blocks.items(.skip)[layout.blocks.len - 1] += 1;
                         }
 
@@ -459,7 +460,7 @@ fn stfRealizeObjects(
                 const used_sizes = objects.getData(.flow, data_index);
                 const box_offsets = &subtree.box_offsets.items[block.index];
 
-                subtree.skips.items[block.index] = block.skip;
+                subtree.skip.items[block.index] = block.skip;
                 normal.flowBlockFinishLayout(box_offsets, used_sizes.getUsedContentHeight(), auto_height);
 
                 if (layout.objects.len > 0) {
