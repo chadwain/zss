@@ -72,14 +72,19 @@ fn setupTest(t: *Test, info: TestInfo) void {
             break :blk hb_font;
         };
 
-        t.cascaded_values.font.ensureUnusedCapacity(allocator, 1) catch @panic("");
-        t.cascaded_values.color.ensureUnusedCapacity(allocator, 1) catch @panic("");
+        t.cascaded_values.font.ensureUnusedCapacity(allocator, 1) catch |err| fail(err);
+        t.cascaded_values.color.ensureUnusedCapacity(allocator, 1) catch |err| fail(err);
         t.cascaded_values.font.setAssumeCapacity(0, .{ .font = .{ .font = t.hb_font.? } });
         t.cascaded_values.color.setAssumeCapacity(0, .{ .color = .{ .rgba = t.font_color } });
     } else {
         t.ft_face = undefined;
         t.hb_font = null;
     }
+}
+
+fn fail(err: anyerror) noreturn {
+    std.debug.print("Error while setting up a test: {s}\n", .{@errorName(err)});
+    std.os.abort();
 }
 
 fn deinitTest(t: *Test) void {
