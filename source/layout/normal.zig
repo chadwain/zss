@@ -117,9 +117,9 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
 
                         const z_index = computer.getSpecifiedValue(.box_gen, .z_index); // TODO: Useless info
                         computer.setComputedValue(.box_gen, .z_index, z_index);
-                        const stacking_context_type = StackingContexts.Data{ .is_parent = try StackingContexts.createRootStackingContext(box_tree, box.block_box, 0) };
-                        try sc.pushStackingContext(stacking_context_type);
-                        box_tree.blocks.subtrees.items[box.block_box.subtree].type.items[box.block_box.index].block.stacking_context = stacking_context_type.is_parent;
+                        const stacking_context = try StackingContexts.createRootStackingContext(box_tree, box.block_box, 0);
+                        try sc.pushStackingContext(.is_parent, stacking_context.index);
+                        box_tree.blocks.subtrees.items[box.block_box.subtree].type.items[box.block_box.index].block.stacking_context = stacking_context.ref;
 
                         try computer.pushElement(.box_gen);
                     },
@@ -156,26 +156,31 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                     .block => {
                         const box = try makeFlowBlock(layout, computer, box_tree, subtree_index, containing_block_width, containing_block_height);
                         box_tree.element_index_to_generated_box[element] = box;
+                        const block_info = &box_tree.blocks.subtrees.items[box.block_box.subtree].type.items[box.block_box.index].block;
 
                         const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
                         computer.setComputedValue(.box_gen, .z_index, specified_z_index);
-                        const stacking_context_type: StackingContexts.Data = switch (computed.box_style.position) {
-                            .static => .none,
+                        switch (computed.box_style.position) {
+                            .static => {
+                                try sc.pushStackingContext(.none, {});
+                                block_info.stacking_context = null;
+                            },
                             // TODO: Position the block using the values of the 'inset' family of properties.
                             .relative => switch (specified_z_index.z_index) {
-                                .integer => |z_index| StackingContexts.Data{ .is_parent = try sc.createStackingContext(box_tree, box.block_box, z_index) },
-                                .auto => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, box.block_box, 0) },
+                                .integer => |z_index| {
+                                    const stacking_context = try sc.createStackingContext(box_tree, box.block_box, z_index);
+                                    try sc.pushStackingContext(.is_parent, stacking_context.index);
+                                    block_info.stacking_context = stacking_context.ref;
+                                },
+                                .auto => {
+                                    const stacking_context = try sc.createStackingContext(box_tree, box.block_box, 0);
+                                    try sc.pushStackingContext(.is_non_parent, stacking_context.index);
+                                    block_info.stacking_context = stacking_context.ref;
+                                },
                                 .initial, .inherit, .unset, .undeclared => unreachable,
                             },
                             .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(computed.box_style.position)}),
                             .initial, .inherit, .unset, .undeclared => unreachable,
-                        };
-                        try sc.pushStackingContext(stacking_context_type);
-
-                        const block_type = &box_tree.blocks.subtrees.items[box.block_box.subtree].type.items[box.block_box.index];
-                        switch (stacking_context_type) {
-                            .none => block_type.block.stacking_context = null,
-                            .is_parent, .is_non_parent => |sc_index| block_type.block.stacking_context = sc_index,
                         }
 
                         interval.begin += skip;
@@ -315,6 +320,7 @@ fn makeFlowBlock(
     computer.setComputedValue(.box_gen, .border_styles, border_styles);
 
     try pushFlowBlock(layout, subtree_index, block.index, used_sizes);
+    // TODO: Returning the subtree_index is redundant
     return GeneratedBox{ .block_box = .{ .subtree = subtree_index, .index = block.index } };
 }
 
@@ -783,7 +789,7 @@ pub fn flowBlockSolveVerticalEdges(
 
 /// Changes the used sizes of a flow block that is in normal flow.
 /// This implements the constraints described in CSS2.2§10.3.3.
-pub fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_width: ZssUnit) void {
+fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_width: ZssUnit) void {
     const content_margin_space = containing_block_width -
         (used.border_inline_start + used.border_inline_end + used.padding_inline_start + used.padding_inline_end);
     if (used.inlineSizeAndMarginsAreNotAuto()) {
@@ -839,14 +845,10 @@ pub fn flowBlockSetData(
     margins.bottom = used.margin_block_end;
 }
 
-fn flowBlockSetData2(used_height: ZssUnit, box_offsets: *used_values.BoxOffsets) void {
-    box_offsets.content_size.h = used_height;
-    box_offsets.border_size.h += used_height;
-}
-
 pub fn flowBlockFinishLayout(box_offsets: *used_values.BoxOffsets, heights: UsedContentHeight, auto_height: ZssUnit) void {
     const used_height = heights.height orelse solve.clampSize(auto_height, heights.min_height, heights.max_height);
-    flowBlockSetData2(used_height, box_offsets);
+    box_offsets.content_size.h = used_height;
+    box_offsets.border_size.h += used_height;
 }
 
 pub fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_bottom: ZssUnit, parent_auto_height: *ZssUnit) void {

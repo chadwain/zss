@@ -63,9 +63,10 @@ fn validateStackingContexts(box_tree: *zss.used_values.BoxTree) !void {
     const StackingContextTree = used.StackingContextTree;
     const ZIndex = used.ZIndex;
 
-    const root_iterator = box_tree.stacking_contexts.iterator() orelse return;
+    const root_iterator = box_tree.stacking_contexts.iterator();
+    if (root_iterator.empty()) return;
 
-    const slice = box_tree.stacking_contexts.slice();
+    const slice = box_tree.stacking_contexts.list.slice();
     const skips = slice.items(.__skip);
     const z_index = slice.items(.z_index);
     try expect(z_index[root_iterator.index] == 0);

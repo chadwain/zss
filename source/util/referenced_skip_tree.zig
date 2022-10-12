@@ -71,6 +71,7 @@ pub fn ReferencedSkipTree(comptime IndexType: type, comptime ReferenceType: type
         pub const Ref = ReferenceType;
         pub const Value = ValueType;
         pub const List = MultiArrayList(ListElement);
+        pub const Iterator = @import("./skip_tree.zig").SkipTreeIterator(IndexType);
 
         const Self = @This();
 
@@ -80,6 +81,10 @@ pub fn ReferencedSkipTree(comptime IndexType: type, comptime ReferenceType: type
 
         pub fn size(self: Self) Index {
             return @intCast(Index, self.list.len);
+        }
+
+        pub fn iterator(self: Self) Iterator {
+            return Iterator{ .index = 0, .end = self.size() };
         }
 
         pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: Index) error{ OutOfRefs, OutOfMemory }!void {
@@ -104,7 +109,7 @@ pub fn ReferencedSkipTree(comptime IndexType: type, comptime ReferenceType: type
             return ref;
         }
 
-        /// Create a new element that as the last child of `parent`, and give it the value `value`.
+        /// Create a new element that is the last child of `parent`, and give it the value `value`.
         /// There must already be enough capacity to hold one more element.
         /// Returns the ref of the new element.
         pub fn appendChildAssumeCapacity(self: *Self, parent: Ref, value: Value) Ref {

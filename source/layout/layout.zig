@@ -17,6 +17,7 @@ const GeneratedBox = used_values.GeneratedBox;
 pub const Error = error{
     InvalidValue,
     OutOfMemory,
+    OutOfRefs,
     TooManyBlockSubtrees,
     TooManyBlocks,
     TooManyIfcs,

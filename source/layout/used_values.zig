@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
-const SkipTree = zss.SkipTree;
+const ReferencedSkipTree = zss.ReferencedSkipTree;
 
 /// The fundamental unit of space used for all CSS layout computations in zss.
 pub const ZssUnit = i32;
@@ -119,7 +119,7 @@ pub const Background2 = struct {
 
 pub const BlockType = union(enum) {
     block: struct {
-        stacking_context: ?StackingContextIndex,
+        stacking_context: ?StackingContextRef,
     },
     subtree_proxy: SubtreeIndex,
     contents,
@@ -344,6 +344,7 @@ pub const InlineFormattingContext = struct {
 };
 
 pub const StackingContextIndex = u16;
+pub const StackingContextRef = u17;
 pub const ZIndex = i32;
 
 pub const StackingContext = struct {
@@ -355,8 +356,7 @@ pub const StackingContext = struct {
     ifcs: ArrayListUnmanaged(InlineFormattingContextIndex),
 };
 
-// NOTE: This might benefit from being a SparseSkipTree instead.
-pub const StackingContextTree = SkipTree(StackingContextIndex, StackingContext);
+pub const StackingContextTree = ReferencedSkipTree(StackingContextIndex, StackingContextRef, StackingContext);
 
 /// The type of box(es) that an element generates.
 pub const GeneratedBox = union(enum) {
@@ -387,7 +387,7 @@ pub const BoxTree = struct {
             self.allocator.destroy(ifc);
         }
         self.ifcs.deinit(self.allocator);
-        for (self.stacking_contexts.multi_list.items(.ifcs)) |*ifc_list| {
+        for (self.stacking_contexts.list.items(.ifcs)) |*ifc_list| {
             ifc_list.deinit(self.allocator);
         }
         self.stacking_contexts.deinit(self.allocator);

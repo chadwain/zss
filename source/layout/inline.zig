@@ -112,7 +112,7 @@ pub fn makeInlineFormattingContext(
         break :ifc result;
     };
 
-    const sc_ifcs = &box_tree.stacking_contexts.multi_list.items(.ifcs)[sc.current];
+    const sc_ifcs = &box_tree.stacking_contexts.list.items(.ifcs)[sc.current];
     try sc_ifcs.append(box_tree.allocator, ifc_index);
 
     const percentage_base_unit: ZssUnit = switch (mode) {
@@ -248,88 +248,83 @@ fn ifcRunOnce(
         .inline_block => {
             interval.begin += skip;
             computer.setComputedValue(.box_gen, .box_style, computed);
+
+            const subtree = &box_tree.blocks.subtrees.items[layout.subtree_index];
+            const block = try normal.createBlock(box_tree, subtree);
+            block.skip.* = undefined;
+            block.type.* = .{ .block = .{ .stacking_context = undefined } };
+            const block_box = BlockBox{ .subtree = layout.subtree_index, .index = block.index };
+            box_tree.element_index_to_generated_box[element] = .{ .block_box = block_box };
+
+            const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
+            computer.setComputedValue(.box_gen, .z_index, z_index);
+            switch (computed.position) {
+                .static => {
+                    const stacking_context = try sc.createStackingContext(box_tree, block_box, 0);
+                    try sc.pushStackingContext(.is_non_parent, stacking_context.index);
+                    block.type.block.stacking_context = stacking_context.ref;
+                },
+                // TODO: Position the block using the values of the 'inset' family of properties.
+                .relative => switch (z_index.z_index) {
+                    .integer => |integer| {
+                        const stacking_context = try sc.createStackingContext(box_tree, block_box, integer);
+                        try sc.pushStackingContext(.is_parent, stacking_context.index);
+                        block.type.block.stacking_context = stacking_context.ref;
+                    },
+                    .auto => {
+                        const stacking_context = try sc.createStackingContext(box_tree, block_box, 0);
+                        try sc.pushStackingContext(.is_non_parent, stacking_context.index);
+                        block.type.block.stacking_context = stacking_context.ref;
+                    },
+                    .initial, .inherit, .unset, .undeclared => unreachable,
+                },
+                .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(computed.position)}),
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            }
+
             const used_sizes = try inlineBlockSolveSizes(
                 computer,
                 layout.containing_block_width,
                 layout.containing_block_height,
             );
-            const subtree = &box_tree.blocks.subtrees.items[layout.subtree_index];
+
+            // TODO: Grabbing useless data to satisfy inheritance...
+            const font = computer.getSpecifiedValue(.box_gen, .font);
+            computer.setComputedValue(.box_gen, .font, font);
+            try computer.pushElement(.box_gen);
+
             const frame = try layout.getFrame();
-
             if (!used_sizes.isFieldAuto(.inline_size)) {
-                const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
-                computer.setComputedValue(.box_gen, .z_index, z_index);
-                // TODO: Grabbing useless data to satisfy inheritance...
-                const font = computer.getSpecifiedValue(.box_gen, .font);
-                computer.setComputedValue(.box_gen, .font, font);
-                try computer.pushElement(.box_gen);
-
-                const block = try normal.createBlock(box_tree, subtree);
-                block.skip.* = undefined;
-                block.type.* = .{ .block = .{ .stacking_context = undefined } };
                 normal.flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
 
-                const block_box = BlockBox{ .subtree = layout.subtree_index, .index = block.index };
-
-                const stacking_context_type: StackingContexts.Data = switch (computed.position) {
-                    .static => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, block_box, 0) },
-                    // TODO: Position the block using the values of the 'inset' family of properties.
-                    .relative => switch (z_index.z_index) {
-                        .integer => |integer| StackingContexts.Data{ .is_parent = try sc.createStackingContext(box_tree, block_box, integer) },
-                        .auto => StackingContexts.Data{ .is_non_parent = try sc.createStackingContext(box_tree, block_box, 0) },
-                        .initial, .inherit, .unset, .undeclared => unreachable,
-                    },
-                    .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(computed.position)}),
-                    .initial, .inherit, .unset, .undeclared => unreachable,
-                };
-                try sc.pushStackingContext(stacking_context_type);
-                switch (stacking_context_type) {
-                    .none => block.type.block.stacking_context = null,
-                    .is_parent, .is_non_parent => |sc_index| block.type.block.stacking_context = sc_index,
-                }
-
-                var child_layout = normal.BlockLayoutContext{ .allocator = layout.allocator };
-                defer child_layout.deinit();
-                try normal.pushContainingBlock(&child_layout, layout.containing_block_width, layout.containing_block_height);
-                try normal.pushFlowBlock(&child_layout, layout.subtree_index, block.index, used_sizes);
+                var normal_layout = normal.BlockLayoutContext{ .allocator = layout.allocator };
+                defer normal_layout.deinit();
+                try normal.pushContainingBlock(&normal_layout, layout.containing_block_width, layout.containing_block_height);
+                try normal.pushFlowBlock(&normal_layout, layout.subtree_index, block.index, used_sizes);
 
                 nosuspend {
-                    frame.normal = async normal.mainLoop(&child_layout, sc, computer, box_tree);
+                    frame.normal = async normal.mainLoop(&normal_layout, sc, computer, box_tree);
                     try await frame.normal;
+                    frame.* = undefined;
                 }
-
-                box_tree.element_index_to_generated_box[element] = .{ .block_box = block_box };
             } else {
-                // TODO: Create a stacking context
-                { // TODO: Grabbing useless data to satisfy inheritance...
-                    const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
-                    computer.setComputedValue(.box_gen, .z_index, specified_z_index);
-                    const specified_font = computer.getSpecifiedValue(.box_gen, .font);
-                    computer.setComputedValue(.box_gen, .font, specified_font);
-                }
-                try computer.pushElement(.box_gen);
-
                 // TODO: This value should be either clamped or maximized
                 const available_width = layout.containing_block_width -
                     (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
                     used_sizes.border_inline_start + used_sizes.border_inline_end +
                     used_sizes.padding_inline_start + used_sizes.padding_inline_end);
-                var stf_layout = try stf.ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, element, used_sizes, available_width);
+
+                var stf_layout = try stf.ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, element, block_box, used_sizes, available_width);
                 defer stf_layout.deinit();
 
                 nosuspend {
-                    frame.stf = async stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree, layout.subtree_index);
+                    frame.stf = async stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree);
                     try await frame.stf;
+                    frame.* = undefined;
                 }
             }
 
-            const generated_box = box_tree.element_index_to_generated_box[element];
-            const block_box = generated_box.block_box;
-            if (block_box.subtree == layout.subtree_index) {
-                layout.result.total_inline_block_skip += box_tree.blocks.subtrees.items[block_box.subtree].skip.items[block_box.index];
-            } else {
-                panic("TODO: Inline block in a different subtree than parent IFC", .{});
-            }
+            layout.result.total_inline_block_skip += box_tree.blocks.subtrees.items[block_box.subtree].skip.items[block_box.index];
             try ifcAddInlineBlock(box_tree, ifc, block_box.index);
         },
         .block => {
