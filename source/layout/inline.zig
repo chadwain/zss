@@ -308,11 +308,11 @@ fn ifcRunOnce(
                     frame.* = undefined;
                 }
             } else {
-                // TODO: This value should be either clamped or maximized
-                const available_width = layout.containing_block_width -
+                const available_width_unclamped = layout.containing_block_width -
                     (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
                     used_sizes.border_inline_start + used_sizes.border_inline_end +
                     used_sizes.padding_inline_start + used_sizes.padding_inline_end);
+                const available_width = solve.clampSize(available_width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
 
                 var stf_layout = try stf.ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, element, block_box, used_sizes, available_width);
                 defer stf_layout.deinit();

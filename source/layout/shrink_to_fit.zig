@@ -34,7 +34,7 @@ const InlineFormattingContext = used_values.InlineFormattingContext;
 const GeneratedBox = used_values.GeneratedBox;
 const BoxTree = used_values.BoxTree;
 
-const StfObjects = struct {
+const Objects = struct {
     tree: MultiArrayList(Object) = .{},
     data: ArrayListAlignedUnmanaged([data_chunk_size]u8, data_max_alignment) = .{},
 
@@ -46,8 +46,8 @@ const StfObjects = struct {
     const DataIndex = usize;
 
     const Tag = enum {
-        flow_normal,
         flow_stf,
+        flow_normal,
         ifc,
         none,
     };
@@ -72,7 +72,7 @@ const StfObjects = struct {
         element: ElementIndex,
     };
 
-    fn allocData(objects: *StfObjects, allocator: Allocator, comptime tag: DataTag) !DataIndex {
+    fn allocData(objects: *Objects, allocator: Allocator, comptime tag: DataTag) !DataIndex {
         const Data = tag.Type();
         const size = @sizeOf(Data);
         const num_chunks = zss.util.divCeil(size, data_chunk_size);
@@ -81,7 +81,7 @@ const StfObjects = struct {
         return objects.data.items.len;
     }
 
-    fn getData(objects: *const StfObjects, comptime tag: DataTag, data_index: DataIndex) *tag.Type() {
+    fn getData(objects: *const Objects, comptime tag: DataTag, data_index: DataIndex) *tag.Type() {
         const Data = tag.Type();
         const size = @sizeOf(Data);
         const num_chunks = zss.util.divCeil(size, data_chunk_size);
@@ -90,7 +90,7 @@ const StfObjects = struct {
         return std.mem.bytesAsValue(Data, bytes);
     }
 
-    fn getData2(objects: *const StfObjects, comptime tag: DataTag, data_index: *DataIndex) *tag.Type() {
+    fn getData2(objects: *const Objects, comptime tag: DataTag, data_index: *DataIndex) *tag.Type() {
         const Data = tag.Type();
         const size = @sizeOf(Data);
         const num_chunks = zss.util.divCeil(size, data_chunk_size);
@@ -118,11 +118,6 @@ const UsedMargins = struct {
         @field(self, @tagName(field) ++ "_untagged") = value;
     }
 
-    fn setAuto(self: *UsedMargins, comptime field: Field) void {
-        self.auto_bitfield |= @enumToInt(field);
-        @field(self, @tagName(field) ++ "_untagged") = 0;
-    }
-
     fn get(self: UsedMargins, comptime field: Field) ?ZssUnit {
         return if (self.isFieldAuto(field)) null else @field(self, @tagName(field) ++ "_untagged");
     }
@@ -138,7 +133,7 @@ const UsedMargins = struct {
 };
 
 pub const ShrinkToFitLayoutContext = struct {
-    objects: StfObjects = .{},
+    objects: Objects = .{},
     object_stack: MultiArrayList(ObjectStackItem) = .{},
 
     widths: MultiArrayList(Widths) = .{},
@@ -148,9 +143,9 @@ pub const ShrinkToFitLayoutContext = struct {
     allocator: Allocator,
 
     const ObjectStackItem = struct {
-        index: StfObjects.Index,
-        skip: StfObjects.Skip,
-        data_index: StfObjects.DataIndex,
+        index: Objects.Index,
+        skip: Objects.Skip,
+        data_index: Objects.DataIndex,
     };
 
     const Widths = struct {
@@ -175,7 +170,7 @@ pub const ShrinkToFitLayoutContext = struct {
         const data_ptr = result.objects.getData(.flow_stf, data_index);
         data_ptr.* = .{ .used = used_sizes, .stacking_context_ref = undefined };
         try result.object_stack.append(result.allocator, .{ .index = 0, .skip = 1, .data_index = data_index });
-        try stfPushFlowBlock(&result, used_sizes, available_width);
+        try pushFlowBlock(&result, used_sizes, available_width);
         return result;
     }
 
@@ -195,11 +190,11 @@ pub fn shrinkToFitLayout(
     computer: *StyleComputer,
     box_tree: *BoxTree,
 ) !void {
-    try stfBuildObjectTree(layout, sc, computer, box_tree);
-    try stfRealizeObjects(layout.objects, layout.allocator, computer.element_tree_skips, box_tree, layout.root_block_box);
+    try buildObjectTree(layout, sc, computer, box_tree);
+    try createObjects(layout.objects, layout.allocator, computer.element_tree_skips, box_tree, layout.root_block_box);
 }
 
-fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
+fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
     assert(layout.objects.tree.len == 1);
     assert(layout.object_stack.len > 0);
     while (layout.object_stack.len > 0) {
@@ -223,7 +218,7 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, 
                     switch (computed.display) {
                         .block => {
                             var used: FlowBlockUsedSizes = undefined;
-                            try stfAnalyzeFlowBlock(computer, &used, containing_block_height);
+                            try solveFlowBlockSizes(computer, &used, containing_block_height);
 
                             const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
                             computer.setComputedValue(.box_gen, .z_index, z_index);
@@ -282,12 +277,16 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, 
                                 const new_subtree = try box_tree.blocks.subtrees.addOne(box_tree.allocator);
                                 new_subtree.* = .{};
                                 const new_subtree_block = try normal.createBlock(box_tree, new_subtree);
+                                new_subtree_block.type.* = .{ .block = .{ .stacking_context = undefined } };
                                 normal.flowBlockSetData(used, new_subtree_block.box_offsets, new_subtree_block.borders, new_subtree_block.margins);
 
                                 const generated_box = GeneratedBox{ .block_box = .{ .subtree = data.subtree_index, .index = new_subtree_block.index } };
                                 box_tree.element_index_to_generated_box[element] = generated_box;
                                 if (stacking_context_optional) |stacking_context| {
                                     StackingContexts.fixupStackingContextIndex(box_tree, stacking_context.index, generated_box.block_box);
+                                    new_subtree_block.type.block.stacking_context = stacking_context.ref;
+                                } else {
+                                    new_subtree_block.type.block.stacking_context = null;
                                 }
 
                                 var new_block_layout = BlockLayoutContext{ .allocator = layout.allocator };
@@ -303,8 +302,8 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, 
                                 }
                             } else {
                                 const parent_available_width = layout.widths.items(.available)[layout.widths.len - 1];
-                                const available_width = std.math.max(0, parent_available_width - edge_width);
-                                try stfPushFlowBlock(layout, used, available_width);
+                                const available_width = solve.clampSize(parent_available_width - edge_width, used.min_inline_size, used.max_inline_size);
+                                try pushFlowBlock(layout, used, available_width);
 
                                 const data_index = try layout.objects.allocData(layout.allocator, .flow_stf);
                                 const data = layout.objects.getData(.flow_stf, data_index);
@@ -314,7 +313,7 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, 
                                 };
 
                                 try layout.object_stack.append(layout.allocator, .{
-                                    .index = @intCast(StfObjects.Index, layout.objects.tree.len),
+                                    .index = @intCast(Objects.Index, layout.objects.tree.len),
                                     .skip = 1,
                                     .data_index = data_index,
                                 });
@@ -365,11 +364,11 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, 
                     const object_info = layout.object_stack.pop();
                     layout.objects.tree.items(.skip)[object_info.index] = object_info.skip;
 
-                    const block_info = stfPopFlowBlock(layout);
+                    const block_info = popFlowBlock(layout);
                     const data = layout.objects.getData(.flow_stf, object_info.data_index);
 
                     const used = &data.used;
-                    used.set(.inline_size, block_info.auto_width);
+                    used.set(.inline_size, solve.clampSize(block_info.auto_width, used.min_inline_size, used.max_inline_size));
 
                     computer.popElement(.box_gen);
 
@@ -378,8 +377,12 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, 
                         const parent_object_tag = layout.objects.tree.items(.tag)[parent_object_index];
                         switch (parent_object_tag) {
                             .flow_stf => {
+                                const full_width = used.inline_size_untagged +
+                                    used.padding_inline_start + used.padding_inline_end +
+                                    used.border_inline_start + used.border_inline_end +
+                                    used.margin_inline_start_untagged + used.margin_inline_end_untagged;
                                 const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
-                                parent_auto_width.* = std.math.max(parent_auto_width.*, used.get(.inline_size).?);
+                                parent_auto_width.* = std.math.max(parent_auto_width.*, full_width);
                             },
                             .flow_normal, .ifc, .none => unreachable,
                         }
@@ -394,15 +397,15 @@ fn stfBuildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, 
 }
 
 const ShrinkToFitLayoutContext2 = struct {
-    objects: MultiArrayList(struct { tag: StfObjects.Tag, interval: Interval, data_index: StfObjects.DataIndex }) = .{},
+    objects: MultiArrayList(struct { tag: Objects.Tag, interval: Interval, data_index: Objects.DataIndex }) = .{},
     blocks: MultiArrayList(struct { index: BlockBoxIndex, skip: BlockBoxSkip }) = .{},
     width: ArrayListUnmanaged(ZssUnit) = .{},
     height: ArrayListUnmanaged(?ZssUnit) = .{},
     auto_height: ArrayListUnmanaged(ZssUnit) = .{},
 
     const Interval = struct {
-        begin: StfObjects.Index,
-        end: StfObjects.Index,
+        begin: Objects.Index,
+        end: Objects.Index,
     };
 
     fn deinit(layout: *ShrinkToFitLayoutContext2, allocator: Allocator) void {
@@ -414,8 +417,8 @@ const ShrinkToFitLayoutContext2 = struct {
     }
 };
 
-fn stfRealizeObjects(
-    objects: StfObjects,
+fn createObjects(
+    objects: Objects,
     allocator: Allocator,
     element_tree_skips: []const ElementIndex,
     box_tree: *BoxTree,
@@ -427,7 +430,7 @@ fn stfRealizeObjects(
 
     const subtree = &box_tree.blocks.subtrees.items[root_block_box.subtree];
 
-    var data_index_mutable: StfObjects.DataIndex = 0;
+    var data_index_mutable: Objects.DataIndex = 0;
     var layout = ShrinkToFitLayoutContext2{};
     defer layout.deinit(allocator);
 
@@ -567,7 +570,7 @@ fn stfRealizeObjects(
     }
 }
 
-fn stfAnalyzeFlowBlock(
+fn solveFlowBlockSizes(
     computer: *StyleComputer,
     used: *FlowBlockUsedSizes,
     containing_block_height: ?ZssUnit,
@@ -581,8 +584,8 @@ fn stfAnalyzeFlowBlock(
     };
     var computed: FlowBlockComputedSizes = undefined;
 
-    try stfFlowBlockSolveContentWidth(specified.content_width, &computed.content_width, used);
-    try stfFlowBlockSolveHorizontalEdges(specified.horizontal_edges, specified.border_styles, &computed.horizontal_edges, used);
+    try flowBlockSolveContentWidth(specified.content_width, &computed.content_width, used);
+    try flowBlockSolveHorizontalEdges(specified.horizontal_edges, specified.border_styles, &computed.horizontal_edges, used);
     try normal.flowBlockSolveContentHeight(specified.content_height, containing_block_height, &computed.content_height, used);
     try normal.flowBlockSolveVerticalEdges(specified.vertical_edges, 0, specified.border_styles, &computed.vertical_edges, used);
 
@@ -593,21 +596,21 @@ fn stfAnalyzeFlowBlock(
     computer.setComputedValue(.box_gen, .border_styles, specified.border_styles);
 }
 
-fn stfPushFlowBlock(layout: *ShrinkToFitLayoutContext, used_sizes: FlowBlockUsedSizes, available_width: ZssUnit) !void {
-    // The allocations here must have corresponding deallocations in stfPopFlowBlock.
+fn pushFlowBlock(layout: *ShrinkToFitLayoutContext, used_sizes: FlowBlockUsedSizes, available_width: ZssUnit) !void {
+    // The allocations here must have corresponding deallocations in popFlowBlock.
     try layout.widths.append(layout.allocator, .{ .auto = 0, .available = available_width });
     try layout.heights.append(layout.allocator, used_sizes.get(.block_size));
 }
 
-fn stfPopFlowBlock(layout: *ShrinkToFitLayoutContext) struct { auto_width: ZssUnit } {
-    // The deallocations here must correspond to allocations in stfPushFlowBlock.
+fn popFlowBlock(layout: *ShrinkToFitLayoutContext) struct { auto_width: ZssUnit } {
+    // The deallocations here must correspond to allocations in pushFlowBlock.
     _ = layout.heights.pop();
     return .{
         .auto_width = layout.widths.pop().auto,
     };
 }
 
-fn stfFlowBlockSolveContentWidth(
+fn flowBlockSolveContentWidth(
     specified: zss.properties.ContentSize,
     computed: *zss.properties.ContentSize,
     used: *FlowBlockUsedSizes,
@@ -656,7 +659,7 @@ fn stfFlowBlockSolveContentWidth(
     }
 }
 
-fn stfFlowBlockSolveHorizontalEdges(
+fn flowBlockSolveHorizontalEdges(
     specified: zss.properties.BoxEdges,
     border_styles: zss.properties.BorderStyles,
     computed: *zss.properties.BoxEdges,
