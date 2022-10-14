@@ -406,6 +406,7 @@ pub const FlowBlockUsedSizes = struct {
         block_size = 8,
     };
 
+    // TODO: Split this up into set and setAuto
     pub fn set(self: *FlowBlockUsedSizes, comptime field: PossiblyAutoField, value: ?ZssUnit) void {
         const clamped_value = clamped_value: {
             if (value) |v| {
@@ -870,6 +871,7 @@ pub const Block = struct {
     type: *used_values.BlockType,
 };
 
+// TODO: Make this return only the index, and move it to layout.zig
 pub fn createBlock(box_tree: *BoxTree, subtree: *BlockSubtree) !Block {
     const index = std.math.cast(BlockBoxIndex, subtree.skip.items.len) orelse return error.TooManyBlocks;
     return Block{

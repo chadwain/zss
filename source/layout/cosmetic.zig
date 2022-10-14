@@ -18,7 +18,7 @@ const BoxTree = used_values.BoxTree;
 
 pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
     for (box_tree.blocks.subtrees.items) |*subtree| {
-        const num_created_boxes = subtree.skip.items[0];
+        const num_created_boxes = subtree.skip.items.len;
         try subtree.border_colors.resize(box_tree.allocator, num_created_boxes);
         try subtree.background1.resize(box_tree.allocator, num_created_boxes);
         try subtree.background2.resize(box_tree.allocator, num_created_boxes);

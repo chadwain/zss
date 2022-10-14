@@ -122,7 +122,6 @@ pub const BlockType = union(enum) {
         stacking_context: ?StackingContextRef,
     },
     subtree_proxy: SubtreeIndex,
-    contents,
 };
 
 pub const SubtreeIndex = u16;

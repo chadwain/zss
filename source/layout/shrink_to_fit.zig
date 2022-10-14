@@ -329,7 +329,6 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                             const new_subtree_index = std.math.cast(BlockSubtreeIndex, box_tree.blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees;
                             const new_subtree = try box_tree.blocks.subtrees.addOne(box_tree.allocator);
                             new_subtree.* = .{};
-                            const new_subtree_block = try normal.createBlock(box_tree, new_subtree);
 
                             const result = try inline_layout.makeInlineFormattingContext(
                                 layout.allocator,
@@ -341,9 +340,6 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 containing_block_available_width,
                                 containing_block_height,
                             );
-
-                            new_subtree_block.skip.* = 1 + result.total_inline_block_skip;
-                            new_subtree_block.type.* = .contents;
 
                             const ifc = box_tree.ifcs.items[result.ifc_index];
                             const line_split_result = try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, new_subtree, ifc, containing_block_available_width);
