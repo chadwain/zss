@@ -406,23 +406,19 @@ pub const FlowBlockUsedSizes = struct {
         block_size = 8,
     };
 
-    // TODO: Split this up into set and setAuto
-    pub fn set(self: *FlowBlockUsedSizes, comptime field: PossiblyAutoField, value: ?ZssUnit) void {
-        const clamped_value = clamped_value: {
-            if (value) |v| {
-                self.auto_bitfield &= (~@enumToInt(field));
-                break :clamped_value switch (field) {
-                    .inline_size => solve.clampSize(v, self.min_inline_size, self.max_inline_size),
-                    .margin_inline_start, .margin_inline_end => v,
-                    .block_size => solve.clampSize(v, self.min_block_size, self.max_block_size),
-                };
-            } else {
-                self.auto_bitfield |= @enumToInt(field);
-                break :clamped_value 0;
-            }
+    pub fn set(self: *FlowBlockUsedSizes, comptime field: PossiblyAutoField, value: ZssUnit) void {
+        self.auto_bitfield &= (~@enumToInt(field));
+        const clamped_value = switch (field) {
+            .inline_size => solve.clampSize(value, self.min_inline_size, self.max_inline_size),
+            .margin_inline_start, .margin_inline_end => value,
+            .block_size => solve.clampSize(value, self.min_block_size, self.max_block_size),
         };
-
         @field(self, @tagName(field) ++ "_untagged") = clamped_value;
+    }
+
+    pub fn setAuto(self: *FlowBlockUsedSizes, comptime field: PossiblyAutoField) void {
+        self.auto_bitfield |= @enumToInt(field);
+        @field(self, @tagName(field) ++ "_untagged") = 0;
     }
 
     pub fn get(self: FlowBlockUsedSizes, comptime field: PossiblyAutoField) ?ZssUnit {
@@ -574,7 +570,7 @@ fn flowBlockSolveWidths(
         },
         .auto => {
             computed.content_width.size = .auto;
-            used.set(.inline_size, null);
+            used.setAuto(.inline_size);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -589,7 +585,7 @@ fn flowBlockSolveWidths(
         },
         .auto => {
             computed.horizontal_edges.margin_start = .auto;
-            used.set(.margin_inline_start, null);
+            used.setAuto(.margin_inline_start);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -604,7 +600,7 @@ fn flowBlockSolveWidths(
         },
         .auto => {
             computed.horizontal_edges.margin_end = .auto;
-            used.set(.margin_inline_end, null);
+            used.setAuto(.margin_inline_end);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -657,14 +653,14 @@ pub fn flowBlockSolveContentHeight(
         },
         .percentage => |value| {
             computed.size = .{ .percentage = value };
-            used.set(.block_size, if (containing_block_height) |h|
-                try solve.positivePercentage(value, h)
+            if (containing_block_height) |h|
+                used.set(.block_size, try solve.positivePercentage(value, h))
             else
-                null);
+                used.setAuto(.block_size);
         },
         .auto => {
             computed.size = .auto;
-            used.set(.block_size, null);
+            used.setAuto(.block_size);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }

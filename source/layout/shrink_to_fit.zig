@@ -645,11 +645,11 @@ fn flowBlockSolveContentWidth(
         },
         .percentage => |value| {
             computed.size = .{ .percentage = value };
-            used.set(.inline_size, null);
+            used.setAuto(.inline_size);
         },
         .auto => {
             computed.size = .auto;
-            used.set(.inline_size, null);
+            used.setAuto(.inline_size);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -744,11 +744,11 @@ fn flowBlockSolveHorizontalEdges(
         },
         .percentage => |value| {
             computed.margin_start = .{ .percentage = value };
-            used.set(.margin_inline_start, null);
+            used.setAuto(.margin_inline_start);
         },
         .auto => {
             computed.margin_start = .auto;
-            used.set(.margin_inline_start, null);
+            used.setAuto(.margin_inline_start);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -759,11 +759,11 @@ fn flowBlockSolveHorizontalEdges(
         },
         .percentage => |value| {
             computed.margin_end = .{ .percentage = value };
-            used.set(.margin_inline_end, null);
+            used.setAuto(.margin_inline_end);
         },
         .auto => {
             computed.margin_end = .auto;
-            used.set(.margin_inline_end, null);
+            used.setAuto(.margin_inline_end);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }

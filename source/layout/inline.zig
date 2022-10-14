@@ -833,7 +833,7 @@ fn inlineBlockSolveSizes(
         },
         .auto => {
             computed.content_width.size = .auto;
-            used.set(.inline_size, null);
+            used.setAuto(.inline_size);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -981,14 +981,14 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.content_height.size = .{ .percentage = value };
-            used.set(.block_size, if (containing_block_height) |h|
-                try solve.positivePercentage(value, h)
+            if (containing_block_height) |h|
+                used.set(.block_size, try solve.positivePercentage(value, h))
             else
-                null);
+                used.setAuto(.block_size);
         },
         .auto => {
             computed.content_height.size = .auto;
-            used.set(.block_size, null);
+            used.setAuto(.block_size);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
