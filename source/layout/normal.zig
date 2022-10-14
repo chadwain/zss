@@ -231,7 +231,7 @@ pub fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleC
     const subtree_index = std.math.cast(BlockSubtreeIndex, box_tree.blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees;
     assert(subtree_index == initial_subtree);
     const subtree = try box_tree.blocks.subtrees.addOne(box_tree.allocator);
-    subtree.* = .{};
+    subtree.* = .{ .parent = null };
 
     const block = try createBlock(box_tree, subtree);
     assert(block.index == initial_containing_block);

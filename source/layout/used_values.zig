@@ -133,6 +133,8 @@ pub const BlockBox = struct {
 pub const BlockBoxSkip = BlockBoxIndex;
 
 pub const BlockSubtree = struct {
+    parent: ?BlockBox,
+
     skip: ArrayListUnmanaged(BlockBoxIndex) = .{},
     type: ArrayListUnmanaged(BlockType) = .{},
     box_offsets: ArrayListUnmanaged(BoxOffsets) = .{},
