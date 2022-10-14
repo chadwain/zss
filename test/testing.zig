@@ -104,6 +104,7 @@ const all_tests = blk: {
         @import("./tests/single_element.zig"),
         @import("./tests/two_elements.zig"),
         @import("./tests/block_inline_text.zig"),
+        @import("./tests/simple_text.zig"),
         @import("./tests/shrink_to_fit.zig"),
     };
 

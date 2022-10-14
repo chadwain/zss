@@ -7,6 +7,7 @@ pub const name = "shrink to fit";
 pub const tests = [_]TestInfo{
     .{ "inline block", inlineBlock },
     .{ "inline block text", inlineBlockText },
+    .{ "inline block with fixed with child", inlineBlockWithFixedWidthChild },
 };
 
 fn inlineBlock(t: *Test) void {
@@ -23,4 +24,14 @@ fn inlineBlockText(t: *Test) void {
 
     t.set(.box_style, inline_block, .{ .display = .inline_block });
     t.set(.box_style, text, .{ .display = .text });
+}
+
+fn inlineBlockWithFixedWidthChild(t: *Test) void {
+    const root = t.createRoot();
+    const inline_block = t.appendChild(root);
+    const block = t.appendChild(inline_block);
+
+    t.set(.box_style, inline_block, .{ .display = .inline_block });
+    t.set(.box_style, block, .{ .display = .block });
+    t.set(.content_width, block, .{ .size = .{ .px = 50 } });
 }
