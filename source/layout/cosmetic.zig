@@ -24,20 +24,40 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
         try subtree.background2.resize(box_tree.allocator, num_created_boxes);
     }
 
+    anonymousBlockBoxCosmeticLayout(box_tree, .{ .subtree = initial_subtree, .index = initial_containing_block });
+    // TODO: Also process any anonymous block boxes.
+
     for (box_tree.ifcs.items) |ifc| {
         try ifc.background1.resize(box_tree.allocator, ifc.inline_start.items.len);
         rootInlineBoxCosmeticLayout(ifc);
     }
 
-    // TODO: Don't make another interval stack
-    var interval_stack = ArrayListUnmanaged(StyleComputer.Interval){};
-    defer interval_stack.deinit(computer.allocator);
-    if (computer.element_tree_skips.len > 0) {
-        try interval_stack.append(computer.allocator, .{ .begin = root_element, .end = root_element + computer.element_tree_skips[root_element] });
+    if (computer.element_tree_skips.len == 0) return;
+
+    {
+        const skip = computer.element_tree_skips[root_element];
+        computer.setElementDirectChild(.cosmetic, root_element);
+        const box_type = box_tree.element_index_to_generated_box[root_element];
+        switch (box_type) {
+            .none => return,
+            .block_box => |block_box| try blockBoxCosmeticLayout(computer, box_tree, block_box),
+            .inline_box, .text => unreachable,
+        }
+
+        // TODO: Temporary jank to set the text color.
+        const computed_color = computer.stage.cosmetic.current_values.color;
+        const used_color = solve.currentColor(computed_color.color);
+        for (box_tree.ifcs.items) |ifc| {
+            ifc.font_color_rgba = used_color;
+        }
+
+        if (skip != 1) {
+            try computer.pushElement(.cosmetic);
+        }
     }
 
-    while (interval_stack.items.len > 0) {
-        const interval = &interval_stack.items[interval_stack.items.len - 1];
+    while (computer.intervals.items.len > 0) {
+        const interval = &computer.intervals.items[computer.intervals.items.len - 1];
 
         if (interval.begin != interval.end) {
             const element = interval.begin;
@@ -55,29 +75,13 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
                 },
             }
 
-            // TODO: Temporary jank to set the text color.
-            if (element == root_element) {
-                const computed_color = computer.stage.cosmetic.current_values.color;
-                const used_color = solve.currentColor(computed_color.color);
-                for (box_tree.ifcs.items) |ifc| {
-                    ifc.font_color_rgba = used_color;
-                }
-            }
-
             if (skip != 1) {
-                try interval_stack.append(computer.allocator, .{ .begin = element + 1, .end = element + skip });
                 try computer.pushElement(.cosmetic);
             }
         } else {
-            if (interval_stack.items.len > 1) {
-                computer.popElement(.cosmetic);
-            }
-            _ = interval_stack.pop();
+            computer.popElement(.cosmetic);
         }
     }
-
-    anonymousBlockBoxCosmeticLayout(box_tree, .{ .subtree = initial_subtree, .index = initial_containing_block });
-    // TODO: Also process any anonymous block boxes.
 }
 
 fn blockBoxCosmeticLayout(computer: *StyleComputer, box_tree: *BoxTree, block_box: BlockBox) !void {
