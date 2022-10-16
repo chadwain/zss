@@ -3,15 +3,98 @@ const BoxTree = zss.used_values.BoxTree;
 const r = zss.render.sdl;
 
 const std = @import("std");
-const allocator = std.testing.allocator;
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 const hb = @import("harfbuzz");
 const sdl = @import("SDL2");
 
-const cases = @import("./test_cases.zig");
+pub fn run(tests: []const zss.testing.Test) !void {
+    var window: ?*sdl.SDL_Window = undefined;
+    var renderer: ?*sdl.SDL_Renderer = undefined;
+    const wwidth = 100;
+    const wheight = 100;
+    assert(sdl.SDL_Init(sdl.SDL_INIT_VIDEO) == 0);
+    defer sdl.SDL_Quit();
+    assert(sdl.SDL_CreateWindowAndRenderer(wwidth, wheight, sdl.SDL_WINDOW_SHOWN | sdl.SDL_WINDOW_MINIMIZED, &window, &renderer) == 0);
+    defer sdl.SDL_DestroyWindow(window);
+    defer sdl.SDL_DestroyRenderer(renderer);
+    const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
+    defer sdl.SDL_FreeFormat(pixel_format);
+    const texture = sdl.SDL_CreateTexture(renderer, pixel_format.*.format, sdl.SDL_TEXTUREACCESS_TARGET, wwidth, wheight);
+    defer sdl.SDL_DestroyTexture(texture);
+    assert(sdl.SDL_SetRenderTarget(renderer, texture) == 0);
+    assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BLENDMODE_BLEND) == 0);
 
-pub fn drawToSurface(
+    var library: hb.FT_Library = undefined;
+    assert(hb.FT_Init_FreeType(&library) == 0);
+    defer _ = hb.FT_Done_FreeType(library);
+
+    const results_path = "test/output/sdl";
+    try std.fs.cwd().makePath(results_path);
+
+    const stdout = std.io.getStdOut().writer();
+    const stderr = std.io.getStdErr().writer();
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer assert(!gpa.deinit());
+    const allocator = gpa.allocator();
+
+    for (tests) |t, i| {
+        try stdout.print("sdl: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
+        defer stdout.writeAll("\n") catch {};
+
+        var box_tree = try zss.layout.doLayout(t.element_tree, t.cascaded_values, allocator, .{ .width = t.width, .height = t.height });
+        defer box_tree.deinit();
+
+        var root_sizes: struct { width: i32, height: i32 } = undefined;
+        if (t.element_tree.size() > 0) switch (box_tree.element_index_to_generated_box[0]) {
+            .block_box => |block_box| {
+                const subtree = &box_tree.blocks.subtrees.items[block_box.subtree];
+                const box_offsets = subtree.box_offsets.items[block_box.index];
+                root_sizes = .{
+                    .width = r.zssUnitToPixel(box_offsets.border_size.w),
+                    .height = r.zssUnitToPixel(box_offsets.border_size.h),
+                };
+            },
+            .none => root_sizes = .{ .width = 0, .height = 0 },
+            .text, .inline_box => unreachable,
+        } else {
+            root_sizes = .{ .width = 0, .height = 0 };
+        }
+
+        var maybe_atlas = maybe_atlas: {
+            const font = if (t.hb_font != null and t.hb_font.? != hb.hb_font_get_empty()) t.hb_font.? else break :maybe_atlas null;
+            const face = hb.hb_ft_font_get_face(font);
+            break :maybe_atlas try r.GlyphAtlas.init(face, renderer.?, pixel_format, allocator);
+        };
+        defer if (maybe_atlas) |*atlas| atlas.deinit(allocator);
+        const atlas_ptr = if (maybe_atlas) |*atlas| atlas else null;
+
+        const surface = try drawToSurface(
+            allocator,
+            box_tree,
+            root_sizes.width,
+            root_sizes.height,
+            sdl.SDL_Point{ .x = 0, .y = 0 },
+            renderer.?,
+            pixel_format,
+            atlas_ptr,
+        );
+        defer sdl.SDL_FreeSurface(surface);
+        const filename = try std.fmt.allocPrintZ(allocator, results_path ++ "/{s}.bmp", .{t.name});
+        defer allocator.free(filename);
+        if (sdl.SDL_SaveBMP(surface, filename) != 0) {
+            stderr.print("sdl: couldn't save test \"{s}\", skipping", .{t.name}) catch {};
+            continue;
+        }
+
+        try stdout.writeAll("success");
+    }
+}
+
+fn drawToSurface(
+    allocator: Allocator,
     box_tree: BoxTree,
     width: c_int,
     height: c_int,
@@ -49,80 +132,4 @@ pub fn drawToSurface(
     }
 
     return surface;
-}
-
-test "sdl" {
-    var window: ?*sdl.SDL_Window = undefined;
-    var renderer: ?*sdl.SDL_Renderer = undefined;
-    const wwidth = 100;
-    const wheight = 100;
-    assert(sdl.SDL_Init(sdl.SDL_INIT_VIDEO) == 0);
-    defer sdl.SDL_Quit();
-    assert(sdl.SDL_CreateWindowAndRenderer(wwidth, wheight, sdl.SDL_WINDOW_SHOWN | sdl.SDL_WINDOW_MINIMIZED, &window, &renderer) == 0);
-    defer sdl.SDL_DestroyWindow(window);
-    defer sdl.SDL_DestroyRenderer(renderer);
-    const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
-    defer sdl.SDL_FreeFormat(pixel_format);
-    const texture = sdl.SDL_CreateTexture(renderer, pixel_format.*.format, sdl.SDL_TEXTUREACCESS_TARGET, wwidth, wheight);
-    defer sdl.SDL_DestroyTexture(texture);
-    assert(sdl.SDL_SetRenderTarget(renderer, texture) == 0);
-    assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BLENDMODE_BLEND) == 0);
-
-    var library: hb.FT_Library = undefined;
-    assert(hb.FT_Init_FreeType(&library) == 0);
-    defer _ = hb.FT_Done_FreeType(library);
-
-    const all_test_data = try cases.getTestData();
-    defer {
-        for (all_test_data.items) |*data| data.deinit();
-        all_test_data.deinit();
-    }
-
-    const results_path = "test/sdl_results";
-    try std.fs.cwd().makePath(results_path);
-
-    std.debug.print("\n", .{});
-    for (all_test_data.items) |data, i| {
-        std.debug.print("sdl render {}... ", .{i});
-        defer std.debug.print("\n", .{});
-
-        const case = data.toTestCase(library);
-        defer case.deinit();
-        var box_tree = try zss.layout.doLayout(case.element_tree, case.cascaded_values, allocator, .{ .width = case.width, .height = case.height });
-        defer box_tree.deinit();
-
-        const root_sizes: struct { width: i32, height: i32 } = if (box_tree.blocks.skips.items.len > 1) blk: {
-            // TODO: Find the block id of root a better way
-            const root_box_offsets = box_tree.blocks.box_offsets.items[1];
-            break :blk .{
-                .width = r.zssUnitToPixel(root_box_offsets.border_size.w),
-                .height = r.zssUnitToPixel(root_box_offsets.border_size.h),
-            };
-        } else .{ .width = 0, .height = 0 };
-        var maybe_atlas = maybe_atlas: {
-            const font = if (case.font != null and case.font.? != hb.hb_font_get_empty()) case.font.? else break :maybe_atlas null;
-            const face = hb.hb_ft_font_get_face(font);
-            break :maybe_atlas try r.GlyphAtlas.init(face, renderer.?, pixel_format, allocator);
-        };
-        defer if (maybe_atlas) |*atlas| atlas.deinit(allocator);
-        const atlas_ptr = if (maybe_atlas) |*atlas| atlas else null;
-        const surface = try drawToSurface(
-            box_tree,
-            root_sizes.width,
-            root_sizes.height,
-            sdl.SDL_Point{ .x = 0, .y = 0 },
-            renderer.?,
-            pixel_format,
-            atlas_ptr,
-        );
-        defer sdl.SDL_FreeSurface(surface);
-        const filename = try std.fmt.allocPrintZ(allocator, results_path ++ "/{:0>2}.bmp", .{i});
-        defer allocator.free(filename);
-        if (sdl.SDL_SaveBMP(surface, filename) != 0) {
-            std.log.err("sdl: couldn't save test {}, skipping", .{i});
-            continue;
-        }
-
-        std.debug.print("success", .{});
-    }
 }

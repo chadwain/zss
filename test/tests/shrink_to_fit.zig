@@ -24,6 +24,7 @@ fn inlineBlockText(t: *Test) void {
 
     t.set(.box_style, inline_block, .{ .display = .inline_block });
     t.set(.box_style, text, .{ .display = .text });
+    t.set(.text, text, .{ .text = testing.strings[1] });
 }
 
 fn inlineBlockWithFixedWidthChild(t: *Test) void {

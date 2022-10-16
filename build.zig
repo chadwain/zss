@@ -49,11 +49,13 @@ fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) vo
     test_suite.linkLibC();
     test_suite.linkSystemLibrary("harfbuzz");
     test_suite.linkSystemLibrary("freetype2");
+    test_suite.linkSystemLibrary("SDL2");
     test_suite.addPackage(pkgs.harfbuzz);
+    test_suite.addPackage(pkgs.SDL2);
     test_suite.addPackage(Pkg{
         .name = "zss",
         .source = .{ .path = "zss.zig" },
-        .dependencies = &[_]Pkg{pkgs.harfbuzz},
+        .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2 },
     });
     test_suite.use_stage1 = true;
     test_suite.install();
