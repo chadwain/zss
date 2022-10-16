@@ -4,6 +4,7 @@ pub const properties = @import("source/values/properties.zig");
 const skip_tree = @import("source/util/skip_tree.zig");
 pub const SkipTree = skip_tree.SkipTree;
 pub const SkipTreeIterator = skip_tree.SkipTreeIterator;
+pub const SkipTreePathIterator = skip_tree.SkipTreePathIterator;
 pub const SparseSkipTree = skip_tree.SparseSkipTree;
 pub const SSTSeeker = skip_tree.SSTSeeker;
 pub const sstSeeker = skip_tree.sstSeeker;

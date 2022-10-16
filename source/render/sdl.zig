@@ -10,10 +10,14 @@ const ZssUnit = zss.used_values.ZssUnit;
 const ZssRect = zss.used_values.ZssRect;
 const ZssVector = zss.used_values.ZssVector;
 const BlockBoxIndex = zss.used_values.BlockBoxIndex;
+const BlockSubtree = zss.used_values.BlockSubtree;
+const BlockSubtreeIndex = zss.used_values.BlockSubtreeIndex;
+const BlockBox = zss.used_values.BlockBox;
 const BlockBoxTree = zss.used_values.BlockBoxTree;
 const InlineBoxIndex = zss.used_values.InlineBoxIndex;
 const InlineFormattingContext = zss.used_values.InlineFormattingContext;
 const InlineFormattingContextIndex = zss.used_values.InlineFormattingContextIndex;
+const StackingContext = zss.used_values.StackingContext;
 const StackingContextTree = zss.used_values.StackingContextTree;
 const ZIndex = zss.used_values.ZIndex;
 const BoxTree = zss.used_values.BoxTree;
@@ -32,112 +36,125 @@ pub fn drawBoxTree(
     clip_rect: sdl.SDL_Rect,
     translation: sdl.SDL_Point,
 ) !void {
+    if (box_tree.stacking_contexts.size() == 0) return;
+    const slice = box_tree.stacking_contexts.list.slice();
     const clip_rect_zss = sdlRectToZssRect(clip_rect);
 
-    const StackItem = struct {
-        /// The block that generates this stacking context.
-        generating_block: BlockBoxIndex,
-        /// The list of inline formatting contexts in this stacking context.
-        ifcs: []const InlineFormattingContextIndex,
-        /// An iterator over the child stacking contexts.
-        child_iterator: StackingContextTree.Iterator,
-        /// The absolute offset of the block box from the screen origin (in ZssUnits).
+    const Action = enum { DrawGeneratingBlock, DrawLeft, DrawEverythingElse, DrawRight };
+
+    var stack = ArrayListUnmanaged(struct {
+        action: Action,
+        iterator: StackingContextTree.Iterator,
+        stacking_context: StackingContext,
         translation: ZssVector,
-        /// The action that should be taken when this item is read from the stack.
-        /// It is initially DrawGeneratingBlock, then becomes DrawChildren.
-        command: enum {
-            /// Draw the background/border of the block that generates this stacking context.
-            DrawGeneratingBlock,
-            /// Draw the background/border of the children of the block that generates this stacking context.
-            DrawChildren,
+    }){};
+    defer stack.deinit(allocator);
+    try stack.append(allocator, .{
+        .action = .DrawGeneratingBlock,
+        .iterator = box_tree.stacking_contexts.iterator().firstChild(slice.items(.__skip)),
+        .stacking_context = .{
+            .block_box = slice.items(.block_box)[0],
+            .z_index = slice.items(.z_index)[0],
+            .ifcs = slice.items(.ifcs)[0],
         },
-
-        fn addToStack(
-            stack: *ArrayList(@This()),
-            insertion_index: usize,
-            top: @This(),
-            box_tree_: BoxTree,
-            sc_tree_skips: []const StackingContextTree.Index,
-            sc_tree_block_box: []const BlockBoxIndex,
-            sc_tree_ifcs: []const ArrayListUnmanaged(InlineFormattingContextIndex),
-        ) !void {
-            const child_block_box = sc_tree_block_box[top.child_iterator.index];
-            const translation_ = blk: {
-                var tr = top.translation;
-                var it = zss.SkipTreeIterator(BlockBoxIndex).init(top.generating_block, box_tree_.blocks.skips.items);
-                while (!it.empty()) : (it = it.firstChild(box_tree_.blocks.skips.items)) {
-                    it = it.nextParent(child_block_box, box_tree_.blocks.skips.items);
-                    if (it.index == child_block_box) break;
-                    const box_offsets = box_tree_.blocks.box_offsets.items[it.index];
-                    tr = tr.add(box_offsets.border_pos).add(box_offsets.content_pos);
-                }
-                break :blk tr;
-            };
-            try stack.insert(insertion_index, .{
-                .generating_block = child_block_box,
-                .ifcs = sc_tree_ifcs[top.child_iterator.index].items,
-                .child_iterator = top.child_iterator.firstChild(sc_tree_skips),
-                .translation = translation_,
-                .command = .DrawGeneratingBlock,
-            });
-        }
-    };
-
-    const sc_tree = box_tree.stacking_contexts;
-    const sc_tree_root_iterator = sc_tree.iterator() orelse return;
-    const sc_tree_slice = sc_tree.slice();
-    const sc_tree_skips: []const StackingContextTree.Index = sc_tree_slice.items(.__skip);
-    const sc_tree_z_index: []const ZIndex = sc_tree_slice.items(.z_index);
-    const sc_tree_block_box: []const BlockBoxIndex = sc_tree_slice.items(.block_box);
-    const sc_tree_ifcs: []const ArrayListUnmanaged(InlineFormattingContextIndex) = sc_tree_slice.items(.ifcs);
-
-    var stacking_context_stack = ArrayList(StackItem).init(allocator);
-    defer stacking_context_stack.deinit();
-    try stacking_context_stack.append(.{
-        .generating_block = sc_tree_block_box[sc_tree_root_iterator.index],
-        .ifcs = sc_tree_ifcs[sc_tree_root_iterator.index].items,
-        .child_iterator = sc_tree_root_iterator.firstChild(sc_tree_skips),
         .translation = sdlPointToZssVector(translation),
-        .command = .DrawGeneratingBlock,
     });
 
-    while (stacking_context_stack.items.len > 0) {
-        const old_len = stacking_context_stack.items.len;
-        var top = stacking_context_stack.items[old_len - 1];
-        switch (top.command) {
+    while (stack.items.len > 0) {
+        const item = &stack.items[stack.items.len - 1];
+        switch (item.action) {
             .DrawGeneratingBlock => {
-                top.command = .DrawChildren;
-                while (!top.child_iterator.empty()) : (top.child_iterator = top.child_iterator.nextSibling(sc_tree_skips)) {
-                    if (sc_tree_z_index[top.child_iterator.index] >= 0) break;
-                    try StackItem.addToStack(&stacking_context_stack, old_len, top, box_tree, sc_tree_skips, sc_tree_block_box, sc_tree_ifcs);
-                }
-                stacking_context_stack.items[old_len - 1] = top;
+                item.action = .DrawLeft;
 
-                drawGeneratingBlock(box_tree.blocks, top.generating_block, top.translation, clip_rect_zss, renderer, pixel_format);
+                if (stack.items.len > 1) {
+                    const parent = stack.items[stack.items.len - 2];
+                    const new_translation = calcOffset(&box_tree.blocks, parent.stacking_context.block_box, item.stacking_context.block_box);
+                    item.translation = parent.translation.add(new_translation);
+                }
+
+                drawGeneratingBlock(box_tree.blocks, item.stacking_context.block_box, item.translation, clip_rect_zss, renderer, pixel_format);
             },
-            .DrawChildren => {
-                _ = stacking_context_stack.pop();
-                while (!top.child_iterator.empty()) : (top.child_iterator = top.child_iterator.nextSibling(sc_tree_skips)) {
-                    try StackItem.addToStack(&stacking_context_stack, old_len - 1, top, box_tree, sc_tree_skips, sc_tree_block_box, sc_tree_ifcs);
+            .DrawLeft => {
+                if (item.iterator.empty() or slice.items(.z_index)[item.iterator.index] >= 0) {
+                    item.action = .DrawEverythingElse;
+                    continue;
                 }
-                try drawChildBlocks(box_tree.blocks, top.generating_block, allocator, top.translation, clip_rect_zss, renderer, pixel_format);
+                const index = item.iterator.index;
+                item.iterator = item.iterator.nextSibling(slice.items(.__skip));
+                try stack.append(allocator, .{
+                    .action = .DrawGeneratingBlock,
+                    .iterator = StackingContextTree.Iterator{ .index = index + 1, .end = index + slice.items(.__skip)[index] },
+                    .stacking_context = .{ .block_box = slice.items(.block_box)[index], .z_index = slice.items(.z_index)[index], .ifcs = slice.items(.ifcs)[index] },
+                    .translation = undefined,
+                });
+            },
+            .DrawEverythingElse => {
+                item.action = .DrawRight;
+                try drawChildBlocks(box_tree.blocks, item.stacking_context.block_box, allocator, item.translation, clip_rect_zss, renderer, pixel_format);
 
-                for (top.ifcs) |ifc_index| {
+                for (item.stacking_context.ifcs.items) |ifc_index| {
                     const ifc = box_tree.ifcs.items[ifc_index];
-                    var tr = top.translation;
-                    var it = zss.SkipTreeIterator(BlockBoxIndex).init(top.generating_block, box_tree.blocks.skips.items);
-                    while (!it.empty()) : (it = it.firstChild(box_tree.blocks.skips.items)) {
-                        it = it.nextParent(ifc.parent_block, box_tree.blocks.skips.items);
-                        const box_offsets = box_tree.blocks.box_offsets.items[it.index];
-                        tr = tr.add(box_offsets.border_pos).add(box_offsets.content_pos);
-                        if (it.index == ifc.parent_block) break;
-                    }
-                    tr = tr.add(ifc.origin);
-                    try drawInlineFormattingContext(ifc, tr, allocator, renderer, pixel_format, maybe_atlas);
+                    const subtree = &box_tree.blocks.subtrees.items[ifc.parent_block.subtree];
+                    const box_offsets = subtree.box_offsets.items[ifc.parent_block.index];
+                    const new_translation = item.translation
+                        .add(calcOffset(&box_tree.blocks, item.stacking_context.block_box, ifc.parent_block))
+                        .add(box_offsets.border_pos)
+                        .add(box_offsets.content_pos)
+                        .add(ifc.origin);
+                    try drawInlineFormattingContext(ifc, new_translation, allocator, renderer, pixel_format, maybe_atlas);
                 }
+            },
+            .DrawRight => {
+                if (item.iterator.empty()) {
+                    _ = stack.pop();
+                    continue;
+                }
+                const index = item.iterator.index;
+                item.iterator = item.iterator.nextSibling(slice.items(.__skip));
+                try stack.append(allocator, .{
+                    .action = .DrawGeneratingBlock,
+                    .iterator = StackingContextTree.Iterator{ .index = index + 1, .end = index + slice.items(.__skip)[index] },
+                    .stacking_context = .{ .block_box = slice.items(.block_box)[index], .z_index = slice.items(.z_index)[index], .ifcs = slice.items(.ifcs)[index] },
+                    .translation = undefined,
+                });
             },
         }
     }
+}
+
+fn calcOffset(blocks: *const BlockBoxTree, parent: BlockBox, child: BlockBox) ZssVector {
+    var target = child;
+    var reached_parent_subtree = parent.subtree == target.subtree;
+    var result = ZssVector{ .x = 0, .y = 0 };
+    while (true) {
+        const subtree = &blocks.subtrees.items[target.subtree];
+        var block_iterator: zss.SkipTreePathIterator(BlockBoxIndex) = undefined;
+        if (reached_parent_subtree) {
+            block_iterator = zss.SkipTreePathIterator(BlockBoxIndex).initFrom(target.index, parent.index, subtree.skip.items);
+        } else {
+            block_iterator = zss.SkipTreePathIterator(BlockBoxIndex).init(target.index, subtree.skip.items);
+        }
+        while (true) {
+            const index = block_iterator.next(subtree.skip.items) orelse break;
+            switch (subtree.type.items[index]) {
+                .block => {
+                    const box_offsets = subtree.box_offsets.items[index];
+                    result = result.add(box_offsets.border_pos).add(box_offsets.content_pos);
+                },
+                .subtree_proxy => unreachable,
+            }
+        }
+        if (reached_parent_subtree) {
+            break;
+        } else {
+            target = subtree.parent orelse unreachable;
+            reached_parent_subtree = parent.subtree == target.subtree;
+
+            const new_subtree = &blocks.subtrees.items[target.subtree];
+            assert(new_subtree.type.items[target.index] == .subtree_proxy);
+        }
+    }
+    return result;
 }
 
 pub fn zssUnitToPixel(unit: ZssUnit) c_int {
@@ -354,19 +371,20 @@ fn getThreeBoxes(translation: ZssVector, box_offsets: zss.used_values.BoxOffsets
 /// block box. This implements CSS2.2§Appendix E.2 Step 2.
 pub fn drawGeneratingBlock(
     blocks: BlockBoxTree,
-    generating_block: BlockBoxIndex,
+    generating_block: BlockBox,
     translation: ZssVector,
     clip_rect: ZssRect,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
 ) void {
+    const subtree = &blocks.subtrees.items[generating_block.subtree];
     //const visual_effect = blocks.visual_effect[0];
     //if (visual_effect.visibility == .Hidden) return;
-    const borders = blocks.borders.items[generating_block];
-    const background1 = blocks.background1.items[generating_block];
-    const background2 = blocks.background2.items[generating_block];
-    const border_colors = blocks.border_colors.items[generating_block];
-    const box_offsets = blocks.box_offsets.items[generating_block];
+    const borders = subtree.borders.items[generating_block.index];
+    const background1 = subtree.background1.items[generating_block.index];
+    const background2 = subtree.background2.items[generating_block.index];
+    const border_colors = subtree.border_colors.items[generating_block.index];
+    const box_offsets = subtree.box_offsets.items[generating_block.index];
 
     const boxes = getThreeBoxes(translation, box_offsets, borders);
     drawBlockContainer(&boxes, borders, background1, background2, border_colors, clip_rect, renderer, pixel_format);
@@ -377,7 +395,7 @@ pub fn drawGeneratingBlock(
 /// This implements CSS2.2§Appendix E.2 Step 4.
 pub fn drawChildBlocks(
     blocks: BlockBoxTree,
-    generating_block: BlockBoxIndex,
+    generating_block: BlockBox,
     allocator: Allocator,
     translation: ZssVector,
     initial_clip_rect: ZssRect,
@@ -388,17 +406,35 @@ pub fn drawChildBlocks(
         begin: BlockBoxIndex,
         end: BlockBoxIndex,
     };
-    const StackItem = struct {
+
+    const BlockStackItem = struct {
         interval: Interval,
         translation: ZssVector,
         //clip_rect: ZssRect,
     };
 
-    var stack = std.ArrayList(StackItem).init(allocator);
-    defer stack.deinit();
+    var block_stack = ArrayListUnmanaged(BlockStackItem){};
+    defer block_stack.deinit(allocator);
 
-    if (blocks.skips.items[generating_block] != 1) {
-        const box_offsets = blocks.box_offsets.items[generating_block];
+    const SubtreeStackItem = struct {
+        subtree: *const BlockSubtree,
+        index_of_root: usize,
+    };
+
+    var subtree_stack = ArrayListUnmanaged(SubtreeStackItem){};
+    defer subtree_stack.deinit(allocator);
+    try subtree_stack.append(allocator, .{
+        .subtree = &blocks.subtrees.items[generating_block.subtree],
+        .index_of_root = 0,
+    });
+
+    const generating_block_subtree = &blocks.subtrees.items[generating_block.subtree];
+    switch (generating_block_subtree.type.items[generating_block.index]) {
+        .block => {},
+        .subtree_proxy => unreachable,
+    }
+    if (generating_block_subtree.skip.items[generating_block.index] != 1) {
+        const box_offsets = generating_block_subtree.box_offsets.items[generating_block.index];
         //const borders = blocks.borders[0];
         //const clip_rect = switch (blocks.visual_effect[0].overflow) {
         //    .Visible => initial_clip_rect,
@@ -424,33 +460,53 @@ pub fn drawChildBlocks(
         //    assert(sdl.SDL_RenderSetClipRect(renderer, &zssRectToSdlRect(stack.items[0].clip_rect)) == 0);
         //}
 
-        try stack.append(StackItem{
-            .interval = Interval{ .begin = generating_block + 1, .end = generating_block + blocks.skips.items[generating_block] },
+        try block_stack.append(allocator, .{
+            .interval = .{ .begin = generating_block.index + 1, .end = generating_block.index + generating_block_subtree.skip.items[generating_block.index] },
             .translation = translation.add(box_offsets.border_pos).add(box_offsets.content_pos),
+        });
+        try subtree_stack.append(allocator, .{
+            .subtree = generating_block_subtree,
+            .index_of_root = 0,
         });
     }
 
-    stackLoop: while (stack.items.len > 0) {
-        const stack_item = &stack.items[stack.items.len - 1];
-        const interval = &stack_item.interval;
+    stackLoop: while (block_stack.items.len > 0) {
+        const block_item = &block_stack.items[block_stack.items.len - 1];
+        const interval = &block_item.interval;
+
+        const subtree_item = &subtree_stack.items[subtree_stack.items.len - 1];
+        const subtree = subtree_item.subtree;
 
         while (interval.begin != interval.end) {
-            const block_box = interval.begin;
-            const skip = blocks.skips.items[block_box];
-            defer interval.begin += skip;
+            const block_index = interval.begin;
+            const skip = subtree.skip.items[block_index];
+            interval.begin += skip;
 
-            const properties = blocks.properties.items[block_box];
-            if (properties.creates_stacking_context) {
-                continue;
+            switch (subtree.type.items[block_index]) {
+                .block => |block_info| {
+                    if (block_info.stacking_context) |_| continue;
+                },
+                .subtree_proxy => |proxied_block| {
+                    const proxied_block_subtree = &blocks.subtrees.items[proxied_block];
+                    try block_stack.append(allocator, .{
+                        .interval = .{ .begin = 0, .end = @intCast(BlockBoxIndex, proxied_block_subtree.skip.items.len) },
+                        .translation = block_item.translation,
+                    });
+                    try subtree_stack.append(allocator, .{
+                        .subtree = proxied_block_subtree,
+                        .index_of_root = block_stack.items.len - 1,
+                    });
+                    continue :stackLoop;
+                },
             }
 
-            const box_offsets = blocks.box_offsets.items[block_box];
-            const borders = blocks.borders.items[block_box];
-            const border_colors = blocks.border_colors.items[block_box];
-            const background1 = blocks.background1.items[block_box];
-            const background2 = blocks.background2.items[block_box];
-            //const visual_effect = blocks.visual_effect.items[block_box];
-            const boxes = getThreeBoxes(stack_item.translation, box_offsets, borders);
+            const box_offsets = subtree.box_offsets.items[block_index];
+            const borders = subtree.borders.items[block_index];
+            const border_colors = subtree.border_colors.items[block_index];
+            const background1 = subtree.background1.items[block_index];
+            const background2 = subtree.background2.items[block_index];
+            //const visual_effect = subtree.visual_effect.items[block_index];
+            const boxes = getThreeBoxes(block_item.translation, box_offsets, borders);
 
             //if (visual_effect.visibility == .Visible) {
             drawBlockContainer(&boxes, borders, background1, background2, border_colors, initial_clip_rect, renderer, pixel_format);
@@ -474,15 +530,18 @@ pub fn drawChildBlocks(
                 //    continue :stackLoop;
                 //}
 
-                try stack.append(StackItem{
-                    .interval = Interval{ .begin = block_box + 1, .end = block_box + skip },
-                    .translation = stack_item.translation.add(box_offsets.border_pos).add(box_offsets.content_pos),
+                try block_stack.append(allocator, .{
+                    .interval = Interval{ .begin = block_index + 1, .end = block_index + skip },
+                    .translation = block_item.translation.add(box_offsets.border_pos).add(box_offsets.content_pos),
                 });
                 continue :stackLoop;
             }
         }
 
-        _ = stack.pop();
+        _ = block_stack.pop();
+        if (subtree_item.index_of_root == block_stack.items.len) {
+            _ = subtree_stack.pop();
+        }
     }
 }
 

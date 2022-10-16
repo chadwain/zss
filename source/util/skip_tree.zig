@@ -168,6 +168,51 @@ pub fn SkipTreeIterator(comptime Index: type) type {
     };
 }
 
+pub fn SkipTreePathIterator(comptime Index: type) type {
+    return struct {
+        index: Index,
+        target: Index,
+
+        const Self = @This();
+
+        pub fn init(target: Index, skips: []const Index) Self {
+            assert(target < skips.len);
+            var current: Index = 0;
+            while (current < skips.len) {
+                const skip = skips[current];
+                if (target < current + skip) {
+                    return Self{ .index = current, .target = target };
+                }
+                current += skip;
+            }
+            unreachable;
+        }
+
+        pub fn initFrom(target: Index, start: Index, skips: []const Index) Self {
+            assert(target < skips.len);
+            const end = start + skips[start];
+            assert(target >= start);
+            assert(target < end);
+            return Self{ .index = start, .target = target };
+        }
+
+        pub fn next(self: *Self, skips: []const Index) ?Index {
+            if (self.index == self.target) return null;
+            var current = self.index + 1;
+            const end = self.index + skips[self.index];
+            while (current < end) {
+                const skip = skips[current];
+                if (self.target < current + skip) {
+                    defer self.index = current;
+                    return self.index;
+                }
+                current += skip;
+            }
+            unreachable;
+        }
+    };
+}
+
 /// A sparse skip tree (SST) is an associative tree data structure.
 /// It is derived from a skip tree, which is called its 'reference tree'.
 /// It takes some elements from its reference tree and associates values with them.
