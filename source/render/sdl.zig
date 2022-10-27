@@ -96,10 +96,12 @@ pub fn drawBoxTree(
                     const ifc = box_tree.ifcs.items[ifc_index];
                     const subtree = &box_tree.blocks.subtrees.items[ifc.parent_block.subtree];
                     const box_offsets = subtree.box_offsets.items[ifc.parent_block.index];
+                    const insets = subtree.insets.items[ifc.parent_block.index];
                     const new_translation = item.translation
                         .add(calcOffset(&box_tree.blocks, item.stacking_context.block_box, ifc.parent_block))
                         .add(box_offsets.border_pos)
                         .add(box_offsets.content_pos)
+                        .add(insets)
                         .add(ifc.origin);
                     try drawInlineFormattingContext(ifc, new_translation, allocator, renderer, pixel_format, maybe_atlas);
                 }
@@ -139,7 +141,8 @@ fn calcOffset(blocks: *const BlockBoxTree, parent: BlockBox, child: BlockBox) Zs
             switch (subtree.type.items[index]) {
                 .block => {
                     const box_offsets = subtree.box_offsets.items[index];
-                    result = result.add(box_offsets.border_pos).add(box_offsets.content_pos);
+                    const insets = subtree.insets.items[index];
+                    result = result.add(box_offsets.border_pos).add(box_offsets.content_pos).add(insets);
                 },
                 .subtree_proxy => unreachable,
             }
@@ -341,9 +344,14 @@ pub const ThreeBoxes = struct {
     content: ZssRect,
 };
 
-fn getThreeBoxes(translation: ZssVector, box_offsets: zss.used_values.BoxOffsets, borders: zss.used_values.Borders) ThreeBoxes {
-    const border_x = translation.x + box_offsets.border_pos.x;
-    const border_y = translation.y + box_offsets.border_pos.y;
+fn getThreeBoxes(
+    translation: ZssVector,
+    box_offsets: zss.used_values.BoxOffsets,
+    borders: zss.used_values.Borders,
+    insets: zss.used_values.Insets,
+) ThreeBoxes {
+    const border_x = translation.x + box_offsets.border_pos.x + insets.x;
+    const border_y = translation.y + box_offsets.border_pos.y + insets.y;
 
     return ThreeBoxes{
         .border = ZssRect{
@@ -385,8 +393,9 @@ pub fn drawGeneratingBlock(
     const background2 = subtree.background2.items[generating_block.index];
     const border_colors = subtree.border_colors.items[generating_block.index];
     const box_offsets = subtree.box_offsets.items[generating_block.index];
+    const insets = subtree.insets.items[generating_block.index];
 
-    const boxes = getThreeBoxes(translation, box_offsets, borders);
+    const boxes = getThreeBoxes(translation, box_offsets, borders, insets);
     drawBlockContainer(&boxes, borders, background1, background2, border_colors, clip_rect, renderer, pixel_format);
 }
 
@@ -435,6 +444,7 @@ pub fn drawChildBlocks(
     }
     if (generating_block_subtree.skip.items[generating_block.index] != 1) {
         const box_offsets = generating_block_subtree.box_offsets.items[generating_block.index];
+        const insets = generating_block_subtree.insets.items[generating_block.index];
         //const borders = blocks.borders[0];
         //const clip_rect = switch (blocks.visual_effect[0].overflow) {
         //    .Visible => initial_clip_rect,
@@ -462,7 +472,7 @@ pub fn drawChildBlocks(
 
         try block_stack.append(allocator, .{
             .interval = .{ .begin = generating_block.index + 1, .end = generating_block.index + generating_block_subtree.skip.items[generating_block.index] },
-            .translation = translation.add(box_offsets.border_pos).add(box_offsets.content_pos),
+            .translation = translation.add(box_offsets.border_pos).add(box_offsets.content_pos).add(insets),
         });
         try subtree_stack.append(allocator, .{
             .subtree = generating_block_subtree,
@@ -502,11 +512,12 @@ pub fn drawChildBlocks(
 
             const box_offsets = subtree.box_offsets.items[block_index];
             const borders = subtree.borders.items[block_index];
+            const insets = subtree.insets.items[block_index];
             const border_colors = subtree.border_colors.items[block_index];
             const background1 = subtree.background1.items[block_index];
             const background2 = subtree.background2.items[block_index];
             //const visual_effect = subtree.visual_effect.items[block_index];
-            const boxes = getThreeBoxes(block_item.translation, box_offsets, borders);
+            const boxes = getThreeBoxes(block_item.translation, box_offsets, borders, insets);
 
             //if (visual_effect.visibility == .Visible) {
             drawBlockContainer(&boxes, borders, background1, background2, border_colors, initial_clip_rect, renderer, pixel_format);
@@ -532,7 +543,7 @@ pub fn drawChildBlocks(
 
                 try block_stack.append(allocator, .{
                     .interval = Interval{ .begin = block_index + 1, .end = block_index + skip },
-                    .translation = block_item.translation.add(box_offsets.border_pos).add(box_offsets.content_pos),
+                    .translation = block_item.translation.add(box_offsets.border_pos).add(box_offsets.content_pos).add(insets),
                 });
                 continue :stackLoop;
             }
@@ -776,6 +787,7 @@ fn drawInlineBox(
     const block_start = ifc.block_start.items[inline_box];
     const block_end = ifc.block_end.items[inline_box];
     const background1 = ifc.background1.items[inline_box];
+    // TODO: Apply the boxes insets
 
     const border = util.Widths{
         .top = zssUnitToPixel(block_start.border),

@@ -229,7 +229,7 @@ fn solveInsetsStatic(
         .auto => computed.bottom = .auto,
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    used.* = .{};
+    used.* = .{ .x = 0, .y = 0 };
 }
 
 fn solveInsetsRelative(
@@ -317,7 +317,7 @@ fn anonymousBlockBoxCosmeticLayout(box_tree: *BoxTree, block_box: BlockBox) void
     subtree.border_colors.items[block_box.index] = .{};
     subtree.background1.items[block_box.index] = .{};
     subtree.background2.items[block_box.index] = .{};
-    subtree.insets.items[block_box.index] = .{};
+    subtree.insets.items[block_box.index] = .{ .x = 0, .y = 0 };
 }
 
 fn inlineBoxCosmeticLayout(context: Context, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
@@ -378,5 +378,5 @@ fn rootInlineBoxCosmeticLayout(ifc: *InlineFormattingContext) void {
     ifc.block_end.items[0].border_color_rgba = 0;
 
     ifc.background1.items[0] = .{};
-    ifc.insets.items[0] = .{};
+    ifc.insets.items[0] = .{ .x = 0, .y = 0 };
 }

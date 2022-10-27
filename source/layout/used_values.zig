@@ -95,10 +95,7 @@ pub const Margins = struct {
     bottom: ZssUnit = 0,
 };
 
-pub const Insets = struct {
-    x: ZssUnit = 0,
-    y: ZssUnit = 0,
-};
+pub const Insets = ZssVector;
 
 pub const Background1 = struct {
     color_rgba: Color = 0,

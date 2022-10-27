@@ -108,6 +108,7 @@ const all_tests = blk: {
         @import("./tests/block_inline_text.zig"),
         @import("./tests/simple_text.zig"),
         @import("./tests/shrink_to_fit.zig"),
+        @import("./tests/position_relative.zig"),
     };
 
     var num_tests = 0;
@@ -145,6 +146,13 @@ pub const strings = [_][]const u8{
 
 pub const fonts = [_][:0]const u8{
     "demo/NotoSans-Regular.ttf",
+};
+
+pub const colors = [_]zss.values.Color{
+    .{ .rgba = 0x8795c7ff },
+    .{ .rgba = 0x46bb4fff },
+    .{ .rgba = 0xe0e0acff },
+    .{ .rgba = 0x57d9cdff },
 };
 
 pub const border_color_sets = [_][]const zss.properties.BorderColors{
