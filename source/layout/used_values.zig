@@ -95,6 +95,11 @@ pub const Margins = struct {
     bottom: ZssUnit = 0,
 };
 
+pub const Insets = struct {
+    x: ZssUnit = 0,
+    y: ZssUnit = 0,
+};
+
 pub const Background1 = struct {
     color_rgba: Color = 0,
     clip: enum { Border, Padding, Content } = .Border,
@@ -140,6 +145,7 @@ pub const BlockSubtree = struct {
     box_offsets: ArrayListUnmanaged(BoxOffsets) = .{},
     borders: ArrayListUnmanaged(Borders) = .{},
     margins: ArrayListUnmanaged(Margins) = .{},
+    insets: ArrayListUnmanaged(Insets) = .{},
     border_colors: ArrayListUnmanaged(BorderColor) = .{},
     background1: ArrayListUnmanaged(Background1) = .{},
     background2: ArrayListUnmanaged(Background2) = .{},
@@ -150,6 +156,7 @@ pub const BlockSubtree = struct {
         subtree.box_offsets.deinit(allocator);
         subtree.borders.deinit(allocator);
         subtree.margins.deinit(allocator);
+        subtree.insets.deinit(allocator);
         subtree.border_colors.deinit(allocator);
         subtree.background1.deinit(allocator);
         subtree.background2.deinit(allocator);
@@ -161,6 +168,7 @@ pub const BlockSubtree = struct {
         try subtree.box_offsets.ensureTotalCapacity(allocator, capacity);
         try subtree.borders.ensureTotalCapacity(allocator, capacity);
         try subtree.margins.ensureTotalCapacity(allocator, capacity);
+        try subtree.insets.ensureTotalCapacity(allocator, capacity);
         try subtree.border_colors.ensureTotalCapacity(allocator, capacity);
         try subtree.background1.ensureTotalCapacity(allocator, capacity);
         try subtree.background2.ensureTotalCapacity(allocator, capacity);
@@ -213,6 +221,7 @@ pub const InlineFormattingContext = struct {
     block_end: ArrayListUnmanaged(BoxProperties) = .{},
     background1: ArrayListUnmanaged(Background1) = .{},
     margins: ArrayListUnmanaged(MarginsInline) = .{},
+    insets: ArrayListUnmanaged(Insets) = .{},
 
     const hb = @import("harfbuzz");
 
@@ -332,6 +341,7 @@ pub const InlineFormattingContext = struct {
         self.block_end.deinit(allocator);
         self.background1.deinit(allocator);
         self.margins.deinit(allocator);
+        self.insets.deinit(allocator);
     }
 
     pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: usize) !void {
@@ -341,6 +351,7 @@ pub const InlineFormattingContext = struct {
         try self.block_end.ensureTotalCapacity(allocator, count);
         try self.background1.ensureTotalCapacity(allocator, count);
         try self.margins.ensureTotalCapacity(allocator, count);
+        try self.insets.ensureTotalCapacity(allocator, count);
     }
 };
 

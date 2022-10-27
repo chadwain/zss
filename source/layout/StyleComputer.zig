@@ -56,27 +56,33 @@ const BoxGenComptutedValueFlags = struct {
 };
 
 const CosmeticComputedValueStack = struct {
+    box_style: ArrayListUnmanaged(zss.properties.BoxStyle) = .{},
     border_colors: ArrayListUnmanaged(zss.properties.BorderColors) = .{},
     border_styles: ArrayListUnmanaged(zss.properties.BorderStyles) = .{},
     background1: ArrayListUnmanaged(zss.properties.Background1) = .{},
     background2: ArrayListUnmanaged(zss.properties.Background2) = .{},
     color: ArrayListUnmanaged(zss.properties.Color) = .{},
+    insets: ArrayListUnmanaged(zss.properties.Insets) = .{},
 };
 
 const CosmeticCurrentValues = struct {
+    box_style: zss.properties.BoxStyle,
     border_colors: zss.properties.BorderColors,
     border_styles: zss.properties.BorderStyles,
     background1: zss.properties.Background1,
     background2: zss.properties.Background2,
     color: zss.properties.Color,
+    insets: zss.properties.Insets,
 };
 
 const CosmeticComptutedValueFlags = struct {
+    box_style: bool = false,
     border_colors: bool = false,
     border_styles: bool = false,
     background1: bool = false,
     background2: bool = false,
     color: bool = false,
+    insets: bool = false,
 };
 
 const ThisElement = struct {
