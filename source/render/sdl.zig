@@ -656,27 +656,34 @@ pub fn drawInlineFormattingContext(
         assert(sdl.SDL_SetTextureAlphaMod(atlas.texture, color[3]) == 0);
     }
 
-    var inline_box_stack = std.ArrayList(InlineBoxIndex).init(allocator);
-    defer inline_box_stack.deinit();
+    var inline_box_stack = ArrayListUnmanaged(InlineBoxIndex){};
+    defer inline_box_stack.deinit(allocator);
+
+    var offset_stack = ArrayListUnmanaged(ZssVector){};
+    defer offset_stack.deinit(allocator);
+    try offset_stack.append(allocator, translation);
 
     for (ifc.line_boxes.items) |line_box| {
-        for (inline_box_stack.items) |inline_box| {
+        for (inline_box_stack.items) |inline_box, i| {
             const match_info = findMatchingBoxEnd(
                 ifc.glyph_indeces.items[line_box.elements[0]..line_box.elements[1]],
                 ifc.metrics.items[line_box.elements[0]..line_box.elements[1]],
                 inline_box,
             );
+            const offset = offset_stack.items[i + 1];
             drawInlineBox(
                 renderer,
                 pixel_format,
                 ifc,
                 inline_box,
-                ZssVector{ .x = translation.x, .y = translation.y + line_box.baseline },
+                ZssVector{ .x = offset.x, .y = offset.y + line_box.baseline },
                 match_info.advance,
                 false,
                 match_info.found,
             );
         }
+
+        var offset = offset_stack.items[offset_stack.items.len - 1];
 
         var cursor: ZssUnit = 0;
         var i = line_box.elements[0];
@@ -696,19 +703,30 @@ pub fn drawInlineFormattingContext(
                             ifc.metrics.items[i + 1 .. line_box.elements[1]],
                             special.data,
                         );
+                        const insets = ifc.insets.items[special.data];
+                        offset = offset.add(insets);
                         drawInlineBox(
                             renderer,
                             pixel_format,
                             ifc,
                             special.data,
-                            ZssVector{ .x = translation.x + cursor + metrics.offset, .y = translation.y + line_box.baseline },
+                            ZssVector{ .x = offset.x + cursor + metrics.offset, .y = offset.y + line_box.baseline },
                             match_info.advance,
                             true,
                             match_info.found,
                         );
-                        try inline_box_stack.append(special.data);
+                        try inline_box_stack.append(allocator, special.data);
+                        try offset_stack.append(allocator, offset);
                     },
-                    .BoxEnd => assert(special.data == inline_box_stack.pop()),
+                    .BoxEnd => {
+                        assert(special.data == inline_box_stack.pop());
+                        _ = offset_stack.pop();
+
+                        const old_offset = offset_stack.items[offset_stack.items.len - 1];
+                        const insets = ifc.insets.items[special.data];
+                        assert(offset.eql(old_offset.add(insets)));
+                        offset = old_offset;
+                    },
                     .InlineBlock => {},
                     _ => unreachable,
                 }
@@ -732,8 +750,8 @@ pub fn drawInlineFormattingContext(
                     .h = glyph_info.height,
                 },
                 &sdl.SDL_Rect{
-                    .x = zssUnitToPixel(translation.x + cursor + metrics.offset),
-                    .y = zssUnitToPixel(translation.y + line_box.baseline) - glyph_info.ascender_px,
+                    .x = zssUnitToPixel(offset.x + cursor + metrics.offset),
+                    .y = zssUnitToPixel(offset.y + line_box.baseline) - glyph_info.ascender_px,
                     .w = glyph_info.width,
                     .h = glyph_info.height,
                 },

@@ -21,8 +21,13 @@ pub const ZssVector = struct {
     y: ZssUnit,
 
     const Self = @This();
+
     pub fn add(lhs: Self, rhs: Self) Self {
         return Self{ .x = lhs.x + rhs.x, .y = lhs.y + rhs.y };
+    }
+
+    pub fn eql(lhs: Self, rhs: Self) bool {
+        return lhs.x == rhs.x and lhs.y == rhs.y;
     }
 };
 
