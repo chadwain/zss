@@ -84,10 +84,9 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
         .InitialContainingBlock => switch (layout.initial_containing_block_action) {
             .Push => {
                 layout.initial_containing_block_action = .Pop;
-                if (computer.element_tree_skips.len == 0) return;
+                if (computer.root_element.eqlNull()) return;
 
-                const element = root_element;
-                const skip = computer.element_tree_skips[element];
+                const element = computer.root_element;
                 computer.setElementDirectChild(.box_gen, element);
 
                 const font = computer.getSpecifiedValue(.box_gen, .font);
@@ -113,7 +112,7 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                 switch (computed.box_style.display) {
                     .block => {
                         const box = try makeFlowBlock(layout, computer, box_tree, subtree_index, containing_block_width, containing_block_height);
-                        box_tree.element_index_to_generated_box[element] = box;
+                        try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, box);
 
                         const z_index = computer.getSpecifiedValue(.box_gen, .z_index); // TODO: Useless info
                         computer.setComputedValue(.box_gen, .z_index, z_index);
@@ -123,7 +122,7 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
 
                         try computer.pushElement(.box_gen);
                     },
-                    .none => std.mem.set(GeneratedBox, box_tree.element_index_to_generated_box[element .. element + skip], .none),
+                    .none => {},
                     .inline_, .inline_block, .text => unreachable,
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 }
@@ -131,10 +130,9 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
             .Pop => popInitialContainingBlock(layout, box_tree),
         },
         .Flow => {
-            const interval = &computer.intervals.items[computer.intervals.items.len - 1];
-            if (interval.begin != interval.end) {
-                const element = interval.begin;
-                const skip = computer.element_tree_skips[element];
+            const element_ptr = &computer.child_stack.items[computer.child_stack.items.len - 1];
+            if (!element_ptr.eqlNull()) {
+                const element = element_ptr.*;
                 computer.setElementDirectChild(.box_gen, element);
 
                 const font = computer.getSpecifiedValue(.box_gen, .font);
@@ -155,7 +153,7 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                 switch (computed.box_style.display) {
                     .block => {
                         const box = try makeFlowBlock(layout, computer, box_tree, subtree_index, containing_block_width, containing_block_height);
-                        box_tree.element_index_to_generated_box[element] = box;
+                        try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, box);
                         const block_info = &box_tree.blocks.subtrees.items[box.block_box.subtree].type.items[box.block_box.index].block;
 
                         const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
@@ -183,7 +181,7 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                             .initial, .inherit, .unset, .undeclared => unreachable,
                         }
 
-                        interval.begin += skip;
+                        element_ptr.* = computer.element_tree_slice.get(.next_sibling, element);
                         try computer.pushElement(.box_gen);
                     },
                     .inline_, .inline_block, .text => {
@@ -208,10 +206,7 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
 
                         advanceFlow(parent_auto_height, line_split_result.height);
                     },
-                    .none => {
-                        std.mem.set(GeneratedBox, box_tree.element_index_to_generated_box[element .. element + skip], .none);
-                        interval.begin += skip;
-                    },
+                    .none => element_ptr.* = computer.element_tree_slice.get(.next_sibling, element),
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 }
             } else {

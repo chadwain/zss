@@ -5,7 +5,6 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
-const root_element = @as(zss.ElementIndex, 0);
 
 const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
@@ -54,7 +53,7 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
         rootInlineBoxCosmeticLayout(ifc);
     }
 
-    if (computer.element_tree_skips.len == 0) return;
+    if (computer.root_element.eqlNull()) return;
 
     var context = Context{};
     defer context.deinit(computer.allocator);
@@ -67,15 +66,13 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
     }
 
     {
-        const skip = computer.element_tree_skips[root_element];
-        computer.setElementDirectChild(.cosmetic, root_element);
-        const box_type = box_tree.element_index_to_generated_box[root_element];
+        const box_type = box_tree.element_to_generated_box.get(computer.root_element) orelse return;
+        computer.setElementDirectChild(.cosmetic, computer.root_element);
         switch (box_type) {
-            .none => return,
             .block_box => |block_box| {
                 try blockBoxCosmeticLayout(context, computer, box_tree, block_box, .Root);
 
-                if (skip != 1) {
+                if (!computer.element_tree_slice.get(.first_child, computer.root_element).eqlNull()) {
                     const subtree = &box_tree.blocks.subtrees.items[block_box.subtree];
                     const box_offsets = subtree.box_offsets.items[block_box.index];
                     try context.mode.append(computer.allocator, .Flow);
@@ -95,21 +92,21 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
     }
 
     while (context.mode.items.len > 1) {
-        const interval = &computer.intervals.items[computer.intervals.items.len - 1];
+        const element_ptr = &computer.child_stack.items[computer.child_stack.items.len - 1];
 
-        if (interval.begin != interval.end) {
-            const element = interval.begin;
-            const skip = computer.element_tree_skips[element];
-            interval.begin += skip;
+        if (!element_ptr.eqlNull()) {
+            const element = element_ptr.*;
+            element_ptr.* = computer.element_tree_slice.get(.next_sibling, element);
 
+            const box_type = box_tree.element_to_generated_box.get(element) orelse continue;
             computer.setElementDirectChild(.cosmetic, element);
-            const box_type = box_tree.element_index_to_generated_box[element];
+            const has_children = !computer.element_tree_slice.get(.first_child, element).eqlNull();
             switch (box_type) {
-                .none, .text => continue,
+                .text => continue,
                 .block_box => |block_box| {
                     try blockBoxCosmeticLayout(context, computer, box_tree, block_box, .NonRoot);
 
-                    if (skip != 1) {
+                    if (has_children) {
                         const subtree = &box_tree.blocks.subtrees.items[block_box.subtree];
                         const box_offsets = subtree.box_offsets.items[block_box.index];
                         try context.mode.append(computer.allocator, .Flow);
@@ -121,7 +118,7 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
                     const ifc = box_tree.ifcs.items[inline_box.ifc_index];
                     inlineBoxCosmeticLayout(context, computer, ifc, inline_box.index);
 
-                    if (skip != 1) {
+                    if (has_children) {
                         try context.mode.append(computer.allocator, .InlineBox);
                         try computer.pushElement(.cosmetic);
                     }

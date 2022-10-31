@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("../../zss.zig");
 const ElementTree = zss.ElementTree;
+const Element = ElementTree.Element;
 const CascadedValueStore = zss.CascadedValueStore;
 
 const normal = @import("./normal.zig");
@@ -29,17 +30,18 @@ pub const ViewportSize = struct {
 };
 
 pub fn doLayout(
-    element_tree: ElementTree,
-    cascaded_value_store: CascadedValueStore,
+    element_tree: *const ElementTree,
+    root: Element,
+    cascaded_value_store: *const CascadedValueStore,
     allocator: Allocator,
     /// The size of the viewport in pixels.
     // TODO: Make this ZssUnits instead of pixels
     viewport_size: ViewportSize,
 ) Error!BoxTree {
     var computer = StyleComputer{
-        .element_tree_skips = element_tree.tree.list.items(.__skip),
-        .element_tree_refs = element_tree.tree.list.items(.__ref),
-        .cascaded_values = &cascaded_value_store,
+        .root_element = root,
+        .element_tree_slice = element_tree.constSlice(),
+        .cascaded_values = cascaded_value_store,
         // TODO: Store viewport_size in a LayoutInputs struct instead of the StyleComputer
         .viewport_size = viewport_size,
         .stage = undefined,
@@ -47,10 +49,8 @@ pub fn doLayout(
     };
     defer computer.deinit();
 
-    const element_index_to_generated_box = try allocator.alloc(GeneratedBox, element_tree.size());
     var box_tree = BoxTree{
         .allocator = allocator,
-        .element_index_to_generated_box = element_index_to_generated_box,
     };
     errdefer box_tree.deinit();
 

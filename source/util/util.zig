@@ -4,6 +4,7 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 const zss = @import("../../zss.zig");
+const Element = zss.ElementTree.Element;
 const used_values = zss.used_values;
 const ZssRect = used_values.ZssRect;
 
@@ -136,4 +137,16 @@ test "roundUp" {
     try expect(roundUp(1, 4) == 4);
     try expect(roundUp(3, 4) == 4);
     try expect(roundUp(62, 7) == 63);
+}
+
+pub fn ElementHashMap(comptime V: type) type {
+    const Context = struct {
+        pub fn eql(_: @This(), lhs: Element, rhs: Element) bool {
+            return lhs.eql(rhs);
+        }
+        pub fn hash(_: @This(), element: Element) u64 {
+            return @bitCast(u32, element);
+        }
+    };
+    return std.HashMapUnmanaged(Element, V, Context, 80);
 }

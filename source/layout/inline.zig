@@ -5,6 +5,8 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
+const ElementTree = zss.ElementTree;
+const Element = ElementTree.Element;
 const StyleComputer = @import("./StyleComputer.zig");
 
 const normal = @import("./normal.zig");
@@ -144,22 +146,18 @@ fn createInlineFormattingContext(
     ifc: *InlineFormattingContext,
 ) !void {
     ifc.font = computer.root_font.font;
-    {
-        const initial_interval = computer.intervals.items[computer.intervals.items.len - 1];
-        ifc.ensureTotalCapacity(box_tree.allocator, initial_interval.end - initial_interval.begin + 1) catch {};
-    }
 
     try ifcPushRootInlineBox(layout, box_tree, ifc);
     while (true) {
-        const interval = &computer.intervals.items[computer.intervals.items.len - 1];
+        const element = &computer.child_stack.items[computer.child_stack.items.len - 1];
         if (layout.inline_box_depth == 0) {
-            if (interval.begin != interval.end) {
-                const should_terminate = try ifcRunOnce(layout, sc, computer, interval, box_tree, ifc);
+            if (!element.eqlNull()) {
+                const should_terminate = try ifcRunOnce(layout, sc, computer, element, box_tree, ifc);
                 if (should_terminate) break;
             } else break;
         } else {
-            if (interval.begin != interval.end) {
-                const should_terminate = try ifcRunOnce(layout, sc, computer, interval, box_tree, ifc);
+            if (!element.eqlNull()) {
+                const should_terminate = try ifcRunOnce(layout, sc, computer, element, box_tree, ifc);
                 assert(!should_terminate);
             } else {
                 try ifcPopInlineBox(layout, computer, box_tree, ifc);
@@ -192,33 +190,32 @@ fn ifcRunOnce(
     layout: *InlineLayoutContext,
     sc: *StackingContexts,
     computer: *StyleComputer,
-    interval: *StyleComputer.Interval,
+    element_ptr: *Element,
     box_tree: *BoxTree,
     ifc: *InlineFormattingContext,
 ) !bool {
-    const element = interval.begin;
-    const skip = computer.element_tree_skips[element];
-
+    const element = element_ptr.*;
     computer.setElementDirectChild(.box_gen, element);
+
     const specified = computer.getSpecifiedValue(.box_gen, .box_style);
     const computed = solve.boxStyle(specified, .NonRoot);
     // TODO: Check position and float properties
     switch (computed.display) {
         .text => {
-            assert(skip == 1);
-            interval.begin += skip;
-            box_tree.element_index_to_generated_box[element] = .text;
+            assert(computer.element_tree_slice.get(.first_child, element).eqlNull());
+            try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .text);
+            element_ptr.* = computer.element_tree_slice.get(.next_sibling, element);
             const text = computer.getText();
             // TODO: Do proper font matching.
             if (ifc.font == hb.hb_font_get_empty()) panic("TODO: Found text, but no font was specified.", .{});
             try ifcAddText(box_tree, ifc, text, ifc.font);
         },
         .inline_ => {
-            interval.begin += skip;
             const inline_box_index = try createInlineBox(box_tree, ifc);
             try inlineBoxSetData(layout, computer, ifc, inline_box_index);
 
-            box_tree.element_index_to_generated_box[element] = .{ .inline_box = .{ .ifc_index = layout.result.ifc_index, .index = inline_box_index } };
+            const generated_box = GeneratedBox{ .inline_box = .{ .ifc_index = layout.result.ifc_index, .index = inline_box_index } };
+            try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
             computer.setComputedValue(.box_gen, .box_style, computed);
             { // TODO: Grabbing useless data to satisfy inheritance...
                 const data = .{
@@ -235,7 +232,8 @@ fn ifcRunOnce(
 
             try ifcAddBoxStart(box_tree, ifc, inline_box_index);
 
-            if (skip != 1) {
+            element_ptr.* = computer.element_tree_slice.get(.next_sibling, element);
+            if (!computer.element_tree_slice.get(.first_child, element).eqlNull()) {
                 layout.inline_box_depth += 1;
                 try layout.index.append(layout.allocator, inline_box_index);
                 try computer.pushElement(.box_gen);
@@ -246,7 +244,7 @@ fn ifcRunOnce(
             }
         },
         .inline_block => {
-            interval.begin += skip;
+            element_ptr.* = computer.element_tree_slice.get(.next_sibling, element);
             computer.setComputedValue(.box_gen, .box_style, computed);
 
             const subtree = &box_tree.blocks.subtrees.items[layout.subtree_index];
@@ -254,7 +252,7 @@ fn ifcRunOnce(
             block.skip.* = undefined;
             block.type.* = .{ .block = .{ .stacking_context = undefined } };
             const block_box = BlockBox{ .subtree = layout.subtree_index, .index = block.index };
-            box_tree.element_index_to_generated_box[element] = .{ .block_box = block_box };
+            try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .{ .block_box = block_box });
 
             const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
             computer.setComputedValue(.box_gen, .z_index, z_index);
@@ -314,7 +312,7 @@ fn ifcRunOnce(
                     used_sizes.padding_inline_start + used_sizes.padding_inline_end);
                 const available_width = solve.clampSize(available_width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
 
-                var stf_layout = try stf.ShrinkToFitLayoutContext.initFlow(layout.allocator, computer, element, block_box, used_sizes, available_width);
+                var stf_layout = try stf.ShrinkToFitLayoutContext.initFlow(layout.allocator, element, block_box, used_sizes, available_width);
                 defer stf_layout.deinit();
 
                 nosuspend {
@@ -335,10 +333,7 @@ fn ifcRunOnce(
                 //try ifc.glyph_indeces.appendSlice(box_tree.allocator, &.{ 0, undefined });
             }
         },
-        .none => {
-            interval.begin += skip;
-            std.mem.set(GeneratedBox, box_tree.element_index_to_generated_box[element .. element + skip], .none);
-        },
+        .none => element_ptr.* = computer.element_tree_slice.get(.next_sibling, element),
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 

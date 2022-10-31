@@ -5,22 +5,19 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
 const ElementTree = zss.ElementTree;
-const ElementIndex = zss.ElementIndex;
-const root_element = @as(ElementIndex, 0);
-const ElementRef = zss.ElementRef;
+const Element = ElementTree.Element;
+const null_element = Element.null_element;
 const CascadedValueStore = zss.CascadedValueStore;
 const ViewportSize = zss.layout.ViewportSize;
+
+const ElementIndex = undefined;
+const root_element = undefined;
 
 const hb = @import("harfbuzz");
 
 const Self = @This();
 
 pub const Stage = enum { box_gen, cosmetic };
-
-pub const Interval = struct {
-    begin: ElementIndex,
-    end: ElementIndex,
-};
 
 const BoxGenComputedValueStack = struct {
     box_style: ArrayListUnmanaged(zss.properties.BoxStyle) = .{},
@@ -86,20 +83,19 @@ const CosmeticComptutedValueFlags = struct {
 };
 
 const ThisElement = struct {
-    index: ElementIndex,
-    ref: ElementRef,
+    element: Element,
     all: zss.values.All,
 };
 
-element_tree_skips: []const ElementIndex,
-element_tree_refs: []const ElementRef,
+root_element: Element,
+element_tree_slice: ElementTree.ConstSlice,
 cascaded_values: *const CascadedValueStore,
 viewport_size: ViewportSize,
 allocator: Allocator,
 
 this_element: ThisElement = undefined,
 element_stack: ArrayListUnmanaged(ThisElement) = .{},
-intervals: ArrayListUnmanaged(Interval) = .{},
+child_stack: ArrayListUnmanaged(Element) = .{},
 
 stage: union {
     box_gen: struct {
@@ -121,12 +117,12 @@ root_font: struct {
 // Does not do deinitStage.
 pub fn deinit(self: *Self) void {
     self.element_stack.deinit(self.allocator);
-    self.intervals.deinit(self.allocator);
+    self.child_stack.deinit(self.allocator);
 }
 
 pub fn assertEmptyStage(self: Self, comptime stage: Stage) void {
     assert(self.element_stack.items.len == 0);
-    assert(self.intervals.items.len == 0);
+    assert(self.child_stack.items.len == 0);
     const current_stage = &@field(self.stage, @tagName(stage));
     inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
         assert(@field(current_stage.value_stack, field_info.name).items.len == 0);
@@ -140,20 +136,21 @@ pub fn deinitStage(self: *Self, comptime stage: Stage) void {
     }
 }
 
-pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: ElementIndex) void {
+pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: Element) void {
     assert((self.element_stack.items.len == 0) or blk: {
-        const parent = self.element_stack.items[self.element_stack.items.len - 1].index;
-        var iterator = zss.SkipTreeIterator(ElementIndex).init(parent, self.element_tree_skips);
-        while (!iterator.empty()) : (iterator = iterator.nextSibling(self.element_tree_skips)) {
-            if (iterator.index == parent) break :blk true;
-        } else break :blk false;
+        const parent = self.element_stack.items[self.element_stack.items.len - 1].element;
+        // TODO: If elements store a reference to their parent, use that information instead.
+        var next_child = self.element_tree_slice.ptr(.first_child, parent);
+        while (!next_child.eql(null_element)) {
+            if (next_child.eql(child)) break :blk true;
+            next_child = self.element_tree_slice.ptr(.next_sibling, next_child.*);
+        }
+        break :blk false;
     });
 
-    const ref = self.element_tree_refs[child];
     self.this_element = .{
-        .index = child,
-        .ref = ref,
-        .all = if (self.cascaded_values.all.get(ref)) |value| value.all else .undeclared,
+        .element = child,
+        .all = if (self.cascaded_values.all.get(child)) |value| value.all else .undeclared,
     };
 
     const current_stage = &@field(self.stage, @tagName(stage));
@@ -195,10 +192,8 @@ pub fn setComputedValue(self: *Self, comptime stage: Stage, comptime property: z
 }
 
 pub fn pushElement(self: *Self, comptime stage: Stage) !void {
-    const index = self.this_element.index;
-    const skip = self.element_tree_skips[index];
     try self.element_stack.append(self.allocator, self.this_element);
-    try self.intervals.append(self.allocator, Interval{ .begin = index + 1, .end = index + skip });
+    try self.child_stack.append(self.allocator, self.element_tree_slice.ptr(.first_child, self.this_element.element).*);
 
     const current_stage = &@field(self.stage, @tagName(stage));
     const values = current_stage.current_values;
@@ -226,7 +221,7 @@ pub fn computeAndPushElement(self: *Self, comptime stage: Stage) !void {
 
 pub fn popElement(self: *Self, comptime stage: Stage) void {
     _ = self.element_stack.pop();
-    _ = self.intervals.pop();
+    _ = self.child_stack.pop();
 
     const current_stage = &@field(self.stage, @tagName(stage));
 
@@ -236,7 +231,7 @@ pub fn popElement(self: *Self, comptime stage: Stage) void {
 }
 
 pub fn getText(self: Self) zss.values.Text {
-    return if (self.cascaded_values.text.get(self.this_element.ref)) |value| value.text else "";
+    return if (self.cascaded_values.text.get(self.this_element.element)) |value| value.text else "";
 }
 
 pub fn getSpecifiedValue(
@@ -250,7 +245,7 @@ pub fn getSpecifiedValue(
     // Find the value using the cascaded value tree.
     // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do this.
     const store = @field(self.cascaded_values, @tagName(property));
-    var cascaded_value: ?Value = if (store.get(self.this_element.ref)) |*value| cascaded_value: {
+    var cascaded_value: ?Value = if (store.get(self.this_element.element)) |*value| cascaded_value: {
         if (property == .color) {
             // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
             if (value.color == .current_color) {

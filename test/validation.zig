@@ -19,8 +19,9 @@ pub fn run(tests: []const zss.testing.Test) !void {
         defer stdout.print("\n", .{}) catch {};
 
         var box_tree = try zss.layout.doLayout(
-            t.element_tree,
-            t.cascaded_values,
+            &t.element_tree,
+            t.root,
+            &t.cascaded_values,
             allocator,
             .{ .width = t.width, .height = t.height },
         );

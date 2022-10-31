@@ -7,7 +7,7 @@ pub const name = "shrink to fit";
 pub const tests = [_]TestInfo{
     .{ "inline block", inlineBlock },
     .{ "inline block text", inlineBlockText },
-    .{ "inline block with fixed with child", inlineBlockWithFixedWidthChild },
+    .{ "inline block with fixed width child", inlineBlockWithFixedWidthChild },
 };
 
 fn inlineBlock(t: *Test) void {

@@ -7,7 +7,8 @@ const ArrayListAlignedUnmanaged = std.ArrayListAlignedUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../../zss.zig");
-const ElementIndex = zss.ElementIndex;
+const ElementTree = zss.ElementTree;
+const Element = ElementTree.Element;
 
 const normal = @import("./normal.zig");
 const BlockLayoutContext = normal.BlockLayoutContext;
@@ -41,7 +42,7 @@ const Objects = struct {
     const data_chunk_size = 4;
     const data_max_alignment = 4;
 
-    const Index = ElementIndex;
+    const Index = ElementTree.Size;
     const Skip = Index;
     const DataIndex = usize;
 
@@ -49,7 +50,6 @@ const Objects = struct {
         flow_stf,
         flow_normal,
         ifc,
-        none,
     };
 
     const DataTag = enum {
@@ -69,7 +69,7 @@ const Objects = struct {
     const Object = struct {
         skip: Skip,
         tag: Tag,
-        element: ElementIndex,
+        element: Element,
     };
 
     fn allocData(objects: *Objects, allocator: Allocator, comptime tag: DataTag) !DataIndex {
@@ -155,8 +155,7 @@ pub const ShrinkToFitLayoutContext = struct {
 
     pub fn initFlow(
         allocator: Allocator,
-        computer: *const StyleComputer,
-        element: ElementIndex,
+        element: Element,
         root_block_box: BlockBox,
         used_sizes: FlowBlockUsedSizes,
         available_width: ZssUnit,
@@ -164,8 +163,7 @@ pub const ShrinkToFitLayoutContext = struct {
         var result = ShrinkToFitLayoutContext{ .allocator = allocator, .root_block_box = root_block_box };
         errdefer result.deinit();
 
-        try result.objects.tree.ensureTotalCapacity(result.allocator, computer.element_tree_skips[element]);
-        result.objects.tree.appendAssumeCapacity(.{ .skip = undefined, .tag = .flow_stf, .element = element });
+        try result.objects.tree.append(result.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
         const data_index = try result.objects.allocData(result.allocator, .flow_stf);
         const data_ptr = result.objects.getData(.flow_stf, data_index);
         data_ptr.* = .{ .used = used_sizes, .stacking_context_ref = undefined };
@@ -191,7 +189,7 @@ pub fn shrinkToFitLayout(
     box_tree: *BoxTree,
 ) !void {
     try buildObjectTree(layout, sc, computer, box_tree);
-    try createObjects(layout.objects, layout.allocator, computer.element_tree_skips, box_tree, layout.root_block_box);
+    try createObjects(layout.objects, layout.allocator, box_tree, layout.root_block_box);
 }
 
 fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
@@ -202,10 +200,9 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
         const object_tag = layout.objects.tree.items(.tag)[object_index];
         switch (object_tag) {
             .flow_stf => {
-                const interval = &computer.intervals.items[computer.intervals.items.len - 1];
-                if (interval.begin != interval.end) {
-                    const element = interval.begin;
-                    const skip = computer.element_tree_skips[element];
+                const element_ptr = &computer.child_stack.items[computer.child_stack.items.len - 1];
+                if (!element_ptr.eqlNull()) {
+                    const element = element_ptr.*;
                     computer.setElementDirectChild(.box_gen, element);
 
                     const specified = computer.getSpecifiedValue(.box_gen, .box_style);
@@ -253,7 +250,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 };
                                 computer.setComputedValue(.box_gen, .font, stuff.font);
                             }
-                            interval.begin += skip;
+                            element_ptr.* = computer.element_tree_slice.get(.next_sibling, element);
                             try computer.pushElement(.box_gen);
 
                             const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
@@ -264,7 +261,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
                                 parent_auto_width.* = std.math.max(parent_auto_width.*, inline_size + edge_width);
 
-                                layout.objects.tree.appendAssumeCapacity(.{ .skip = 1, .tag = .flow_normal, .element = element });
+                                try layout.objects.tree.append(layout.allocator, .{ .skip = 1, .tag = .flow_normal, .element = element });
                                 layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
 
                                 const data_index = try layout.objects.allocData(layout.allocator, .flow_normal);
@@ -281,7 +278,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 normal.flowBlockSetData(used, new_subtree_block.box_offsets, new_subtree_block.borders, new_subtree_block.margins);
 
                                 const generated_box = GeneratedBox{ .block_box = .{ .subtree = data.subtree_index, .index = new_subtree_block.index } };
-                                box_tree.element_index_to_generated_box[element] = generated_box;
+                                try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
                                 if (stacking_context_optional) |stacking_context| {
                                     StackingContexts.fixupStackingContextIndex(box_tree, stacking_context.index, generated_box.block_box);
                                     new_subtree_block.type.block.stacking_context = stacking_context.ref;
@@ -317,14 +314,10 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                     .skip = 1,
                                     .data_index = data_index,
                                 });
-                                layout.objects.tree.appendAssumeCapacity(.{ .skip = undefined, .tag = .flow_stf, .element = element });
+                                try layout.objects.tree.append(layout.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
                             }
                         },
-                        .none => {
-                            layout.objects.tree.appendAssumeCapacity(.{ .skip = 1, .tag = .none, .element = element });
-                            layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
-                            interval.begin += skip;
-                        },
+                        .none => element_ptr.* = computer.element_tree_slice.get(.next_sibling, element),
                         .inline_, .inline_block, .text => {
                             const new_subtree_index = std.math.cast(BlockSubtreeIndex, box_tree.blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees;
                             const new_subtree = try box_tree.blocks.subtrees.addOne(box_tree.allocator);
@@ -351,7 +344,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                             const data = layout.objects.getData(.ifc, data_index);
                             data.* = .{ .subtree_index = new_subtree_index, .layout_result = result, .line_split_result = line_split_result };
                             // TODO: Store the IFC index as the element
-                            layout.objects.tree.appendAssumeCapacity(.{ .skip = 1, .tag = .ifc, .element = undefined });
+                            try layout.objects.tree.append(layout.allocator, .{ .skip = 1, .tag = .ifc, .element = undefined });
                             layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
                         },
                         .initial, .inherit, .unset, .undeclared => unreachable,
@@ -380,14 +373,14 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
                                 parent_auto_width.* = std.math.max(parent_auto_width.*, full_width);
                             },
-                            .flow_normal, .ifc, .none => unreachable,
+                            .flow_normal, .ifc => unreachable,
                         }
 
                         layout.object_stack.items(.skip)[layout.object_stack.len - 1] += object_info.skip;
                     }
                 }
             },
-            .flow_normal, .ifc, .none => unreachable,
+            .flow_normal, .ifc => unreachable,
         }
     }
 }
@@ -416,7 +409,6 @@ const ShrinkToFitLayoutContext2 = struct {
 fn createObjects(
     objects: Objects,
     allocator: Allocator,
-    element_tree_skips: []const ElementIndex,
     box_tree: *BoxTree,
     root_block_box: BlockBox,
 ) !void {
@@ -451,7 +443,7 @@ fn createObjects(
                 try layout.height.append(allocator, used_sizes.get(.block_size));
                 try layout.auto_height.append(allocator, 0);
             },
-            .flow_normal, .ifc, .none => unreachable,
+            .flow_normal, .ifc => unreachable,
         }
 
         try layout.objects.append(allocator, .{ .tag = tag, .interval = .{ .begin = 1, .end = skip }, .data_index = data_index });
@@ -483,7 +475,7 @@ fn createObjects(
                         flowBlockSetData(used_sizes, used_margins, block.box_offsets, block.borders, block.margins);
 
                         const generated_box = GeneratedBox{ .block_box = .{ .subtree = root_block_box.subtree, .index = block.index } };
-                        box_tree.element_index_to_generated_box[element] = generated_box;
+                        try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
 
                         if (data.stacking_context_ref) |stacking_context_ref| {
                             StackingContexts.fixupStackingContextRef(box_tree, stacking_context_ref, generated_box.block_box);
@@ -534,9 +526,6 @@ fn createObjects(
 
                         normal.advanceFlow(parent_auto_height, data.line_split_result.height);
                     },
-                    .none => {
-                        std.mem.set(GeneratedBox, box_tree.element_index_to_generated_box[element..][0..element_tree_skips[element]], .none);
-                    },
                 }
             } else {
                 const data_index = layout.objects.pop().data_index;
@@ -560,11 +549,11 @@ fn createObjects(
                             const margin_bottom = subtree.margins.items[block.index].bottom;
                             normal.addBlockToFlow(box_offsets, margin_bottom, parent_auto_height);
                         },
-                        .flow_normal, .ifc, .none => unreachable,
+                        .flow_normal, .ifc => unreachable,
                     }
                 }
             },
-            .flow_normal, .ifc, .none => unreachable,
+            .flow_normal, .ifc => unreachable,
         }
     }
 }

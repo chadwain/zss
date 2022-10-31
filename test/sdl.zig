@@ -44,21 +44,26 @@ pub fn run(tests: []const zss.testing.Test) !void {
         try stdout.print("sdl: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
 
-        var box_tree = try zss.layout.doLayout(t.element_tree, t.cascaded_values, allocator, .{ .width = t.width, .height = t.height });
+        var box_tree = try zss.layout.doLayout(&t.element_tree, t.root, &t.cascaded_values, allocator, .{ .width = t.width, .height = t.height });
         defer box_tree.deinit();
 
         var root_sizes: struct { width: i32, height: i32 } = undefined;
-        if (t.element_tree.size() > 0) switch (box_tree.element_index_to_generated_box[0]) {
-            .block_box => |block_box| {
-                const subtree = &box_tree.blocks.subtrees.items[block_box.subtree];
-                const box_offsets = subtree.box_offsets.items[block_box.index];
-                root_sizes = .{
-                    .width = r.zssUnitToPixel(box_offsets.border_size.w),
-                    .height = r.zssUnitToPixel(box_offsets.border_size.h),
-                };
-            },
-            .none => root_sizes = .{ .width = 0, .height = 0 },
-            .text, .inline_box => unreachable,
+        if (!t.root.eqlNull()) {
+            if (box_tree.element_to_generated_box.get(t.root)) |generated| {
+                switch (generated) {
+                    .block_box => |block_box| {
+                        const subtree = &box_tree.blocks.subtrees.items[block_box.subtree];
+                        const box_offsets = subtree.box_offsets.items[block_box.index];
+                        root_sizes = .{
+                            .width = r.zssUnitToPixel(box_offsets.border_size.w),
+                            .height = r.zssUnitToPixel(box_offsets.border_size.h),
+                        };
+                    },
+                    .text, .inline_box => unreachable,
+                }
+            } else {
+                root_sizes = .{ .width = 0, .height = 0 };
+            }
         } else {
             root_sizes = .{ .width = 0, .height = 0 };
         }

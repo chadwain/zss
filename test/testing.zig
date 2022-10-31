@@ -1,5 +1,6 @@
 const zss = @import("zss");
 const ElementTree = zss.ElementTree;
+const Element = ElementTree.Element;
 const CascadedValueStore = zss.CascadedValueStore;
 
 const std = @import("std");
@@ -64,7 +65,7 @@ fn setupTest(t: *Test, info: TestInfo) void {
     info[1](t);
     t.name = info[0];
 
-    if (t.element_tree.size() > 0) {
+    if (!t.root.eqlNull()) {
         assert(hb.FT_New_Face(library, t.font, 0, &t.ft_face) == 0);
         assert(hb.FT_Set_Char_Size(t.ft_face, 0, @intCast(c_int, t.font_size) * 64, 96, 96) == 0);
 
@@ -76,8 +77,8 @@ fn setupTest(t: *Test, info: TestInfo) void {
 
         t.cascaded_values.font.ensureUnusedCapacity(allocator, 1) catch |err| fail(err);
         t.cascaded_values.color.ensureUnusedCapacity(allocator, 1) catch |err| fail(err);
-        t.cascaded_values.font.setAssumeCapacity(0, .{ .font = .{ .font = t.hb_font.? } });
-        t.cascaded_values.color.setAssumeCapacity(0, .{ .color = .{ .rgba = t.font_color } });
+        t.cascaded_values.font.setAssumeCapacity(t.root, .{ .font = .{ .font = t.hb_font.? } });
+        t.cascaded_values.color.setAssumeCapacity(t.root, .{ .color = .{ .rgba = t.font_color } });
     } else {
         t.ft_face = undefined;
         t.hb_font = null;

@@ -5,6 +5,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
 const ReferencedSkipTree = zss.ReferencedSkipTree;
+const ElementHashMap = zss.util.ElementHashMap;
 
 /// The fundamental unit of space used for all CSS layout computations in zss.
 pub const ZssUnit = i32;
@@ -374,8 +375,6 @@ pub const StackingContextTree = ReferencedSkipTree(StackingContextIndex, Stackin
 
 /// The type of box(es) that an element generates.
 pub const GeneratedBox = union(enum) {
-    /// The element generated no boxes.
-    none,
     /// The element generated a single block box.
     block_box: BlockBox,
     /// The element generated a single inline box.
@@ -389,7 +388,7 @@ pub const BoxTree = struct {
     blocks: BlockBoxTree = .{},
     ifcs: ArrayListUnmanaged(*InlineFormattingContext) = .{},
     stacking_contexts: StackingContextTree = .{},
-    element_index_to_generated_box: []GeneratedBox,
+    element_to_generated_box: ElementHashMap(GeneratedBox) = .{},
     allocator: Allocator,
 
     const Self = @This();
@@ -405,7 +404,7 @@ pub const BoxTree = struct {
             ifc_list.deinit(self.allocator);
         }
         self.stacking_contexts.deinit(self.allocator);
-        self.allocator.free(self.element_index_to_generated_box);
+        self.element_to_generated_box.deinit(self.allocator);
     }
 };
 

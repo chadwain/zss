@@ -6,7 +6,7 @@
 
 const zss = @import("../../zss.zig");
 const properties = zss.properties;
-const ElementRef = zss.ElementRef;
+const Element = zss.ElementTree.Element;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -17,7 +17,7 @@ pub fn Store(comptime ValueType: type) type {
     return struct {
         map: Map = .{},
 
-        pub const Key = ElementRef;
+        pub const Key = Element;
         pub const Value = ValueType;
         pub const Map = std.AutoHashMapUnmanaged(Key, Value);
 
@@ -124,7 +124,7 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     }
 }
 
-pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: ElementRef) !void {
+pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: u32) !void {
     inline for (std.meta.fields(Self)) |field_info| {
         try @field(self, field_info.name).ensureTotalCapacity(allocator, count);
     }

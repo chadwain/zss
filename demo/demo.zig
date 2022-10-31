@@ -14,6 +14,8 @@ const Allocator = std.mem.Allocator;
 const zss = @import("zss");
 const BoxTree = zss.BoxTree;
 const ElementTree = zss.ElementTree;
+const Element = ElementTree.Element;
+const null_element = Element.null_element;
 const CascadedValueStore = zss.CascadedValueStore;
 const pixelToZssUnit = zss.render.sdl.pixelToZssUnit;
 
@@ -174,24 +176,74 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
 
     var element_tree = zss.ElementTree{};
     defer element_tree.deinit(allocator);
-    try element_tree.ensureTotalCapacity(allocator, 8);
+    var elements: [8]Element = undefined;
+    try element_tree.allocateElements(allocator, &elements);
 
-    const root = element_tree.createRootAssumeCapacity();
+    const slice = element_tree.slice();
+    const root = elements[0];
 
-    const removed_block = element_tree.appendChildAssumeCapacity(root);
+    const removed_block = elements[1];
 
-    const title_block = element_tree.appendChildAssumeCapacity(root);
-    const title_inline_box = element_tree.appendChildAssumeCapacity(title_block);
-    const title_text = element_tree.appendChildAssumeCapacity(title_inline_box);
+    const title_block = elements[2];
+    const title_inline_box = elements[3];
+    const title_text = elements[4];
 
-    const body_block = element_tree.appendChildAssumeCapacity(root);
-    const body_text = element_tree.appendChildAssumeCapacity(body_block);
+    const body_block = elements[5];
+    const body_text = elements[6];
 
-    const footer = element_tree.appendChildAssumeCapacity(root);
+    const footer = elements[7];
+
+    slice.setAll(root, .{
+        .next_sibling = null_element,
+        .first_child = removed_block,
+        .last_child = footer,
+    });
+
+    slice.setAll(removed_block, .{
+        .next_sibling = title_block,
+        .first_child = null_element,
+        .last_child = null_element,
+    });
+
+    slice.setAll(title_block, .{
+        .next_sibling = body_block,
+        .first_child = title_inline_box,
+        .last_child = title_inline_box,
+    });
+
+    slice.setAll(title_inline_box, .{
+        .next_sibling = null_element,
+        .first_child = title_text,
+        .last_child = title_text,
+    });
+
+    slice.setAll(title_text, .{
+        .next_sibling = null_element,
+        .first_child = null_element,
+        .last_child = null_element,
+    });
+
+    slice.setAll(body_block, .{
+        .next_sibling = footer,
+        .first_child = body_text,
+        .last_child = body_text,
+    });
+
+    slice.setAll(body_text, .{
+        .next_sibling = null_element,
+        .first_child = null_element,
+        .last_child = null_element,
+    });
+
+    slice.setAll(footer, .{
+        .next_sibling = null_element,
+        .first_child = null_element,
+        .last_child = null_element,
+    });
 
     var cascaded = zss.CascadedValueStore{};
     defer cascaded.deinit(allocator);
-    try cascaded.ensureTotalCapacity(allocator, element_tree.size());
+    try cascaded.ensureTotalCapacity(allocator, elements.len);
 
     // Root element
     const root_border = zss.values.BorderWidth{ .px = 10 };
@@ -262,11 +314,12 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .size = .contain,
     });
 
-    try sdlMainLoop(window, renderer, face, allocator, &element_tree, &cascaded);
+    try sdlMainLoop(window, renderer, face, allocator, &element_tree, root, &cascaded);
 }
 
 const ProgramState = struct {
     element_tree: *const ElementTree,
+    root: Element,
     cascaded_values: *const CascadedValueStore,
     box_tree: zss.used_values.BoxTree,
     atlas: zss.render.sdl.GlyphAtlas,
@@ -281,6 +334,7 @@ const ProgramState = struct {
 
     fn init(
         element_tree: *const ElementTree,
+        root: Element,
         cascaded_values: *const CascadedValueStore,
         window: *sdl.SDL_Window,
         renderer: *sdl.SDL_Renderer,
@@ -291,13 +345,15 @@ const ProgramState = struct {
         var result = @as(Self, undefined);
 
         result.element_tree = element_tree;
+        result.root = root;
         result.cascaded_values = cascaded_values;
         sdl.SDL_GetWindowSize(window, &result.width, &result.height);
         result.timer = try std.time.Timer.start();
 
         result.box_tree = try zss.layout.doLayout(
-            element_tree.*,
-            cascaded_values.*,
+            element_tree,
+            root,
+            cascaded_values,
             allocator,
             .{ .width = @intCast(u32, result.width), .height = @intCast(u32, result.height) },
         );
@@ -320,8 +376,9 @@ const ProgramState = struct {
     fn updateBoxTree(self: *Self, allocator: Allocator) !void {
         self.timer.reset();
         var new_box_tree = try zss.layout.doLayout(
-            self.element_tree.*,
-            self.cascaded_values.*,
+            self.element_tree,
+            self.root,
+            self.cascaded_values,
             allocator,
             .{ .width = @intCast(u32, self.width), .height = @intCast(u32, self.height) },
         );
@@ -344,12 +401,13 @@ fn sdlMainLoop(
     face: hb.FT_Face,
     allocator: Allocator,
     element_tree: *const ElementTree,
+    root: Element,
     cascaded_values: *const CascadedValueStore,
 ) !void {
     const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
 
-    var ps = try ProgramState.init(element_tree, cascaded_values, window, renderer, pixel_format, face, allocator);
+    var ps = try ProgramState.init(element_tree, root, cascaded_values, window, renderer, pixel_format, face, allocator);
     defer ps.deinit(allocator);
 
     const stderr = std.io.getStdErr().writer();
