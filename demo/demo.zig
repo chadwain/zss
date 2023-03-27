@@ -18,6 +18,7 @@ const Element = ElementTree.Element;
 const null_element = Element.null_element;
 const CascadedValueStore = zss.CascadedValueStore;
 const pixelToZssUnit = zss.render.sdl.pixelToZssUnit;
+const DrawOrderList = zss.render.DrawOrderList;
 
 const sdl = @import("SDL2");
 const hb = @import("harfbuzz");
@@ -322,6 +323,7 @@ const ProgramState = struct {
     root: Element,
     cascaded_values: *const CascadedValueStore,
     box_tree: zss.used_values.BoxTree,
+    draw_order_list: DrawOrderList,
     atlas: zss.render.sdl.GlyphAtlas,
     width: c_int,
     height: c_int,
@@ -361,6 +363,9 @@ const ProgramState = struct {
 
         result.last_layout_time = result.timer.read();
 
+        result.draw_order_list = try DrawOrderList.create(result.box_tree, allocator);
+        errdefer result.draw_order_list.deinit(allocator);
+
         result.atlas = try zss.render.sdl.GlyphAtlas.init(face, renderer, pixel_format, allocator);
         errdefer result.atlas.deinit();
 
@@ -370,6 +375,7 @@ const ProgramState = struct {
 
     fn deinit(self: *Self, allocator: Allocator) void {
         self.box_tree.deinit();
+        self.draw_order_list.deinit(allocator);
         self.atlas.deinit(allocator);
     }
 
@@ -382,9 +388,14 @@ const ProgramState = struct {
             allocator,
             .{ .width = @intCast(u32, self.width), .height = @intCast(u32, self.height) },
         );
+        defer new_box_tree.deinit();
         self.last_layout_time = self.timer.read();
-        self.box_tree.deinit();
-        self.box_tree = new_box_tree;
+
+        var new_draw_order_list = try DrawOrderList.create(new_box_tree, allocator);
+        defer new_draw_order_list.deinit(allocator);
+
+        std.mem.swap(zss.used_values.BoxTree, &self.box_tree, &new_box_tree);
+        std.mem.swap(DrawOrderList, &self.draw_order_list, &new_draw_order_list);
         self.updateMaxScroll();
     }
 
@@ -411,6 +422,7 @@ fn sdlMainLoop(
     defer ps.deinit(allocator);
 
     const stderr = std.io.getStdErr().writer();
+    try ps.draw_order_list.print(stderr, allocator);
     try stderr.print("You can scroll using the Up, Down, PageUp, PageDown, Home, and End keys.\n", .{});
 
     const scroll_speed = 15;
@@ -472,6 +484,7 @@ fn sdlMainLoop(
         if (needs_relayout) {
             needs_relayout = false;
             try ps.updateBoxTree(allocator);
+            try ps.draw_order_list.print(stderr, allocator);
         }
 
         const viewport_rect = sdl.SDL_Rect{
