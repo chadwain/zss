@@ -19,6 +19,7 @@ const null_element = Element.null_element;
 const CascadedValueStore = zss.CascadedValueStore;
 const pixelToZssUnit = zss.render.sdl.pixelToZssUnit;
 const DrawOrderList = zss.render.DrawOrderList;
+const QuadTree = zss.render.QuadTree;
 
 const sdl = @import("SDL2");
 const hb = @import("harfbuzz");
@@ -77,6 +78,7 @@ pub fn main() !u8 {
         window,
         -1,
         sdl.SDL_RENDERER_ACCELERATED | sdl.SDL_RENDERER_PRESENTVSYNC,
+        //sdl.SDL_RENDERER_ACCELERATED,
     ) orelse unreachable;
     defer sdl.SDL_DestroyRenderer(renderer);
     assert(sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BLENDMODE_BLEND) == 0);
@@ -300,6 +302,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
 
     // Footer block
     cascaded.box_style.setAssumeCapacity(footer, .{ .display = .block });
+    // cascaded.content_width.setAssumeCapacity(footer, .{ .size = .{ .px = 50 } });
     cascaded.content_height.setAssumeCapacity(footer, .{ .size = .{ .px = 50 } });
     cascaded.horizontal_edges.setAssumeCapacity(footer, .{ .border_start = .inherit, .border_end = .inherit });
     cascaded.vertical_edges.setAssumeCapacity(footer, .{ .margin_start = .{ .px = 10 }, .border_start = .inherit, .border_end = .inherit });
@@ -323,6 +326,7 @@ const ProgramState = struct {
     root: Element,
     cascaded_values: *const CascadedValueStore,
     box_tree: zss.used_values.BoxTree,
+    quadtree: QuadTree,
     draw_order_list: DrawOrderList,
     atlas: zss.render.sdl.GlyphAtlas,
     width: c_int,
@@ -331,6 +335,9 @@ const ProgramState = struct {
     max_scroll_y: c_int,
     timer: std.time.Timer,
     last_layout_time: u64,
+
+    grid_size_log_2: u4,
+    draw_grid: bool,
 
     const Self = @This();
 
@@ -351,6 +358,8 @@ const ProgramState = struct {
         result.cascaded_values = cascaded_values;
         sdl.SDL_GetWindowSize(window, &result.width, &result.height);
         result.timer = try std.time.Timer.start();
+        result.grid_size_log_2 = 7;
+        result.draw_grid = false;
 
         result.box_tree = try zss.layout.doLayout(
             element_tree,
@@ -362,6 +371,9 @@ const ProgramState = struct {
         errdefer result.box_tree.deinit();
 
         result.last_layout_time = result.timer.read();
+
+        result.quadtree = try QuadTree.create(result.box_tree, allocator);
+        errdefer result.quadtree.deinit(allocator);
 
         result.draw_order_list = try DrawOrderList.create(result.box_tree, allocator);
         errdefer result.draw_order_list.deinit(allocator);
@@ -375,6 +387,7 @@ const ProgramState = struct {
 
     fn deinit(self: *Self, allocator: Allocator) void {
         self.box_tree.deinit();
+        self.quadtree.deinit(allocator);
         self.draw_order_list.deinit(allocator);
         self.atlas.deinit(allocator);
     }
@@ -391,10 +404,14 @@ const ProgramState = struct {
         defer new_box_tree.deinit();
         self.last_layout_time = self.timer.read();
 
+        var new_quadtree = try QuadTree.create(new_box_tree, allocator);
+        defer new_quadtree.deinit(allocator);
+
         var new_draw_order_list = try DrawOrderList.create(new_box_tree, allocator);
         defer new_draw_order_list.deinit(allocator);
 
         std.mem.swap(zss.used_values.BoxTree, &self.box_tree, &new_box_tree);
+        std.mem.swap(QuadTree, &self.quadtree, &new_quadtree);
         std.mem.swap(DrawOrderList, &self.draw_order_list, &new_draw_order_list);
         self.updateMaxScroll();
     }
@@ -423,7 +440,10 @@ fn sdlMainLoop(
 
     const stderr = std.io.getStdErr().writer();
     try ps.draw_order_list.print(stderr, allocator);
+    try stderr.writeAll("\n");
+    try ps.quadtree.print(stderr);
     try stderr.print("You can scroll using the Up, Down, PageUp, PageDown, Home, and End keys.\n", .{});
+    try stderr.print("You can toggle the grid by pressing G, and change its size with [ and ].\n", .{});
 
     const scroll_speed = 15;
 
@@ -471,6 +491,24 @@ fn sdlMainLoop(
                         sdl.SDLK_END => {
                             ps.scroll_y = ps.max_scroll_y;
                         },
+                        sdl.SDLK_g => {
+                            ps.draw_grid = !ps.draw_grid;
+                            if (ps.draw_grid) {
+                                try stderr.print("\nGrid size: {}px\n", .{@as(u16, 1) << ps.grid_size_log_2});
+                            }
+                        },
+                        sdl.SDLK_RIGHTBRACKET => {
+                            if (ps.draw_grid) {
+                                if (ps.grid_size_log_2 > 2) ps.grid_size_log_2 -= 1;
+                                try stderr.print("\nGrid size: {}px\n", .{@as(u16, 1) << ps.grid_size_log_2});
+                            }
+                        },
+                        sdl.SDLK_LEFTBRACKET => {
+                            if (ps.draw_grid) {
+                                if (ps.grid_size_log_2 < 10) ps.grid_size_log_2 += 1;
+                                try stderr.print("\nGrid size: {}px\n", .{@as(u16, 1) << ps.grid_size_log_2});
+                            }
+                        },
                         else => {},
                     }
                 },
@@ -485,6 +523,7 @@ fn sdlMainLoop(
             needs_relayout = false;
             try ps.updateBoxTree(allocator);
             try ps.draw_order_list.print(stderr, allocator);
+            try ps.quadtree.print(stderr);
         }
 
         const viewport_rect = sdl.SDL_Rect{
@@ -500,6 +539,7 @@ fn sdlMainLoop(
         assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255) == 0);
         assert(sdl.SDL_RenderClear(renderer) == 0);
         try zss.render.sdl.drawBoxTree(ps.box_tree, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
+        if (ps.draw_grid) drawGrid(@as(u16, 1) << ps.grid_size_log_2, renderer, viewport_rect, translation);
         sdl.SDL_RenderPresent(renderer);
 
         const frame_time = timer.lap();
@@ -511,5 +551,23 @@ fn sdlMainLoop(
         const average_frame_time = sum_of_frame_times / (frame_times.len * 1000);
         const last_layout_time_ms = ps.last_layout_time / 1000;
         try stderr.print("\rLast layout time: {}.{}ms     Average frame time: {}.{}ms", .{ last_layout_time_ms / 1000, last_layout_time_ms % 1000, average_frame_time / 1000, average_frame_time % 1000 });
+    }
+}
+
+fn drawGrid(grid_size: u16, renderer: *sdl.SDL_Renderer, viewport_rect: sdl.SDL_Rect, translation: sdl.SDL_Point) void {
+    assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255) == 0);
+    {
+        var num_lines = @divFloor(viewport_rect.w + grid_size, grid_size);
+        while (num_lines > 0) : (num_lines -= 1) {
+            const x_pos = @mod(translation.x, grid_size) + (num_lines - 1) * grid_size;
+            assert(sdl.SDL_RenderDrawLine(renderer, x_pos, 0, x_pos, viewport_rect.h) == 0);
+        }
+    }
+    {
+        var num_lines = @divFloor(viewport_rect.h + grid_size, grid_size);
+        while (num_lines > 0) : (num_lines -= 1) {
+            const y_pos = @mod(translation.y, grid_size) + (num_lines - 1) * grid_size;
+            assert(sdl.SDL_RenderDrawLine(renderer, 0, y_pos, viewport_rect.w, y_pos) == 0);
+        }
     }
 }

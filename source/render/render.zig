@@ -2,3 +2,4 @@
 
 pub const sdl = @import("./sdl.zig");
 pub const DrawOrderList = @import("./DrawOrderList.zig");
+pub const QuadTree = @import("./QuadTree.zig");
