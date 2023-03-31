@@ -8,6 +8,7 @@ const BlockBox = zss.used_values.BlockBox;
 const BlockBoxIndex = zss.used_values.BlockBoxIndex;
 const SubtreeIndex = zss.used_values.SubtreeIndex;
 const BlockSubtree = zss.used_values.BlockSubtree;
+const InlineFormattingContextIndex = zss.used_values.InlineFormattingContextIndex;
 const BoxTree = zss.used_values.BoxTree;
 
 const std = @import("std");
@@ -16,7 +17,7 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const top_level_size: ZssUnit = 1024 * zss.used_values.units_per_pixel;
-const large_object_size = top_level_size * 2;
+const large_object_size = top_level_size;
 
 const PatchCoord = struct {
     x: i32,
@@ -26,10 +27,24 @@ const PatchCoord = struct {
 const PatchSpan = struct {
     top_left: PatchCoord,
     bottom_right: PatchCoord,
+
+    fn intersects(a: PatchSpan, b: PatchSpan) bool {
+        const left = std.math.max(a.top_left.x, b.top_left.x);
+        const right = std.math.min(a.bottom_right.x, b.bottom_right.x);
+        const top = std.math.max(a.top_left.y, b.top_left.y);
+        const bottom = std.math.min(a.bottom_right.y, b.bottom_right.y);
+        return right >= left and bottom >= top;
+    }
 };
 
 pub const Object = union(enum) {
     block_box: BlockBox,
+    line_box: LineBox,
+
+    const LineBox = struct {
+        ifc_index: InlineFormattingContextIndex,
+        line_box_index: usize,
+    };
 
     pub fn format(object: Object, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
@@ -37,6 +52,7 @@ pub const Object = union(enum) {
 
         switch (object) {
             .block_box => |block_box| try writer.print("BlockBox subtree={} index={}", .{ block_box.subtree, block_box.index }),
+            .line_box => |line_box| try writer.print("LineBox ifc={} index={}", .{ line_box.ifc_index, line_box.line_box_index }),
         }
     }
 };
@@ -79,11 +95,11 @@ pub const Node = struct {
             var quadrant_intersect: ZssRect = undefined;
             var num_intersects: u3 = 0;
             for (quadrant_rects) |rect, i| {
-                const intersect = rect.intersect(patch_intersect);
-                if (!intersect.isEmpty()) {
+                const intersection = rect.intersect(patch_intersect);
+                if (!intersection.isEmpty()) {
                     num_intersects += 1;
                     quadrant_index = @intCast(u2, i);
-                    quadrant_intersect = intersect;
+                    quadrant_intersect = intersection;
                 }
             }
 
@@ -110,6 +126,36 @@ pub const Node = struct {
                     return;
                 },
             }
+        }
+    }
+
+    fn intersect(node: *const Node, patch_intersect: ZssRect, list: *ArrayListUnmanaged(Object), allocator: Allocator) error{OutOfMemory}!void {
+        assert(!patch_intersect.isEmpty());
+        try list.appendSlice(allocator, node.objects.items);
+
+        if (node.depth == 7) {
+            return;
+        }
+
+        const patch_size = top_level_size >> node.depth;
+        const quadrant_size = patch_size >> 1;
+        const quadrant_rects = [4]ZssRect{
+            ZssRect{ .x = 0, .y = 0, .w = quadrant_size, .h = quadrant_size },
+            ZssRect{ .x = quadrant_size, .y = 0, .w = quadrant_size, .h = quadrant_size },
+            ZssRect{ .x = 0, .y = quadrant_size, .w = quadrant_size, .h = quadrant_size },
+            ZssRect{ .x = quadrant_size, .y = quadrant_size, .w = quadrant_size, .h = quadrant_size },
+        };
+
+        for (quadrant_rects) |rect, i| {
+            const child = node.children[i] orelse continue;
+            const intersection = rect.intersect(patch_intersect);
+            if (intersection.isEmpty()) continue;
+            try child.intersect(.{
+                .x = intersection.x - rect.x,
+                .y = intersection.y - rect.y,
+                .w = intersection.w,
+                .h = intersection.h,
+            }, list, allocator);
         }
     }
 
@@ -212,26 +258,15 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !QuadTree {
 }
 
 fn addObject(quadtree: *QuadTree, allocator: Allocator, bounding_box: ZssRect, object: Object) !void {
-    var patch_span = PatchSpan{
-        .top_left = .{ .x = @divFloor(bounding_box.x, top_level_size), .y = @divFloor(bounding_box.y, top_level_size) },
-        .bottom_right = .{ .x = @divFloor(bounding_box.x + bounding_box.w, top_level_size), .y = @divFloor(bounding_box.y + bounding_box.h, top_level_size) },
-    };
+    const patch_span = rectToPatchSpan(bounding_box);
 
-    if (bounding_box.w > large_object_size or bounding_box.h > large_object_size) {
+    if (patch_span.top_left.x != patch_span.bottom_right.x or patch_span.top_left.y != patch_span.bottom_right.y) {
         try quadtree.large_objects.append(allocator, .{
             .patch_span = patch_span,
             .object = object,
         });
     } else {
-        while (patch_span.top_left.x <= patch_span.bottom_right.x) {
-            while (patch_span.top_left.y <= patch_span.bottom_right.y) {
-                try patchAddObject(quadtree, allocator, patch_span.top_left, bounding_box, object);
-                if (patch_span.top_left.y == patch_span.bottom_right.y) break;
-                patch_span.top_left.y += 1;
-            }
-            if (patch_span.top_left.x == patch_span.bottom_right.x) break;
-            patch_span.top_left.x += 1;
-        }
+        try patchAddObject(quadtree, allocator, patch_span.top_left, bounding_box, object);
     }
 }
 
@@ -250,16 +285,10 @@ fn patchAddObject(quadtree: *QuadTree, allocator: Allocator, patch_coord: PatchC
         .w = top_level_size,
         .h = top_level_size,
     };
-    const patch_intersect = patch_rect.intersect(bounding_box);
-    const patch_intersect_translated = ZssRect{
-        .x = patch_intersect.x - patch_rect.x,
-        .y = patch_intersect.y - patch_rect.y,
-        .w = patch_intersect.w,
-        .h = patch_intersect.h,
-    };
+    const patch_intersect = patch_rect.intersect(bounding_box).translate(.{ .x = -patch_rect.x, .y = -patch_rect.y });
 
     const node = gop_result.value_ptr.*;
-    try node.insert(allocator, patch_intersect_translated, object);
+    try node.insert(allocator, patch_intersect, object);
 }
 
 pub fn deinit(quadtree: *QuadTree, allocator: Allocator) void {
@@ -292,4 +321,48 @@ pub fn print(quadtree: QuadTree, writer: anytype) !void {
         try writer.print("Patch ({}, {})\n", .{ patch_coord.x, patch_coord.y });
         try node.print(writer);
     }
+}
+
+pub fn intersect(quadtree: QuadTree, rect: ZssRect, allocator: Allocator) ![]Object {
+    var result = ArrayListUnmanaged(Object){};
+    defer result.deinit(allocator);
+
+    var patch_span = rectToPatchSpan(rect);
+
+    for (quadtree.large_objects.items) |large_object| {
+        if (patch_span.intersects(large_object.patch_span)) {
+            try result.append(allocator, large_object.object);
+        }
+    }
+
+    while (patch_span.top_left.x <= patch_span.bottom_right.x) : (patch_span.top_left.x += 1) {
+        while (patch_span.top_left.y <= patch_span.bottom_right.y) : (patch_span.top_left.y += 1) {
+            const patch_coord = PatchCoord{ .x = patch_span.top_left.x, .y = patch_span.top_left.y };
+            if (quadtree.patch_map.get(patch_coord)) |node| {
+                const patch_rect = getPatchRect(patch_coord);
+                const patch_intersect = patch_rect.intersect(rect).translate(.{ .x = -patch_rect.x, .y = -patch_rect.y });
+                try node.intersect(patch_intersect, &result, allocator);
+            }
+            if (patch_span.top_left.y == patch_span.bottom_right.y) break;
+        }
+        if (patch_span.top_left.x == patch_span.bottom_right.x) break;
+    }
+
+    return result.toOwnedSlice(allocator);
+}
+
+fn rectToPatchSpan(rect: ZssRect) PatchSpan {
+    return PatchSpan{
+        .top_left = .{ .x = @divFloor(rect.x, top_level_size), .y = @divFloor(rect.y, top_level_size) },
+        .bottom_right = .{ .x = @divFloor(rect.x + rect.w, top_level_size), .y = @divFloor(rect.y + rect.h, top_level_size) },
+    };
+}
+
+fn getPatchRect(patch_coord: PatchCoord) ZssRect {
+    return .{
+        .x = patch_coord.x * top_level_size,
+        .y = patch_coord.y * top_level_size,
+        .w = top_level_size,
+        .h = top_level_size,
+    };
 }

@@ -5,6 +5,7 @@ const used_values = zss.used_values;
 const BlockBoxIndex = used_values.BlockBoxIndex;
 const BlockBox = used_values.BlockBox;
 const BlockSubtree = used_values.BlockSubtree;
+const BlockSubtreeIndex = used_values.SubtreeIndex;
 const InlineFormattingContextIndex = used_values.InlineFormattingContextIndex;
 const StackingContextIndex = used_values.StackingContextIndex;
 const StackingContextTree = used_values.StackingContextTree;
@@ -18,9 +19,14 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 pub const Item = union(enum) {
     block_box: BlockBox,
     ifc: InlineFormattingContextIndex,
-    stacking_context: StackingContext,
+    sub_list: SubList,
+};
 
-    const StackingContext = struct { sc_index: StackingContextIndex, sub_list: DrawOrderList };
+pub const SubList = struct {
+    list: DrawOrderList,
+    type: union(enum) {
+        stacking_context: StackingContextIndex,
+    },
 };
 
 items: ArrayListUnmanaged(Item) = .{},
@@ -37,20 +43,20 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawOrderList {
 
     const slice = box_tree.stacking_contexts.list.slice();
     if (slice.len > 0) {
-        var stacking_context = try createStackingContextList(box_tree, allocator, slice, 0);
-        errdefer stacking_context.sub_list.deinit(allocator);
-        try result.items.append(allocator, Item{ .stacking_context = stacking_context });
+        var sub_list = try createSubListForStackingContext(box_tree, allocator, slice, 0);
+        errdefer sub_list.list.deinit(allocator);
+        try result.items.append(allocator, Item{ .sub_list = sub_list });
     }
 
     return result;
 }
 
-fn createStackingContextList(
+fn createSubListForStackingContext(
     box_tree: BoxTree,
     allocator: Allocator,
     slice: StackingContextTree.List.Slice,
     sc_index: StackingContextIndex,
-) error{OutOfMemory}!Item.StackingContext {
+) error{OutOfMemory}!SubList {
     var result = DrawOrderList{};
     errdefer result.deinit(allocator);
 
@@ -62,16 +68,17 @@ fn createStackingContextList(
     var i = sc_index + 1;
     const end = sc_index + slice.items(.__skip)[sc_index];
     while (i < end and slice.items(.z_index)[i] < 0) : (i += slice.items(.__skip)[i]) {
-        var stacking_context = try createStackingContextList(box_tree, allocator, slice, i);
-        errdefer stacking_context.sub_list.deinit(allocator);
-        try result.items.append(allocator, Item{ .stacking_context = stacking_context });
+        var sub_list = try createSubListForStackingContext(box_tree, allocator, slice, i);
+        errdefer sub_list.list.deinit(allocator);
+        try result.items.append(allocator, Item{ .sub_list = sub_list });
     }
 
-    var stack = ArrayListUnmanaged(struct { begin: BlockBoxIndex, end: BlockBoxIndex, subtree: *const BlockSubtree }){};
+    var stack = ArrayListUnmanaged(struct { begin: BlockBoxIndex, end: BlockBoxIndex, subtree_index: BlockSubtreeIndex, subtree: *const BlockSubtree }){};
     defer stack.deinit(allocator);
     try stack.append(allocator, .{
         .begin = sc_root_block.index + 1,
         .end = sc_root_block.index + sc_root_block_subtree.skip.items[sc_root_block.index],
+        .subtree_index = sc_root_block.subtree,
         .subtree = sc_root_block_subtree,
     });
 
@@ -86,7 +93,7 @@ fn createStackingContextList(
                     if (block_info.stacking_context) |_| {
                         last.begin += subtree.skip.items[last.begin];
                     } else {
-                        try result.items.append(allocator, Item{ .block_box = .{ .subtree = sc_index, .index = last.begin } });
+                        try result.items.append(allocator, Item{ .block_box = .{ .subtree = last.subtree_index, .index = last.begin } });
                         last.begin += 1;
                     }
                 },
@@ -96,6 +103,7 @@ fn createStackingContextList(
                     try stack.append(allocator, .{
                         .begin = 0,
                         .end = @intCast(BlockBoxIndex, child_subtree.skip.items.len),
+                        .subtree_index = subtree_index,
                         .subtree = child_subtree,
                     });
                     continue :outerLoop;
@@ -113,19 +121,19 @@ fn createStackingContextList(
 
     // Add higher stacking contexts
     while (i < end) : (i += slice.items(.__skip)[i]) {
-        var stacking_context = try createStackingContextList(box_tree, allocator, slice, i);
-        errdefer stacking_context.sub_list.deinit(allocator);
-        try result.items.append(allocator, Item{ .stacking_context = stacking_context });
+        var sub_list = try createSubListForStackingContext(box_tree, allocator, slice, i);
+        errdefer sub_list.list.deinit(allocator);
+        try result.items.append(allocator, Item{ .sub_list = sub_list });
     }
 
-    return Item.StackingContext{ .sc_index = sc_index, .sub_list = result };
+    return SubList{ .list = result, .type = .{ .stacking_context = sc_index } };
 }
 
 pub fn deinit(list: *DrawOrderList, allocator: Allocator) void {
     for (list.items.items) |*item| {
         switch (item.*) {
             .block_box, .ifc => {},
-            .stacking_context => |*stacking_context| stacking_context.sub_list.deinit(allocator),
+            .sub_list => |*sub_list| sub_list.list.deinit(allocator),
         }
     }
     list.items.deinit(allocator);
@@ -145,9 +153,12 @@ pub fn print(list: DrawOrderList, writer: anytype, allocator: Allocator) !void {
             switch (last.sub_list.items.items[index]) {
                 .block_box => |block_box| try writer.print("BlockBox subtree={} index={}\n", .{ block_box.subtree, block_box.index }),
                 .ifc => |ifc_index| try writer.print("InlineFormattingContext index={}\n", .{ifc_index}),
-                .stacking_context => |stacking_context| {
-                    try writer.print("StackingContext index={}\n", .{stacking_context.sc_index});
-                    try stack.append(allocator, .{ .sub_list = stacking_context.sub_list, .indent = last.indent + 1 });
+                .sub_list => |sub_list| {
+                    try writer.writeAll("Sub list: ");
+                    switch (sub_list.type) {
+                        .stacking_context => |sc_index| try writer.print("StackingContext index={}\n", .{sc_index}),
+                    }
+                    try stack.append(allocator, .{ .sub_list = sub_list.list, .indent = last.indent + 1 });
                     continue :outerLoop;
                 },
             }

@@ -30,6 +30,7 @@ const BlockSubtreeIndex = used_values.SubtreeIndex;
 const BlockBoxTree = used_values.BlockBoxTree;
 const StackingContextIndex = used_values.StackingContextIndex;
 const InlineBoxIndex = used_values.InlineBoxIndex;
+const InlineBoxSkip = used_values.InlineBoxSkip;
 const InlineFormattingContext = used_values.InlineFormattingContext;
 const InlineFormattingContextIndex = used_values.InlineFormattingContextIndex;
 const GlyphIndex = InlineFormattingContext.GlyphIndex;
@@ -49,6 +50,7 @@ pub const InlineLayoutContext = struct {
 
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
+    skip: ArrayListUnmanaged(InlineBoxSkip) = .{},
     nested_layout_frame: ?*NestedLayoutFrame = null,
 
     result: Result,
@@ -66,6 +68,7 @@ pub const InlineLayoutContext = struct {
 
     pub fn deinit(self: *Self) void {
         self.index.deinit(self.allocator);
+        self.skip.deinit(self.allocator);
         if (self.nested_layout_frame) |frame| {
             self.allocator.destroy(frame);
         }
@@ -80,7 +83,8 @@ pub const InlineLayoutContext = struct {
 };
 
 fn createInlineBox(box_tree: *BoxTree, ifc: *InlineFormattingContext) !InlineBoxIndex {
-    const old_size = ifc.inline_start.items.len;
+    const old_size = ifc.skip.items.len;
+    _ = try ifc.skip.addOne(box_tree.allocator);
     _ = try ifc.inline_start.addOne(box_tree.allocator);
     _ = try ifc.inline_end.addOne(box_tree.allocator);
     _ = try ifc.block_start.addOne(box_tree.allocator);
@@ -177,11 +181,14 @@ fn ifcPushRootInlineBox(layout: *InlineLayoutContext, box_tree: *BoxTree, ifc: *
     rootInlineBoxSetData(ifc, root_inline_box_index);
     try ifcAddBoxStart(box_tree, ifc, root_inline_box_index);
     try layout.index.append(layout.allocator, root_inline_box_index);
+    try layout.skip.append(layout.allocator, 1);
 }
 
 fn ifcPopRootInlineBox(layout: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     assert(layout.inline_box_depth == 0);
     const root_inline_box_index = layout.index.pop();
+    const skip = layout.skip.pop();
+    ifc.skip.items[root_inline_box_index] = skip;
     try ifcAddBoxEnd(box_tree, ifc, root_inline_box_index);
 }
 
@@ -236,6 +243,7 @@ fn ifcRunOnce(
             if (!computer.element_tree_slice.get(.first_child, element).eqlNull()) {
                 layout.inline_box_depth += 1;
                 try layout.index.append(layout.allocator, inline_box_index);
+                try layout.skip.append(layout.allocator, 1);
                 try computer.pushElement(.box_gen);
             } else {
                 // Optimized path for inline boxes with no children.
@@ -343,7 +351,10 @@ fn ifcRunOnce(
 fn ifcPopInlineBox(layout: *InlineLayoutContext, computer: *StyleComputer, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     layout.inline_box_depth -= 1;
     const inline_box_index = layout.index.pop();
+    const skip = layout.skip.pop();
+    ifc.skip.items[inline_box_index] = skip;
     try ifcAddBoxEnd(box_tree, ifc, inline_box_index);
+    layout.skip.items[layout.skip.items.len - 1] += skip;
     computer.popElement(.box_gen);
 }
 
@@ -1082,6 +1093,8 @@ const IFCLineSplitState = struct {
     max_top_height: ZssUnit,
     bottom_height: ZssUnit,
     longest_line_box_length: ZssUnit,
+    inline_box_stack: ArrayListUnmanaged(InlineBoxIndex) = .{},
+    current_inline_box: InlineBoxIndex = undefined,
 
     const InlineBlockInfo = struct {
         box_offsets: *used_values.BoxOffsets,
@@ -1092,7 +1105,7 @@ const IFCLineSplitState = struct {
     fn init(top_height: ZssUnit, bottom_height: ZssUnit) IFCLineSplitState {
         return IFCLineSplitState{
             .cursor = 0,
-            .line_box = .{ .baseline = 0, .elements = [2]usize{ 0, 0 } },
+            .line_box = .{ .baseline = 0, .elements = [2]usize{ 0, 0 }, .inline_box = undefined },
             .inline_blocks_in_this_line_box = .{},
             .top_height = top_height,
             .max_top_height = top_height,
@@ -1103,6 +1116,7 @@ const IFCLineSplitState = struct {
 
     fn deinit(self: *IFCLineSplitState, allocator: Allocator) void {
         self.inline_blocks_in_this_line_box.deinit(allocator);
+        self.inline_box_stack.deinit(allocator);
     }
 
     fn finishLineBox(self: *IFCLineSplitState, origin: ZssVector) void {
@@ -1122,9 +1136,26 @@ const IFCLineSplitState = struct {
         self.line_box = .{
             .baseline = self.line_box.baseline + self.bottom_height,
             .elements = [2]usize{ self.line_box.elements[1] + skipped_glyphs, self.line_box.elements[1] + skipped_glyphs },
+            .inline_box = self.current_inline_box,
         };
         self.max_top_height = self.top_height;
         self.inline_blocks_in_this_line_box.clearRetainingCapacity();
+    }
+
+    fn pushInlineBox(self: *IFCLineSplitState, allocator: Allocator, index: InlineBoxIndex) !void {
+        if (index != 0) {
+            try self.inline_box_stack.append(allocator, self.current_inline_box);
+        }
+        self.current_inline_box = index;
+    }
+
+    fn popInlineBox(self: *IFCLineSplitState, index: InlineBoxIndex) void {
+        assert(self.current_inline_box == index);
+        if (index != 0) {
+            self.current_inline_box = self.inline_box_stack.pop();
+        } else {
+            self.current_inline_box = undefined;
+        }
     }
 };
 
@@ -1153,7 +1184,18 @@ pub fn splitIntoLineBoxes(
     var s = IFCLineSplitState.init(top_height, bottom_height);
     defer s.deinit(allocator);
 
-    var i: usize = 0;
+    {
+        const gi = ifc.glyph_indeces.items[0];
+        assert(gi == 0);
+        const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[1]);
+        assert(special.kind == .BoxStart);
+        assert(@as(InlineBoxIndex, special.data) == 0);
+        s.pushInlineBox(allocator, 0) catch unreachable;
+        s.line_box.elements[1] = 2;
+        s.line_box.inline_box = 0;
+    }
+
+    var i: usize = 2;
     while (i < ifc.glyph_indeces.items.len) : (i += 1) {
         const gi = ifc.glyph_indeces.items[i];
         const metrics = ifc.metrics.items[i];
@@ -1162,6 +1204,8 @@ pub fn splitIntoLineBoxes(
             i += 1;
             const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
             switch (@intToEnum(InlineFormattingContext.Special.LayoutInternalKind, @enumToInt(special.kind))) {
+                .BoxStart => try s.pushInlineBox(allocator, @as(InlineBoxIndex, special.data)),
+                .BoxEnd => s.popInlineBox(@as(InlineBoxIndex, special.data)),
                 .LineBreak => {
                     s.finishLineBox(ifc.origin);
                     try ifc.line_boxes.append(box_tree.allocator, s.line_box);

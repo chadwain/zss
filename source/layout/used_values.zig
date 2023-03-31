@@ -11,7 +11,7 @@ const ElementHashMap = zss.util.ElementHashMap;
 pub const ZssUnit = i32;
 
 /// The number of ZssUnits contained wthin 1 screen pixel.
-pub const units_per_pixel = 1;
+pub const units_per_pixel = 2;
 
 /// A floating point number usually between 0 and 1, but it can
 /// exceed these values.
@@ -47,6 +47,15 @@ pub const ZssRect = struct {
 
     pub fn isEmpty(self: Self) bool {
         return self.w <= 0 or self.h <= 0;
+    }
+
+    pub fn translate(rect: Self, vec: ZssVector) Self {
+        return Self{
+            .x = rect.x + vec.x,
+            .y = rect.y + vec.y,
+            .w = rect.w,
+            .h = rect.h,
+        };
     }
 
     pub fn intersect(a: Self, b: Self) Self {
@@ -190,6 +199,7 @@ pub const BlockBoxTree = struct {
 };
 
 pub const InlineBoxIndex = u16;
+pub const InlineBoxSkip = InlineBoxIndex;
 pub const InlineFormattingContextIndex = u16;
 
 /// Contains information about an inline formatting context.
@@ -218,6 +228,7 @@ pub const InlineFormattingContext = struct {
     ascender: ZssUnit = undefined,
     descender: ZssUnit = undefined,
 
+    skip: ArrayListUnmanaged(InlineBoxSkip) = .{},
     inline_start: ArrayListUnmanaged(BoxProperties) = .{},
     inline_end: ArrayListUnmanaged(BoxProperties) = .{},
     block_start: ArrayListUnmanaged(BoxProperties) = .{},
@@ -255,6 +266,8 @@ pub const InlineFormattingContext = struct {
         /// The interval of glyph indeces to take from the glyph_indeces array.
         /// It is a half-open interval of the form [a, b).
         elements: [2]usize,
+        /// The inline box that starts this line box.
+        inline_box: InlineBoxIndex,
     };
 
     /// Structure that represents things other than glyphs. It is guaranteed to never have a
@@ -338,6 +351,7 @@ pub const InlineFormattingContext = struct {
         self.metrics.deinit(allocator);
         self.line_boxes.deinit(allocator);
 
+        self.skip.deinit(allocator);
         self.inline_start.deinit(allocator);
         self.inline_end.deinit(allocator);
         self.block_start.deinit(allocator);
@@ -348,6 +362,7 @@ pub const InlineFormattingContext = struct {
     }
 
     pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: usize) !void {
+        try self.skip.ensureTotalCapacity(allocator, count);
         try self.inline_start.ensureTotalCapacity(allocator, count);
         try self.inline_end.ensureTotalCapacity(allocator, count);
         try self.block_start.ensureTotalCapacity(allocator, count);

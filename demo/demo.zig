@@ -509,6 +509,9 @@ fn sdlMainLoop(
                                 try stderr.print("\nGrid size: {}px\n", .{@as(u16, 1) << ps.grid_size_log_2});
                             }
                         },
+                        sdl.SDLK_s => {
+                            try printObjectsOnScreen(ps, stderr, allocator);
+                        },
                         else => {},
                     }
                 },
@@ -570,4 +573,16 @@ fn drawGrid(grid_size: u16, renderer: *sdl.SDL_Renderer, viewport_rect: sdl.SDL_
             assert(sdl.SDL_RenderDrawLine(renderer, 0, y_pos, viewport_rect.w, y_pos) == 0);
         }
     }
+}
+
+fn printObjectsOnScreen(ps: ProgramState, stderr: std.fs.File.Writer, allocator: Allocator) !void {
+    const intersects = try ps.quadtree.intersect(.{
+        .x = pixelToZssUnit(0),
+        .y = pixelToZssUnit(ps.scroll_y),
+        .w = pixelToZssUnit(ps.width),
+        .h = pixelToZssUnit(ps.height),
+    }, allocator);
+    defer allocator.free(intersects);
+    try stderr.writeAll("\nObjects on screen:\n");
+    for (intersects) |object| try stderr.print("\t{}\n", .{object});
 }
