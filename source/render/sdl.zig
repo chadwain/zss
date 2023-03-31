@@ -94,7 +94,7 @@ pub fn drawBoxTree(
 
                 for (item.stacking_context.ifcs.items) |ifc_index| {
                     const ifc = box_tree.ifcs.items[ifc_index];
-                    const subtree = &box_tree.blocks.subtrees.items[ifc.parent_block.subtree];
+                    const subtree = box_tree.blocks.subtrees.items[ifc.parent_block.subtree];
                     const box_offsets = subtree.box_offsets.items[ifc.parent_block.index];
                     const insets = subtree.insets.items[ifc.parent_block.index];
                     const new_translation = item.translation
@@ -129,7 +129,7 @@ fn calcOffset(blocks: *const BlockBoxTree, parent: BlockBox, child: BlockBox) Zs
     var reached_parent_subtree = parent.subtree == target.subtree;
     var result = ZssVector{ .x = 0, .y = 0 };
     while (true) {
-        const subtree = &blocks.subtrees.items[target.subtree];
+        const subtree = blocks.subtrees.items[target.subtree];
         var block_iterator: zss.SkipTreePathIterator(BlockBoxIndex) = undefined;
         if (reached_parent_subtree) {
             block_iterator = zss.SkipTreePathIterator(BlockBoxIndex).initFrom(target.index, parent.index, subtree.skip.items);
@@ -153,7 +153,7 @@ fn calcOffset(blocks: *const BlockBoxTree, parent: BlockBox, child: BlockBox) Zs
             target = subtree.parent orelse unreachable;
             reached_parent_subtree = parent.subtree == target.subtree;
 
-            const new_subtree = &blocks.subtrees.items[target.subtree];
+            const new_subtree = blocks.subtrees.items[target.subtree];
             assert(new_subtree.type.items[target.index] == .subtree_proxy);
         }
     }
@@ -385,7 +385,7 @@ pub fn drawGeneratingBlock(
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
 ) void {
-    const subtree = &blocks.subtrees.items[generating_block.subtree];
+    const subtree = blocks.subtrees.items[generating_block.subtree];
     //const visual_effect = blocks.visual_effect[0];
     //if (visual_effect.visibility == .Hidden) return;
     const borders = subtree.borders.items[generating_block.index];
@@ -433,11 +433,11 @@ pub fn drawChildBlocks(
     var subtree_stack = ArrayListUnmanaged(SubtreeStackItem){};
     defer subtree_stack.deinit(allocator);
     try subtree_stack.append(allocator, .{
-        .subtree = &blocks.subtrees.items[generating_block.subtree],
+        .subtree = blocks.subtrees.items[generating_block.subtree],
         .index_of_root = 0,
     });
 
-    const generating_block_subtree = &blocks.subtrees.items[generating_block.subtree];
+    const generating_block_subtree = blocks.subtrees.items[generating_block.subtree];
     switch (generating_block_subtree.type.items[generating_block.index]) {
         .block => {},
         .subtree_proxy => unreachable,
@@ -497,7 +497,7 @@ pub fn drawChildBlocks(
                     if (block_info.stacking_context) |_| continue;
                 },
                 .subtree_proxy => |proxied_block| {
-                    const proxied_block_subtree = &blocks.subtrees.items[proxied_block];
+                    const proxied_block_subtree = blocks.subtrees.items[proxied_block];
                     try block_stack.append(allocator, .{
                         .interval = .{ .begin = 0, .end = @intCast(BlockBoxIndex, proxied_block_subtree.skip.items.len) },
                         .translation = block_item.translation,

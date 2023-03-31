@@ -51,7 +51,7 @@ fn printBlocks(box_tree: BoxTree, stdout: anytype, allocator: Allocator) !void {
     defer block_stack.deinit(allocator);
 
     const subtrees = box_tree.blocks.subtrees.items;
-    try subtree_stack.append(allocator, .{ .index = 0, .subtree = &subtrees[0], .index_of_root = 0 });
+    try subtree_stack.append(allocator, .{ .index = 0, .subtree = subtrees[0], .index_of_root = 0 });
     try block_stack.append(allocator, .{ .begin = 0, .end = subtrees[0].skip.items[0], .indent = 0 });
 
     while (block_stack.items.len > 0) {
@@ -67,7 +67,7 @@ fn printBlocks(box_tree: BoxTree, stdout: anytype, allocator: Allocator) !void {
                     try stdout.writeByteNTimes(' ', top.indent * 4);
                     try stdout.print("subtree index={}\n", .{subtree_index});
 
-                    const new_subtree = &subtrees[subtree_index];
+                    const new_subtree = subtrees[subtree_index];
                     try subtree_stack.append(allocator, .{ .index = subtree_index, .subtree = new_subtree, .index_of_root = block_stack.items.len });
                     try block_stack.append(allocator, .{ .begin = 0, .end = @intCast(BlockBoxIndex, new_subtree.skip.items.len), .indent = top.indent + 1 });
                 },

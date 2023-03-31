@@ -197,7 +197,7 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                         );
                         layout.skip.items[layout.skip.items.len - 1] += result.total_inline_block_skip;
 
-                        const subtree = &box_tree.blocks.subtrees.items[subtree_index];
+                        const subtree = box_tree.blocks.subtrees.items[subtree_index];
                         const ifc = box_tree.ifcs.items[result.ifc_index];
                         const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
                         ifc.parent_block = .{ .subtree = subtree_index, .index = layout.index.items[layout.index.items.len - 1] };
@@ -223,10 +223,9 @@ pub fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleC
     const width = @intCast(ZssUnit, computer.viewport_size.width * units_per_pixel);
     const height = @intCast(ZssUnit, computer.viewport_size.height * units_per_pixel);
 
-    const subtree_index = std.math.cast(BlockSubtreeIndex, box_tree.blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees;
+    const subtree_index = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = null });
     assert(subtree_index == initial_subtree);
-    const subtree = try box_tree.blocks.subtrees.addOne(box_tree.allocator);
-    subtree.* = .{ .parent = null };
+    const subtree = box_tree.blocks.subtrees.items[subtree_index];
 
     const block = try createBlock(box_tree, subtree);
     assert(block.index == initial_containing_block);
@@ -288,7 +287,7 @@ fn makeFlowBlock(
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
 ) !GeneratedBox {
-    const subtree = &box_tree.blocks.subtrees.items[subtree_index];
+    const subtree = box_tree.blocks.subtrees.items[subtree_index];
     const block = try createBlock(box_tree, subtree);
     block.skip.* = undefined;
     block.type.* = .{ .block = .{ .stacking_context = undefined } };
@@ -345,7 +344,7 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
     const auto_height = layout.auto_height.pop();
     const heights = layout.heights.pop();
 
-    const subtree = &box_tree.blocks.subtrees.items[subtree_index];
+    const subtree = box_tree.blocks.subtrees.items[subtree_index];
     subtree.skip.items[block_box_index] = skip;
     const box_offsets = &subtree.box_offsets.items[block_box_index];
     assert(box_offsets.content_size.w == width);

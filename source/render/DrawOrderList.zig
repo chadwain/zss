@@ -61,7 +61,7 @@ fn createSubListForStackingContext(
     errdefer result.deinit(allocator);
 
     const sc_root_block = slice.items(.block_box)[sc_index];
-    const sc_root_block_subtree = &box_tree.blocks.subtrees.items[sc_root_block.subtree];
+    const sc_root_block_subtree = box_tree.blocks.subtrees.items[sc_root_block.subtree];
     try result.items.append(allocator, Item{ .block_box = sc_root_block });
 
     // Add lower stacking contexts
@@ -99,7 +99,7 @@ fn createSubListForStackingContext(
                 },
                 .subtree_proxy => |subtree_index| {
                     last.begin += 1;
-                    const child_subtree = &box_tree.blocks.subtrees.items[subtree_index];
+                    const child_subtree = box_tree.blocks.subtrees.items[subtree_index];
                     try stack.append(allocator, .{
                         .begin = 0,
                         .end = @intCast(BlockBoxIndex, child_subtree.skip.items.len),

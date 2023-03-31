@@ -28,6 +28,7 @@ const BlockBoxIndex = used_values.BlockBoxIndex;
 const BlockBoxSkip = used_values.BlockBoxSkip;
 const BlockBoxTree = used_values.BlockBoxTree;
 const BlockSubtreeIndex = used_values.SubtreeIndex;
+const BlockSubtree = used_values.BlockSubtree;
 const BlockBox = used_values.BlockBox;
 const StackingContextIndex = used_values.StackingContextIndex;
 const StackingContextRef = used_values.StackingContextRef;
@@ -264,15 +265,16 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 try layout.objects.tree.append(layout.allocator, .{ .skip = 1, .tag = .flow_normal, .element = element });
                                 layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
 
+                                const new_subtree_index = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = undefined });
+                                const new_subtree = box_tree.blocks.subtrees.items[new_subtree_index];
+
                                 const data_index = try layout.objects.allocData(layout.allocator, .flow_normal);
                                 const data = layout.objects.getData(.flow_normal, data_index);
                                 data.* = .{
                                     .margins = UsedMargins.fromFlowBlockUsedSizes(used),
-                                    .subtree_index = std.math.cast(BlockSubtreeIndex, box_tree.blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees,
+                                    .subtree_index = new_subtree_index,
                                 };
 
-                                const new_subtree = try box_tree.blocks.subtrees.addOne(box_tree.allocator);
-                                new_subtree.* = .{ .parent = undefined };
                                 const new_subtree_block = try normal.createBlock(box_tree, new_subtree);
                                 new_subtree_block.type.* = .{ .block = .{ .stacking_context = undefined } };
                                 normal.flowBlockSetData(used, new_subtree_block.box_offsets, new_subtree_block.borders, new_subtree_block.margins);
@@ -319,9 +321,8 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                         },
                         .none => element_ptr.* = computer.element_tree_slice.get(.next_sibling, element),
                         .inline_, .inline_block, .text => {
-                            const new_subtree_index = std.math.cast(BlockSubtreeIndex, box_tree.blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees;
-                            const new_subtree = try box_tree.blocks.subtrees.addOne(box_tree.allocator);
-                            new_subtree.* = .{ .parent = undefined };
+                            const new_subtree_index = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = undefined });
+                            const new_subtree = box_tree.blocks.subtrees.items[new_subtree_index];
 
                             const result = try inline_layout.makeInlineFormattingContext(
                                 layout.allocator,
@@ -416,7 +417,7 @@ fn createObjects(
     const tags = objects.tree.items(.tag);
     const elements = objects.tree.items(.element);
 
-    const subtree = &box_tree.blocks.subtrees.items[root_block_box.subtree];
+    const subtree = box_tree.blocks.subtrees.items[root_block_box.subtree];
 
     var data_index_mutable: Objects.DataIndex = 0;
     var layout = ShrinkToFitLayoutContext2{};
@@ -489,7 +490,7 @@ fn createObjects(
                     },
                     .flow_normal => {
                         const data = objects.getData2(.flow_normal, &data_index_mutable);
-                        const new_subtree = &box_tree.blocks.subtrees.items[data.subtree_index];
+                        const new_subtree = box_tree.blocks.subtrees.items[data.subtree_index];
 
                         {
                             const proxy = try normal.createBlock(box_tree, subtree);
@@ -509,7 +510,7 @@ fn createObjects(
                     },
                     .ifc => {
                         const data = objects.getData2(.ifc, &data_index_mutable);
-                        const new_subtree = &box_tree.blocks.subtrees.items[data.subtree_index];
+                        const new_subtree = box_tree.blocks.subtrees.items[data.subtree_index];
 
                         {
                             const proxy = try normal.createBlock(box_tree, subtree);

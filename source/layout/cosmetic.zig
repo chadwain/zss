@@ -36,7 +36,7 @@ const Context = struct {
 };
 
 pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
-    for (box_tree.blocks.subtrees.items) |*subtree| {
+    for (box_tree.blocks.subtrees.items) |subtree| {
         const num_created_boxes = subtree.skip.items.len;
         try subtree.insets.resize(box_tree.allocator, num_created_boxes);
         try subtree.border_colors.resize(box_tree.allocator, num_created_boxes);
@@ -59,7 +59,7 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
     defer context.deinit(computer.allocator);
 
     {
-        const initial_containing_block_subtree = &box_tree.blocks.subtrees.items[initial_subtree];
+        const initial_containing_block_subtree = box_tree.blocks.subtrees.items[initial_subtree];
         const box_offsets = initial_containing_block_subtree.box_offsets.items[initial_containing_block];
         try context.mode.append(computer.allocator, .InitialContainingBlock);
         try context.containing_block_size.append(computer.allocator, box_offsets.content_size);
@@ -73,7 +73,7 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
                 try blockBoxCosmeticLayout(context, computer, box_tree, block_box, .Root);
 
                 if (!computer.element_tree_slice.get(.first_child, computer.root_element).eqlNull()) {
-                    const subtree = &box_tree.blocks.subtrees.items[block_box.subtree];
+                    const subtree = box_tree.blocks.subtrees.items[block_box.subtree];
                     const box_offsets = subtree.box_offsets.items[block_box.index];
                     try context.mode.append(computer.allocator, .Flow);
                     try context.containing_block_size.append(computer.allocator, box_offsets.content_size);
@@ -107,7 +107,7 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
                     try blockBoxCosmeticLayout(context, computer, box_tree, block_box, .NonRoot);
 
                     if (has_children) {
-                        const subtree = &box_tree.blocks.subtrees.items[block_box.subtree];
+                        const subtree = box_tree.blocks.subtrees.items[block_box.subtree];
                         const box_offsets = subtree.box_offsets.items[block_box.index];
                         try context.mode.append(computer.allocator, .Flow);
                         try context.containing_block_size.append(computer.allocator, box_offsets.content_size);
@@ -151,7 +151,7 @@ fn blockBoxCosmeticLayout(context: Context, computer: *StyleComputer, box_tree: 
         .insets = computer.getSpecifiedValue(.cosmetic, .insets),
     };
 
-    const subtree = &box_tree.blocks.subtrees.items[block_box.subtree];
+    const subtree = box_tree.blocks.subtrees.items[block_box.subtree];
 
     const computed_box_style = solve.boxStyle(specified.box_style, is_root);
     const current_color = solve.currentColor(specified.color.color);
@@ -310,7 +310,7 @@ fn solveInsetsRelative(
 }
 
 fn anonymousBlockBoxCosmeticLayout(box_tree: *BoxTree, block_box: BlockBox) void {
-    const subtree = &box_tree.blocks.subtrees.items[block_box.subtree];
+    const subtree = box_tree.blocks.subtrees.items[block_box.subtree];
     subtree.border_colors.items[block_box.index] = .{};
     subtree.background1.items[block_box.index] = .{};
     subtree.background2.items[block_box.index] = .{};

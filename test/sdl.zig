@@ -52,7 +52,7 @@ pub fn run(tests: []const zss.testing.Test) !void {
             if (box_tree.element_to_generated_box.get(t.root)) |generated| {
                 switch (generated) {
                     .block_box => |block_box| {
-                        const subtree = &box_tree.blocks.subtrees.items[block_box.subtree];
+                        const subtree = box_tree.blocks.subtrees.items[block_box.subtree];
                         const box_offsets = subtree.box_offsets.items[block_box.index];
                         root_sizes = .{
                             .width = r.zssUnitToPixel(box_offsets.border_size.w),

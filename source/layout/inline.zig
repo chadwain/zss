@@ -171,7 +171,7 @@ fn createInlineFormattingContext(
     try ifcPopRootInlineBox(layout, box_tree, ifc);
 
     try ifc.metrics.resize(box_tree.allocator, ifc.glyph_indeces.items.len);
-    const subtree = &box_tree.blocks.subtrees.items[layout.subtree_index];
+    const subtree = box_tree.blocks.subtrees.items[layout.subtree_index];
     ifcSolveMetrics(ifc, subtree);
 }
 
@@ -255,7 +255,7 @@ fn ifcRunOnce(
             element_ptr.* = computer.element_tree_slice.get(.next_sibling, element);
             computer.setComputedValue(.box_gen, .box_style, computed);
 
-            const subtree = &box_tree.blocks.subtrees.items[layout.subtree_index];
+            const subtree = box_tree.blocks.subtrees.items[layout.subtree_index];
             const block = try normal.createBlock(box_tree, subtree);
             block.skip.* = undefined;
             block.type.* = .{ .block = .{ .stacking_context = undefined } };

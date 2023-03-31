@@ -188,13 +188,24 @@ pub const BlockSubtree = struct {
 };
 
 pub const BlockBoxTree = struct {
-    subtrees: ArrayListUnmanaged(BlockSubtree) = .{},
+    subtrees: ArrayListUnmanaged(*BlockSubtree) = .{},
 
     fn deinit(tree: *BlockBoxTree, allocator: Allocator) void {
-        for (tree.subtrees.items) |*subtree| {
+        for (tree.subtrees.items) |subtree| {
             subtree.deinit(allocator);
+            allocator.destroy(subtree);
         }
         tree.subtrees.deinit(allocator);
+    }
+
+    pub fn makeSubtree(blocks: *BlockBoxTree, allocator: Allocator, value: BlockSubtree) !SubtreeIndex {
+        const index = std.math.cast(SubtreeIndex, blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees;
+        const entry = try blocks.subtrees.addOne(allocator);
+        errdefer _ = blocks.subtrees.pop();
+        const subtree = try allocator.create(BlockSubtree);
+        entry.* = subtree;
+        subtree.* = value;
+        return index;
     }
 };
 

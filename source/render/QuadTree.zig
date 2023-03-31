@@ -191,7 +191,7 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !QuadTree {
     errdefer result.deinit(allocator);
 
     assert(box_tree.blocks.subtrees.items.len > 0);
-    const root_subtree = &box_tree.blocks.subtrees.items[0];
+    const root_subtree = box_tree.blocks.subtrees.items[0];
     assert(root_subtree.skip.items.len > 0);
 
     var subtree_stack = ArrayListUnmanaged(struct { subtree_index: SubtreeIndex, subtree: *const BlockSubtree, index_of_root: usize }){};
@@ -240,7 +240,7 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !QuadTree {
                     }
                 },
                 .subtree_proxy => |child_subtree_index| {
-                    const child_subtree = &box_tree.blocks.subtrees.items[child_subtree_index];
+                    const child_subtree = box_tree.blocks.subtrees.items[child_subtree_index];
                     try subtree_stack.append(allocator, .{ .subtree_index = child_subtree_index, .subtree = child_subtree, .index_of_root = block_stack.items.len });
                     try block_stack.append(allocator, .{ .interval = .{ .begin = 0, .end = child_subtree.skip.items[0] }, .vector = block_item.vector });
                     continue :outerLoop;
