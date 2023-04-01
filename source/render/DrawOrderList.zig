@@ -97,6 +97,9 @@ fn createSubListForStackingContext(
                         last.begin += 1;
                     }
                 },
+                .ifc_container => {
+                    last.begin += 1;
+                },
                 .subtree_proxy => |subtree_index| {
                     last.begin += 1;
                     const child_subtree = box_tree.blocks.subtrees.items[subtree_index];

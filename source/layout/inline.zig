@@ -112,7 +112,7 @@ pub fn makeInlineFormattingContext(
         errdefer _ = box_tree.ifcs.pop();
         const result = try box_tree.allocator.create(InlineFormattingContext);
         errdefer box_tree.allocator.destroy(result);
-        result.* = .{ .parent_block = undefined, .origin = undefined };
+        result.* = .{ .parent_block = undefined };
         errdefer result.deinit(box_tree.allocator);
         result_ptr.* = result;
         break :ifc result;
@@ -1119,13 +1119,13 @@ const IFCLineSplitState = struct {
         self.inline_box_stack.deinit(allocator);
     }
 
-    fn finishLineBox(self: *IFCLineSplitState, origin: ZssVector) void {
+    fn finishLineBox(self: *IFCLineSplitState) void {
         self.line_box.baseline += self.max_top_height;
         self.longest_line_box_length = std.math.max(self.longest_line_box_length, self.cursor);
 
         for (self.inline_blocks_in_this_line_box.items) |info| {
-            const offset_x = origin.x + info.cursor;
-            const offset_y = origin.y + self.line_box.baseline - info.height;
+            const offset_x = info.cursor;
+            const offset_y = self.line_box.baseline - info.height;
             info.box_offsets.border_pos.x += offset_x;
             info.box_offsets.border_pos.y += offset_y;
         }
@@ -1207,7 +1207,7 @@ pub fn splitIntoLineBoxes(
                 .BoxStart => try s.pushInlineBox(allocator, @as(InlineBoxIndex, special.data)),
                 .BoxEnd => s.popInlineBox(@as(InlineBoxIndex, special.data)),
                 .LineBreak => {
-                    s.finishLineBox(ifc.origin);
+                    s.finishLineBox();
                     try ifc.line_boxes.append(box_tree.allocator, s.line_box);
                     s.newLineBox(2);
                     continue;
@@ -1219,7 +1219,7 @@ pub fn splitIntoLineBoxes(
 
         // TODO: (Bug) A glyph with a width of zero but an advance that is non-zero may overflow the width of the containing block
         if (s.cursor > 0 and metrics.width > 0 and s.cursor + metrics.offset + metrics.width > max_line_box_length and s.line_box.elements[1] > s.line_box.elements[0]) {
-            s.finishLineBox(ifc.origin);
+            s.finishLineBox();
             try ifc.line_boxes.append(box_tree.allocator, s.line_box);
             s.newLineBox(0);
         }
@@ -1251,7 +1251,7 @@ pub fn splitIntoLineBoxes(
     }
 
     if (s.line_box.elements[1] > s.line_box.elements[0]) {
-        s.finishLineBox(ifc.origin);
+        s.finishLineBox();
         try ifc.line_boxes.append(box_tree.allocator, s.line_box);
     }
 

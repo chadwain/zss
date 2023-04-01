@@ -110,6 +110,27 @@ fn printBlocks(box_tree: BoxTree, stdout: anytype, allocator: Allocator) !void {
                     );
                     try block_stack.append(allocator, .{ .begin = index + 1, .end = index + skip, .indent = top.indent + 1 });
                 },
+                .ifc_container => {
+                    const box_offsets = subtree.subtree.box_offsets.items[index];
+                    const width = box_offsets.content_size.w;
+                    const height = box_offsets.content_size.h;
+                    const anchor = box_offsets.border_pos;
+
+                    try stdout.writeByteNTimes(' ', top.indent * 4);
+                    try stdout.print(
+                        "ifc_container subtree={} index={} skip={} width={} height={} anchor={},{}\n",
+                        .{
+                            subtree.index,
+                            index,
+                            skip,
+                            width,
+                            height,
+                            anchor.x,
+                            anchor.y,
+                        },
+                    );
+                    try block_stack.append(allocator, .{ .begin = index + 1, .end = index + skip, .indent = top.indent + 1 });
+                },
             }
         } else {
             if (subtree.index_of_root == block_stack.items.len) {

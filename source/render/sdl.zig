@@ -96,13 +96,10 @@ pub fn drawBoxTree(
                     const ifc = box_tree.ifcs.items[ifc_index];
                     const subtree = box_tree.blocks.subtrees.items[ifc.parent_block.subtree];
                     const box_offsets = subtree.box_offsets.items[ifc.parent_block.index];
-                    const insets = subtree.insets.items[ifc.parent_block.index];
                     const new_translation = item.translation
                         .add(calcOffset(&box_tree.blocks, item.stacking_context.block_box, ifc.parent_block))
                         .add(box_offsets.border_pos)
-                        .add(box_offsets.content_pos)
-                        .add(insets)
-                        .add(ifc.origin);
+                        .add(box_offsets.content_pos);
                     try drawInlineFormattingContext(ifc, new_translation, allocator, renderer, pixel_format, maybe_atlas);
                 }
             },
@@ -143,6 +140,10 @@ fn calcOffset(blocks: *const BlockBoxTree, parent: BlockBox, child: BlockBox) Zs
                     const box_offsets = subtree.box_offsets.items[index];
                     const insets = subtree.insets.items[index];
                     result = result.add(box_offsets.border_pos).add(box_offsets.content_pos).add(insets);
+                },
+                .ifc_container => {
+                    const box_offsets = subtree.box_offsets.items[index];
+                    result = result.add(box_offsets.border_pos).add(box_offsets.content_pos);
                 },
                 .subtree_proxy => unreachable,
             }
@@ -440,7 +441,7 @@ pub fn drawChildBlocks(
     const generating_block_subtree = blocks.subtrees.items[generating_block.subtree];
     switch (generating_block_subtree.type.items[generating_block.index]) {
         .block => {},
-        .subtree_proxy => unreachable,
+        .ifc_container, .subtree_proxy => unreachable,
     }
     if (generating_block_subtree.skip.items[generating_block.index] != 1) {
         const box_offsets = generating_block_subtree.box_offsets.items[generating_block.index];
@@ -495,6 +496,16 @@ pub fn drawChildBlocks(
             switch (subtree.type.items[block_index]) {
                 .block => |block_info| {
                     if (block_info.stacking_context) |_| continue;
+                },
+                .ifc_container => {
+                    if (skip != 1) {
+                        const box_offsets = subtree.box_offsets.items[block_index];
+                        try block_stack.append(allocator, .{
+                            .interval = .{ .begin = block_index + 1, .end = block_index + skip },
+                            .translation = block_item.translation.add(box_offsets.border_pos).add(box_offsets.content_pos),
+                        });
+                    }
+                    continue :stackLoop;
                 },
                 .subtree_proxy => |proxied_block| {
                     const proxied_block_subtree = blocks.subtrees.items[proxied_block];

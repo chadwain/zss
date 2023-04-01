@@ -185,6 +185,9 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                         try computer.pushElement(.box_gen);
                     },
                     .inline_, .inline_block, .text => {
+                        const subtree = box_tree.blocks.subtrees.items[subtree_index];
+                        const ifc_container = try createBlock(box_tree, subtree);
+
                         const result = try inline_layout.makeInlineFormattingContext(
                             layout.allocator,
                             sc,
@@ -195,14 +198,22 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                             containing_block_width,
                             containing_block_height,
                         );
-                        layout.skip.items[layout.skip.items.len - 1] += result.total_inline_block_skip;
-
-                        const subtree = box_tree.blocks.subtrees.items[subtree_index];
                         const ifc = box_tree.ifcs.items[result.ifc_index];
-                        const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-                        ifc.parent_block = .{ .subtree = subtree_index, .index = layout.index.items[layout.index.items.len - 1] };
-                        ifc.origin = ZssVector{ .x = 0, .y = parent_auto_height.* };
                         const line_split_result = try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, subtree, ifc, containing_block_width);
+                        ifc.parent_block = .{ .subtree = subtree_index, .index = ifc_container.index };
+
+                        const skip = 1 + result.total_inline_block_skip;
+                        const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
+                        ifc_container.type.* = .{ .ifc_container = result.ifc_index };
+                        ifc_container.skip.* = skip;
+                        ifc_container.box_offsets.* = .{
+                            .border_pos = .{ .x = 0, .y = parent_auto_height.* },
+                            .border_size = .{ .w = containing_block_width, .h = line_split_result.height },
+                            .content_pos = .{ .x = 0, .y = 0 },
+                            .content_size = .{ .w = containing_block_width, .h = line_split_result.height },
+                        };
+
+                        layout.skip.items[layout.skip.items.len - 1] += skip;
 
                         advanceFlow(parent_auto_height, line_split_result.height);
                     },

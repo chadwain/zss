@@ -62,7 +62,12 @@ const Objects = struct {
             return switch (tag) {
                 .flow_stf => struct { used: FlowBlockUsedSizes, stacking_context_ref: ?StackingContextRef },
                 .flow_normal => struct { margins: UsedMargins, subtree_index: BlockSubtreeIndex },
-                .ifc => struct { subtree_index: BlockSubtreeIndex, layout_result: inline_layout.InlineLayoutContext.Result, line_split_result: inline_layout.IFCLineSplitResult },
+                .ifc => struct {
+                    subtree_index: BlockSubtreeIndex,
+                    subtree_root_index: BlockBoxIndex,
+                    layout_result: inline_layout.InlineLayoutContext.Result,
+                    line_split_result: inline_layout.IFCLineSplitResult,
+                },
             };
         }
     };
@@ -323,6 +328,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                         .inline_, .inline_block, .text => {
                             const new_subtree_index = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = undefined });
                             const new_subtree = box_tree.blocks.subtrees.items[new_subtree_index];
+                            const new_ifc_container = try normal.createBlock(box_tree, new_subtree);
 
                             const result = try inline_layout.makeInlineFormattingContext(
                                 layout.allocator,
@@ -334,7 +340,6 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 containing_block_available_width,
                                 containing_block_height,
                             );
-
                             const ifc = box_tree.ifcs.items[result.ifc_index];
                             const line_split_result = try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, new_subtree, ifc, containing_block_available_width);
 
@@ -343,7 +348,12 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
 
                             const data_index = try layout.objects.allocData(layout.allocator, .ifc);
                             const data = layout.objects.getData(.ifc, data_index);
-                            data.* = .{ .subtree_index = new_subtree_index, .layout_result = result, .line_split_result = line_split_result };
+                            data.* = .{
+                                .subtree_index = new_subtree_index,
+                                .subtree_root_index = new_ifc_container.index,
+                                .layout_result = result,
+                                .line_split_result = line_split_result,
+                            };
                             // TODO: Store the IFC index as the element
                             try layout.objects.tree.append(layout.allocator, .{ .skip = 1, .tag = .ifc, .element = undefined });
                             layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
@@ -511,6 +521,7 @@ fn createObjects(
                     .ifc => {
                         const data = objects.getData2(.ifc, &data_index_mutable);
                         const new_subtree = box_tree.blocks.subtrees.items[data.subtree_index];
+                        const block_index = data.subtree_root_index;
 
                         {
                             const proxy = try normal.createBlock(box_tree, subtree);
@@ -521,9 +532,17 @@ fn createObjects(
                         }
 
                         const ifc = box_tree.ifcs.items[data.layout_result.ifc_index];
-                        const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-                        ifc.origin = .{ .x = 0, .y = parent_auto_height.* };
                         ifc.parent_block = .{ .subtree = root_block_box.subtree, .index = layout.blocks.items(.index)[layout.blocks.len - 1] };
+
+                        const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
+                        new_subtree.type.items[block_index] = .{ .ifc_container = data.layout_result.ifc_index };
+                        new_subtree.skip.items[block_index] = 1 + data.layout_result.total_inline_block_skip;
+                        new_subtree.box_offsets.items[block_index] = .{
+                            .border_pos = .{ .x = 0, .y = parent_auto_height.* },
+                            .border_size = .{ .w = data.line_split_result.longest_line_box_length, .h = data.line_split_result.height },
+                            .content_pos = .{ .x = 0, .y = 0 },
+                            .content_size = .{ .w = data.line_split_result.longest_line_box_length, .h = data.line_split_result.height },
+                        };
 
                         normal.advanceFlow(parent_auto_height, data.line_split_result.height);
                     },

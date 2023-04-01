@@ -138,6 +138,7 @@ pub const BlockType = union(enum) {
     block: struct {
         stacking_context: ?StackingContextRef,
     },
+    ifc_container: InlineFormattingContextIndex,
     subtree_proxy: SubtreeIndex,
 };
 
@@ -224,7 +225,6 @@ pub const InlineFormattingContextIndex = u16;
 /// That metrics data is found in the same array index as that of the first glyph index (the one that was 0).
 pub const InlineFormattingContext = struct {
     parent_block: BlockBox,
-    origin: ZssVector,
 
     glyph_indeces: ArrayListUnmanaged(GlyphIndex) = .{},
     metrics: ArrayListUnmanaged(Metrics) = .{},

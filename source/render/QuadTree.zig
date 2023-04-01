@@ -239,6 +239,21 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !QuadTree {
                         continue :outerLoop;
                     }
                 },
+                .ifc_container => {
+                    if (block_skip != 1) {
+                        const box_offsets = subtree.box_offsets.items[block_index];
+                        const new_vector = ZssVector{
+                            .x = block_item.vector.x + box_offsets.border_pos.x + box_offsets.content_pos.x,
+                            .y = block_item.vector.y + box_offsets.border_pos.y + box_offsets.content_pos.y,
+                        };
+
+                        try block_stack.append(allocator, .{
+                            .interval = .{ .begin = block_index + 1, .end = block_index + block_skip },
+                            .vector = new_vector,
+                        });
+                        continue :outerLoop;
+                    }
+                },
                 .subtree_proxy => |child_subtree_index| {
                     const child_subtree = box_tree.blocks.subtrees.items[child_subtree_index];
                     try subtree_stack.append(allocator, .{ .subtree_index = child_subtree_index, .subtree = child_subtree, .index_of_root = block_stack.items.len });
