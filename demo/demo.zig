@@ -326,7 +326,6 @@ const ProgramState = struct {
     root: Element,
     cascaded_values: *const CascadedValueStore,
     box_tree: zss.used_values.BoxTree,
-    quadtree: QuadTree,
     draw_order_list: DrawOrderList,
     atlas: zss.render.sdl.GlyphAtlas,
     width: c_int,
@@ -372,9 +371,6 @@ const ProgramState = struct {
 
         result.last_layout_time = result.timer.read();
 
-        result.quadtree = try QuadTree.create(result.box_tree, allocator);
-        errdefer result.quadtree.deinit(allocator);
-
         result.draw_order_list = try DrawOrderList.create(result.box_tree, allocator);
         errdefer result.draw_order_list.deinit(allocator);
 
@@ -387,7 +383,6 @@ const ProgramState = struct {
 
     fn deinit(self: *Self, allocator: Allocator) void {
         self.box_tree.deinit();
-        self.quadtree.deinit(allocator);
         self.draw_order_list.deinit(allocator);
         self.atlas.deinit(allocator);
     }
@@ -404,14 +399,10 @@ const ProgramState = struct {
         defer new_box_tree.deinit();
         self.last_layout_time = self.timer.read();
 
-        var new_quadtree = try QuadTree.create(new_box_tree, allocator);
-        defer new_quadtree.deinit(allocator);
-
         var new_draw_order_list = try DrawOrderList.create(new_box_tree, allocator);
         defer new_draw_order_list.deinit(allocator);
 
         std.mem.swap(zss.used_values.BoxTree, &self.box_tree, &new_box_tree);
-        std.mem.swap(QuadTree, &self.quadtree, &new_quadtree);
         std.mem.swap(DrawOrderList, &self.draw_order_list, &new_draw_order_list);
         self.updateMaxScroll();
     }
@@ -441,9 +432,11 @@ fn sdlMainLoop(
     const stderr = std.io.getStdErr().writer();
     try ps.draw_order_list.print(stderr, allocator);
     try stderr.writeAll("\n");
-    try ps.quadtree.print(stderr);
+    try ps.draw_order_list.quad_tree.print(stderr);
+    try stderr.writeAll("\n");
     try stderr.print("You can scroll using the Up, Down, PageUp, PageDown, Home, and End keys.\n", .{});
     try stderr.print("You can toggle the grid by pressing G, and change its size with [ and ].\n", .{});
+    try stderr.writeAll("Press S to get a list of all items on screen.\n");
 
     const scroll_speed = 15;
 
@@ -526,7 +519,7 @@ fn sdlMainLoop(
             needs_relayout = false;
             try ps.updateBoxTree(allocator);
             try ps.draw_order_list.print(stderr, allocator);
-            try ps.quadtree.print(stderr);
+            try ps.draw_order_list.quad_tree.print(stderr);
         }
 
         const viewport_rect = sdl.SDL_Rect{
@@ -576,7 +569,7 @@ fn drawGrid(grid_size: u16, renderer: *sdl.SDL_Renderer, viewport_rect: sdl.SDL_
 }
 
 fn printObjectsOnScreen(ps: ProgramState, stderr: std.fs.File.Writer, allocator: Allocator) !void {
-    const intersects = try ps.quadtree.intersect(.{
+    const intersects = try ps.draw_order_list.quad_tree.findObjectsInRect(.{
         .x = pixelToZssUnit(0),
         .y = pixelToZssUnit(ps.scroll_y),
         .w = pixelToZssUnit(ps.width),
@@ -584,5 +577,9 @@ fn printObjectsOnScreen(ps: ProgramState, stderr: std.fs.File.Writer, allocator:
     }, allocator);
     defer allocator.free(intersects);
     try stderr.writeAll("\nObjects on screen:\n");
-    for (intersects) |object| try stderr.print("\t{}\n", .{object});
+    for (intersects) |object| {
+        try stderr.writeAll("\t");
+        try ps.draw_order_list.printQuadTreeObject(object, stderr);
+        try stderr.writeAll("\n");
+    }
 }

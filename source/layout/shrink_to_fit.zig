@@ -523,6 +523,7 @@ fn createObjects(
                         const new_subtree = box_tree.blocks.subtrees.items[data.subtree_index];
                         const block_index = data.subtree_root_index;
 
+                        // TODO: The proxy block should have its box_offsets value set, while the subtree root block should have default values
                         {
                             const proxy = try normal.createBlock(box_tree, subtree);
                             proxy.skip.* = 1;

@@ -437,14 +437,11 @@ fn ifcAddTextRun(box_tree: *BoxTree, ifc: *InlineFormattingContext, buffer: *hb.
         break :blk p[0..n];
     };
 
-    // Allocate twice as much so that special glyph indeces always have space
-    try ifc.glyph_indeces.ensureUnusedCapacity(box_tree.allocator, 2 * glyph_infos.len);
-
     for (glyph_infos) |info| {
         const glyph_index: GlyphIndex = info.codepoint;
-        ifc.glyph_indeces.appendAssumeCapacity(glyph_index);
+        try ifc.glyph_indeces.append(box_tree.allocator, glyph_index);
         if (glyph_index == 0) {
-            ifc.glyph_indeces.appendAssumeCapacity(InlineFormattingContext.Special.encodeZeroGlyphIndex());
+            try ifc.glyph_indeces.append(box_tree.allocator, InlineFormattingContext.Special.encodeZeroGlyphIndex());
         }
     }
 }

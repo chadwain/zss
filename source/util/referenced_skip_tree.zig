@@ -136,6 +136,17 @@ pub fn ReferencedSkipTree(comptime IndexType: type, comptime ReferenceType: type
             self.list.insertAssumeCapacity(parent_next_sibling, valueToListElement(1, ref, value));
             return ref;
         }
+
+        /// Gets the corresponding Index for a Ref.
+        pub fn refToIndex(slice: List.Slice, ref: Ref) Index {
+            // TODO: O(n)
+            const refs = slice.items(.__ref);
+            var i: Index = 0;
+            while (i < refs.len) : (i += 1) {
+                if (refs[i] == ref) return i;
+            }
+            unreachable;
+        }
     };
 }
 

@@ -234,6 +234,7 @@ pub const InlineFormattingContext = struct {
     // zss is currently limited with what it can do with text. As a result,
     // font and font color will be the same for all glyphs, and
     // ascender and descender will be the same for all line boxes.
+    // NOTE: The descender is a negative value.
     font: *hb.hb_font_t = undefined,
     font_color_rgba: u32 = undefined,
     ascender: ZssUnit = undefined,
