@@ -603,4 +603,5 @@ fn printObjectsOnScreen(ps: ProgramState, stderr: std.fs.File.Writer, allocator:
         try ps.draw_order_list.printQuadTreeObject(object, stderr);
         try stderr.writeAll("\n");
     }
+    try stderr.writeAll("\n");
 }

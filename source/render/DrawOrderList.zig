@@ -215,11 +215,6 @@ fn createSubListForStackingContext(
                 const block_type = subtree.type.items[block_index];
                 switch (block_type) {
                     .block => |block_info| {
-                        const box_offsets = subtree.box_offsets.items[block_index];
-                        const insets = subtree.insets.items[block_index];
-                        const border_top_left = vector.add(insets).add(box_offsets.border_pos);
-                        const content_top_left = border_top_left.add(box_offsets.content_pos);
-
                         if (block_info.stacking_context) |child_sc_ref| {
                             const child_sc_index = StackingContextTree.refToIndex(sc_tree_slice, child_sc_ref);
                             const list_index = std.sort.binarySearch(
@@ -229,10 +224,15 @@ fn createSubListForStackingContext(
                                 {},
                                 compareStackingContextIndex,
                             ) orelse unreachable;
-                            list_of_sub_lists_to_create.items(.vector)[list_index] = content_top_left;
+                            list_of_sub_lists_to_create.items(.vector)[list_index] = vector;
 
                             last.begin += block_skip;
                         } else {
+                            const box_offsets = subtree.box_offsets.items[block_index];
+                            const insets = subtree.insets.items[block_index];
+                            const border_top_left = vector.add(insets).add(box_offsets.border_pos);
+                            const content_top_left = border_top_left.add(box_offsets.content_pos);
+
                             try draw_order_list.quad_tree.insert(
                                 allocator,
                                 calcBoundingBox(border_top_left, box_offsets),
