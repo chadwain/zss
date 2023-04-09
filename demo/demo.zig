@@ -569,16 +569,37 @@ fn drawGrid(grid_size: u16, renderer: *sdl.SDL_Renderer, viewport_rect: sdl.SDL_
 }
 
 fn printObjectsOnScreen(ps: ProgramState, stderr: std.fs.File.Writer, allocator: Allocator) !void {
-    const intersects = try ps.draw_order_list.quad_tree.findObjectsInRect(.{
+    const objects = try ps.draw_order_list.quad_tree.findObjectsInRect(.{
         .x = pixelToZssUnit(0),
         .y = pixelToZssUnit(ps.scroll_y),
         .w = pixelToZssUnit(ps.width),
         .h = pixelToZssUnit(ps.height),
     }, allocator);
-    defer allocator.free(intersects);
+    defer allocator.free(objects);
+
+    var objects_in_order = std.MultiArrayList(struct { flattened_index: usize, object: QuadTree.Object }){};
+    defer objects_in_order.deinit(allocator);
+    for (objects) |object| try objects_in_order.append(allocator, .{
+        .flattened_index = ps.draw_order_list.getFlattenedIndex(object),
+        .object = object,
+    });
+    const slice = objects_in_order.slice();
+
+    const SortContext = struct {
+        flattened_index: []usize,
+
+        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+            return ctx.flattened_index[a_index] < ctx.flattened_index[b_index];
+        }
+    };
+    objects_in_order.sort(SortContext{ .flattened_index = slice.items(.flattened_index) });
+
     try stderr.writeAll("\nObjects on screen:\n");
-    for (intersects) |object| {
-        try stderr.writeAll("\t");
+    var i: usize = 0;
+    while (i < slice.len) : (i += 1) {
+        const flattened_index = slice.items(.flattened_index)[i];
+        const object = slice.items(.object)[i];
+        try stderr.print("\t{} ", .{flattened_index});
         try ps.draw_order_list.printQuadTreeObject(object, stderr);
         try stderr.writeAll("\n");
     }
