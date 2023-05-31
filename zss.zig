@@ -23,6 +23,10 @@ pub const util = @import("source/util/util.zig");
 
 pub const testing = @import("test/testing.zig");
 
+pub const applications = struct {
+    pub const show_document_sdl = @import("demo/show_document_sdl.zig");
+};
+
 comptime {
     if (@import("builtin").is_test) {
         @import("std").testing.refAllDecls(@This());
