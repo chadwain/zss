@@ -46,7 +46,7 @@ pub const ZssRect = struct {
     const Self = @This();
 
     pub fn isEmpty(self: Self) bool {
-        return self.w <= 0 or self.h <= 0;
+        return self.w < 0 or self.h < 0;
     }
 
     pub fn translate(rect: Self, vec: ZssVector) Self {
@@ -447,5 +447,5 @@ test "ZssRect" {
     try expect(intersect(r1, r4).isEmpty());
     try expect(std.meta.eql(intersect(r2, r3), ZssRect{ .x = 15, .y = 5, .w = 5, .h = 4 }));
     try expect(intersect(r2, r4).isEmpty());
-    try expect(intersect(r3, r4).isEmpty());
+    try expect(!intersect(r3, r4).isEmpty());
 }
