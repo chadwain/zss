@@ -15,7 +15,6 @@ const QuadTree = zss.render.QuadTree;
 
 const sdl = @import("SDL2");
 const hb = @import("harfbuzz");
-
 const ProgramState = struct {
     element_tree: *const ElementTree,
     root: Element,
@@ -103,9 +102,8 @@ const ProgramState = struct {
     }
 
     fn updateMaxScroll(self: *Self) void {
-        const box_offsets = self.box_tree.blocks.subtrees.items[0].box_offsets.items;
-        const scroll_box = if (box_offsets.len > 1) box_offsets[1] else box_offsets[0];
-        self.max_scroll_y = std.math.max(0, zss.render.sdl.zssUnitToPixel(scroll_box.border_pos.y + scroll_box.border_size.h) - self.height);
+        const root_box_offsets = self.box_tree.blocks.subtrees.items[0].box_offsets.items[1];
+        self.max_scroll_y = std.math.max(0, zss.render.sdl.zssUnitToPixel(root_box_offsets.border_pos.y + root_box_offsets.border_size.h) - self.height);
         self.scroll_y = std.math.clamp(self.scroll_y, 0, self.max_scroll_y);
     }
 };
@@ -220,18 +218,14 @@ pub fn sdlMainLoop(
 
         const viewport_rect = sdl.SDL_Rect{
             .x = 0,
-            .y = 0,
+            .y = ps.scroll_y,
             .w = ps.width,
             .h = ps.height,
         };
-        const translation = sdl.SDL_Point{
-            .x = 0,
-            .y = -ps.scroll_y,
-        };
         assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255) == 0);
         assert(sdl.SDL_RenderClear(renderer) == 0);
-        try zss.render.sdl.drawBoxTree(ps.box_tree, renderer, pixel_format, &ps.atlas, allocator, viewport_rect, translation);
-        if (ps.draw_grid) drawGrid(@as(u16, 1) << ps.grid_size_log_2, renderer, viewport_rect, translation);
+        try zss.render.sdl.drawBoxTree(ps.box_tree, ps.draw_order_list, allocator, renderer, pixel_format, &ps.atlas, viewport_rect);
+        if (ps.draw_grid) drawGrid(@as(u16, 1) << ps.grid_size_log_2, renderer, viewport_rect);
         sdl.SDL_RenderPresent(renderer);
 
         const frame_time = timer.lap();
@@ -246,19 +240,19 @@ pub fn sdlMainLoop(
     }
 }
 
-fn drawGrid(grid_size: u16, renderer: *sdl.SDL_Renderer, viewport_rect: sdl.SDL_Rect, translation: sdl.SDL_Point) void {
+fn drawGrid(grid_size: u16, renderer: *sdl.SDL_Renderer, viewport_rect: sdl.SDL_Rect) void {
     assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255) == 0);
     {
         var num_lines = @divFloor(viewport_rect.w + grid_size, grid_size);
         while (num_lines > 0) : (num_lines -= 1) {
-            const x_pos = @mod(translation.x, grid_size) + (num_lines - 1) * grid_size;
+            const x_pos = @mod(-viewport_rect.x, grid_size) + (num_lines - 1) * grid_size;
             assert(sdl.SDL_RenderDrawLine(renderer, x_pos, 0, x_pos, viewport_rect.h) == 0);
         }
     }
     {
         var num_lines = @divFloor(viewport_rect.h + grid_size, grid_size);
         while (num_lines > 0) : (num_lines -= 1) {
-            const y_pos = @mod(translation.y, grid_size) + (num_lines - 1) * grid_size;
+            const y_pos = @mod(-viewport_rect.y, grid_size) + (num_lines - 1) * grid_size;
             assert(sdl.SDL_RenderDrawLine(renderer, 0, y_pos, viewport_rect.w, y_pos) == 0);
         }
     }

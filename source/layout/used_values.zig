@@ -27,6 +27,10 @@ pub const ZssVector = struct {
         return Self{ .x = lhs.x + rhs.x, .y = lhs.y + rhs.y };
     }
 
+    pub fn sub(lhs: Self, rhs: Self) Self {
+        return Self{ .x = lhs.x - rhs.x, .y = lhs.y - rhs.y };
+    }
+
     pub fn eql(lhs: Self, rhs: Self) bool {
         return lhs.x == rhs.x and lhs.y == rhs.y;
     }
@@ -279,7 +283,7 @@ pub const InlineFormattingContext = struct {
         /// It is a half-open interval of the form [a, b).
         elements: [2]usize,
         /// The inline box that starts this line box.
-        inline_box: InlineBoxIndex,
+        inline_box: ?InlineBoxIndex,
     };
 
     /// Structure that represents things other than glyphs. It is guaranteed to never have a

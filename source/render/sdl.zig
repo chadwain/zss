@@ -6,6 +6,8 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
 
 const zss = @import("../../zss.zig");
+const DrawOrderList = @import("./DrawOrderList.zig");
+const QuadTree = @import("./QuadTree.zig");
 const ZssUnit = zss.used_values.ZssUnit;
 const ZssRect = zss.used_values.ZssRect;
 const ZssVector = zss.used_values.ZssVector;
@@ -29,97 +31,168 @@ pub const util = @import("util/sdl.zig");
 
 pub fn drawBoxTree(
     box_tree: BoxTree,
+    draw_order_list: DrawOrderList,
+    allocator: Allocator,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
     maybe_atlas: ?*GlyphAtlas,
-    allocator: Allocator,
-    clip_rect: sdl.SDL_Rect,
-    translation: sdl.SDL_Point,
+    viewport_sdl: sdl.SDL_Rect,
 ) !void {
-    if (box_tree.stacking_contexts.size() == 0) return;
-    const slice = box_tree.stacking_contexts.list.slice();
-    const clip_rect_zss = sdlRectToZssRect(clip_rect);
+    const viewport = sdlRectToZssRect(viewport_sdl);
+    const translation = ZssVector{ .x = -viewport.x, .y = -viewport.y };
 
-    const Action = enum { DrawGeneratingBlock, DrawLeft, DrawEverythingElse, DrawRight };
+    const objects = try getObjectsOnScreenInDrawOrder(draw_order_list, allocator, viewport);
+    defer allocator.free(objects);
 
-    var stack = ArrayListUnmanaged(struct {
-        action: Action,
-        iterator: StackingContextTree.Iterator,
-        stacking_context: StackingContext,
-        translation: ZssVector,
-    }){};
-    defer stack.deinit(allocator);
-    try stack.append(allocator, .{
-        .action = .DrawGeneratingBlock,
-        .iterator = box_tree.stacking_contexts.iterator().firstChild(slice.items(.__skip)),
-        .stacking_context = .{
-            .block_box = slice.items(.block_box)[0],
-            .z_index = slice.items(.z_index)[0],
-            .ifcs = slice.items(.ifcs)[0],
-        },
-        .translation = sdlPointToZssVector(translation),
-    });
+    for (objects) |object| {
+        const entry = draw_order_list.getEntry(object);
+        switch (entry) {
+            .block => |block| {
+                const border_top_left = block.border_top_left.add(translation);
 
-    while (stack.items.len > 0) {
-        const item = &stack.items[stack.items.len - 1];
-        switch (item.action) {
-            .DrawGeneratingBlock => {
-                item.action = .DrawLeft;
+                const subtree = box_tree.blocks.subtrees.items[block.block_box.subtree];
+                const index = block.block_box.index;
 
-                if (stack.items.len > 1) {
-                    const parent = stack.items[stack.items.len - 2];
-                    const new_translation = calcOffset(&box_tree.blocks, parent.stacking_context.block_box, item.stacking_context.block_box);
-                    item.translation = parent.translation.add(new_translation);
-                }
+                const box_offsets = subtree.box_offsets.items[index];
+                const borders = subtree.borders.items[index];
+                const background1 = subtree.background1.items[index];
+                const background2 = subtree.background2.items[index];
+                const border_colors = subtree.border_colors.items[index];
+                const boxes = getThreeBoxes(border_top_left, box_offsets, borders);
 
-                drawGeneratingBlock(box_tree.blocks, item.stacking_context.block_box, item.translation, clip_rect_zss, renderer, pixel_format);
+                drawBlockContainer(boxes, borders, background1, background2, border_colors, renderer, pixel_format);
             },
-            .DrawLeft => {
-                if (item.iterator.empty() or slice.items(.z_index)[item.iterator.index] >= 0) {
-                    item.action = .DrawEverythingElse;
-                    continue;
-                }
-                const index = item.iterator.index;
-                item.iterator = item.iterator.nextSibling(slice.items(.__skip));
-                try stack.append(allocator, .{
-                    .action = .DrawGeneratingBlock,
-                    .iterator = StackingContextTree.Iterator{ .index = index + 1, .end = index + slice.items(.__skip)[index] },
-                    .stacking_context = .{ .block_box = slice.items(.block_box)[index], .z_index = slice.items(.z_index)[index], .ifcs = slice.items(.ifcs)[index] },
-                    .translation = undefined,
-                });
-            },
-            .DrawEverythingElse => {
-                item.action = .DrawRight;
-                try drawChildBlocks(box_tree.blocks, item.stacking_context.block_box, allocator, item.translation, clip_rect_zss, renderer, pixel_format);
+            .line_box => |line_box_info| {
+                const origin = line_box_info.origin.add(translation);
+                const ifc = box_tree.ifcs.items[line_box_info.ifc_index];
+                const line_box = ifc.line_boxes.items[line_box_info.line_box_index];
 
-                for (item.stacking_context.ifcs.items) |ifc_index| {
-                    const ifc = box_tree.ifcs.items[ifc_index];
-                    const subtree = box_tree.blocks.subtrees.items[ifc.parent_block.subtree];
-                    const box_offsets = subtree.box_offsets.items[ifc.parent_block.index];
-                    const new_translation = item.translation
-                        .add(calcOffset(&box_tree.blocks, item.stacking_context.block_box, ifc.parent_block))
-                        .add(box_offsets.border_pos)
-                        .add(box_offsets.content_pos);
-                    try drawInlineFormattingContext(ifc, new_translation, allocator, renderer, pixel_format, maybe_atlas);
-                }
+                try drawLineBox(ifc, line_box, origin, allocator, renderer, pixel_format, maybe_atlas);
             },
-            .DrawRight => {
-                if (item.iterator.empty()) {
-                    _ = stack.pop();
-                    continue;
-                }
-                const index = item.iterator.index;
-                item.iterator = item.iterator.nextSibling(slice.items(.__skip));
-                try stack.append(allocator, .{
-                    .action = .DrawGeneratingBlock,
-                    .iterator = StackingContextTree.Iterator{ .index = index + 1, .end = index + slice.items(.__skip)[index] },
-                    .stacking_context = .{ .block_box = slice.items(.block_box)[index], .z_index = slice.items(.z_index)[index], .ifcs = slice.items(.ifcs)[index] },
-                    .translation = undefined,
-                });
-            },
+            .sub_list => unreachable,
         }
     }
 }
+
+fn getObjectsOnScreenInDrawOrder(draw_order_list: DrawOrderList, allocator: Allocator, viewport: ZssRect) ![]QuadTree.Object {
+    const objects = try draw_order_list.quad_tree.findObjectsInRect(viewport, allocator);
+    errdefer allocator.free(objects);
+
+    const flattened_index = try allocator.alloc(usize, objects.len);
+    defer allocator.free(flattened_index);
+    for (objects) |object, index| flattened_index[index] = draw_order_list.getFlattenedIndex(object);
+
+    const SortContext = struct {
+        objects: []QuadTree.Object,
+        flattened_index: []usize,
+
+        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+            return ctx.flattened_index[a_index] < ctx.flattened_index[b_index];
+        }
+
+        pub fn swap(ctx: @This(), a_index: usize, b_index: usize) void {
+            std.mem.swap(QuadTree.Object, &ctx.objects[a_index], &ctx.objects[b_index]);
+            std.mem.swap(usize, &ctx.flattened_index[a_index], &ctx.flattened_index[b_index]);
+        }
+    };
+
+    std.sort.sortContext(objects.len, SortContext{ .objects = objects, .flattened_index = flattened_index });
+    return objects;
+}
+
+// pub fn drawBoxTree(
+//     box_tree: BoxTree,
+//     renderer: *sdl.SDL_Renderer,
+//     pixel_format: *sdl.SDL_PixelFormat,
+//     maybe_atlas: ?*GlyphAtlas,
+//     allocator: Allocator,
+//     clip_rect: sdl.SDL_Rect,
+//     translation: sdl.SDL_Point,
+// ) !void {
+//     if (box_tree.stacking_contexts.size() == 0) return;
+//     const slice = box_tree.stacking_contexts.list.slice();
+//     const clip_rect_zss = sdlRectToZssRect(clip_rect);
+//
+//     const Action = enum { DrawGeneratingBlock, DrawLeft, DrawEverythingElse, DrawRight };
+//
+//     var stack = ArrayListUnmanaged(struct {
+//         action: Action,
+//         iterator: StackingContextTree.Iterator,
+//         stacking_context: StackingContext,
+//         translation: ZssVector,
+//     }){};
+//     defer stack.deinit(allocator);
+//     try stack.append(allocator, .{
+//         .action = .DrawGeneratingBlock,
+//         .iterator = box_tree.stacking_contexts.iterator().firstChild(slice.items(.__skip)),
+//         .stacking_context = .{
+//             .block_box = slice.items(.block_box)[0],
+//             .z_index = slice.items(.z_index)[0],
+//             .ifcs = slice.items(.ifcs)[0],
+//         },
+//         .translation = sdlPointToZssVector(translation),
+//     });
+//
+//     while (stack.items.len > 0) {
+//         const item = &stack.items[stack.items.len - 1];
+//         switch (item.action) {
+//             .DrawGeneratingBlock => {
+//                 item.action = .DrawLeft;
+//
+//                 if (stack.items.len > 1) {
+//                     const parent = stack.items[stack.items.len - 2];
+//                     const new_translation = calcOffset(&box_tree.blocks, parent.stacking_context.block_box, item.stacking_context.block_box);
+//                     item.translation = parent.translation.add(new_translation);
+//                 }
+//
+//                 drawGeneratingBlock(box_tree.blocks, item.stacking_context.block_box, item.translation, clip_rect_zss, renderer, pixel_format);
+//             },
+//             .DrawLeft => {
+//                 if (item.iterator.empty() or slice.items(.z_index)[item.iterator.index] >= 0) {
+//                     item.action = .DrawEverythingElse;
+//                     continue;
+//                 }
+//                 const index = item.iterator.index;
+//                 item.iterator = item.iterator.nextSibling(slice.items(.__skip));
+//                 try stack.append(allocator, .{
+//                     .action = .DrawGeneratingBlock,
+//                     .iterator = StackingContextTree.Iterator{ .index = index + 1, .end = index + slice.items(.__skip)[index] },
+//                     .stacking_context = .{ .block_box = slice.items(.block_box)[index], .z_index = slice.items(.z_index)[index], .ifcs = slice.items(.ifcs)[index] },
+//                     .translation = undefined,
+//                 });
+//             },
+//             .DrawEverythingElse => {
+//                 item.action = .DrawRight;
+//                 try drawChildBlocks(box_tree.blocks, item.stacking_context.block_box, allocator, item.translation, clip_rect_zss, renderer, pixel_format);
+//
+//                 for (item.stacking_context.ifcs.items) |ifc_index| {
+//                     const ifc = box_tree.ifcs.items[ifc_index];
+//                     const subtree = box_tree.blocks.subtrees.items[ifc.parent_block.subtree];
+//                     const box_offsets = subtree.box_offsets.items[ifc.parent_block.index];
+//                     const new_translation = item.translation
+//                         .add(calcOffset(&box_tree.blocks, item.stacking_context.block_box, ifc.parent_block))
+//                         .add(box_offsets.border_pos)
+//                         .add(box_offsets.content_pos);
+//                     try drawInlineFormattingContext(ifc, new_translation, allocator, renderer, pixel_format, maybe_atlas);
+//                 }
+//             },
+//             .DrawRight => {
+//                 if (item.iterator.empty()) {
+//                     _ = stack.pop();
+//                     continue;
+//                 }
+//                 const index = item.iterator.index;
+//                 item.iterator = item.iterator.nextSibling(slice.items(.__skip));
+//                 try stack.append(allocator, .{
+//                     .action = .DrawGeneratingBlock,
+//                     .iterator = StackingContextTree.Iterator{ .index = index + 1, .end = index + slice.items(.__skip)[index] },
+//                     .stacking_context = .{ .block_box = slice.items(.block_box)[index], .z_index = slice.items(.z_index)[index], .ifcs = slice.items(.ifcs)[index] },
+//                     .translation = undefined,
+//                 });
+//             },
+//         }
+//     }
+// }
 
 fn calcOffset(blocks: *const BlockBoxTree, parent: BlockBox, child: BlockBox) ZssVector {
     var target = child;
@@ -346,35 +419,62 @@ pub const ThreeBoxes = struct {
 };
 
 fn getThreeBoxes(
-    translation: ZssVector,
+    border_top_left: ZssVector,
     box_offsets: zss.used_values.BoxOffsets,
     borders: zss.used_values.Borders,
-    insets: zss.used_values.Insets,
 ) ThreeBoxes {
-    const border_x = translation.x + box_offsets.border_pos.x + insets.x;
-    const border_y = translation.y + box_offsets.border_pos.y + insets.y;
-
     return ThreeBoxes{
         .border = ZssRect{
-            .x = border_x,
-            .y = border_y,
+            .x = border_top_left.x,
+            .y = border_top_left.y,
             .w = box_offsets.border_size.w,
             .h = box_offsets.border_size.h,
         },
         .padding = ZssRect{
-            .x = border_x + borders.left,
-            .y = border_y + borders.top,
+            .x = border_top_left.x + borders.left,
+            .y = border_top_left.y + borders.top,
             .w = box_offsets.border_size.w - borders.left - borders.right,
             .h = box_offsets.border_size.h - borders.top - borders.bottom,
         },
         .content = ZssRect{
-            .x = border_x + box_offsets.content_pos.x,
-            .y = border_y + box_offsets.content_pos.y,
+            .x = border_top_left.x + box_offsets.content_pos.x,
+            .y = border_top_left.y + box_offsets.content_pos.y,
             .w = box_offsets.content_size.w,
             .h = box_offsets.content_size.h,
         },
     };
 }
+
+// fn getThreeBoxes(
+//     translation: ZssVector,
+//     box_offsets: zss.used_values.BoxOffsets,
+//     borders: zss.used_values.Borders,
+//     insets: zss.used_values.Insets,
+// ) ThreeBoxes {
+//     const border_x = translation.x + box_offsets.border_pos.x + insets.x;
+//     const border_y = translation.y + box_offsets.border_pos.y + insets.y;
+//
+//     return ThreeBoxes{
+//         .border = ZssRect{
+//             .x = border_x,
+//             .y = border_y,
+//             .w = box_offsets.border_size.w,
+//             .h = box_offsets.border_size.h,
+//         },
+//         .padding = ZssRect{
+//             .x = border_x + borders.left,
+//             .y = border_y + borders.top,
+//             .w = box_offsets.border_size.w - borders.left - borders.right,
+//             .h = box_offsets.border_size.h - borders.top - borders.bottom,
+//         },
+//         .content = ZssRect{
+//             .x = border_x + box_offsets.content_pos.x,
+//             .y = border_y + box_offsets.content_pos.y,
+//             .w = box_offsets.content_size.w,
+//             .h = box_offsets.content_size.h,
+//         },
+//     };
+// }
 
 /// Draws the background color, background image, and borders of a
 /// block box. This implements CSS2.2§Appendix E.2 Step 2.
@@ -568,17 +668,14 @@ pub fn drawChildBlocks(
 }
 
 pub fn drawBlockContainer(
-    boxes: *const ThreeBoxes,
+    boxes: ThreeBoxes,
     borders: zss.used_values.Borders,
     background1: zss.used_values.Background1,
     background2: zss.used_values.Background2,
     border_colors: zss.used_values.BorderColor,
-    // TODO clip_rect is unused
-    clip_rect: ZssRect,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
 ) void {
-    _ = clip_rect;
     const bg_clip_rect = zssRectToSdlRect(switch (background1.clip) {
         .Border => boxes.border,
         .Padding => boxes.padding,
@@ -667,21 +764,43 @@ pub fn drawInlineFormattingContext(
         assert(sdl.SDL_SetTextureAlphaMod(atlas.texture, color[3]) == 0);
     }
 
+    for (ifc.line_boxes.items) |line_box| {
+        try drawLineBox(ifc, line_box, translation, allocator, renderer, pixel_format, maybe_atlas);
+    }
+}
+
+fn drawLineBox(
+    ifc: *const InlineFormattingContext,
+    line_box: InlineFormattingContext.LineBox,
+    translation: ZssVector,
+    allocator: Allocator,
+    renderer: *sdl.SDL_Renderer,
+    pixel_format: *sdl.SDL_PixelFormat,
+    maybe_atlas: ?*GlyphAtlas,
+) !void {
+    const color = util.rgbaMap(pixel_format, ifc.font_color_rgba);
+    if (maybe_atlas) |atlas| {
+        assert(sdl.SDL_SetTextureColorMod(atlas.texture, color[0], color[1], color[2]) == 0);
+        assert(sdl.SDL_SetTextureAlphaMod(atlas.texture, color[3]) == 0);
+    }
+
     var inline_box_stack = ArrayListUnmanaged(InlineBoxIndex){};
     defer inline_box_stack.deinit(allocator);
 
-    var offset_stack = ArrayListUnmanaged(ZssVector){};
-    defer offset_stack.deinit(allocator);
-    try offset_stack.append(allocator, translation);
+    var offset = translation;
 
-    for (ifc.line_boxes.items) |line_box| {
-        for (inline_box_stack.items) |inline_box, i| {
-            const match_info = findMatchingBoxEnd(
-                ifc.glyph_indeces.items[line_box.elements[0]..line_box.elements[1]],
-                ifc.metrics.items[line_box.elements[0]..line_box.elements[1]],
-                inline_box,
-            );
-            const offset = offset_stack.items[i + 1];
+    const all_glyphs = ifc.glyph_indeces.items[line_box.elements[0]..line_box.elements[1]];
+    const all_metrics = ifc.metrics.items[line_box.elements[0]..line_box.elements[1]];
+
+    if (line_box.inline_box) |inline_box| {
+        var i: InlineBoxIndex = 0;
+        const skips = ifc.skip.items;
+
+        while (true) {
+            const insets = ifc.insets.items[i];
+            offset = offset.add(insets);
+            try inline_box_stack.append(allocator, i);
+            const match_info = findMatchingBoxEnd(all_glyphs, all_metrics, i);
             drawInlineBox(
                 renderer,
                 pixel_format,
@@ -692,82 +811,80 @@ pub fn drawInlineFormattingContext(
                 false,
                 match_info.found,
             );
+
+            if (i == inline_box) break;
+            const end = i + skips[i];
+            i += 1;
+            while (i < end) {
+                const skip = skips[i];
+                if (inline_box >= i and inline_box < i + skip) break;
+                i += skip;
+            } else unreachable;
         }
+    }
 
-        var offset = offset_stack.items[offset_stack.items.len - 1];
+    var cursor: ZssUnit = 0;
+    var i: usize = 0;
+    while (i < all_glyphs.len) : (i += 1) {
+        const glyph_index = all_glyphs[i];
+        const metrics = all_metrics[i];
+        defer cursor += metrics.advance;
 
-        var cursor: ZssUnit = 0;
-        var i = line_box.elements[0];
-        while (i < line_box.elements[1]) : (i += 1) {
-            const glyph_index = ifc.glyph_indeces.items[i];
-            const metrics = ifc.metrics.items[i];
-            defer cursor += metrics.advance;
-
-            if (glyph_index == 0) blk: {
-                i += 1;
-                const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
-                switch (special.kind) {
-                    .ZeroGlyphIndex => break :blk,
-                    .BoxStart => {
-                        const match_info = findMatchingBoxEnd(
-                            ifc.glyph_indeces.items[i + 1 .. line_box.elements[1]],
-                            ifc.metrics.items[i + 1 .. line_box.elements[1]],
-                            special.data,
-                        );
-                        const insets = ifc.insets.items[special.data];
-                        offset = offset.add(insets);
-                        drawInlineBox(
-                            renderer,
-                            pixel_format,
-                            ifc,
-                            special.data,
-                            ZssVector{ .x = offset.x + cursor + metrics.offset, .y = offset.y + line_box.baseline },
-                            match_info.advance,
-                            true,
-                            match_info.found,
-                        );
-                        try inline_box_stack.append(allocator, special.data);
-                        try offset_stack.append(allocator, offset);
-                    },
-                    .BoxEnd => {
-                        assert(special.data == inline_box_stack.pop());
-                        _ = offset_stack.pop();
-
-                        const old_offset = offset_stack.items[offset_stack.items.len - 1];
-                        const insets = ifc.insets.items[special.data];
-                        assert(offset.eql(old_offset.add(insets)));
-                        offset = old_offset;
-                    },
-                    .InlineBlock => {},
-                    _ => unreachable,
-                }
-                continue;
+        if (glyph_index == 0) blk: {
+            i += 1;
+            const special = InlineFormattingContext.Special.decode(all_glyphs[i]);
+            switch (special.kind) {
+                .ZeroGlyphIndex => break :blk,
+                .BoxStart => {
+                    const match_info = findMatchingBoxEnd(all_glyphs[i + 1 ..], all_metrics[i + 1 ..], special.data);
+                    const insets = ifc.insets.items[special.data];
+                    offset = offset.add(insets);
+                    drawInlineBox(
+                        renderer,
+                        pixel_format,
+                        ifc,
+                        special.data,
+                        ZssVector{ .x = offset.x + cursor + metrics.offset, .y = offset.y + line_box.baseline },
+                        match_info.advance,
+                        true,
+                        match_info.found,
+                    );
+                    try inline_box_stack.append(allocator, special.data);
+                },
+                .BoxEnd => {
+                    assert(special.data == inline_box_stack.pop());
+                    const insets = ifc.insets.items[special.data];
+                    offset = offset.sub(insets);
+                },
+                .InlineBlock => {},
+                _ => unreachable,
             }
-
-            const atlas = maybe_atlas.?;
-            const glyph_info = atlas.getOrLoadGlyph(glyph_index) catch |err| switch (err) {
-                error.OutOfGlyphSlots => {
-                    std.log.err("Could not load glyph with index {}: {s}", .{ glyph_index, @errorName(err) });
-                    continue;
-                },
-            };
-            assert(sdl.SDL_RenderCopy(
-                renderer,
-                atlas.texture,
-                &sdl.SDL_Rect{
-                    .x = (glyph_info.slot % 16) * atlas.max_glyph_width,
-                    .y = (glyph_info.slot / 16) * atlas.max_glyph_height,
-                    .w = glyph_info.width,
-                    .h = glyph_info.height,
-                },
-                &sdl.SDL_Rect{
-                    .x = zssUnitToPixel(offset.x + cursor + metrics.offset),
-                    .y = zssUnitToPixel(offset.y + line_box.baseline) - glyph_info.ascender_px,
-                    .w = glyph_info.width,
-                    .h = glyph_info.height,
-                },
-            ) == 0);
+            continue;
         }
+
+        const atlas = maybe_atlas.?;
+        const glyph_info = atlas.getOrLoadGlyph(glyph_index) catch |err| switch (err) {
+            error.OutOfGlyphSlots => {
+                std.log.err("Could not load glyph with index {}: {s}", .{ glyph_index, @errorName(err) });
+                continue;
+            },
+        };
+        assert(sdl.SDL_RenderCopy(
+            renderer,
+            atlas.texture,
+            &sdl.SDL_Rect{
+                .x = (glyph_info.slot % 16) * atlas.max_glyph_width,
+                .y = (glyph_info.slot / 16) * atlas.max_glyph_height,
+                .w = glyph_info.width,
+                .h = glyph_info.height,
+            },
+            &sdl.SDL_Rect{
+                .x = zssUnitToPixel(offset.x + cursor + metrics.offset),
+                .y = zssUnitToPixel(offset.y + line_box.baseline) - glyph_info.ascender_px,
+                .w = glyph_info.width,
+                .h = glyph_info.height,
+            },
+        ) == 0);
     }
 }
 

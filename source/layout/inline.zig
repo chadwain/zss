@@ -1189,7 +1189,7 @@ pub fn splitIntoLineBoxes(
         assert(@as(InlineBoxIndex, special.data) == 0);
         s.pushInlineBox(allocator, 0) catch unreachable;
         s.line_box.elements[1] = 2;
-        s.line_box.inline_box = 0;
+        s.line_box.inline_box = null;
     }
 
     var i: usize = 2;

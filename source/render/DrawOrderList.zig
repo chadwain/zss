@@ -32,13 +32,19 @@ pub const SubList = struct {
     pub const Index = u32;
 
     pub const Entry = union(enum) {
-        block_box: BlockBox,
+        block: Block,
         line_box: LineBox,
         sub_list: Index,
+
+        pub const Block = struct {
+            block_box: BlockBox,
+            border_top_left: ZssVector,
+        };
 
         pub const LineBox = struct {
             ifc_index: InlineFormattingContextIndex,
             line_box_index: usize,
+            origin: ZssVector,
         };
 
         pub fn format(entry: Entry, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -46,7 +52,7 @@ pub const SubList = struct {
             _ = options;
 
             switch (entry) {
-                .block_box => |block_box| try writer.print("BlockBox subtree={} index={}", .{ block_box.subtree, block_box.index }),
+                .block => |block| try writer.print("BlockBox subtree={} index={}", .{ block.block_box.subtree, block.block_box.index }),
                 .line_box => |line_box| try writer.print("LineBox ifc={} index={}", .{ line_box.ifc_index, line_box.line_box_index }),
                 .sub_list => |sub_list_index| try writer.print("SubList index={}", .{sub_list_index}),
             }
@@ -56,7 +62,7 @@ pub const SubList = struct {
     fn addEntry(sub_list: *SubList, allocator: Allocator, entry: Entry, flattened_len: *usize) !void {
         switch (entry) {
             .sub_list => {},
-            .block_box, .line_box => flattened_len.* += 1,
+            .block, .line_box => flattened_len.* += 1,
         }
         try sub_list.entries.append(allocator, entry);
     }
@@ -97,7 +103,11 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawOrderList {
         calcBoundingBox(border_top_left, box_offsets),
         .{ .sub_list_index = first_sub_list, .entry_index = draw_order_list.sub_lists.items[first_sub_list].entries.items.len },
     );
-    try draw_order_list.sub_lists.items[first_sub_list].addEntry(allocator, SubList.Entry{ .block_box = initial_containing_block }, &flattened_len);
+    try draw_order_list.sub_lists.items[first_sub_list].addEntry(
+        allocator,
+        SubList.Entry{ .block = .{ .block_box = initial_containing_block, .border_top_left = border_top_left } },
+        &flattened_len,
+    );
 
     const slice = box_tree.stacking_contexts.list.slice();
     if (slice.len > 0) {
@@ -147,7 +157,11 @@ fn createSubListForStackingContext(
         calcBoundingBox(sc_root_border_top_left, sc_root_box_offsets),
         .{ .sub_list_index = desc.index, .entry_index = draw_order_list.sub_lists.items[desc.index].entries.items.len },
     );
-    try draw_order_list.sub_lists.items[desc.index].addEntry(allocator, SubList.Entry{ .block_box = sc_root_block }, &own_flattened_len);
+    try draw_order_list.sub_lists.items[desc.index].addEntry(
+        allocator,
+        SubList.Entry{ .block = .{ .block_box = sc_root_block, .border_top_left = sc_root_border_top_left } },
+        &own_flattened_len,
+    );
 
     const compareStackingContextIndex = struct {
         fn f(ctx: void, lhs: StackingContextIndex, rhs: StackingContextIndex) std.math.Order {
@@ -241,7 +255,12 @@ fn createSubListForStackingContext(
 
                             try sub_list_ptr.addEntry(
                                 allocator,
-                                SubList.Entry{ .block_box = .{ .subtree = subtree_index, .index = block_index } },
+                                SubList.Entry{
+                                    .block = .{
+                                        .block_box = .{ .subtree = subtree_index, .index = block_index },
+                                        .border_top_left = border_top_left,
+                                    },
+                                },
                                 &own_flattened_len,
                             );
 
@@ -302,7 +321,13 @@ fn createSubListForStackingContext(
                 );
                 try sub_list_ptr.addEntry(
                     allocator,
-                    SubList.Entry{ .line_box = .{ .ifc_index = ifc_index, .line_box_index = line_box_index } },
+                    SubList.Entry{
+                        .line_box = .{
+                            .ifc_index = ifc_index,
+                            .line_box_index = line_box_index,
+                            .origin = info.vector,
+                        },
+                    },
                     &own_flattened_len,
                 );
             }
@@ -389,7 +414,7 @@ pub fn print(list: DrawOrderList, writer: anytype, allocator: Allocator) !void {
                     try stack.append(allocator, .{ .sub_list = &list.sub_lists.items[entry.sub_list] });
                     continue :outerLoop;
                 },
-                .block_box, .line_box => try writer.print("{}\n", .{entry}),
+                .block, .line_box => try writer.print("{}\n", .{entry}),
             }
         } else {
             _ = stack.pop();
@@ -398,15 +423,19 @@ pub fn print(list: DrawOrderList, writer: anytype, allocator: Allocator) !void {
 }
 
 pub fn printQuadTreeObject(list: DrawOrderList, object: QuadTree.Object, writer: anytype) !void {
-    const entry = list.sub_lists.items[object.sub_list_index].entries.items[object.entry_index];
+    const entry = list.getEntry(object);
     try writer.print("{}", .{entry});
+}
+
+pub fn getEntry(draw_order_list: DrawOrderList, object: QuadTree.Object) SubList.Entry {
+    return draw_order_list.sub_lists.items[object.sub_list_index].entries.items[object.entry_index];
 }
 
 pub fn getFlattenedIndex(draw_order_list: DrawOrderList, object: QuadTree.Object) usize {
     const sub_list = draw_order_list.sub_lists.items[object.sub_list_index];
     const entry = sub_list.entries.items[object.entry_index];
     switch (entry) {
-        .block_box, .line_box => {},
+        .block, .line_box => {},
         .sub_list => unreachable,
     }
     if (object.entry_index == 0) {
