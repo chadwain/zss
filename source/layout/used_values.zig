@@ -152,6 +152,12 @@ pub const BlockBox = struct {
     subtree: SubtreeIndex,
     index: BlockBoxIndex,
 };
+
+pub const initial_containing_block = BlockBox{
+    .subtree = 0,
+    .index = 0,
+};
+
 pub const BlockBoxSkip = BlockBoxIndex;
 
 pub const BlockSubtree = struct {

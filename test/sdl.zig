@@ -1,5 +1,6 @@
 const zss = @import("zss");
 const BoxTree = zss.used_values.BoxTree;
+const DrawOrderList = zss.render.DrawOrderList;
 const r = zss.render.sdl;
 
 const std = @import("std");
@@ -76,6 +77,9 @@ pub fn run(tests: []const zss.testing.Test) !void {
         defer if (maybe_atlas) |*atlas| atlas.deinit(allocator);
         const atlas_ptr = if (maybe_atlas) |*atlas| atlas else null;
 
+        var draw_order_list = try DrawOrderList.create(box_tree, allocator);
+        defer draw_order_list.deinit(allocator);
+
         const surface = try drawToSurface(
             allocator,
             box_tree,
@@ -85,6 +89,7 @@ pub fn run(tests: []const zss.testing.Test) !void {
             renderer.?,
             pixel_format,
             atlas_ptr,
+            draw_order_list,
         );
         defer sdl.SDL_FreeSurface(surface);
         const filename = try std.fmt.allocPrintZ(allocator, results_path ++ "/{s}.bmp", .{t.name});
@@ -107,6 +112,7 @@ fn drawToSurface(
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
     glyph_atlas: ?*r.GlyphAtlas,
+    draw_order_list: DrawOrderList,
 ) !*sdl.SDL_Surface {
     const surface = sdl.SDL_CreateRGBSurface(0, width, height, 32, 0, 0, 0, 0);
     errdefer sdl.SDL_FreeSurface(surface);
@@ -126,10 +132,10 @@ fn drawToSurface(
         var j: c_int = 0;
         while (j < count_y) : (j += 1) {
             const tr = sdl.SDL_Point{ .x = translation.x - i * tw, .y = translation.y - j * th };
-            const vp = sdl.SDL_Rect{ .x = 0, .y = 0, .w = std.math.min(width - tr.x, tw), .h = std.math.min(height - tr.y, th) };
+            const vp = sdl.SDL_Rect{ .x = tr.x, .y = tr.y, .w = std.math.min(width - tr.x, tw), .h = std.math.min(height - tr.y, th) };
             assert(sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0) == 0);
             assert(sdl.SDL_RenderClear(renderer) == 0);
-            try r.drawBoxTree(box_tree, renderer, pixel_format, glyph_atlas, allocator, vp, tr);
+            try r.drawBoxTree(box_tree, draw_order_list, allocator, renderer, pixel_format, glyph_atlas, vp);
             sdl.SDL_RenderPresent(renderer);
             assert(sdl.SDL_RenderReadPixels(renderer, &vp, buffer.*.format.*.format, buffer.*.pixels, buffer.*.pitch) == 0);
             assert(sdl.SDL_BlitSurface(buffer, null, surface, &.{ .x = i * tw, .y = j * th, .w = tw, .h = th }) == 0);

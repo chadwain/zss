@@ -50,7 +50,7 @@ const PatchSpan = struct {
 /// The objects that are stored in the QuadTree.
 pub const Object = struct {
     sub_list_index: DrawOrderList.SubList.Index,
-    entry_index: usize,
+    entry_index: DrawOrderList.DrawIndex,
 
     pub fn format(object: Object, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;

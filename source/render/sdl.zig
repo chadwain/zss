@@ -69,7 +69,6 @@ pub fn drawBoxTree(
 
                 try drawLineBox(ifc, line_box, origin, allocator, renderer, pixel_format, maybe_atlas);
             },
-            .sub_list => unreachable,
         }
     }
 }
