@@ -267,31 +267,30 @@ fn printObjectsOnScreen(ps: ProgramState, stderr: std.fs.File.Writer, allocator:
     }, allocator);
     defer allocator.free(objects);
 
-    var objects_in_order = std.MultiArrayList(struct { flattened_index: usize, object: QuadTree.Object }){};
+    var objects_in_order = std.MultiArrayList(struct { draw_index: DrawOrderList.DrawIndex, object: QuadTree.Object }){};
     defer objects_in_order.deinit(allocator);
     for (objects) |object| try objects_in_order.append(allocator, .{
-        .flattened_index = ps.draw_order_list.getFlattenedIndex(object),
+        .draw_index = ps.draw_order_list.getDrawIndex(object),
         .object = object,
     });
     const slice = objects_in_order.slice();
 
     const SortContext = struct {
-        flattened_index: []usize,
+        draw_index: []DrawOrderList.DrawIndex,
 
         pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
-            return ctx.flattened_index[a_index] < ctx.flattened_index[b_index];
+            return ctx.draw_index[a_index] < ctx.draw_index[b_index];
         }
     };
-    objects_in_order.sort(SortContext{ .flattened_index = slice.items(.flattened_index) });
+    objects_in_order.sort(SortContext{ .draw_index = slice.items(.draw_index) });
 
     try stderr.writeAll("\nObjects on screen:\n");
     var i: usize = 0;
     while (i < slice.len) : (i += 1) {
-        const flattened_index = slice.items(.flattened_index)[i];
+        const draw_index = slice.items(.draw_index)[i];
         const object = slice.items(.object)[i];
-        try stderr.print("\t{} ", .{flattened_index});
-        try ps.draw_order_list.printQuadTreeObject(object, stderr);
-        try stderr.writeAll("\n");
+        const drawable = ps.draw_order_list.getEntry(object);
+        try stderr.print("\t{} {}\n", .{ draw_index, drawable });
     }
     try stderr.writeAll("\n");
 }

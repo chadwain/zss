@@ -47,11 +47,11 @@ pub fn drawBoxTree(
     for (objects) |object| {
         const entry = draw_order_list.getEntry(object);
         switch (entry) {
-            .block => |block| {
-                const border_top_left = block.border_top_left.add(translation);
+            .block_box => |block_box| {
+                const border_top_left = block_box.border_top_left.add(translation);
 
-                const subtree = box_tree.blocks.subtrees.items[block.block_box.subtree];
-                const index = block.block_box.index;
+                const subtree = box_tree.blocks.subtrees.items[block_box.block_box.subtree];
+                const index = block_box.block_box.index;
 
                 const box_offsets = subtree.box_offsets.items[index];
                 const borders = subtree.borders.items[index];
@@ -77,25 +77,25 @@ fn getObjectsOnScreenInDrawOrder(draw_order_list: DrawOrderList, allocator: Allo
     const objects = try draw_order_list.quad_tree.findObjectsInRect(viewport, allocator);
     errdefer allocator.free(objects);
 
-    const flattened_index = try allocator.alloc(usize, objects.len);
-    defer allocator.free(flattened_index);
-    for (objects) |object, index| flattened_index[index] = draw_order_list.getFlattenedIndex(object);
+    const draw_index = try allocator.alloc(DrawOrderList.DrawIndex, objects.len);
+    defer allocator.free(draw_index);
+    for (objects) |object, index| draw_index[index] = draw_order_list.getDrawIndex(object);
 
     const SortContext = struct {
         objects: []QuadTree.Object,
-        flattened_index: []usize,
+        draw_index: []DrawOrderList.DrawIndex,
 
         pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
-            return ctx.flattened_index[a_index] < ctx.flattened_index[b_index];
+            return ctx.draw_index[a_index] < ctx.draw_index[b_index];
         }
 
         pub fn swap(ctx: @This(), a_index: usize, b_index: usize) void {
             std.mem.swap(QuadTree.Object, &ctx.objects[a_index], &ctx.objects[b_index]);
-            std.mem.swap(usize, &ctx.flattened_index[a_index], &ctx.flattened_index[b_index]);
+            std.mem.swap(DrawOrderList.DrawIndex, &ctx.draw_index[a_index], &ctx.draw_index[b_index]);
         }
     };
 
-    std.sort.sortContext(objects.len, SortContext{ .objects = objects, .flattened_index = flattened_index });
+    std.sort.sortContext(objects.len, SortContext{ .objects = objects, .draw_index = draw_index });
     return objects;
 }
 

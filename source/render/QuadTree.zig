@@ -48,17 +48,7 @@ const PatchSpan = struct {
 };
 
 /// The objects that are stored in the QuadTree.
-pub const Object = struct {
-    sub_list_index: DrawOrderList.SubList.Index,
-    entry_index: DrawOrderList.DrawIndex,
-
-    pub fn format(object: Object, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt;
-        _ = options;
-
-        try writer.print("DrawOrderListEntry sub_list={} entry_index={}", .{ object.sub_list_index, object.entry_index });
-    }
-};
+pub const Object = DrawOrderList.DrawableRef;
 
 /// An object is considered "large" if its bounding box spans more than one patch.
 const LargeObject = struct {
