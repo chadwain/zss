@@ -150,3 +150,13 @@ pub fn ElementHashMap(comptime V: type) type {
     };
     return std.HashMapUnmanaged(Element, V, Context, 80);
 }
+
+pub fn asciiString(comptime string: []const u8) *const [string.len]u7 {
+    comptime {
+        var result: [string.len]u7 = undefined;
+        for (string) |c, i| {
+            result[i] = std.math.cast(u7, c) orelse unreachable;
+        }
+        return &result;
+    }
+}

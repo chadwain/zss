@@ -2,39 +2,14 @@
 
 const std = @import("std");
 
+const zss = @import("../../zss.zig");
+const asciiString = zss.util.asciiString;
+
 pub const Token = struct {
     tag: Tag,
     start: Source.Location,
 
-    pub const Tag = enum {
-        eof,
-        ident,
-        function,
-        at_keyword,
-        hash_unrestricted,
-        hash_id,
-        string,
-        bad_string,
-        url,
-        bad_url,
-        delim,
-        number,
-        percentage,
-        dimension,
-        whitespace,
-        cdo,
-        cdc,
-        colon,
-        semicolon,
-        comma,
-        left_bracket,
-        right_bracket,
-        left_paren,
-        right_paren,
-        left_curly,
-        right_curly,
-        comments,
-    };
+    const Tag = zss.parse.Component.Tag;
 };
 
 const u21_max = std.math.maxInt(u21);
@@ -45,14 +20,14 @@ pub const Source = struct {
     data: []const u7,
     index: u32,
 
-    const Location = u32;
+    pub const Location = u32;
 
     pub fn init(data: []const u7) !Source {
         if (data.len > std.math.maxInt(Location)) return error.Overflow;
         return Source{ .data = data, .index = 0 };
     }
 
-    fn next(source: *Source) u21 {
+    pub fn next(source: *Source) u21 {
         if (source.index == source.data.len) return eof_codepoint;
         defer source.index += 1;
         const codepoint: u21 = switch (source.data[source.index]) {
@@ -76,11 +51,11 @@ pub const Source = struct {
         }
     }
 
-    fn location(source: Source) Location {
+    pub fn location(source: Source) Location {
         return source.index;
     }
 
-    fn seek(source: *Source, location_: Location) void {
+    pub fn seek(source: *Source, location_: Location) void {
         std.debug.assert(location_ <= source.data.len);
         source.index = location_;
     }
@@ -161,16 +136,6 @@ pub fn nextToken(source: *Source) Token {
         },
         eof_codepoint => return Token{ .tag = .eof, .start = location },
         else => return Token{ .tag = .delim, .start = location },
-    }
-}
-
-fn asciiString(comptime string: []const u8) *const [string.len]u7 {
-    comptime {
-        var result: [string.len]u7 = undefined;
-        for (string) |c, i| {
-            result[i] = std.math.cast(u7, c) orelse unreachable;
-        }
-        return &result;
     }
 }
 
@@ -525,7 +490,7 @@ fn consumeIdentLikeToken(source: *Source, location: Source.Location) Token {
             }
         }
 
-        return Token{ .tag = .function, .start = location };
+        return Token{ .tag = .function_token, .start = location };
     }
 
     source.seek(next_location);
