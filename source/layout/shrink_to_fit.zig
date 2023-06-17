@@ -298,12 +298,15 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 try normal.pushContainingBlock(&new_block_layout, 0, containing_block_height);
                                 try normal.pushFlowBlock(&new_block_layout, data.subtree_index, new_subtree_block.index, used);
 
-                                var frame = try layout.allocator.create(@Frame(normal.mainLoop));
-                                defer layout.allocator.destroy(frame);
-                                nosuspend {
-                                    frame.* = async normal.mainLoop(&new_block_layout, sc, computer, box_tree);
-                                    try await frame.*;
-                                }
+                                // TODO: Recursive call here
+                                try normal.mainLoop(&new_block_layout, sc, computer, box_tree);
+
+                                // var frame = try layout.allocator.create(@Frame(normal.mainLoop));
+                                // defer layout.allocator.destroy(frame);
+                                // nosuspend {
+                                //     frame.* = async normal.mainLoop(&new_block_layout, sc, computer, box_tree);
+                                //     try await frame.*;
+                                // }
                             } else {
                                 const parent_available_width = layout.widths.items(.available)[layout.widths.len - 1];
                                 const available_width = solve.clampSize(parent_available_width - edge_width, used.min_inline_size, used.max_inline_size);

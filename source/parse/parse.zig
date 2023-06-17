@@ -391,8 +391,8 @@ fn consumeFunction(stack: *Stack, syntax_tree: *SyntaxTree, source: *TokenSource
     }
 }
 
-pub fn main() !void {
-    const allocator = std.heap.page_allocator;
+test "parse a stylesheet" {
+    const allocator = std.testing.allocator;
     const input =
         \\@charset "utf-8";
         \\@new-rule {}
@@ -409,8 +409,40 @@ pub fn main() !void {
     var syntax_tree = try parseStylesheet(&token_source, allocator);
     defer syntax_tree.deinit(allocator);
 
-    const stderr = std.io.getStdErr().writer();
-    try debugPrint(syntax_tree, allocator, ascii, stderr);
+    const expected = [25]Component{
+        .{ .skip = 25, .tag = .rule_list, .location = 0, .extra = 0 },
+        .{ .skip = 3, .tag = .at_rule, .location = 0, .extra = 0 },
+        .{ .skip = 1, .tag = .whitespace, .location = 8, .extra = 0 },
+        .{ .skip = 1, .tag = .string, .location = 9, .extra = 0 },
+        .{ .skip = 3, .tag = .at_rule, .location = 18, .extra = 6 },
+        .{ .skip = 1, .tag = .whitespace, .location = 27, .extra = 0 },
+        .{ .skip = 1, .tag = .simple_block_curly, .location = 28, .extra = 0 },
+        .{ .skip = 18, .tag = .qualified_rule, .location = 32, .extra = 10 },
+        .{ .skip = 1, .tag = .ident, .location = 32, .extra = 0 },
+        .{ .skip = 1, .tag = .whitespace, .location = 36, .extra = 0 },
+        .{ .skip = 15, .tag = .simple_block_curly, .location = 37, .extra = 0 },
+        .{ .skip = 1, .tag = .whitespace, .location = 38, .extra = 0 },
+        .{ .skip = 12, .tag = .function_block, .location = 43, .extra = 0 },
+        .{ .skip = 1, .tag = .ident, .location = 49, .extra = 0 },
+        .{ .skip = 1, .tag = .comma, .location = 51, .extra = 0 },
+        .{ .skip = 1, .tag = .whitespace, .location = 52, .extra = 0 },
+        .{ .skip = 1, .tag = .ident, .location = 53, .extra = 0 },
+        .{ .skip = 1, .tag = .comma, .location = 56, .extra = 0 },
+        .{ .skip = 1, .tag = .whitespace, .location = 57, .extra = 0 },
+        .{ .skip = 1, .tag = .ident, .location = 58, .extra = 0 },
+        .{ .skip = 1, .tag = .comma, .location = 63, .extra = 0 },
+        .{ .skip = 1, .tag = .whitespace, .location = 64, .extra = 0 },
+        .{ .skip = 1, .tag = .ident, .location = 65, .extra = 0 },
+        .{ .skip = 1, .tag = .delim, .location = 69, .extra = 0 },
+        .{ .skip = 1, .tag = .whitespace, .location = 71, .extra = 0 },
+    };
+
+    const slice = syntax_tree.components.slice();
+    if (expected.len != slice.len) return error.TestFailure;
+    for (expected, 0..) |ex, i| {
+        const actual = slice.get(i);
+        try std.testing.expectEqual(ex, actual);
+    }
 }
 
 fn debugPrint(syntax_tree: SyntaxTree, allocator: Allocator, input: []const u7, writer: anytype) !void {

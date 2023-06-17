@@ -238,7 +238,7 @@ pub const BackgroundImage = union(enum) {
 
         data: *Data,
         // TODO: This should be able to return an error
-        getNaturalSizeFn: fn (data: *Data) Dimensions,
+        getNaturalSizeFn: *const fn (data: *Data) Dimensions,
 
         pub fn getNaturalSize(self: *Object) Dimensions {
             return self.getNaturalSizeFn(self.data);

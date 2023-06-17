@@ -9,14 +9,16 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
-pub fn run(tests: []const zss.testing.Test) !void {
+const Test = @import("./testing.zig").Test;
+
+pub fn run(tests: []const Test) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer assert(!gpa.deinit());
+    defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
     const stdout = std.io.getStdOut().writer();
 
-    for (tests) |t, i| {
+    for (tests, 0..) |t, i| {
         try stdout.print("print: ({}/{}) \"{s}\" ... \n", .{ i + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
 

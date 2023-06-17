@@ -120,16 +120,19 @@ test "gcd" {
 }
 
 pub fn divCeil(a: anytype, b: anytype) @TypeOf(a, b) {
-    return @divFloor(a, b) + @boolToInt(@mod(a, b) != 0);
+    const Return = @TypeOf(a, b);
+    return @divFloor(a, b) + @as(Return, @boolToInt(@mod(a, b) != 0));
 }
 
 pub fn divRound(a: anytype, b: anytype) @TypeOf(a, b) {
-    return @divFloor(a, b) + @boolToInt(2 * @mod(a, b) >= b);
+    const Return = @TypeOf(a, b);
+    return @divFloor(a, b) + @as(Return, @boolToInt(2 * @mod(a, b) >= b));
 }
 
 pub fn roundUp(a: anytype, comptime multiple: comptime_int) @TypeOf(a) {
+    const Return = @TypeOf(a);
     const mod = @mod(a, multiple);
-    return a + (multiple - mod) * @boolToInt(mod != 0);
+    return a + (multiple - mod) * @as(Return, @boolToInt(mod != 0));
 }
 
 test "roundUp" {
@@ -152,11 +155,11 @@ pub fn ElementHashMap(comptime V: type) type {
 }
 
 pub fn asciiString(comptime string: []const u8) *const [string.len]u7 {
-    comptime {
+    return comptime blk: {
         var result: [string.len]u7 = undefined;
-        for (string) |c, i| {
-            result[i] = std.math.cast(u7, c) orelse unreachable;
+        for (string, &result) |s, *r| {
+            r.* = std.math.cast(u7, s) orelse @compileError("Invalid 7-bit ASCII");
         }
-        return &result;
-    }
+        break :blk &result;
+    };
 }

@@ -3,7 +3,7 @@ const fs = std.fs;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
-const zss = @import("../zss.zig");
+const zss = @import("zss");
 const BoxTree = zss.BoxTree;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
@@ -143,7 +143,7 @@ pub fn sdlMainLoop(
     var event: sdl.SDL_Event = undefined;
     mainLoop: while (true) {
         while (sdl.SDL_PollEvent(&event) != 0) {
-            switch (event.@"type") {
+            switch (event.type) {
                 sdl.SDL_WINDOWEVENT => {
                     switch (event.window.event) {
                         sdl.SDL_WINDOWEVENT_SIZE_CHANGED => {

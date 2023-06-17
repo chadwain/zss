@@ -1,4 +1,4 @@
-const Test = @import("zss").testing.Test;
+const Test = @import("../testing.zig").Test;
 
 pub const name = "empty tree";
 

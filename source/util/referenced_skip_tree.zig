@@ -36,14 +36,14 @@ pub fn ReferencedSkipTree(comptime IndexType: type, comptime ReferenceType: type
         .fields = &[_]std.builtin.Type.StructField{
             .{
                 .name = "__skip",
-                .field_type = IndexType,
+                .type = IndexType,
                 .default_value = null,
                 .is_comptime = false,
                 .alignment = @alignOf(IndexType),
             },
             .{
                 .name = "__ref",
-                .field_type = ReferenceType,
+                .type = ReferenceType,
                 .default_value = null,
                 .is_comptime = false,
                 .alignment = @alignOf(ReferenceType),

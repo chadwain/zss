@@ -104,7 +104,7 @@ const Node = struct {
         var quadrant_index: u2 = undefined;
         var quadrant_intersect: ZssRect = undefined;
         var num_intersects: u3 = 0;
-        for (quadrant_rects) |rect, i| {
+        for (quadrant_rects, 0..) |rect, i| {
             const intersection = rect.intersect(patch_intersect);
             if (!intersection.isEmpty()) {
                 num_intersects += 1;
@@ -160,8 +160,8 @@ const Node = struct {
             ZssRect{ .x = quadrant_size, .y = quadrant_size, .w = quadrant_size, .h = quadrant_size },
         };
 
-        for (quadrant_rects) |rect, i| {
-            const child = node.children[i] orelse continue;
+        for (quadrant_rects, node.children) |rect, child_opt| {
+            const child = child_opt orelse continue;
             const intersection = rect.intersect(patch_intersect);
             if (intersection.isEmpty()) continue;
             try child.findObjectsInRect(.{
@@ -181,7 +181,7 @@ const Node = struct {
             try writer.writeByteNTimes(' ', indent);
             try writer.print("{}\n", .{object});
         }
-        for (node.children) |child, i| {
+        for (node.children, 0..) |child, i| {
             if (child) |child_node| {
                 const quadrant_string = switch (@intCast(u2, i)) {
                     0 => "top left",

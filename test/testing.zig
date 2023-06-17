@@ -27,27 +27,27 @@ const categories = blk: {
     const tests = build_options.tests;
 
     var result: [tests.len]Category = undefined;
-    for (tests) |t, i| {
-        result[i] = std.meta.stringToEnum(Category, t) orelse @compileError("Invalid test category: " ++ t);
+    for (tests, &result) |t, *category| {
+        category.* = std.meta.stringToEnum(Category, t) orelse @compileError("Invalid test category: " ++ t);
     }
     break :blk result;
 };
 
 pub fn main() !void {
-    defer assert(!gpa.deinit());
+    defer assert(gpa.deinit() == .ok);
 
     assert(hb.FT_Init_FreeType(&library) == 0);
     defer _ = hb.FT_Done_FreeType(library);
 
     var tests: [all_tests.len]Test = undefined;
-    inline for (all_tests) |test_info, i| {
-        setupTest(&tests[i], test_info);
+    inline for (all_tests, &tests) |test_info, *t| {
+        setupTest(t, test_info);
     }
-    defer for (tests) |*t| {
+    defer for (&tests) |*t| {
         deinitTest(t);
     };
 
-    for (categories) |c, i| {
+    for (categories, 0..) |c, i| {
         switch (c) {
             .validation => try @import("./validation.zig").run(&tests),
             .memory => try @import("./memory.zig").run(&tests),
@@ -66,7 +66,7 @@ fn setupTest(t: *Test, info: TestInfo) void {
     t.name = info[0];
 
     if (!t.root.eqlNull()) {
-        assert(hb.FT_New_Face(library, t.font, 0, &t.ft_face) == 0);
+        assert(hb.FT_New_Face(library, t.font.ptr, 0, &t.ft_face) == 0);
         assert(hb.FT_Set_Char_Size(t.ft_face, 0, @intCast(c_int, t.font_size) * 64, 96, 96) == 0);
 
         t.hb_font = blk: {
@@ -99,7 +99,7 @@ fn deinitTest(t: *Test) void {
     }
 }
 
-pub const TestInfo = std.meta.Tuple(&[2]type{ []const u8, fn (*Test) void });
+pub const TestInfo = std.meta.Tuple(&[2]type{ []const u8, *const fn (*Test) void });
 
 const all_tests = blk: {
     const modules = [_]type{

@@ -38,7 +38,7 @@ pub fn SkipTree(comptime IndexType: type, comptime ValueSpec: type) type {
         .fields = &[_]std.builtin.Type.StructField{
             .{
                 .name = "__skip",
-                .field_type = IndexType,
+                .type = IndexType,
                 .default_value = null,
                 .is_comptime = false,
                 .alignment = @alignOf(IndexType),
@@ -244,14 +244,14 @@ pub fn SparseSkipTree(comptime IndexType: type, comptime ValueSpec: type) type {
         .fields = &[_]std.builtin.Type.StructField{
             .{
                 .name = "__skip",
-                .field_type = IndexType,
+                .type = IndexType,
                 .default_value = null,
                 .is_comptime = false,
                 .alignment = @alignOf(IndexType),
             },
             .{
                 .name = "__reference_index",
-                .field_type = IndexType,
+                .type = IndexType,
                 .default_value = null,
                 .is_comptime = false,
                 .alignment = @alignOf(IndexType),
@@ -398,8 +398,8 @@ pub fn SSTSeeker(comptime SST: type) type {
 
     const SlicePointers = SlicePointers: {
         var fields: [sst_value_fields.len]std.builtin.Type.StructField = undefined;
-        inline for (sst_value_fields) |field, i| {
-            fields[i] = .{
+        inline for (sst_value_fields, fields) |field, *f| {
+            f.* = .{
                 .name = field.name,
                 .field_type = [*]const field.field_type,
                 .default_value = null,

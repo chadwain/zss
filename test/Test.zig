@@ -5,7 +5,9 @@ const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const null_element = Element.null_element;
 const CascadedValueStore = zss.CascadedValueStore;
-const allocator = zss.testing.allocator;
+
+const testing = @import("./testing.zig");
+const allocator = testing.allocator;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -21,7 +23,7 @@ root: Element = null_element,
 cascaded_values: CascadedValueStore = .{},
 width: u32 = 400,
 height: u32 = 400,
-font: [:0]const u8 = zss.testing.fonts[0],
+font: [:0]const u8 = testing.fonts[0],
 font_size: u32 = 12,
 font_color: u32 = 0xffffffff,
 
@@ -66,7 +68,7 @@ pub fn appendChild(self: *Test, parent: Element) Element {
     return element;
 }
 
-pub fn set(self: *Test, comptime field: FieldEnum, element: Element, value: store_fields[@enumToInt(field)].field_type.Value) void {
+pub fn set(self: *Test, comptime field: FieldEnum, element: Element, value: store_fields[@enumToInt(field)].type.Value) void {
     const store = &@field(self.cascaded_values, @tagName(field));
     store.ensureTotalCapacity(allocator, store.map.size + 1) catch |err| fail(err);
     store.setAssumeCapacity(element, value);

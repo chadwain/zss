@@ -7,10 +7,12 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
+const Test = @import("./testing.zig").Test;
+
 const hb = @import("harfbuzz");
 const sdl = @import("SDL2");
 
-pub fn run(tests: []const zss.testing.Test) !void {
+pub fn run(tests: []const Test) !void {
     var window: ?*sdl.SDL_Window = undefined;
     var renderer: ?*sdl.SDL_Renderer = undefined;
     const wwidth = 100;
@@ -38,10 +40,10 @@ pub fn run(tests: []const zss.testing.Test) !void {
     const stderr = std.io.getStdErr().writer();
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer assert(!gpa.deinit());
+    defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
-    for (tests) |t, i| {
+    for (tests, 0..) |t, i| {
         try stdout.print("sdl: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
 
@@ -138,7 +140,8 @@ fn drawToSurface(
             try r.drawBoxTree(box_tree, draw_order_list, allocator, renderer, pixel_format, glyph_atlas, vp);
             sdl.SDL_RenderPresent(renderer);
             assert(sdl.SDL_RenderReadPixels(renderer, &vp, buffer.*.format.*.format, buffer.*.pixels, buffer.*.pitch) == 0);
-            assert(sdl.SDL_BlitSurface(buffer, null, surface, &.{ .x = i * tw, .y = j * th, .w = tw, .h = th }) == 0);
+            var rect = sdl.SDL_Rect{ .x = i * tw, .y = j * th, .w = tw, .h = th };
+            assert(sdl.SDL_BlitSurface(buffer, null, surface, &rect) == 0);
         }
     }
 

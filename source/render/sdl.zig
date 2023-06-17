@@ -77,25 +77,26 @@ fn getObjectsOnScreenInDrawOrder(draw_order_list: DrawOrderList, allocator: Allo
     const objects = try draw_order_list.quad_tree.findObjectsInRect(viewport, allocator);
     errdefer allocator.free(objects);
 
-    const draw_index = try allocator.alloc(DrawOrderList.DrawIndex, objects.len);
-    defer allocator.free(draw_index);
-    for (objects) |object, index| draw_index[index] = draw_order_list.getDrawIndex(object);
+    const draw_indeces = try allocator.alloc(DrawOrderList.DrawIndex, objects.len);
+    defer allocator.free(draw_indeces);
+
+    for (objects, draw_indeces) |object, *draw_index| draw_index.* = draw_order_list.getDrawIndex(object);
 
     const SortContext = struct {
         objects: []QuadTree.Object,
-        draw_index: []DrawOrderList.DrawIndex,
+        draw_indeces: []DrawOrderList.DrawIndex,
 
         pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
-            return ctx.draw_index[a_index] < ctx.draw_index[b_index];
+            return ctx.draw_indeces[a_index] < ctx.draw_indeces[b_index];
         }
 
         pub fn swap(ctx: @This(), a_index: usize, b_index: usize) void {
             std.mem.swap(QuadTree.Object, &ctx.objects[a_index], &ctx.objects[b_index]);
-            std.mem.swap(DrawOrderList.DrawIndex, &ctx.draw_index[a_index], &ctx.draw_index[b_index]);
+            std.mem.swap(DrawOrderList.DrawIndex, &ctx.draw_indeces[a_index], &ctx.draw_indeces[b_index]);
         }
     };
 
-    std.sort.sortContext(objects.len, SortContext{ .objects = objects, .draw_index = draw_index });
+    std.mem.sortUnstableContext(0, objects.len, SortContext{ .objects = objects, .draw_indeces = draw_indeces });
     return objects;
 }
 
@@ -405,8 +406,8 @@ fn copyBitmapToSurface(surface: *sdl.SDL_Surface, bitmap: hb.FT_Bitmap) void {
     }) {
         const src_row = bitmap.buffer[src_index .. src_index + bitmap.width];
         const dest_row = @ptrCast([*]u32, @alignCast(4, @ptrCast([*]u8, surface.pixels.?) + dest_index))[0..bitmap.width];
-        for (src_row) |_, i| {
-            dest_row[i] = sdl.SDL_MapRGBA(surface.format, 0xff, 0xff, 0xff, src_row[i]);
+        for (src_row, dest_row) |src, *dest| {
+            dest.* = sdl.SDL_MapRGBA(surface.format, 0xff, 0xff, 0xff, src);
         }
     }
 }

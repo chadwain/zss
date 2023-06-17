@@ -323,7 +323,7 @@ fn consumeNumericToken(source: *Source, location: Source.Location) Token {
 
     const next_location = source.location();
     var next_3: [3]u21 = undefined;
-    for (next_3) |*codepoint| codepoint.* = source.next();
+    for (&next_3) |*codepoint| codepoint.* = source.next();
     source.seek(next_location);
 
     if (codepointsStartAnIdentSequence(next_3)) {
@@ -589,7 +589,7 @@ fn numberSign(source: *Source, location: Source.Location) Token {
 fn plusOrFullStop(source: *Source, location: Source.Location) Token {
     const next_location = source.location();
     var next_3: [3]u21 = undefined;
-    for (next_3) |*codepoint| codepoint.* = source.next();
+    for (&next_3) |*codepoint| codepoint.* = source.next();
     if (codepointsStartANumber(next_3)) {
         source.seek(location);
         return consumeNumericToken(source, location);
@@ -606,7 +606,7 @@ fn minus(source: *Source, location: Source.Location) Token {
 
     const next_location = source.location();
     var next_3: [3]u21 = undefined;
-    for (next_3) |*codepoint| codepoint.* = source.next();
+    for (&next_3) |*codepoint| codepoint.* = source.next();
 
     if (codepointsStartANumber(next_3)) {
         source.seek(location);
@@ -623,7 +623,7 @@ fn minus(source: *Source, location: Source.Location) Token {
 fn commercialAt(source: *Source, location: Source.Location) Token {
     const next_location = source.location();
     var next_3: [3]u21 = undefined;
-    for (next_3) |*codepoint| codepoint.* = source.next();
+    for (&next_3) |*codepoint| codepoint.* = source.next();
     source.seek(next_location);
 
     if (codepointsStartAnIdentSequence(next_3)) {
@@ -634,19 +634,44 @@ fn commercialAt(source: *Source, location: Source.Location) Token {
     }
 }
 
-pub fn main() !u8 {
-    const allocator = std.heap.page_allocator;
-    var stdin = std.io.getStdIn().reader();
-    const input = try stdin.readAllAlloc(allocator, 4000000);
-    defer allocator.free(input);
-    for (input) |c| if (c >= 0x80) return 1;
-
-    var source = try Source.init(@ptrCast([]const u7, input));
+test "tokenizer" {
+    const input =
+        \\@charset "utf-8";
+        \\
+        \\body {
+        \\    rule: value;
+        \\}
+        \\
+        \\end
+    ;
+    var source = try Source.init(asciiString(input));
+    var expected = [_]Token{
+        .{ .tag = .at_keyword, .start = 0 },
+        .{ .tag = .whitespace, .start = 8 },
+        .{ .tag = .string, .start = 9 },
+        .{ .tag = .semicolon, .start = 16 },
+        .{ .tag = .whitespace, .start = 17 },
+        .{ .tag = .ident, .start = 19 },
+        .{ .tag = .whitespace, .start = 23 },
+        .{ .tag = .left_curly, .start = 24 },
+        .{ .tag = .whitespace, .start = 25 },
+        .{ .tag = .ident, .start = 30 },
+        .{ .tag = .colon, .start = 34 },
+        .{ .tag = .whitespace, .start = 35 },
+        .{ .tag = .ident, .start = 36 },
+        .{ .tag = .semicolon, .start = 41 },
+        .{ .tag = .whitespace, .start = 42 },
+        .{ .tag = .right_curly, .start = 43 },
+        .{ .tag = .whitespace, .start = 44 },
+        .{ .tag = .ident, .start = 46 },
+        .{ .tag = .eof, .start = 49 },
+    };
+    var i: usize = 0;
     while (true) {
+        if (i >= expected.len) return error.TestFailure;
         const token = nextToken(&source);
-        std.debug.print("{s} {}\n", .{ @tagName(token.tag), token.start });
+        try std.testing.expectEqual(expected[i], token);
         if (token.tag == .eof) break;
+        i += 1;
     }
-
-    return 0;
 }

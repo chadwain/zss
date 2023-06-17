@@ -51,15 +51,15 @@ pub const InlineLayoutContext = struct {
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
     skip: ArrayListUnmanaged(InlineBoxSkip) = .{},
-    nested_layout_frame: ?*NestedLayoutFrame = null,
+    // nested_layout_frame: ?*NestedLayoutFrame = null,
 
     result: Result,
 
-    // This is extern to disable tag checking at runtime
-    const NestedLayoutFrame = extern union {
-        normal: @Frame(normal.mainLoop),
-        stf: @Frame(stf.shrinkToFitLayout),
-    };
+    // // This is extern to disable tag checking at runtime
+    // const NestedLayoutFrame = extern union {
+    //     normal: @Frame(normal.mainLoop),
+    //     stf: @Frame(stf.shrinkToFitLayout),
+    // };
 
     pub const Result = struct {
         ifc_index: InlineFormattingContextIndex,
@@ -69,17 +69,17 @@ pub const InlineLayoutContext = struct {
     pub fn deinit(self: *Self) void {
         self.index.deinit(self.allocator);
         self.skip.deinit(self.allocator);
-        if (self.nested_layout_frame) |frame| {
-            self.allocator.destroy(frame);
-        }
+        // if (self.nested_layout_frame) |frame| {
+        //     self.allocator.destroy(frame);
+        // }
     }
 
-    fn getFrame(self: *Self) !*NestedLayoutFrame {
-        if (self.nested_layout_frame == null) {
-            self.nested_layout_frame = try self.allocator.create(NestedLayoutFrame);
-        }
-        return self.nested_layout_frame.?;
-    }
+    // fn getFrame(self: *Self) !*NestedLayoutFrame {
+    //     if (self.nested_layout_frame == null) {
+    //         self.nested_layout_frame = try self.allocator.create(NestedLayoutFrame);
+    //     }
+    //     return self.nested_layout_frame.?;
+    // }
 };
 
 fn createInlineBox(box_tree: *BoxTree, ifc: *InlineFormattingContext) !InlineBoxIndex {
@@ -299,7 +299,7 @@ fn ifcRunOnce(
             computer.setComputedValue(.box_gen, .font, font);
             try computer.pushElement(.box_gen);
 
-            const frame = try layout.getFrame();
+            // const frame = try layout.getFrame();
             if (!used_sizes.isFieldAuto(.inline_size)) {
                 normal.flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
 
@@ -307,12 +307,14 @@ fn ifcRunOnce(
                 defer normal_layout.deinit();
                 try normal.pushContainingBlock(&normal_layout, layout.containing_block_width, layout.containing_block_height);
                 try normal.pushFlowBlock(&normal_layout, layout.subtree_index, block.index, used_sizes);
+                // TODO: Recursive call here
+                try normal.mainLoop(&normal_layout, sc, computer, box_tree);
 
-                nosuspend {
-                    frame.normal = async normal.mainLoop(&normal_layout, sc, computer, box_tree);
-                    try await frame.normal;
-                    frame.* = undefined;
-                }
+                // nosuspend {
+                //     frame.normal = async normal.mainLoop(&normal_layout, sc, computer, box_tree);
+                //     try await frame.normal;
+                //     frame.* = undefined;
+                // }
             } else {
                 const available_width_unclamped = layout.containing_block_width -
                     (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
@@ -323,11 +325,14 @@ fn ifcRunOnce(
                 var stf_layout = try stf.ShrinkToFitLayoutContext.initFlow(layout.allocator, element, block_box, used_sizes, available_width);
                 defer stf_layout.deinit();
 
-                nosuspend {
-                    frame.stf = async stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree);
-                    try await frame.stf;
-                    frame.* = undefined;
-                }
+                // TODO: Recursive call here
+                try stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree);
+
+                // nosuspend {
+                //     frame.stf = async stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree);
+                //     try await frame.stf;
+                //     frame.* = undefined;
+                // }
             }
 
             layout.result.total_inline_block_skip += box_tree.blocks.subtrees.items[block_box.subtree].skip.items[block_box.index];

@@ -444,7 +444,7 @@ fn populateSubList(
             const info = ifc_infos.get(ifc_index) orelse unreachable;
             const ifc = box_tree.ifcs.items[ifc_index];
             const line_box_height = ifc.ascender - ifc.descender;
-            for (ifc.line_boxes.items) |line_box, line_box_index| {
+            for (ifc.line_boxes.items, 0..) |line_box, line_box_index| {
                 const bounding_box = ZssRect{
                     .x = info.vector.x,
                     .y = info.vector.y + line_box.baseline - ifc.ascender,

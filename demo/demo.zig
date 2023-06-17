@@ -31,7 +31,7 @@ pub fn main() !u8 {
     const stderr = std.io.getStdErr().writer();
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer assert(!gpa.deinit());
+    defer assert(gpa.deinit() == .ok);
     var allocator = gpa.allocator();
 
     const program_args = try std.process.argsAlloc(allocator);

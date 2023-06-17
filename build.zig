@@ -1,100 +1,117 @@
 const std = @import("std");
-const Builder = std.build.Builder;
-const Pkg = std.build.Pkg;
+const Build = std.Build;
+const Module = Build.Module;
 
-const pkgs = struct {
-    const harfbuzz = Pkg{
-        .name = "harfbuzz",
-        .source = .{ .path = "dependencies/harfbuzz.zig" },
-    };
-    const SDL2 = Pkg{
-        .name = "SDL2",
-        .source = .{ .path = "dependencies/SDL2.zig" },
-    };
+const Modules = struct {
+    harfbuzz: *Module,
+    sdl2: *Module,
 };
 
-// All of our artifacts will be built with stage1 because zss uses async/await.
-
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *Build) void {
+    const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
-    const zss_lib = b.addStaticLibrary("zss", "zss.zig");
-    zss_lib.setBuildMode(mode);
-    zss_lib.setTarget(target);
-    zss_lib.use_stage1 = true;
-    zss_lib.install();
+    const zss_lib = b.addStaticLibrary(.{
+        .name = "zss",
+        .root_source_file = .{ .path = "zss.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    b.installArtifact(zss_lib);
 
-    addTests(b, mode, target);
-    addDemo(b, mode, target);
+    const zss_step = b.step("zss", "Build zss");
+    zss_step.dependOn(&zss_lib.step);
+
+    const mods = Modules{
+        .harfbuzz = b.createModule(.{ .source_file = .{ .path = "dependencies/harfbuzz.zig" } }),
+        .sdl2 = b.createModule(.{ .source_file = .{ .path = "dependencies/SDL2.zig" } }),
+    };
+
+    addTests(b, optimize, target, mods);
+    addDemo(b, optimize, target, mods);
 }
 
-fn addTests(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {
-    const all_tests_step = b.step("test", "Run all tests");
+fn addTests(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, mods: Modules) void {
+    const all_tests_step = b.step("test", "Build all tests");
 
-    var lib_tests = b.addTest("zss.zig");
-    lib_tests.setBuildMode(mode);
-    lib_tests.setTarget(target);
-    lib_tests.addPackage(pkgs.harfbuzz);
-    lib_tests.linkLibC();
+    const lib_tests = b.addTest(.{
+        .name = "lib-tests",
+        .root_source_file = .{ .path = "zss.zig" },
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    lib_tests.addModule("harfbuzz", mods.harfbuzz);
     lib_tests.linkSystemLibrary("harfbuzz");
     lib_tests.linkSystemLibrary("freetype2");
-    lib_tests.use_stage1 = true;
-    const lib_tests_step = b.step("test-lib", "Run library tests");
-    lib_tests_step.dependOn(&lib_tests.step);
+    b.installArtifact(lib_tests);
 
-    var test_suite = b.addExecutable("test-suite", "test/testing.zig");
-    test_suite.setBuildMode(mode);
-    test_suite.setTarget(target);
-    test_suite.linkLibC();
+    const run_lib_tests = b.addRunArtifact(lib_tests);
+    run_lib_tests.step.dependOn(&lib_tests.step);
+
+    const lib_tests_step = b.step("test-lib", "Run library tests");
+    lib_tests_step.dependOn(&run_lib_tests.step);
+
+    const test_suite = b.addExecutable(.{
+        .name = "test-suite",
+        .root_source_file = .{ .path = "test/testing.zig" },
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
     test_suite.linkSystemLibrary("harfbuzz");
     test_suite.linkSystemLibrary("freetype2");
     test_suite.linkSystemLibrary("SDL2");
-    test_suite.addPackage(pkgs.harfbuzz);
-    test_suite.addPackage(pkgs.SDL2);
-    test_suite.addPackage(Pkg{
-        .name = "zss",
-        .source = .{ .path = "zss.zig" },
-        .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2 },
+    test_suite.addModule("harfbuzz", mods.harfbuzz);
+    test_suite.addModule("SDL2", mods.sdl2);
+    test_suite.addAnonymousModule("zss", .{
+        .source_file = .{ .path = "zss.zig" },
+        .dependencies = &.{
+            .{ .name = "harfbuzz", .module = mods.harfbuzz },
+            .{ .name = "SDL2", .module = mods.sdl2 },
+        },
     });
-    test_suite.use_stage1 = true;
-    test_suite.install();
+    b.installArtifact(test_suite);
 
     const test_category_filter = b.option([]const []const u8, "tests", "List of test categories to run");
     const test_suite_options = b.addOptions();
     test_suite.addOptions("build_options", test_suite_options);
     test_suite_options.addOption([]const []const u8, "tests", test_category_filter orelse &[_][]const u8{ "validation", "memory" });
 
-    var run_test_suite = test_suite.run();
+    const run_test_suite = b.addRunArtifact(test_suite);
     run_test_suite.step.dependOn(&test_suite.step);
 
     const test_suite_step = b.step("test-suite", "Run the test suite");
     test_suite_step.dependOn(&run_test_suite.step);
 
-    all_tests_step.dependOn(&lib_tests.step);
+    all_tests_step.dependOn(&run_lib_tests.step);
     all_tests_step.dependOn(&run_test_suite.step);
 }
 
-fn addDemo(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) void {
-    var demo_exe = b.addExecutable("demo", "demo/demo.zig");
-    demo_exe.addPackage(pkgs.harfbuzz);
-    demo_exe.addPackage(pkgs.SDL2);
-    demo_exe.addPackage(Pkg{
-        .name = "zss",
-        .source = .{ .path = "zss.zig" },
-        .dependencies = &[_]Pkg{ pkgs.harfbuzz, pkgs.SDL2 },
+fn addDemo(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, mods: Modules) void {
+    var demo_exe = b.addExecutable(.{
+        .name = "demo",
+        .root_source_file = .{ .path = "demo/demo.zig" },
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
     });
-    demo_exe.linkLibC();
+    demo_exe.addModule("harfbuzz", mods.harfbuzz);
+    demo_exe.addModule("SDL2", mods.sdl2);
+    demo_exe.addAnonymousModule("zss", .{
+        .source_file = .{ .path = "zss.zig" },
+        .dependencies = &.{
+            .{ .name = "harfbuzz", .module = mods.harfbuzz },
+            .{ .name = "SDL2", .module = mods.sdl2 },
+        },
+    });
     demo_exe.linkSystemLibrary("harfbuzz");
     demo_exe.linkSystemLibrary("freetype2");
     demo_exe.linkSystemLibrary("SDL2");
     demo_exe.linkSystemLibrary("SDL2_image");
-    demo_exe.setBuildMode(mode);
-    demo_exe.setTarget(target);
-    demo_exe.use_stage1 = true;
-    demo_exe.install();
+    b.installArtifact(demo_exe);
 
-    var demo_cmd = demo_exe.run();
+    const demo_cmd = b.addRunArtifact(demo_exe);
     if (b.args) |args| demo_cmd.addArgs(args);
     demo_cmd.step.dependOn(&demo_exe.step);
 

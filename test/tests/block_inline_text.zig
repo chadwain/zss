@@ -1,4 +1,4 @@
-const testing = @import("zss").testing;
+const testing = @import("../testing.zig");
 const Test = testing.Test;
 const strings = testing.strings;
 

@@ -6,15 +6,17 @@ const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 
+const Test = @import("./testing.zig").Test;
+
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
-pub fn run(tests: []const zss.testing.Test) !void {
-    defer assert(!gpa.deinit());
+pub fn run(tests: []const Test) !void {
+    defer assert(gpa.deinit() == .ok);
 
     const stdout = std.io.getStdOut().writer();
 
-    for (tests) |t, i| {
+    for (tests, 0..) |t, i| {
         try stdout.print("validation: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
         defer stdout.print("\n", .{}) catch {};
 
