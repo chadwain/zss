@@ -5,91 +5,182 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../../zss.zig");
-const Source = zss.tokenize.Source;
+const CodepointSource = zss.tokenize.CodepointSource;
 const Token = zss.tokenize.Token;
 
 pub const TokenSource = struct {
-    source: Source,
+    source: CodepointSource,
 
-    pub const Location = Source.Location;
+    pub const Location = CodepointSource.Location;
 
-    pub fn init(source: Source) TokenSource {
+    pub fn init(source: CodepointSource) TokenSource {
         return TokenSource{ .source = source };
     }
 
     fn next(source: *TokenSource) Token {
         const nextToken = zss.tokenize.nextToken;
-        return nextToken(&source.source);
+        while (true) {
+            const token = nextToken(&source.source);
+            if (token.tag != .token_comments) return token;
+        }
     }
 
     fn location(source: TokenSource) Location {
         return source.source.location();
     }
 
-    fn seek(source: *TokenSource, location_: Location) void {
+    pub fn seek(source: *TokenSource, location_: Location) void {
         source.source.seek(location_);
+    }
+
+    pub fn matchDelimeter(source: *TokenSource, codepoint: u21) bool {
+        return source.source.matchDelimeter(codepoint);
+    }
+
+    pub fn matchKeyword(source: *TokenSource, keyword: []const u7) bool {
+        return source.source.matchKeyword(keyword);
     }
 };
 
 pub const Component = struct {
-    skip: SyntaxTree.Size,
+    skip: ComponentTree.Size,
     tag: Tag,
+    /// The location of this Component in whatever source created it.
     location: TokenSource.Location,
-    extra: SyntaxTree.Size,
+    /// Additional info about the Component. The meaning of this value depends on `tag`.
+    extra: ComponentTree.Size,
 
     pub const Tag = enum {
-        eof,
-        ident,
-        function_token,
-        at_keyword,
-        hash_unrestricted,
-        hash_id,
-        string,
-        bad_string,
-        url,
-        bad_url,
-        delim,
-        number,
-        percentage,
-        dimension,
-        whitespace,
-        cdo,
-        cdc,
-        colon,
-        semicolon,
-        comma,
-        left_bracket,
-        right_bracket,
-        left_paren,
-        right_paren,
-        left_curly,
-        right_curly,
-        comments,
+        /// The end of a sequence of tokens
+        token_eof,
+        /// A sequence of one or more comment blocks
+        /// location: The '/' of the first comment block
+        token_comments,
 
+        /// An identifier.
+        /// location: The first codepoint of the identifier
+        token_ident,
+        /// An identifier + a '(' codepoint
+        /// location: The first codepoint of the function name
+        token_function,
+        /// A '@' codepoint + an identifier
+        /// location: The '@' codepoint
+        token_at_keyword,
+        /// A '#' codepoint + an identifier
+        /// location: The '#' codepoint
+        token_hash_unrestricted,
+        /// A '#' codepoint + an identifier, that also forms a valid ID selector
+        /// location: The '#' codepoint
+        token_hash_id,
+        /// A quoted string
+        /// location: The beginning '\'' or '"' codepoint
+        token_string,
+        /// A quoted string with an unescaped newline in it
+        /// location: The beginning '\'' or '"' codepoint
+        token_bad_string,
+        /// The identifier "url" + a '(' codepoint + a sequence of codepoints + a ')' codepoint
+        /// location: The 'u' of "url"
+        token_url,
+        /// Identical to `token_url`, but the sequence contains invalid codepoints
+        token_bad_url,
+        /// A single codepoint
+        /// location: The codepoint
+        token_delim,
+        /// A numeric value (integral or floating point)
+        /// location: The first codepoint of the number
+        token_number,
+        /// A numeric value + a '%' codepoint
+        /// location: The first codepoint of the number
+        token_percentage,
+        /// A numeric value + an identifier
+        /// location: The first codepoint of the number
+        token_dimension,
+        /// A series of one or more whitespace codepoints
+        /// location: The first whitespace codepoint
+        token_whitespace,
+        /// The sequence "<!--"
+        /// location: The '<' of the sequence
+        token_cdo,
+        /// The sequence "-->"
+        /// location: The first '-' of the sequence
+        token_cdc,
+        /// A ':' codepoint
+        /// location: The codepoint
+        token_colon,
+        /// A ';' codepoint
+        /// location: The codepoint
+        token_semicolon,
+        /// A ',' codepoint
+        /// location: The codepoint
+        token_comma,
+        /// A '[' codepoint
+        /// location: The codepoint
+        token_left_bracket,
+        /// A ']' codepoint
+        /// location: The codepoint
+        token_right_bracket,
+        /// A '(' codepoint
+        /// location: The codepoint
+        token_left_paren,
+        /// A ')' codepoint
+        /// location: The codepoint
+        token_right_paren,
+        /// A '{' codepoint
+        /// location: The codepoint
+        token_left_curly,
+        /// A '}' codepoint
+        /// location: The codepoint
+        token_right_curly,
+
+        /// A name beginning with '@'
+        /// children: A prelude (a sequence of components) + optionally, a `simple_block_curly`
+        /// location: The '@' of its name
+        /// extra: If 0, it is meaningless.
+        ///        Else, the offset from this component to its `simple_block_curly`
         at_rule,
+        /// children: A prelude (a sequence of components) + a `simple_block_curly`
+        /// extra: The offset from this component to its `simple_block_curly`
         qualified_rule,
-        function_block,
+        /// An identifier
+        /// children: A sequence of components
+        /// location: The first codepoint of its name
+        function,
+        /// A '[]-block'
+        /// children: A sequence of components
+        /// location: The '[' codepoint that opens the block
         simple_block_bracket,
+        /// A '{}-block'
+        /// children: A sequence of components
+        /// location: The '{' codepoint that opens the block
         simple_block_curly,
+        /// A '()-block'
+        /// children: A sequence of components
+        /// location: The '(' codepoint that opens the block
         simple_block_paren,
+        /// children: A sequence of `at_rule` and `qualified_rule`
         rule_list,
     };
 };
 
-pub const SyntaxTree = struct {
-    components: MultiArrayList(Component),
+pub const ComponentTree = struct {
+    components: List = .{},
 
     pub const Size = u32;
+    pub const List = MultiArrayList(Component);
 
-    pub fn deinit(syntax_tree: *SyntaxTree, allocator: Allocator) void {
-        syntax_tree.components.deinit(allocator);
+    pub fn deinit(tree: *ComponentTree, allocator: Allocator) void {
+        tree.components.deinit(allocator);
+    }
+
+    pub fn size(tree: ComponentTree) Size {
+        return @intCast(Size, tree.components.len);
     }
 };
 
-fn addComponent(syntax_tree: *SyntaxTree, allocator: Allocator, component: Component) !SyntaxTree.Size {
-    if (syntax_tree.components.len == std.math.maxInt(SyntaxTree.Size)) return error.Overflow;
-    const index = @intCast(SyntaxTree.Size, syntax_tree.components.len);
-    try syntax_tree.components.append(allocator, component);
+fn addComponent(tree: *ComponentTree, allocator: Allocator, component: Component) !ComponentTree.Size {
+    if (tree.components.len == std.math.maxInt(ComponentTree.Size)) return error.Overflow;
+    const index = @intCast(ComponentTree.Size, tree.components.len);
+    try tree.components.append(allocator, component);
     return index;
 }
 
@@ -97,8 +188,8 @@ const Stack = struct {
     list: ArrayListUnmanaged(Frame),
 
     const Frame = struct {
-        skip: SyntaxTree.Size,
-        index: SyntaxTree.Size,
+        skip: ComponentTree.Size,
+        index: ComponentTree.Size,
         data: Data,
 
         const Data = union(enum) {
@@ -122,9 +213,9 @@ const Stack = struct {
 
         fn endingTokenTag(simple_block: SimpleBlock) Component.Tag {
             return switch (simple_block.tag) {
-                .simple_block_curly => .right_curly,
-                .simple_block_bracket => .right_bracket,
-                .simple_block_paren => .right_paren,
+                .simple_block_curly => .token_right_curly,
+                .simple_block_bracket => .token_right_bracket,
+                .simple_block_paren => .token_right_paren,
                 else => unreachable,
             };
         }
@@ -144,43 +235,43 @@ const Stack = struct {
         return &stack.list.items[stack.list.items.len - 1];
     }
 
-    fn addToken(stack: *Stack, syntax_tree: *SyntaxTree, token: Token, allocator: Allocator) !void {
-        _ = try addComponent(syntax_tree, allocator, .{ .skip = 1, .tag = token.tag, .location = token.start, .extra = 0 });
+    fn addToken(stack: *Stack, tree: *ComponentTree, token: Token, allocator: Allocator) !void {
+        _ = try addComponent(tree, allocator, .{ .skip = 1, .tag = token.tag, .location = token.start, .extra = 0 });
         stack.last().skip += 1;
     }
 
-    fn pushListOfRules(stack: *Stack, syntax_tree: *SyntaxTree, location: TokenSource.Location, top_level: bool, allocator: Allocator) !void {
-        const index = try addComponent(syntax_tree, allocator, .{ .skip = undefined, .tag = .rule_list, .location = location, .extra = 0 });
+    fn pushListOfRules(stack: *Stack, tree: *ComponentTree, location: TokenSource.Location, top_level: bool, allocator: Allocator) !void {
+        const index = try addComponent(tree, allocator, .{ .skip = undefined, .tag = .rule_list, .location = location, .extra = 0 });
         try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .{ .list_of_rules = .{ .top_level = top_level } } });
     }
 
-    fn pushAtRule(stack: *Stack, syntax_tree: *SyntaxTree, location: TokenSource.Location, allocator: Allocator) !void {
-        const index = try addComponent(syntax_tree, allocator, .{ .skip = undefined, .tag = .at_rule, .location = location, .extra = 0 });
+    fn pushAtRule(stack: *Stack, tree: *ComponentTree, location: TokenSource.Location, allocator: Allocator) !void {
+        const index = try addComponent(tree, allocator, .{ .skip = undefined, .tag = .at_rule, .location = location, .extra = 0 });
         try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .at_rule });
     }
 
-    fn pushQualifiedRule(stack: *Stack, syntax_tree: *SyntaxTree, location: TokenSource.Location, allocator: Allocator) !void {
-        const index = try addComponent(syntax_tree, allocator, .{ .skip = undefined, .tag = .qualified_rule, .location = location, .extra = 0 });
+    fn pushQualifiedRule(stack: *Stack, tree: *ComponentTree, location: TokenSource.Location, allocator: Allocator) !void {
+        const index = try addComponent(tree, allocator, .{ .skip = undefined, .tag = .qualified_rule, .location = location, .extra = 0 });
         try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .qualified_rule });
     }
 
-    fn pushFunction(stack: *Stack, syntax_tree: *SyntaxTree, location: TokenSource.Location, allocator: Allocator) !void {
-        const index = try addComponent(syntax_tree, allocator, .{ .skip = undefined, .tag = .function_block, .location = location, .extra = 0 });
+    fn pushFunction(stack: *Stack, tree: *ComponentTree, location: TokenSource.Location, allocator: Allocator) !void {
+        const index = try addComponent(tree, allocator, .{ .skip = undefined, .tag = .function, .location = location, .extra = 0 });
         try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .function });
     }
 
-    fn addSimpleBlock(stack: *Stack, syntax_tree: *SyntaxTree, token: Token, allocator: Allocator) !void {
+    fn addSimpleBlock(stack: *Stack, tree: *ComponentTree, token: Token, allocator: Allocator) !void {
         const component_tag: Component.Tag = switch (token.tag) {
-            .left_curly => .simple_block_curly,
-            .left_bracket => .simple_block_bracket,
-            .left_paren => .simple_block_paren,
+            .token_left_curly => .simple_block_curly,
+            .token_left_bracket => .simple_block_bracket,
+            .token_left_paren => .simple_block_paren,
             else => unreachable,
         };
-        _ = try addComponent(syntax_tree, allocator, .{ .skip = undefined, .tag = component_tag, .location = token.start, .extra = 0 });
+        _ = try addComponent(tree, allocator, .{ .skip = undefined, .tag = component_tag, .location = token.start, .extra = 0 });
         stack.last().skip += 1;
     }
 
-    fn pushSimpleBlock(stack: *Stack, syntax_tree: *SyntaxTree, token: Token, in_a_rule: bool, allocator: Allocator) !void {
+    fn pushSimpleBlock(stack: *Stack, tree: *ComponentTree, token: Token, in_a_rule: bool, allocator: Allocator) !void {
         if (in_a_rule) {
             switch (stack.last().data) {
                 .at_rule, .qualified_rule => {},
@@ -189,12 +280,12 @@ const Stack = struct {
         }
 
         const component_tag: Component.Tag = switch (token.tag) {
-            .left_curly => .simple_block_curly,
-            .left_bracket => .simple_block_bracket,
-            .left_paren => .simple_block_paren,
+            .token_left_curly => .simple_block_curly,
+            .token_left_bracket => .simple_block_bracket,
+            .token_left_paren => .simple_block_paren,
             else => unreachable,
         };
-        const index = try addComponent(syntax_tree, allocator, .{ .skip = undefined, .tag = component_tag, .location = token.start, .extra = 0 });
+        const index = try addComponent(tree, allocator, .{ .skip = undefined, .tag = component_tag, .location = token.start, .extra = 0 });
         try stack.list.append(allocator, .{
             .skip = 1,
             .index = index,
@@ -202,16 +293,16 @@ const Stack = struct {
         });
     }
 
-    fn popFrame(stack: *Stack, syntax_tree: *SyntaxTree) void {
+    fn popFrame(stack: *Stack, tree: *ComponentTree) void {
         const frame = stack.list.pop();
         assert(frame.data != .simple_block); // Use popSimpleBlock instead
         stack.last().skip += frame.skip;
-        syntax_tree.components.items(.skip)[frame.index] = frame.skip;
+        tree.components.items(.skip)[frame.index] = frame.skip;
     }
 
-    fn popSimpleBlock(stack: *Stack, syntax_tree: *SyntaxTree) void {
+    fn popSimpleBlock(stack: *Stack, tree: *ComponentTree) void {
         const frame = stack.list.pop();
-        const slice = syntax_tree.components.slice();
+        const slice = tree.components.slice();
         slice.items(.skip)[frame.index] = frame.skip;
 
         if (frame.data.simple_block.in_a_rule) {
@@ -223,168 +314,168 @@ const Stack = struct {
             const combined_skip = parent_frame.skip + frame.skip;
             stack.last().skip += combined_skip;
             slice.items(.skip)[parent_frame.index] = combined_skip;
-            slice.items(.extra)[parent_frame.index] = frame.index;
+            slice.items(.extra)[parent_frame.index] = frame.index - parent_frame.index;
         } else {
             stack.last().skip += frame.skip;
         }
     }
 
-    fn ignoreQualifiedRule(stack: *Stack, syntax_tree: *SyntaxTree) void {
+    fn ignoreQualifiedRule(stack: *Stack, tree: *ComponentTree) void {
         const frame = stack.list.pop();
         assert(frame.data == .qualified_rule);
-        syntax_tree.components.shrinkRetainingCapacity(frame.index);
+        tree.components.shrinkRetainingCapacity(frame.index);
     }
 };
 
-pub fn parseStylesheet(source: *TokenSource, allocator: Allocator) !SyntaxTree {
+pub fn parseStylesheet(source: *TokenSource, allocator: Allocator) !ComponentTree {
     var stack = try Stack.init(allocator);
     defer stack.deinit(allocator);
 
-    var syntax_tree = SyntaxTree{ .components = .{} };
-    errdefer syntax_tree.deinit(allocator);
+    var tree = ComponentTree{ .components = .{} };
+    errdefer tree.deinit(allocator);
 
-    try stack.pushListOfRules(&syntax_tree, source.location(), true, allocator);
-    try loop(&stack, &syntax_tree, source, allocator);
-    return syntax_tree;
+    try stack.pushListOfRules(&tree, source.location(), true, allocator);
+    try loop(&stack, &tree, source, allocator);
+    return tree;
 }
 
-fn loop(stack: *Stack, syntax_tree: *SyntaxTree, source: *TokenSource, allocator: Allocator) !void {
+fn loop(stack: *Stack, tree: *ComponentTree, source: *TokenSource, allocator: Allocator) !void {
     while (stack.list.items.len > 1) {
         const frame = stack.last().*;
         switch (frame.data) {
             .root => unreachable,
-            .list_of_rules => try consumeListOfRules(stack, syntax_tree, source, allocator),
-            .qualified_rule => try consumeQualifiedRule(stack, syntax_tree, source, allocator),
-            .at_rule => try consumeAtRule(stack, syntax_tree, source, allocator),
-            .simple_block => try consumeSimpleBlock(stack, syntax_tree, source, allocator),
-            .function => try consumeFunction(stack, syntax_tree, source, allocator),
+            .list_of_rules => try consumeListOfRules(stack, tree, source, allocator),
+            .qualified_rule => try consumeQualifiedRule(stack, tree, source, allocator),
+            .at_rule => try consumeAtRule(stack, tree, source, allocator),
+            .simple_block => try consumeSimpleBlock(stack, tree, source, allocator),
+            .function => try consumeFunction(stack, tree, source, allocator),
         }
     }
 }
 
-fn consumeListOfRules(stack: *Stack, syntax_tree: *SyntaxTree, source: *TokenSource, allocator: Allocator) !void {
+fn consumeListOfRules(stack: *Stack, tree: *ComponentTree, source: *TokenSource, allocator: Allocator) !void {
     while (true) {
         const next_location = source.location();
         const token = source.next();
         switch (token.tag) {
-            .whitespace => {},
-            .eof => return stack.popFrame(syntax_tree),
-            .cdo, .cdc => {
+            .token_whitespace => {},
+            .token_eof => return stack.popFrame(tree),
+            .token_cdo, .token_cdc => {
                 const top_level = stack.last().data.list_of_rules.top_level;
                 if (!top_level) {
                     source.seek(next_location);
-                    try stack.pushQualifiedRule(syntax_tree, token.start, allocator);
+                    try stack.pushQualifiedRule(tree, token.start, allocator);
                     return;
                 }
             },
-            .at_keyword => {
-                try stack.pushAtRule(syntax_tree, token.start, allocator);
+            .token_at_keyword => {
+                try stack.pushAtRule(tree, token.start, allocator);
                 return;
             },
             else => {
                 source.seek(next_location);
-                try stack.pushQualifiedRule(syntax_tree, token.start, allocator);
+                try stack.pushQualifiedRule(tree, token.start, allocator);
                 return;
             },
         }
     }
 }
 
-fn consumeAtRule(stack: *Stack, syntax_tree: *SyntaxTree, source: *TokenSource, allocator: Allocator) !void {
+fn consumeAtRule(stack: *Stack, tree: *ComponentTree, source: *TokenSource, allocator: Allocator) !void {
     while (true) {
         const token = source.next();
         switch (token.tag) {
-            .semicolon => return stack.popFrame(syntax_tree),
-            .eof => {
+            .token_semicolon => return stack.popFrame(tree),
+            .token_eof => {
                 // NOTE: Parse error
-                return stack.popFrame(syntax_tree);
+                return stack.popFrame(tree);
             },
-            .left_curly => {
-                try stack.pushSimpleBlock(syntax_tree, token, true, allocator);
+            .token_left_curly => {
+                try stack.pushSimpleBlock(tree, token, true, allocator);
                 return;
             },
             .simple_block_curly => {
-                try stack.addSimpleBlock(syntax_tree, token, allocator);
-                stack.popFrame(syntax_tree);
+                try stack.addSimpleBlock(tree, token, allocator);
+                stack.popFrame(tree);
                 return;
             },
             else => {
-                const must_suspend = try consumeComponentValue(stack, syntax_tree, token, allocator);
+                const must_suspend = try consumeComponentValue(stack, tree, token, allocator);
                 if (must_suspend) return;
             },
         }
     }
 }
 
-fn consumeQualifiedRule(stack: *Stack, syntax_tree: *SyntaxTree, source: *TokenSource, allocator: Allocator) !void {
+fn consumeQualifiedRule(stack: *Stack, tree: *ComponentTree, source: *TokenSource, allocator: Allocator) !void {
     while (true) {
         const token = source.next();
         switch (token.tag) {
-            .eof => {
+            .token_eof => {
                 // NOTE: Parse error
-                return stack.ignoreQualifiedRule(syntax_tree);
+                return stack.ignoreQualifiedRule(tree);
             },
-            .left_curly => {
-                try stack.pushSimpleBlock(syntax_tree, token, true, allocator);
+            .token_left_curly => {
+                try stack.pushSimpleBlock(tree, token, true, allocator);
                 return;
             },
             .simple_block_curly => {
-                try stack.addSimpleBlock(syntax_tree, token, allocator);
-                stack.popFrame(syntax_tree);
+                try stack.addSimpleBlock(tree, token, allocator);
+                stack.popFrame(tree);
                 return;
             },
             else => {
-                const must_suspend = try consumeComponentValue(stack, syntax_tree, token, allocator);
+                const must_suspend = try consumeComponentValue(stack, tree, token, allocator);
                 if (must_suspend) return;
             },
         }
     }
 }
 
-fn consumeComponentValue(stack: *Stack, syntax_tree: *SyntaxTree, token: Token, allocator: Allocator) !bool {
+fn consumeComponentValue(stack: *Stack, tree: *ComponentTree, token: Token, allocator: Allocator) !bool {
     switch (token.tag) {
-        .left_curly, .left_bracket, .left_paren => {
-            try stack.pushSimpleBlock(syntax_tree, token, false, allocator);
+        .token_left_curly, .token_left_bracket, .token_left_paren => {
+            try stack.pushSimpleBlock(tree, token, false, allocator);
             return true;
         },
-        .function_token => {
-            try stack.pushFunction(syntax_tree, token.start, allocator);
+        .token_function => {
+            try stack.pushFunction(tree, token.start, allocator);
             return true;
         },
         else => {
-            try stack.addToken(syntax_tree, token, allocator);
+            try stack.addToken(tree, token, allocator);
             return false;
         },
     }
 }
 
-fn consumeSimpleBlock(stack: *Stack, syntax_tree: *SyntaxTree, source: *TokenSource, allocator: Allocator) !void {
+fn consumeSimpleBlock(stack: *Stack, tree: *ComponentTree, source: *TokenSource, allocator: Allocator) !void {
     const ending_tag = stack.last().data.simple_block.endingTokenTag();
     while (true) {
         const token = source.next();
         if (token.tag == ending_tag) {
-            return stack.popSimpleBlock(syntax_tree);
-        } else if (token.tag == .eof) {
+            return stack.popSimpleBlock(tree);
+        } else if (token.tag == .token_eof) {
             // NOTE: Parse error
-            return stack.popSimpleBlock(syntax_tree);
+            return stack.popSimpleBlock(tree);
         } else {
-            const must_suspend = try consumeComponentValue(stack, syntax_tree, token, allocator);
+            const must_suspend = try consumeComponentValue(stack, tree, token, allocator);
             if (must_suspend) return;
         }
     }
 }
 
-fn consumeFunction(stack: *Stack, syntax_tree: *SyntaxTree, source: *TokenSource, allocator: Allocator) !void {
+fn consumeFunction(stack: *Stack, tree: *ComponentTree, source: *TokenSource, allocator: Allocator) !void {
     while (true) {
         const token = source.next();
         switch (token.tag) {
-            .right_paren => return stack.popFrame(syntax_tree),
-            .eof => {
+            .token_right_paren => return stack.popFrame(tree),
+            .token_eof => {
                 // NOTE: Parse error
-                return stack.popFrame(syntax_tree);
+                return stack.popFrame(tree);
             },
             else => {
-                const must_suspend = try consumeComponentValue(stack, syntax_tree, token, allocator);
+                const must_suspend = try consumeComponentValue(stack, tree, token, allocator);
                 if (must_suspend) return;
             },
         }
@@ -404,40 +495,40 @@ test "parse a stylesheet" {
     ;
     const ascii = zss.util.asciiString(input);
 
-    var token_source = TokenSource.init(try Source.init(ascii));
+    var token_source = TokenSource.init(try CodepointSource.init(ascii));
 
-    var syntax_tree = try parseStylesheet(&token_source, allocator);
-    defer syntax_tree.deinit(allocator);
+    var tree = try parseStylesheet(&token_source, allocator);
+    defer tree.deinit(allocator);
 
     const expected = [25]Component{
         .{ .skip = 25, .tag = .rule_list, .location = 0, .extra = 0 },
         .{ .skip = 3, .tag = .at_rule, .location = 0, .extra = 0 },
-        .{ .skip = 1, .tag = .whitespace, .location = 8, .extra = 0 },
-        .{ .skip = 1, .tag = .string, .location = 9, .extra = 0 },
-        .{ .skip = 3, .tag = .at_rule, .location = 18, .extra = 6 },
-        .{ .skip = 1, .tag = .whitespace, .location = 27, .extra = 0 },
+        .{ .skip = 1, .tag = .token_whitespace, .location = 8, .extra = 0 },
+        .{ .skip = 1, .tag = .token_string, .location = 9, .extra = 0 },
+        .{ .skip = 3, .tag = .at_rule, .location = 18, .extra = 2 },
+        .{ .skip = 1, .tag = .token_whitespace, .location = 27, .extra = 0 },
         .{ .skip = 1, .tag = .simple_block_curly, .location = 28, .extra = 0 },
-        .{ .skip = 18, .tag = .qualified_rule, .location = 32, .extra = 10 },
-        .{ .skip = 1, .tag = .ident, .location = 32, .extra = 0 },
-        .{ .skip = 1, .tag = .whitespace, .location = 36, .extra = 0 },
+        .{ .skip = 18, .tag = .qualified_rule, .location = 32, .extra = 3 },
+        .{ .skip = 1, .tag = .token_ident, .location = 32, .extra = 0 },
+        .{ .skip = 1, .tag = .token_whitespace, .location = 36, .extra = 0 },
         .{ .skip = 15, .tag = .simple_block_curly, .location = 37, .extra = 0 },
-        .{ .skip = 1, .tag = .whitespace, .location = 38, .extra = 0 },
-        .{ .skip = 12, .tag = .function_block, .location = 43, .extra = 0 },
-        .{ .skip = 1, .tag = .ident, .location = 49, .extra = 0 },
-        .{ .skip = 1, .tag = .comma, .location = 51, .extra = 0 },
-        .{ .skip = 1, .tag = .whitespace, .location = 52, .extra = 0 },
-        .{ .skip = 1, .tag = .ident, .location = 53, .extra = 0 },
-        .{ .skip = 1, .tag = .comma, .location = 56, .extra = 0 },
-        .{ .skip = 1, .tag = .whitespace, .location = 57, .extra = 0 },
-        .{ .skip = 1, .tag = .ident, .location = 58, .extra = 0 },
-        .{ .skip = 1, .tag = .comma, .location = 63, .extra = 0 },
-        .{ .skip = 1, .tag = .whitespace, .location = 64, .extra = 0 },
-        .{ .skip = 1, .tag = .ident, .location = 65, .extra = 0 },
-        .{ .skip = 1, .tag = .delim, .location = 69, .extra = 0 },
-        .{ .skip = 1, .tag = .whitespace, .location = 71, .extra = 0 },
+        .{ .skip = 1, .tag = .token_whitespace, .location = 38, .extra = 0 },
+        .{ .skip = 12, .tag = .function, .location = 43, .extra = 0 },
+        .{ .skip = 1, .tag = .token_ident, .location = 49, .extra = 0 },
+        .{ .skip = 1, .tag = .token_comma, .location = 51, .extra = 0 },
+        .{ .skip = 1, .tag = .token_whitespace, .location = 52, .extra = 0 },
+        .{ .skip = 1, .tag = .token_ident, .location = 53, .extra = 0 },
+        .{ .skip = 1, .tag = .token_comma, .location = 56, .extra = 0 },
+        .{ .skip = 1, .tag = .token_whitespace, .location = 57, .extra = 0 },
+        .{ .skip = 1, .tag = .token_ident, .location = 58, .extra = 0 },
+        .{ .skip = 1, .tag = .token_comma, .location = 63, .extra = 0 },
+        .{ .skip = 1, .tag = .token_whitespace, .location = 64, .extra = 0 },
+        .{ .skip = 1, .tag = .token_ident, .location = 65, .extra = 0 },
+        .{ .skip = 1, .tag = .token_delim, .location = 69, .extra = 0 },
+        .{ .skip = 1, .tag = .token_whitespace, .location = 71, .extra = 0 },
     };
 
-    const slice = syntax_tree.components.slice();
+    const slice = tree.components.slice();
     if (expected.len != slice.len) return error.TestFailure;
     for (expected, 0..) |ex, i| {
         const actual = slice.get(i);
@@ -445,25 +536,15 @@ test "parse a stylesheet" {
     }
 }
 
-fn debugPrint(syntax_tree: SyntaxTree, allocator: Allocator, input: []const u7, writer: anytype) !void {
-    try writer.print("Input:\n{s}\n\nTokens:\n", .{@ptrCast([]const u8, input)});
-    {
-        var source = try Source.init(input);
-        while (true) {
-            const token = zss.tokenize.nextToken(&source);
-            try writer.print("{s} {}\n", .{ @tagName(token.tag), token.start });
-            if (token.tag == .eof) break;
-        }
-        try writer.writeAll("\n");
-    }
-
-    const c = syntax_tree.components;
-    try writer.print("Tree:\nlen {}\n", .{c.len});
+pub fn debugPrint(tree: ComponentTree, allocator: Allocator, writer: anytype) !void {
+    const c = tree.components;
+    try writer.print("Tree:\narray len {}\n", .{c.len});
     if (c.len == 0) return;
+    try writer.print("tree len {}\n", .{c.items(.skip)[0]});
 
     const Item = struct {
-        current: SyntaxTree.Size,
-        end: SyntaxTree.Size,
+        current: ComponentTree.Size,
+        end: ComponentTree.Size,
     };
     var stack = ArrayListUnmanaged(Item){};
     defer stack.deinit(allocator);
