@@ -17,8 +17,8 @@ pub const used_values = @import("source/layout/used_values.zig");
 pub const ElementTree = @import("source/layout/ElementTree.zig");
 pub const CascadedValueStore = @import("source/layout/CascadedValueStore.zig");
 
-pub const tokenize = @import("source/parse/tokenize.zig");
-pub const parse = @import("source/parse/parse.zig");
+pub const syntax = @import("source/syntax/syntax.zig");
+pub const grammar = @import("source/syntax/grammar.zig");
 
 pub const render = @import("source/render/render.zig");
 
