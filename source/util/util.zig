@@ -163,3 +163,19 @@ pub fn asciiString(comptime string: []const u8) *const [string.len]u7 {
         break :blk &result;
     };
 }
+
+pub const UnicodeStringFormatter = struct {
+    data: []const u21,
+
+    pub fn format(value: UnicodeStringFormatter, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        var buf: [4]u8 = undefined;
+        for (value.data) |codepoint| {
+            const len = std.unicode.utf8Encode(codepoint, &buf) catch unreachable;
+            try writer.print("{s}", .{buf[0..len]});
+        }
+    }
+};
+
+pub fn fmtUnicodeString(data: []const u21) UnicodeStringFormatter {
+    return .{ .data = data };
+}

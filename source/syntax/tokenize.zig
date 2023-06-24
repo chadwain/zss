@@ -1,4 +1,4 @@
-//! Implements the Tokenizer specified in CSS Syntax Level 3.
+//! Implements the tokenization algorithm of CSS Syntax Level 3.
 
 const std = @import("std");
 
@@ -10,168 +10,145 @@ const u21_max = std.math.maxInt(u21);
 const replacement_character: u21 = 0xfffd;
 const eof_codepoint: u21 = std.math.maxInt(u21);
 
-pub const CodepointSource = struct {
+pub const Source = struct {
     data: []const u7,
-    index: u32,
 
-    pub const Location = zss.syntax.Source.Location;
+    pub const Location = struct {
+        value: Value = 0,
 
-    pub fn init(data: []const u7) !CodepointSource {
+        const Value = u32;
+
+        pub fn format(loc: Location, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+            try writer.print("{}", .{loc.value});
+        }
+    };
+
+    pub fn init(data: []const u7) !Source {
         if (data.len > std.math.maxInt(Location.Value)) return error.Overflow;
-        return CodepointSource{ .data = data, .index = 0 };
+        return Source{ .data = data };
     }
 
-    pub fn next(source: *CodepointSource) u21 {
-        if (source.index == source.data.len) return eof_codepoint;
-        defer source.index += 1;
-        const codepoint: u21 = switch (source.data[source.index]) {
+    const Next = struct { location: Location, codepoint: u21 };
+
+    fn next(source: Source, location: Location) Next {
+        if (location.value == source.data.len) return Next{ .location = location, .codepoint = eof_codepoint };
+
+        var next_value = location.value + 1;
+        const codepoint: u21 = switch (source.data[location.value]) {
             0x00 => replacement_character,
             '\r' => blk: {
-                if (source.index + 1 < source.data.len and source.data[source.index + 1] == '\n') {
-                    source.index += 1;
+                if (next_value < source.data.len and source.data[next_value] == '\n') {
+                    next_value += 1;
                 }
                 break :blk '\n';
             },
             0x0C => '\n',
             else => |c| c,
         };
-        return codepoint;
+        return Next{ .location = .{ .value = next_value }, .codepoint = codepoint };
     }
 
-    fn back(source: *CodepointSource) void {
-        source.index -= 1;
-        if (source.data[source.index] == '\n' and source.index > 0 and source.data[source.index - 1] == '\r') {
-            source.index -= 1;
+    fn read(source: Source, start: Location, buffer: []u21) Location {
+        var location = start;
+        for (buffer) |*codepoint| {
+            const next_ = source.next(location);
+            codepoint.* = next_.codepoint;
+            location = next_.location;
         }
-    }
-
-    pub fn location(source: CodepointSource) Location {
-        return Location{ .value = source.index };
-    }
-
-    pub fn seek(source: *CodepointSource, loc: Location) void {
-        std.debug.assert(loc.value <= source.data.len);
-        source.index = loc.value;
-    }
-
-    pub fn matchDelimeter(source: *CodepointSource, codepoint: u21) bool {
-        const loc = source.location();
-        if (source.next() == codepoint) {
-            return true;
-        } else {
-            source.seek(loc);
-            return false;
-        }
-    }
-
-    pub fn matchKeyword(source: *CodepointSource, keyword: []const u7) bool {
-        for (keyword) |kw| {
-            const next_location = source.location();
-            const codepoint = source.next();
-            const actual_codepoint = switch (codepoint) {
-                '\\' => blk: {
-                    const second_codepoint = source.next();
-                    if (isSecondCodepointOfAnEscape(second_codepoint)) {
-                        break :blk consumeEscapedCodepoint(source, second_codepoint);
-                    } else {
-                        break :blk null;
-                    }
-                },
-                '0'...'9',
-                'A'...'Z',
-                'a'...'z',
-                '-',
-                '_',
-                0x80...0x10FFFF,
-                => codepoint,
-                else => null,
-            };
-
-            if (actual_codepoint == null or toLowercase(kw) != toLowercase(actual_codepoint.?)) {
-                source.seek(next_location);
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    fn matchAscii(source: *CodepointSource, string: []const u7) bool {
-        if (source.data.len - source.index >= string.len and std.mem.eql(u7, source.data[source.index..][0..string.len], string)) {
-            source.index += @intCast(u32, string.len);
-            return true;
-        } else {
-            return false;
-        }
+        return location;
     }
 };
 
-pub fn nextToken(source: *CodepointSource) Tag {
-    const location = source.location();
-    const codepoint = source.next();
-    switch (codepoint) {
+pub const NextToken = struct { tag: Tag, next_location: Source.Location };
+
+pub fn nextToken(source: Source, location: Source.Location) NextToken {
+    const next = source.next(location);
+    switch (next.codepoint) {
         '/' => {
-            const next_location = source.location();
-            if (source.next() == '*') {
-                source.seek(location);
-                return consumeComments(source);
+            const asterisk = source.next(next.location);
+            if (asterisk.codepoint == '*') {
+                return consumeComments(source, location);
             } else {
-                source.seek(next_location);
-                return .token_delim;
+                return NextToken{ .tag = .token_delim, .next_location = next.location };
             }
         },
         '\n', '\t', ' ' => {
-            consumeWhitespace(source);
-            return .token_whitespace;
+            const after_whitespace = consumeWhitespace(source, next.location);
+            return NextToken{ .tag = .token_whitespace, .next_location = after_whitespace };
         },
-        '"' => return consumeStringToken(source, '"'),
-        '#' => return numberSign(source),
-        '\'' => return consumeStringToken(source, '\''),
-        '(' => return .token_left_paren,
-        ')' => return .token_right_paren,
-        '+' => return plusOrFullStop(source, location),
-        ',' => return .token_comma,
-        '-' => return minus(source, location),
-        '.' => return plusOrFullStop(source, location),
-        ':' => return .token_colon,
-        ';' => return .token_semicolon,
+        '"' => return consumeStringToken(source, next.location, '"'),
+        '#' => return numberSign(source, next.location),
+        '\'' => return consumeStringToken(source, next.location, '\''),
+        '(' => return NextToken{ .tag = .token_left_paren, .next_location = next.location },
+        ')' => return NextToken{ .tag = .token_right_paren, .next_location = next.location },
+        '+', '.' => {
+            var next_3 = [3]u21{ next.codepoint, undefined, undefined };
+            _ = source.read(next.location, next_3[1..3]);
+            if (codepointsStartANumber(next_3)) {
+                return consumeNumericToken(source, location);
+            } else {
+                return NextToken{ .tag = .token_delim, .next_location = next.location };
+            }
+        },
+        ',' => return NextToken{ .tag = .token_comma, .next_location = next.location },
+        '-' => {
+            var next_3 = [3]u21{ '-', undefined, undefined };
+            const after_cdc = source.read(next.location, next_3[1..3]);
+            if (next_3[1] == '-' and next_3[2] == '>') {
+                return NextToken{ .tag = .token_cdc, .next_location = after_cdc };
+            }
+
+            if (codepointsStartANumber(next_3)) {
+                return consumeNumericToken(source, location);
+            } else if (codepointsStartAnIdentSequence(next_3)) {
+                return consumeIdentLikeToken(source, location);
+            } else {
+                return NextToken{ .tag = .token_delim, .next_location = next.location };
+            }
+        },
+        ':' => return NextToken{ .tag = .token_colon, .next_location = next.location },
+        ';' => return NextToken{ .tag = .token_semicolon, .next_location = next.location },
         '<' => {
-            if (source.matchAscii(asciiString("!--"))) {
-                return .token_cdo;
+            var next_3: [3]u21 = undefined;
+            const after_cdo = source.read(next.location, &next_3);
+            if (next_3[0] == '!' and next_3[1] == '-' and next_3[2] == '-') {
+                return NextToken{ .tag = .token_cdo, .next_location = after_cdo };
             } else {
-                return .token_delim;
+                return NextToken{ .tag = .token_delim, .next_location = next.location };
             }
         },
-        '@' => return commercialAt(source),
-        '[' => return .token_left_bracket,
+        '@' => {
+            var next_3: [3]u21 = undefined;
+            _ = source.read(next.location, &next_3);
+
+            if (codepointsStartAnIdentSequence(next_3)) {
+                const after_ident = consumeIdentSequence(source, next.location, false).after_ident;
+                return NextToken{ .tag = .token_at_keyword, .next_location = after_ident };
+            } else {
+                return NextToken{ .tag = .token_delim, .next_location = next.location };
+            }
+        },
+        '[' => return NextToken{ .tag = .token_left_bracket, .next_location = next.location },
         '\\' => {
-            const next_location = source.location();
-            const next = source.next();
-            if (isSecondCodepointOfAnEscape(next)) {
-                source.seek(location);
-                return consumeIdentLikeToken(source);
+            const first_escaped = source.next(next.location);
+            if (isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
+                return consumeIdentLikeToken(source, location);
             } else {
-                source.seek(next_location);
-                return .token_delim;
+                // NOTE: Parse error
+                return NextToken{ .tag = .token_delim, .next_location = next.location };
             }
         },
-        ']' => return .token_right_bracket,
-        '{' => return .token_left_curly,
-        '}' => return .token_right_curly,
-        '0'...'9' => {
-            source.seek(location);
-            return consumeNumericToken(source);
-        },
+        ']' => return NextToken{ .tag = .token_right_bracket, .next_location = next.location },
+        '{' => return NextToken{ .tag = .token_left_curly, .next_location = next.location },
+        '}' => return NextToken{ .tag = .token_right_curly, .next_location = next.location },
+        '0'...'9' => return consumeNumericToken(source, location),
         'A'...'Z',
         'a'...'z',
         '_',
         0x80...0x10FFFF,
-        => {
-            source.seek(location);
-            return consumeIdentLikeToken(source);
-        },
-        eof_codepoint => return .token_eof,
-        else => return .token_delim,
+        => return consumeIdentLikeToken(source, location),
+        eof_codepoint => return NextToken{ .tag = .token_eof, .next_location = next.location },
+        else => return NextToken{ .tag = .token_delim, .next_location = next.location },
     }
 }
 
@@ -215,7 +192,7 @@ fn isIdentStartCodepoint(codepoint: u21) bool {
     }
 }
 
-fn isSecondCodepointOfAnEscape(codepoint: u21) bool {
+fn isValidFirstEscapedCodepoint(codepoint: u21) bool {
     return codepoint != '\n';
 }
 
@@ -223,7 +200,7 @@ fn codepointsStartAnIdentSequence(codepoints: [3]u21) bool {
     return switch (codepoints[0]) {
         '-' => return isIdentStartCodepoint(codepoints[1]) or
             (codepoints[1] == '-') or
-            (codepoints[1] == '\\' and isSecondCodepointOfAnEscape(codepoints[2])),
+            (codepoints[1] == '\\' and isValidFirstEscapedCodepoint(codepoints[2])),
 
         'A'...'Z',
         'a'...'z',
@@ -231,7 +208,7 @@ fn codepointsStartAnIdentSequence(codepoints: [3]u21) bool {
         0x80...0x10FFFF,
         => true,
 
-        '\\' => return isSecondCodepointOfAnEscape(codepoints[1]),
+        '\\' => return isValidFirstEscapedCodepoint(codepoints[1]),
 
         else => false,
     };
@@ -256,191 +233,208 @@ fn codepointsStartANumber(codepoints: [3]u21) bool {
     }
 }
 
-fn consumeComments(source: *CodepointSource) Tag {
+fn consumeComments(source: Source, start: Source.Location) NextToken {
+    var location = start;
     outer: while (true) {
-        const next_location = source.location();
-        if (source.next() == '/' and source.next() == '*') {
+        var next_2: [2]u21 = undefined;
+        const comment_start = source.read(location, &next_2);
+        if (next_2[0] == '/' and next_2[1] == '*') {
+            location = comment_start;
             while (true) {
-                const codepoint = source.next();
-                if (codepoint == eof_codepoint) {
-                    // NOTE: Parse error
-                    break :outer;
+                const next = source.next(location);
+                switch (next.codepoint) {
+                    '*' => {
+                        const comment_end = source.next(next.location);
+                        if (comment_end.codepoint == '/') {
+                            location = comment_end.location;
+                            break;
+                        }
+                    },
+                    eof_codepoint => {
+                        // NOTE: Parse error
+                        break :outer;
+                    },
+                    else => {},
                 }
-
-                if (codepoint == '*' and source.next() == '/') break;
+                location = next.location;
             }
         } else {
-            break source.seek(next_location);
+            break;
         }
     }
-    return .token_comments;
+    return NextToken{ .tag = .token_comments, .next_location = location };
 }
 
-fn consumeWhitespace(source: *CodepointSource) void {
+fn consumeWhitespace(source: Source, start: Source.Location) Source.Location {
+    var location = start;
     while (true) {
-        const next_location = source.location();
-        const codepoint = source.next();
-        switch (codepoint) {
-            '\n', '\t', ' ' => {},
-            else => break source.seek(next_location),
+        const next = source.next(location);
+        switch (next.codepoint) {
+            '\n', '\t', ' ' => location = next.location,
+            else => return location,
         }
     }
 }
 
-fn consumeStringToken(source: *CodepointSource, comptime ending_codepoint: u21) Tag {
+fn consumeStringToken(source: Source, after_quote: Source.Location, ending_codepoint: u21) NextToken {
+    var location = after_quote;
     while (true) {
-        const codepoint = source.next();
-        switch (codepoint) {
-            ending_codepoint => break,
+        var next = source.next(location);
+        switch (next.codepoint) {
             '\n' => {
                 // NOTE: Parse error
-                source.back();
-                return .token_bad_string;
+                return NextToken{ .tag = .token_bad_string, .next_location = location };
             },
             '\\' => {
-                const next_codepoint = source.next();
-                if (next_codepoint != '\n' and next_codepoint != eof_codepoint) {
-                    _ = consumeEscapedCodepoint(source, next_codepoint);
+                const first_escaped = source.next(next.location);
+                if (first_escaped.codepoint == '\n') {
+                    location = first_escaped.location;
+                } else if (first_escaped.codepoint == eof_codepoint) {
+                    location = next.location;
+                } else {
+                    location = consumeEscapedCodepoint(source, first_escaped).location;
                 }
             },
             eof_codepoint => {
                 // NOTE: Parse error
                 break;
             },
-            else => {},
+            else => {
+                location = next.location;
+                if (next.codepoint == ending_codepoint) {
+                    break;
+                }
+            },
         }
     }
 
-    return .token_string;
+    return NextToken{ .tag = .token_string, .next_location = location };
 }
 
-fn consumeEscapedCodepoint(source: *CodepointSource, first_codepoint: u21) u21 {
-    switch (first_codepoint) {
-        '0'...'9', 'A'...'F', 'a'...'f' => {
-            var result: u21 = hexDigitToNumber(first_codepoint);
+fn consumeEscapedCodepoint(source: Source, first_escaped: Source.Next) Source.Next {
+    var location = first_escaped.location;
+    const codepoint = switch (first_escaped.codepoint) {
+        '0'...'9', 'A'...'F', 'a'...'f' => blk: {
+            var result: u21 = hexDigitToNumber(first_escaped.codepoint);
             var count: u3 = 0;
             while (count < 5) : (count += 1) {
-                const next_location = source.location();
-                const codepoint = source.next();
-                switch (codepoint) {
-                    '0'...'9', 'A'...'F', 'a'...'f' => result = result *| 16 +| hexDigitToNumber(codepoint),
-                    eof_codepoint => break,
-                    else => break source.seek(next_location),
+                const next = source.next(location);
+                switch (next.codepoint) {
+                    '0'...'9', 'A'...'F', 'a'...'f' => {
+                        result = result *| 16 +| hexDigitToNumber(next.codepoint);
+                        location = next.location;
+                    },
+                    else => break,
                 }
             }
 
-            const whitespace = source.next();
-            switch (whitespace) {
-                '\n', '\t', ' ', eof_codepoint => {},
-                else => source.back(),
+            const whitespace = source.next(location);
+            switch (whitespace.codepoint) {
+                '\n', '\t', ' ' => location = whitespace.location,
+                else => {},
             }
 
-            switch (result) {
+            break :blk switch (result) {
                 0x00,
                 0xD800...0xDBFF,
                 0xDC00...0xDFFF,
                 0x110000...u21_max,
-                => return replacement_character,
-                else => return result,
-            }
+                => replacement_character,
+                else => result,
+            };
         },
-        eof_codepoint => {
-            // NOTE: Parse error
-            return replacement_character;
-        },
+        eof_codepoint => replacement_character, // NOTE: Parse error
         '\n' => unreachable,
-        else => return first_codepoint,
-    }
+        else => first_escaped.codepoint,
+    };
+
+    return Source.Next{ .codepoint = codepoint, .location = location };
 }
 
-fn consumeNumericToken(source: *CodepointSource) Tag {
-    const number_type = consumeNumber(source);
-    _ = number_type;
+fn consumeNumericToken(source: Source, start: Source.Location) NextToken {
+    const result = consumeNumber(source, start);
 
-    const next_location = source.location();
     var next_3: [3]u21 = undefined;
-    for (&next_3) |*codepoint| codepoint.* = source.next();
-    source.seek(next_location);
+    _ = source.read(result.after_number, &next_3);
 
     if (codepointsStartAnIdentSequence(next_3)) {
-        _ = consumeIdentSequence(source, false);
-        return .token_dimension;
+        const after_ident = consumeIdentSequence(source, result.after_number, false).after_ident;
+        return NextToken{ .tag = .token_dimension, .next_location = after_ident };
     }
 
-    const percent_sign = source.next();
-    if (percent_sign == '%') {
-        return .token_percentage;
+    const percent_sign = source.next(result.after_number);
+    if (percent_sign.codepoint == '%') {
+        return NextToken{ .tag = .token_percentage, .next_location = percent_sign.location };
     }
 
-    source.seek(next_location);
-    return .token_number;
+    return NextToken{ .tag = .token_number, .next_location = result.after_number };
 }
 
-const NumberType = enum { integer, number };
+const ConsumeNumber = struct {
+    const Type = enum { integer, number };
 
-fn consumeNumber(source: *CodepointSource) NumberType {
-    var result = NumberType.integer;
-    var next_location = source.location();
+    type: Type,
+    after_number: Source.Location,
+};
 
-    {
-        const plus_or_minus = source.next();
-        if (plus_or_minus != '+' and plus_or_minus != '-') {
-            source.seek(next_location);
-        }
+fn consumeNumber(source: Source, start: Source.Location) ConsumeNumber {
+    var number_type = ConsumeNumber.Type.integer;
+    var location = start;
+
+    const leading_sign = source.next(location);
+    if (leading_sign.codepoint == '+' or leading_sign.codepoint == '-') {
+        location = leading_sign.location;
     }
 
-    consumeDigits(source);
+    location = consumeDigits(source, location);
 
-    next_location = source.location();
-    decimal: {
-        const decimal_point = source.next();
-        if (decimal_point != '.') break :decimal source.seek(next_location);
-        const digit = source.next();
-        switch (digit) {
+    var next_2: [2]u21 = undefined;
+    const after_first_decimal = source.read(location, &next_2);
+    if (next_2[0] == '.') {
+        switch (next_2[1]) {
             '0'...'9' => {
-                result = .number;
-                consumeDigits(source);
+                number_type = .number;
+                location = consumeDigits(source, after_first_decimal);
             },
-            else => break :decimal source.seek(next_location),
+            else => {},
         }
     }
 
-    next_location = source.location();
-    exponent: {
-        const e = source.next();
-        if (e != 'e' and e != 'E') break :exponent source.seek(next_location);
-
-        const plus_or_minus_location = source.location();
-        const plus_or_minus = source.next();
-        if (plus_or_minus != '+' and plus_or_minus != '-') {
-            source.seek(plus_or_minus_location);
+    const e = source.next(location);
+    if (e.codepoint == 'e' or e.codepoint == 'E') {
+        var location2 = e.location;
+        const exponent_sign = source.next(location2);
+        if (exponent_sign.codepoint == '+' or exponent_sign.codepoint == '-') {
+            location2 = exponent_sign.location;
         }
 
-        const digit = source.next();
-        switch (digit) {
+        const first_exponent_digit = source.next(location2);
+        switch (first_exponent_digit.codepoint) {
             '0'...'9' => {
-                result = .number;
-                consumeDigits(source);
+                number_type = .number;
+                location = consumeDigits(source, first_exponent_digit.location);
             },
-            else => break :exponent source.seek(next_location),
+            else => {},
         }
     }
 
-    return result;
+    return ConsumeNumber{ .type = number_type, .after_number = location };
 }
 
-fn consumeDigits(source: *CodepointSource) void {
+fn consumeDigits(source: Source, start: Source.Location) Source.Location {
+    var location = start;
     while (true) {
-        const next_location = source.location();
-        switch (source.next()) {
-            '0'...'9' => {},
-            else => break source.seek(next_location),
+        const next = source.next(location);
+        switch (next.codepoint) {
+            '0'...'9' => location = next.location,
+            else => return location,
         }
     }
 }
 
-// Returns true if the ident sequence is "url", case-insensitively.
-fn consumeIdentSequence(source: *CodepointSource, look_for_url: bool) bool {
+const ComsumeIdentSequence = struct { after_ident: Source.Location, is_url: bool };
+
+fn consumeIdentSequence(source: Source, start: Source.Location, look_for_url: bool) ComsumeIdentSequence {
     var string_matcher: struct {
         num_matching_codepoints: u2 = 0,
         matches: ?bool = null,
@@ -464,19 +458,18 @@ fn consumeIdentSequence(source: *CodepointSource, look_for_url: bool) bool {
     } = undefined;
     if (look_for_url) string_matcher = .{};
 
+    var location = start;
     while (true) {
-        const next_location = source.location();
-        const codepoint = source.next();
-        switch (codepoint) {
+        const next = source.next(location);
+        switch (next.codepoint) {
             '\\' => {
-                const second_codepoint = source.next();
-                if (isSecondCodepointOfAnEscape(second_codepoint)) {
-                    const escaped_codepoint = consumeEscapedCodepoint(source, second_codepoint);
-                    if (look_for_url) string_matcher.nextCodepoint(escaped_codepoint);
-                } else {
-                    source.seek(next_location);
+                const first_escaped = source.next(next.location);
+                if (!isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
                     break;
                 }
+                const after_escaped = consumeEscapedCodepoint(source, first_escaped);
+                location = after_escaped.location;
+                if (look_for_url) string_matcher.nextCodepoint(after_escaped.codepoint);
             },
             '0'...'9',
             'A'...'Z',
@@ -485,207 +478,166 @@ fn consumeIdentSequence(source: *CodepointSource, look_for_url: bool) bool {
             '_',
             0x80...0x10FFFF,
             => {
-                if (look_for_url) string_matcher.nextCodepoint(codepoint);
+                location = next.location;
+                if (look_for_url) string_matcher.nextCodepoint(next.codepoint);
             },
-            eof_codepoint => break,
-            else => break source.back(),
+            else => break,
         }
     }
 
-    return if (look_for_url) (string_matcher.matches orelse false) else @as(bool, undefined);
+    const is_url = if (look_for_url) (string_matcher.matches orelse false) else @as(bool, undefined);
+    return ComsumeIdentSequence{ .after_ident = location, .is_url = is_url };
 }
 
-fn consumeIdentLikeToken(source: *CodepointSource) Tag {
-    const is_url = consumeIdentSequence(source, true);
-    const next_location = source.location();
+fn consumeIdentLikeToken(source: Source, start: Source.Location) NextToken {
+    const result = consumeIdentSequence(source, start, true);
 
-    if (source.next() == '(') {
-        if (is_url) {
-            var preceding_whitespace = false;
+    const left_paren = source.next(result.after_ident);
+    if (left_paren.codepoint == '(') {
+        if (result.is_url) {
+            var previous_location: Source.Location = undefined;
+            var location = left_paren.location;
+            var has_preceding_whitespace = false;
             while (true) {
-                const codepoint = source.next();
-                switch (codepoint) {
-                    '\n', '\t', ' ' => preceding_whitespace = true,
+                const next = source.next(location);
+                switch (next.codepoint) {
+                    '\n', '\t', ' ' => {
+                        has_preceding_whitespace = true;
+                        previous_location = location;
+                        location = next.location;
+                    },
                     '\'', '"' => {
-                        source.back();
-                        if (preceding_whitespace) {
-                            source.back();
+                        if (has_preceding_whitespace) {
+                            location = previous_location;
                         }
-                        break;
+                        return NextToken{ .tag = .token_function, .next_location = location };
                     },
-                    else => {
-                        if (codepoint != eof_codepoint) {
-                            source.back();
-                        }
-                        if (preceding_whitespace) {
-                            source.back();
-                        }
-                        return consumeUrlToken(source);
-                    },
+                    else => return consumeUrlToken(source, location),
                 }
             }
         }
 
-        return .token_function;
+        return NextToken{ .tag = .token_function, .next_location = left_paren.location };
     }
 
-    source.seek(next_location);
-    return .token_ident;
+    return NextToken{ .tag = .token_ident, .next_location = result.after_ident };
 }
 
-fn consumeUrlToken(source: *CodepointSource) Tag {
-    consumeWhitespace(source);
+fn consumeUrlToken(source: Source, start: Source.Location) NextToken {
+    var location = consumeWhitespace(source, start);
     while (true) {
-        const codepoint = source.next();
-        switch (codepoint) {
+        const next = source.next(location);
+        switch (next.codepoint) {
             ')' => break,
             '\n', '\t', ' ' => {
-                consumeWhitespace(source);
-                const right_paren = source.next();
-                if (right_paren == eof_codepoint) {
+                location = consumeWhitespace(source, next.location);
+                const right_paren = source.next(location);
+                if (right_paren.codepoint == eof_codepoint) {
                     // NOTE: Parse error
                     break;
-                } else if (right_paren == ')') {
+                } else if (right_paren.codepoint == ')') {
                     break;
                 } else {
-                    source.back();
-                    return consumeBadUrl(source);
+                    return consumeBadUrl(source, next.location);
                 }
             },
             '"', '\'', '(', 0x00...0x08, 0x0B, 0x0E...0x1F, 0x7F => {
                 // NOTE: Parse error
-                return consumeBadUrl(source);
+                return consumeBadUrl(source, next.location);
             },
             '\\' => {
-                const next_codepoint = source.next();
-                if (isSecondCodepointOfAnEscape(next_codepoint)) {
-                    _ = consumeEscapedCodepoint(source, next_codepoint);
+                const first_escaped = source.next(location);
+                if (isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
+                    location = consumeEscapedCodepoint(source, first_escaped).location;
                 } else {
                     // NOTE: Parse error
-                    return consumeBadUrl(source);
+                    return consumeBadUrl(source, next.location);
                 }
             },
             eof_codepoint => {
                 // NOTE: Parse error
                 break;
             },
-            else => {},
+            else => location = next.location,
         }
     }
 
-    return .token_url;
+    return NextToken{ .tag = .token_url, .next_location = location };
 }
 
-fn consumeBadUrl(source: *CodepointSource) Tag {
+fn consumeBadUrl(source: Source, start: Source.Location) NextToken {
+    var location = start;
     while (true) {
-        const codepoint = source.next();
-        switch (codepoint) {
-            ')', eof_codepoint => break,
+        const next = source.next(location);
+        switch (next.codepoint) {
+            ')', eof_codepoint => {
+                location = next.location;
+                break;
+            },
             '\\' => {
-                const next_codepoint = source.next();
-                if (isSecondCodepointOfAnEscape(next_codepoint)) {
-                    _ = consumeEscapedCodepoint(source, next_codepoint);
+                const first_escaped = source.next(location);
+                if (isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
+                    location = consumeEscapedCodepoint(source, first_escaped).location;
                 } else {
-                    source.back();
+                    location = next.location;
                 }
             },
-            else => {},
+            else => location = next.location,
         }
     }
-    return .token_bad_url;
+    return NextToken{ .tag = .token_bad_url, .next_location = location };
 }
 
-fn numberSign(source: *CodepointSource) Tag {
-    const next_location = source.location();
-    blk: {
-        const first = source.next();
-        var second: u21 = eof_codepoint;
-        if (!isIdentCodepoint(first)) {
-            if (first != '\\') break :blk;
-            second = source.next();
-            if (!isSecondCodepointOfAnEscape(second)) break :blk;
-        }
-
-        var tag: Tag = .token_hash_unrestricted;
-        if (second == eof_codepoint) second = source.next();
-        const third = source.next();
-        if (codepointsStartAnIdentSequence([3]u21{ first, second, third })) {
-            tag = .token_hash_id;
-        }
-
-        source.seek(next_location);
-        _ = consumeIdentSequence(source, false);
-        return tag;
-    }
-
-    source.seek(next_location);
-    return .token_delim;
+fn codepointsStartAHash(codepoints: [2]u21) bool {
+    return switch (codepoints[0]) {
+        '0'...'9',
+        'A'...'Z',
+        'a'...'z',
+        '-',
+        '_',
+        0x80...0x10FFFF,
+        => true,
+        '\\' => isValidFirstEscapedCodepoint(codepoints[1]),
+        else => false,
+    };
 }
 
-fn plusOrFullStop(source: *CodepointSource, location: CodepointSource.Location) Tag {
-    const next_location = source.location();
+fn numberSign(source: Source, after_number_sign: Source.Location) NextToken {
     var next_3: [3]u21 = undefined;
-    for (&next_3) |*codepoint| codepoint.* = source.next();
-    if (codepointsStartANumber(next_3)) {
-        source.seek(location);
-        return consumeNumericToken(source);
-    } else {
-        source.seek(next_location);
-        return .token_delim;
+    const after_first_two = source.read(after_number_sign, next_3[0..2]);
+    if (!codepointsStartAHash(next_3[0..2].*)) {
+        return NextToken{ .tag = .token_delim, .next_location = after_number_sign };
     }
+
+    next_3[2] = source.next(after_first_two).codepoint;
+    const tag: Tag = if (codepointsStartAnIdentSequence(next_3)) .token_hash_id else .token_hash_unrestricted;
+    const after_ident = consumeIdentSequence(source, after_number_sign, false).after_ident;
+    return NextToken{ .tag = tag, .next_location = after_ident };
 }
 
-fn minus(source: *CodepointSource, location: CodepointSource.Location) Tag {
-    if (source.matchAscii(asciiString("->"))) {
-        return .token_cdc;
-    }
-
-    const next_location = source.location();
-    var next_3: [3]u21 = undefined;
-    for (&next_3) |*codepoint| codepoint.* = source.next();
-
-    if (codepointsStartANumber(next_3)) {
-        source.seek(location);
-        return consumeNumericToken(source);
-    } else if (codepointsStartAnIdentSequence(next_3)) {
-        source.seek(location);
-        return consumeIdentLikeToken(source);
-    } else {
-        source.seek(next_location);
-        return .token_delim;
-    }
-}
-
-fn commercialAt(source: *CodepointSource) Tag {
-    const next_location = source.location();
-    var next_3: [3]u21 = undefined;
-    for (&next_3) |*codepoint| codepoint.* = source.next();
-    source.seek(next_location);
-
-    if (codepointsStartAnIdentSequence(next_3)) {
-        _ = consumeIdentSequence(source, false);
-        return .token_at_keyword;
-    } else {
-        return .token_delim;
-    }
-}
-
-test "tokenizer" {
+test "tokenization" {
     const input =
         \\@charset "utf-8";
+        \\#good-id
+        \\#1bad-id
         \\
         \\body {
-        \\    rule: value;
+        \\    rule: value url(foo) function(asdf);
         \\}
         \\
+        \\/* comments here */
         \\end
     ;
-    var source = try CodepointSource.init(asciiString(input));
-    var expected = [_]Tag{
+    const source = try Source.init(asciiString(input));
+    const expected = [_]Tag{
         .token_at_keyword,
         .token_whitespace,
         .token_string,
         .token_semicolon,
+        .token_whitespace,
+        .token_hash_id,
+        .token_whitespace,
+        .token_hash_unrestricted,
         .token_whitespace,
         .token_ident,
         .token_whitespace,
@@ -695,20 +647,32 @@ test "tokenizer" {
         .token_colon,
         .token_whitespace,
         .token_ident,
+        .token_whitespace,
+        .token_url,
+        .token_right_paren,
+        .token_whitespace,
+        .token_function,
+        .token_ident,
+        .token_right_paren,
         .token_semicolon,
         .token_whitespace,
         .token_right_curly,
+        .token_whitespace,
+        .token_comments,
         .token_whitespace,
         .token_ident,
         .token_eof,
     };
 
+    var location = Source.Location{};
     var i: usize = 0;
     while (true) {
         if (i >= expected.len) return error.TestFailure;
-        const tag = nextToken(&source);
+        const next = nextToken(source, location);
+        const tag = next.tag;
         try std.testing.expectEqual(expected[i], tag);
         if (tag == .token_eof) break;
+        location = next.next_location;
         i += 1;
     }
 }
