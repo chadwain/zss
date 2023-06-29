@@ -16,7 +16,7 @@ comptime {
 }
 
 pub const Component = struct {
-    skip: ComponentTree.Size,
+    next_sibling: ComponentTree.Size,
     tag: Tag,
     /// The location of this Component in whatever source created it.
     location: parse.Source.Location,
@@ -109,10 +109,10 @@ pub const Component = struct {
         /// children: A prelude (a sequence of components) + optionally, a `simple_block_curly`
         /// location: The '@' of its name
         /// extra: If 0, it is meaningless.
-        ///        Else, the skip from this component to its `simple_block_curly`
+        ///        Else, the index of its `simple_block_curly`
         at_rule,
         /// children: A prelude (a sequence of components) + a `simple_block_curly`
-        /// extra: The skip from this component to its `simple_block_curly`
+        /// extra: The index of its `simple_block_curly`
         qualified_rule,
         /// An identifier
         /// children: A sequence of components
@@ -132,11 +132,6 @@ pub const Component = struct {
         simple_block_paren,
         /// children: A sequence of `at_rule` and `qualified_rule`
         rule_list,
-
-        // The "juxtaposition" combinator
-        grammar_sequence,
-        grammar_alternatives,
-        grammar_optional,
     };
 };
 
@@ -157,7 +152,7 @@ pub const ComponentTree = struct {
             const c = tree.components;
             try writer.print("ComponentTree:\narray len {}\n", .{c.len});
             if (c.len == 0) return;
-            try writer.print("tree size {}\n", .{c.items(.skip)[0]});
+            try writer.print("tree size {}\n", .{c.items(.next_sibling)[0]});
 
             const Item = struct {
                 current: ComponentTree.Size,
@@ -165,7 +160,7 @@ pub const ComponentTree = struct {
             };
             var stack = ArrayListUnmanaged(Item){};
             defer stack.deinit(allocator);
-            try stack.append(allocator, .{ .current = 0, .end = c.items(.skip)[0] });
+            try stack.append(allocator, .{ .current = 0, .end = c.items(.next_sibling)[0] });
 
             while (stack.items.len > 0) {
                 const last = &stack.items[stack.items.len - 1];
@@ -174,11 +169,11 @@ pub const ComponentTree = struct {
                     const component = c.get(index);
                     const indent = (stack.items.len - 1) * 4;
                     try writer.writeByteNTimes(' ', indent);
-                    try writer.print("{} {s} {} {}\n", .{ index, @tagName(component.tag), component.location, component.extra });
+                    try writer.print("{} {s} {} {}\n", .{ index, @tagName(component.tag), component.location.value, component.extra });
 
-                    last.current += component.skip;
-                    if (component.skip != 1) {
-                        try stack.append(allocator, .{ .current = index + 1, .end = index + component.skip });
+                    last.current = component.next_sibling;
+                    if (index + 1 != component.next_sibling) {
+                        try stack.append(allocator, .{ .current = index + 1, .end = component.next_sibling });
                     }
                 } else {
                     _ = stack.pop();

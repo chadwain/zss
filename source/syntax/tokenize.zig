@@ -1,10 +1,10 @@
 //! Implements the tokenization algorithm of CSS Syntax Level 3.
 
 const std = @import("std");
+const assert = std.debug.assert;
 
 const zss = @import("../../zss.zig");
 const Tag = zss.syntax.Component.Tag;
-const asciiString = zss.util.asciiString;
 
 const u21_max = std.math.maxInt(u21);
 const replacement_character: u21 = 0xfffd;
@@ -17,15 +17,41 @@ pub const Source = struct {
         value: Value = 0,
 
         const Value = u32;
-
-        pub fn format(loc: Location, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-            try writer.print("{}", .{loc.value});
-        }
     };
 
     pub fn init(data: []const u7) !Source {
-        if (data.len > std.math.maxInt(Location.Value)) return error.Overflow;
+        if (data.len > std.math.maxInt(Location.Value)) return error.SourceDataTooLong;
         return Source{ .data = data };
+    }
+
+    /// Asserts that `start` is the location of the start of an ident sequence.
+    pub fn readIdentToken(source: Source, start: Location, allocator: std.mem.Allocator) ![]u21 {
+        var list = std.ArrayList(u21).init(allocator);
+        defer list.deinit();
+
+        var location = start;
+        while (consumeIdentSequenceCodepoint(source, location)) |next_| {
+            location = next_.location;
+            try list.append(next_.codepoint);
+        }
+        assert(list.items.len > 0);
+        return list.toOwnedSlice();
+    }
+
+    pub fn matchIdentTokenIgnoreCase(source: Source, start: Location, string: []const u21) bool {
+        assert(string.len > 0);
+        var location = start;
+        for (string) |codepoint| {
+            const next_ = consumeIdentSequenceCodepoint(source, location) orelse return false;
+            location = next_.location;
+            if (toLowercase(codepoint) != toLowercase(next_.codepoint)) return false;
+        }
+
+        return consumeIdentSequenceCodepoint(source, location) == null;
+    }
+
+    pub fn matchDelimToken(source: Source, location: Location, codepoint: u21) bool {
+        return source.next(location).codepoint == codepoint;
     }
 
     const Next = struct { location: Location, codepoint: u21 };
@@ -34,8 +60,11 @@ pub const Source = struct {
         if (location.value == source.data.len) return Next{ .location = location, .codepoint = eof_codepoint };
 
         var next_value = location.value + 1;
-        const codepoint: u21 = switch (source.data[location.value]) {
-            0x00 => replacement_character,
+        const codepoint: u21 = switch (@as(u21, source.data[location.value])) {
+            0x00,
+            0xD800...0xDBFF,
+            0xDC00...0xDFFF,
+            => replacement_character,
             '\r' => blk: {
                 if (next_value < source.data.len and source.data[next_value] == '\n') {
                     next_value += 1;
@@ -122,7 +151,7 @@ pub fn nextToken(source: Source, location: Source.Location) NextToken {
             _ = source.read(next.location, &next_3);
 
             if (codepointsStartAnIdentSequence(next_3)) {
-                const after_ident = consumeIdentSequence(source, next.location, false).after_ident;
+                const after_ident = consumeIdentSequence(source, next.location);
                 return NextToken{ .tag = .token_at_keyword, .next_location = after_ident };
             } else {
                 return NextToken{ .tag = .token_delim, .next_location = next.location };
@@ -358,7 +387,7 @@ fn consumeNumericToken(source: Source, start: Source.Location) NextToken {
     _ = source.read(result.after_number, &next_3);
 
     if (codepointsStartAnIdentSequence(next_3)) {
-        const after_ident = consumeIdentSequence(source, result.after_number, false).after_ident;
+        const after_ident = consumeIdentSequence(source, result.after_number);
         return NextToken{ .tag = .token_dimension, .next_location = after_ident };
     }
 
@@ -432,20 +461,58 @@ fn consumeDigits(source: Source, start: Source.Location) Source.Location {
     }
 }
 
-const ComsumeIdentSequence = struct { after_ident: Source.Location, is_url: bool };
+fn consumeIdentSequenceCodepoint(source: Source, location: Source.Location) ?Source.Next {
+    const next = source.next(location);
+    switch (next.codepoint) {
+        '\\' => {
+            const first_escaped = source.next(next.location);
+            if (!isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
+                return null;
+            }
+            return consumeEscapedCodepoint(source, first_escaped);
+        },
+        '0'...'9',
+        'A'...'Z',
+        'a'...'z',
+        '-',
+        '_',
+        0x80...0x10FFFF,
+        => return next,
+        else => return null,
+    }
+}
 
-fn consumeIdentSequence(source: Source, start: Source.Location, look_for_url: bool) ComsumeIdentSequence {
-    var string_matcher: struct {
-        num_matching_codepoints: u2 = 0,
+fn consumeIdentSequence(source: Source, start: Source.Location) Source.Location {
+    var location = start;
+    while (consumeIdentSequenceCodepoint(source, location)) |next| {
+        location = next.location;
+    }
+    return location;
+}
+
+const ComsumeIdentSequenceMatch = struct { after_ident: Source.Location, matches: bool };
+
+fn consumeIdentSequenceMatch(
+    source: Source,
+    start: Source.Location,
+    string: []const u21,
+    comptime ignore_case: bool,
+    keep_going: bool,
+) ComsumeIdentSequenceMatch {
+    var string_matcher = struct {
+        num_matching_codepoints: usize = 0,
         matches: ?bool = null,
 
-        const url = "url";
-
-        fn nextCodepoint(self: *@This(), codepoint: u21) void {
+        fn nextCodepoint(self: *@This(), str: []const u21, codepoint: u21) void {
             if (self.matches == null) {
-                if (url[self.num_matching_codepoints] == toLowercase(codepoint)) {
+                const is_eql = switch (ignore_case) {
+                    false => str[self.num_matching_codepoints] == codepoint,
+                    true => toLowercase(str[self.num_matching_codepoints]) == toLowercase(codepoint),
+                };
+
+                if (is_eql) {
                     self.num_matching_codepoints += 1;
-                    if (self.num_matching_codepoints == url.len) {
+                    if (self.num_matching_codepoints == str.len) {
                         self.matches = true;
                     }
                 } else {
@@ -455,46 +522,27 @@ fn consumeIdentSequence(source: Source, start: Source.Location, look_for_url: bo
                 self.matches = false;
             }
         }
-    } = undefined;
-    if (look_for_url) string_matcher = .{};
+    }{};
 
     var location = start;
-    while (true) {
-        const next = source.next(location);
-        switch (next.codepoint) {
-            '\\' => {
-                const first_escaped = source.next(next.location);
-                if (!isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
-                    break;
-                }
-                const after_escaped = consumeEscapedCodepoint(source, first_escaped);
-                location = after_escaped.location;
-                if (look_for_url) string_matcher.nextCodepoint(after_escaped.codepoint);
-            },
-            '0'...'9',
-            'A'...'Z',
-            'a'...'z',
-            '-',
-            '_',
-            0x80...0x10FFFF,
-            => {
-                location = next.location;
-                if (look_for_url) string_matcher.nextCodepoint(next.codepoint);
-            },
-            else => break,
+    while (consumeIdentSequenceCodepoint(source, location)) |next| {
+        location = next.location;
+        string_matcher.nextCodepoint(string, next.codepoint);
+        if (keep_going) continue;
+        if (string_matcher.matches == false) {
+            return ComsumeIdentSequenceMatch{ .after_ident = undefined, .matches = false };
         }
     }
 
-    const is_url = if (look_for_url) (string_matcher.matches orelse false) else @as(bool, undefined);
-    return ComsumeIdentSequence{ .after_ident = location, .is_url = is_url };
+    return ComsumeIdentSequenceMatch{ .after_ident = location, .matches = string_matcher.matches orelse false };
 }
 
 fn consumeIdentLikeToken(source: Source, start: Source.Location) NextToken {
-    const result = consumeIdentSequence(source, start, true);
+    const result = consumeIdentSequenceMatch(source, start, &.{ 'u', 'r', 'l' }, true, true);
 
     const left_paren = source.next(result.after_ident);
     if (left_paren.codepoint == '(') {
-        if (result.is_url) {
+        if (result.matches) {
             var previous_location: Source.Location = undefined;
             var location = left_paren.location;
             var has_preceding_whitespace = false;
@@ -611,12 +659,12 @@ fn numberSign(source: Source, after_number_sign: Source.Location) NextToken {
 
     next_3[2] = source.next(after_first_two).codepoint;
     const tag: Tag = if (codepointsStartAnIdentSequence(next_3)) .token_hash_id else .token_hash_unrestricted;
-    const after_ident = consumeIdentSequence(source, after_number_sign, false).after_ident;
+    const after_ident = consumeIdentSequence(source, after_number_sign);
     return NextToken{ .tag = tag, .next_location = after_ident };
 }
 
 test "tokenization" {
-    const input =
+    const input = zss.util.ascii8ToAscii7(
         \\@charset "utf-8";
         \\#good-id
         \\#1bad-id
@@ -627,8 +675,8 @@ test "tokenization" {
         \\
         \\/* comments here */
         \\end
-    ;
-    const source = try Source.init(asciiString(input));
+    );
+    const source = try Source.init(input);
     const expected = [_]Tag{
         .token_at_keyword,
         .token_whitespace,

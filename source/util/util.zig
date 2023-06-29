@@ -154,7 +154,7 @@ pub fn ElementHashMap(comptime V: type) type {
     return std.HashMapUnmanaged(Element, V, Context, 80);
 }
 
-pub fn asciiString(comptime string: []const u8) *const [string.len]u7 {
+pub fn ascii8ToAscii7(comptime string: []const u8) *const [string.len]u7 {
     return comptime blk: {
         var result: [string.len]u7 = undefined;
         for (string, &result) |s, *r| {
@@ -164,10 +164,21 @@ pub fn asciiString(comptime string: []const u8) *const [string.len]u7 {
     };
 }
 
-pub const UnicodeStringFormatter = struct {
+pub fn ascii8ToUnicode(comptime string: []const u8) *const [string.len]u21 {
+    return comptime blk: {
+        var result: [string.len]u21 = undefined;
+        for (string, &result) |in, *out| {
+            if (in >= 0x80) @compileError("Invalid 7-bit ASCII");
+            out.* = in;
+        }
+        break :blk &result;
+    };
+}
+
+pub const UnicodeString = struct {
     data: []const u21,
 
-    pub fn format(value: UnicodeStringFormatter, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(value: UnicodeString, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         var buf: [4]u8 = undefined;
         for (value.data) |codepoint| {
             const len = std.unicode.utf8Encode(codepoint, &buf) catch unreachable;
@@ -176,6 +187,6 @@ pub const UnicodeStringFormatter = struct {
     }
 };
 
-pub fn fmtUnicodeString(data: []const u21) UnicodeStringFormatter {
+pub fn unicodeString(data: []const u21) UnicodeString {
     return .{ .data = data };
 }

@@ -29,6 +29,7 @@ pub fn build(b: *Build) void {
 
     addTests(b, optimize, target, mods);
     addDemo(b, optimize, target, mods);
+    addParse(b, optimize, target);
 }
 
 fn addTests(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, mods: Modules) void {
@@ -117,4 +118,25 @@ fn addDemo(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, m
 
     const demo_step = b.step("demo", "Run the demo");
     demo_step.dependOn(&demo_cmd.step);
+}
+
+fn addParse(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget) void {
+    var parse_exe = b.addExecutable(.{
+        .name = "parse",
+        .root_source_file = .{ .path = "examples/parse.zig" },
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    parse_exe.addAnonymousModule("zss", .{
+        .source_file = .{ .path = "zss.zig" },
+    });
+    b.installArtifact(parse_exe);
+
+    const parse_cmd = b.addRunArtifact(parse_exe);
+    if (b.args) |args| parse_cmd.addArgs(args);
+    parse_cmd.step.dependOn(&parse_exe.step);
+
+    const parse_step = b.step("parse", "Run a parser program");
+    parse_step.dependOn(&parse_cmd.step);
 }

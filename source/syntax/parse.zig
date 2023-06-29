@@ -32,16 +32,16 @@ pub const Source = struct {
         }
     }
 
-    pub fn matchDelimeter(source: *Source, codepoint: u21) bool {
-        return source.inner.matchDelimeter(codepoint);
+    pub fn matchDelimeter(source: Source, location: Location, codepoint: u21) bool {
+        return source.inner.matchDelimToken(location, codepoint);
     }
 
-    pub fn matchKeyword(source: *Source, keyword: []const u7) bool {
-        return source.inner.matchKeyword(keyword);
+    pub fn matchKeyword(source: Source, location: Location, keyword: []const u21) bool {
+        return source.inner.matchIdentTokenIgnoreCase(location, keyword);
     }
 
-    pub fn readIdentToken(source: Source, loc: Location, list: *ArrayList(u21)) !void {
-        try source.inner.readIdentToken(loc, list);
+    pub fn readIdentToken(source: Source, location: Location, allocator: Allocator) ![]u21 {
+        return source.inner.readIdentToken(location, allocator);
     }
 };
 
@@ -118,27 +118,28 @@ const Stack = struct {
     }
 
     fn addToken(stack: *Stack, tree: *ComponentTree, tag: Component.Tag, location: Source.Location, allocator: Allocator) !void {
-        _ = try addComponent(tree, allocator, .{ .skip = 1, .tag = tag, .location = location, .extra = 0 });
+        const index = @intCast(ComponentTree.Size, tree.components.len);
+        _ = try addComponent(tree, allocator, .{ .next_sibling = index + 1, .tag = tag, .location = location, .extra = 0 });
         stack.last().skip += 1;
     }
 
     fn pushListOfRules(stack: *Stack, tree: *ComponentTree, location: Source.Location, top_level: bool, allocator: Allocator) !void {
-        const index = try addComponent(tree, allocator, .{ .skip = undefined, .tag = .rule_list, .location = location, .extra = 0 });
+        const index = try addComponent(tree, allocator, .{ .next_sibling = undefined, .tag = .rule_list, .location = location, .extra = 0 });
         try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .{ .list_of_rules = .{ .top_level = top_level } } });
     }
 
     fn pushAtRule(stack: *Stack, tree: *ComponentTree, location: Source.Location, allocator: Allocator) !void {
-        const index = try addComponent(tree, allocator, .{ .skip = undefined, .tag = .at_rule, .location = location, .extra = 0 });
+        const index = try addComponent(tree, allocator, .{ .next_sibling = undefined, .tag = .at_rule, .location = location, .extra = 0 });
         try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .at_rule });
     }
 
     fn pushQualifiedRule(stack: *Stack, tree: *ComponentTree, location: Source.Location, allocator: Allocator) !void {
-        const index = try addComponent(tree, allocator, .{ .skip = undefined, .tag = .qualified_rule, .location = location, .extra = 0 });
+        const index = try addComponent(tree, allocator, .{ .next_sibling = undefined, .tag = .qualified_rule, .location = location, .extra = 0 });
         try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .qualified_rule });
     }
 
     fn pushFunction(stack: *Stack, tree: *ComponentTree, location: Source.Location, allocator: Allocator) !void {
-        const index = try addComponent(tree, allocator, .{ .skip = undefined, .tag = .function, .location = location, .extra = 0 });
+        const index = try addComponent(tree, allocator, .{ .next_sibling = undefined, .tag = .function, .location = location, .extra = 0 });
         try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .function });
     }
 
@@ -149,7 +150,7 @@ const Stack = struct {
             .token_left_paren => .simple_block_paren,
             else => unreachable,
         };
-        _ = try addComponent(tree, allocator, .{ .skip = undefined, .tag = component_tag, .location = location, .extra = 0 });
+        _ = try addComponent(tree, allocator, .{ .next_sibling = undefined, .tag = component_tag, .location = location, .extra = 0 });
         stack.last().skip += 1;
     }
 
@@ -167,7 +168,7 @@ const Stack = struct {
             .token_left_paren => .simple_block_paren,
             else => unreachable,
         };
-        const index = try addComponent(tree, allocator, .{ .skip = undefined, .tag = component_tag, .location = location, .extra = 0 });
+        const index = try addComponent(tree, allocator, .{ .next_sibling = undefined, .tag = component_tag, .location = location, .extra = 0 });
         try stack.list.append(allocator, .{
             .skip = 1,
             .index = index,
@@ -179,13 +180,13 @@ const Stack = struct {
         const frame = stack.list.pop();
         assert(frame.data != .simple_block); // Use popSimpleBlock instead
         stack.last().skip += frame.skip;
-        tree.components.items(.skip)[frame.index] = frame.skip;
+        tree.components.items(.next_sibling)[frame.index] = frame.index + frame.skip;
     }
 
     fn popSimpleBlock(stack: *Stack, tree: *ComponentTree) void {
         const frame = stack.list.pop();
         const slice = tree.components.slice();
-        slice.items(.skip)[frame.index] = frame.skip;
+        slice.items(.next_sibling)[frame.index] = frame.index + frame.skip;
 
         if (frame.data.simple_block.in_a_rule) {
             const parent_frame = stack.list.pop();
@@ -195,8 +196,8 @@ const Stack = struct {
             }
             const combined_skip = parent_frame.skip + frame.skip;
             stack.last().skip += combined_skip;
-            slice.items(.skip)[parent_frame.index] = combined_skip;
-            slice.items(.extra)[parent_frame.index] = frame.index - parent_frame.index;
+            slice.items(.next_sibling)[parent_frame.index] = parent_frame.index + combined_skip;
+            slice.items(.extra)[parent_frame.index] = frame.index;
         } else {
             stack.last().skip += frame.skip;
         }
@@ -368,8 +369,8 @@ test "parse a stylesheet" {
         \\broken
     ;
 
-    const asciiString = @import("../../zss.zig").util.asciiString;
-    const ascii = asciiString(input);
+    const ascii8ToAscii7 = @import("../../zss.zig").util.ascii8ToAscii7;
+    const ascii = ascii8ToAscii7(input);
 
     const token_source = Source.init(try tokenize.Source.init(ascii));
 
@@ -378,31 +379,31 @@ test "parse a stylesheet" {
 
     // zig fmt: off
     const expected = [25]Component{
-        .{ .skip = 25, .tag = .rule_list,          .location = .{ .value = 0 },  .extra = 0 },
-        .{ .skip = 3,  .tag = .at_rule,            .location = .{ .value = 0 },  .extra = 0 },
-        .{ .skip = 1,  .tag = .token_whitespace,   .location = .{ .value = 8 },  .extra = 0 },
-        .{ .skip = 1,  .tag = .token_string,       .location = .{ .value = 9 },  .extra = 0 },
-        .{ .skip = 3,  .tag = .at_rule,            .location = .{ .value = 18 }, .extra = 2 },
-        .{ .skip = 1,  .tag = .token_whitespace,   .location = .{ .value = 27 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .simple_block_curly, .location = .{ .value = 28 }, .extra = 0 },
-        .{ .skip = 18, .tag = .qualified_rule,     .location = .{ .value = 32 }, .extra = 3 },
-        .{ .skip = 1,  .tag = .token_ident,        .location = .{ .value = 32 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_whitespace,   .location = .{ .value = 36 }, .extra = 0 },
-        .{ .skip = 15, .tag = .simple_block_curly, .location = .{ .value = 37 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_whitespace,   .location = .{ .value = 38 }, .extra = 0 },
-        .{ .skip = 12, .tag = .function,           .location = .{ .value = 43 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_ident,        .location = .{ .value = 49 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_comma,        .location = .{ .value = 51 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_whitespace,   .location = .{ .value = 52 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_ident,        .location = .{ .value = 53 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_comma,        .location = .{ .value = 56 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_whitespace,   .location = .{ .value = 57 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_ident,        .location = .{ .value = 58 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_comma,        .location = .{ .value = 63 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_whitespace,   .location = .{ .value = 64 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_ident,        .location = .{ .value = 65 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_delim,        .location = .{ .value = 69 }, .extra = 0 },
-        .{ .skip = 1,  .tag = .token_whitespace,   .location = .{ .value = 71 }, .extra = 0 },
+        .{ .next_sibling = 25, .tag = .rule_list,          .location = .{ .value = 0 },  .extra = 0 },
+        .{ .next_sibling = 4,  .tag = .at_rule,            .location = .{ .value = 0 },  .extra = 0 },
+        .{ .next_sibling = 3,  .tag = .token_whitespace,   .location = .{ .value = 8 },  .extra = 0 },
+        .{ .next_sibling = 4,  .tag = .token_string,       .location = .{ .value = 9 },  .extra = 0 },
+        .{ .next_sibling = 7,  .tag = .at_rule,            .location = .{ .value = 18 }, .extra = 6 },
+        .{ .next_sibling = 6,  .tag = .token_whitespace,   .location = .{ .value = 27 }, .extra = 0 },
+        .{ .next_sibling = 7,  .tag = .simple_block_curly, .location = .{ .value = 28 }, .extra = 0 },
+        .{ .next_sibling = 25, .tag = .qualified_rule,     .location = .{ .value = 32 }, .extra = 10 },
+        .{ .next_sibling = 9,  .tag = .token_ident,        .location = .{ .value = 32 }, .extra = 0 },
+        .{ .next_sibling = 10,  .tag = .token_whitespace,   .location = .{ .value = 36 }, .extra = 0 },
+        .{ .next_sibling = 25, .tag = .simple_block_curly, .location = .{ .value = 37 }, .extra = 0 },
+        .{ .next_sibling = 12,  .tag = .token_whitespace,   .location = .{ .value = 38 }, .extra = 0 },
+        .{ .next_sibling = 24, .tag = .function,           .location = .{ .value = 43 }, .extra = 0 },
+        .{ .next_sibling = 14,  .tag = .token_ident,        .location = .{ .value = 49 }, .extra = 0 },
+        .{ .next_sibling = 15,  .tag = .token_comma,        .location = .{ .value = 51 }, .extra = 0 },
+        .{ .next_sibling = 16,  .tag = .token_whitespace,   .location = .{ .value = 52 }, .extra = 0 },
+        .{ .next_sibling = 17,  .tag = .token_ident,        .location = .{ .value = 53 }, .extra = 0 },
+        .{ .next_sibling = 18,  .tag = .token_comma,        .location = .{ .value = 56 }, .extra = 0 },
+        .{ .next_sibling = 19,  .tag = .token_whitespace,   .location = .{ .value = 57 }, .extra = 0 },
+        .{ .next_sibling = 20,  .tag = .token_ident,        .location = .{ .value = 58 }, .extra = 0 },
+        .{ .next_sibling = 21,  .tag = .token_comma,        .location = .{ .value = 63 }, .extra = 0 },
+        .{ .next_sibling = 22,  .tag = .token_whitespace,   .location = .{ .value = 64 }, .extra = 0 },
+        .{ .next_sibling = 23,  .tag = .token_ident,        .location = .{ .value = 65 }, .extra = 0 },
+        .{ .next_sibling = 24,  .tag = .token_delim,        .location = .{ .value = 69 }, .extra = 0 },
+        .{ .next_sibling = 25,  .tag = .token_whitespace,   .location = .{ .value = 71 }, .extra = 0 },
     };
     // zig fmt: on
 
