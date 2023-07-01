@@ -50,8 +50,8 @@ pub const Source = struct {
         return consumeIdentSequenceCodepoint(source, location) == null;
     }
 
-    pub fn matchDelimToken(source: Source, location: Location, codepoint: u21) bool {
-        return source.next(location).codepoint == codepoint;
+    pub fn getDelimTokenCodepoint(source: Source, location: Location) u21 {
+        return source.next(location).codepoint;
     }
 
     const Next = struct { location: Location, codepoint: u21 };

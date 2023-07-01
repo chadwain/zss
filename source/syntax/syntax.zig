@@ -15,19 +15,39 @@ comptime {
     }
 }
 
+/// Corresponds to what CSS calls a "component value".
 pub const Component = struct {
     next_sibling: ComponentTree.Size,
     tag: Tag,
-    /// The location of this Component in whatever source created it.
+    /// The location of this Component in whatever Source created it. The meaning of this value depends on `tag`.
     location: parse.Source.Location,
     /// Additional info about the Component. The meaning of this value depends on `tag`.
-    extra: ComponentTree.Size,
+    extra: Extra,
+
+    pub const Extra = extern struct {
+        /// Trying to read this field directly should not be attempted.
+        /// Better to use one of the member functions instead.
+        _: u32,
+
+        pub fn make(int: u32) Extra {
+            return @bitCast(Extra, int);
+        }
+
+        pub fn index(extra: Extra) ComponentTree.Size {
+            return @bitCast(ComponentTree.Size, extra);
+        }
+
+        pub fn codepoint(extra: Extra) u21 {
+            return @intCast(u21, @bitCast(u32, extra));
+        }
+    };
 
     pub const Tag = enum {
         /// The end of a sequence of tokens
+        /// location: The end of a Source
         token_eof,
         /// A sequence of one or more comment blocks
-        /// location: The '/' of the first comment block
+        /// location: The opening '/' of the first comment block
         token_comments,
 
         /// An identifier.
@@ -55,9 +75,11 @@ pub const Component = struct {
         /// location: The 'u' of "url"
         token_url,
         /// Identical to `token_url`, but the sequence contains invalid codepoints
+        /// location: The 'u' of "url"
         token_bad_url,
         /// A single codepoint
         /// location: The codepoint
+        /// extra: The codepoint, which you can get with this code: `extra.codepoint()`.
         token_delim,
         /// A numeric value (integral or floating point)
         /// location: The first codepoint of the number
@@ -106,31 +128,36 @@ pub const Component = struct {
         token_right_curly,
 
         /// A name beginning with '@'
-        /// children: A prelude (a sequence of components) + optionally, a `simple_block_curly`
+        /// children: A prelude (an arbitrary sequence of components) + optionally, a `simple_block_curly`
         /// location: The '@' of its name
-        /// extra: If 0, it is meaningless.
-        ///        Else, the index of its `simple_block_curly`
+        /// extra: Use `extra.index()` to get a component tree index.
+        ///        Then, if the value is 0, the at-rule does not have an associated <{}-block>.
+        ///        Otherwise, the at-rule does have a <{}-block>, and the value is the index of that block (with tag = `simple_block_curly`).
         at_rule,
-        /// children: A prelude (a sequence of components) + a `simple_block_curly`
-        /// extra: The index of its `simple_block_curly`
+        /// children: A prelude (an arbitrary sequence of components) + a `simple_block_curly`
+        /// extra: Use `extra.index()` to get a component tree index.
+        ///        The value is the index of the qualified rule's associated <{}-block> (with tag = `simple_block_curly`).
         qualified_rule,
         /// An identifier
-        /// children: A sequence of components
+        /// children: An arbitrary sequence of components
         /// location: The first codepoint of its name
         function,
         /// A '[]-block'
-        /// children: A sequence of components
+        /// children: An arbitrary sequence of components
         /// location: The '[' codepoint that opens the block
         simple_block_bracket,
         /// A '{}-block'
-        /// children: A sequence of components
+        /// children: An arbitrary sequence of components
         /// location: The '{' codepoint that opens the block
         simple_block_curly,
         /// A '()-block'
-        /// children: A sequence of components
+        /// children: An arbitrary sequence of components
         /// location: The '(' codepoint that opens the block
         simple_block_paren,
+
+        /// A list of at-rules and qualified rules.
         /// children: A sequence of `at_rule` and `qualified_rule`
+        /// location: The beginning of the stylesheet
         rule_list,
     };
 };
@@ -169,7 +196,7 @@ pub const ComponentTree = struct {
                     const component = c.get(index);
                     const indent = (stack.items.len - 1) * 4;
                     try writer.writeByteNTimes(' ', indent);
-                    try writer.print("{} {s} {} {}\n", .{ index, @tagName(component.tag), component.location.value, component.extra });
+                    try writer.print("{} {s} {} {}\n", .{ index, @tagName(component.tag), component.location.value, @bitCast(u32, component.extra) });
 
                     last.current = component.next_sibling;
                     if (index + 1 != component.next_sibling) {

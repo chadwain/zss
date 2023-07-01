@@ -6,6 +6,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const syntax = @import("./syntax.zig");
 const Component = syntax.Component;
+const Extra = Component.Extra;
 const ComponentTree = syntax.ComponentTree;
 const tokenize = @import("./tokenize.zig");
 
@@ -32,8 +33,8 @@ pub const Source = struct {
         }
     }
 
-    pub fn matchDelimeter(source: Source, location: Location, codepoint: u21) bool {
-        return source.inner.matchDelimToken(location, codepoint);
+    fn getDelimeter(source: Source, location: Location) u21 {
+        return source.inner.getDelimTokenCodepoint(location);
     }
 
     pub fn matchKeyword(source: Source, location: Location, keyword: []const u21) bool {
@@ -83,7 +84,7 @@ const Stack = struct {
 
     const SimpleBlock = struct {
         tag: Component.Tag,
-        // true if the simple block is part of a qualified rule or an at rule.
+        // true if the simple block is the associated {}-block of a qualified rule or an at rule.
         in_a_rule: bool,
 
         fn endingTokenTag(simple_block: SimpleBlock) Component.Tag {
@@ -110,36 +111,69 @@ const Stack = struct {
         return &stack.list.items[stack.list.items.len - 1];
     }
 
-    fn addComponent(tree: *ComponentTree, allocator: Allocator, component: Component) !ComponentTree.Size {
+    fn newComponent(tree: *ComponentTree, allocator: Allocator, component: Component) !ComponentTree.Size {
         if (tree.components.len == std.math.maxInt(ComponentTree.Size)) return error.Overflow;
         const index = @intCast(ComponentTree.Size, tree.components.len);
         try tree.components.append(allocator, component);
         return index;
     }
 
-    fn addToken(stack: *Stack, tree: *ComponentTree, tag: Component.Tag, location: Source.Location, allocator: Allocator) !void {
+    /// Creates a Component that has no children.
+    fn addComponent(
+        stack: *Stack,
+        tree: *ComponentTree,
+        tag: Component.Tag,
+        location: Source.Location,
+        extra: Component.Extra,
+        allocator: Allocator,
+    ) !void {
         const index = @intCast(ComponentTree.Size, tree.components.len);
-        _ = try addComponent(tree, allocator, .{ .next_sibling = index + 1, .tag = tag, .location = location, .extra = 0 });
+        _ = try newComponent(tree, allocator, .{
+            .next_sibling = index + 1,
+            .tag = tag,
+            .location = location,
+            .extra = extra,
+        });
         stack.last().skip += 1;
     }
 
     fn pushListOfRules(stack: *Stack, tree: *ComponentTree, location: Source.Location, top_level: bool, allocator: Allocator) !void {
-        const index = try addComponent(tree, allocator, .{ .next_sibling = undefined, .tag = .rule_list, .location = location, .extra = 0 });
+        const index = try newComponent(tree, allocator, .{
+            .next_sibling = undefined,
+            .tag = .rule_list,
+            .location = location,
+            .extra = Extra.make(0),
+        });
         try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .{ .list_of_rules = .{ .top_level = top_level } } });
     }
 
     fn pushAtRule(stack: *Stack, tree: *ComponentTree, location: Source.Location, allocator: Allocator) !void {
-        const index = try addComponent(tree, allocator, .{ .next_sibling = undefined, .tag = .at_rule, .location = location, .extra = 0 });
+        const index = try newComponent(tree, allocator, .{
+            .next_sibling = undefined,
+            .tag = .at_rule,
+            .location = location,
+            .extra = Extra.make(0),
+        });
         try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .at_rule });
     }
 
     fn pushQualifiedRule(stack: *Stack, tree: *ComponentTree, location: Source.Location, allocator: Allocator) !void {
-        const index = try addComponent(tree, allocator, .{ .next_sibling = undefined, .tag = .qualified_rule, .location = location, .extra = 0 });
+        const index = try newComponent(tree, allocator, .{
+            .next_sibling = undefined,
+            .tag = .qualified_rule,
+            .location = location,
+            .extra = Extra.make(0),
+        });
         try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .qualified_rule });
     }
 
     fn pushFunction(stack: *Stack, tree: *ComponentTree, location: Source.Location, allocator: Allocator) !void {
-        const index = try addComponent(tree, allocator, .{ .next_sibling = undefined, .tag = .function, .location = location, .extra = 0 });
+        const index = try newComponent(tree, allocator, .{
+            .next_sibling = undefined,
+            .tag = .function,
+            .location = location,
+            .extra = Extra.make(0),
+        });
         try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .function });
     }
 
@@ -150,7 +184,12 @@ const Stack = struct {
             .token_left_paren => .simple_block_paren,
             else => unreachable,
         };
-        _ = try addComponent(tree, allocator, .{ .next_sibling = undefined, .tag = component_tag, .location = location, .extra = 0 });
+        _ = try newComponent(tree, allocator, .{
+            .next_sibling = undefined,
+            .tag = component_tag,
+            .location = location,
+            .extra = Extra.make(0),
+        });
         stack.last().skip += 1;
     }
 
@@ -168,7 +207,12 @@ const Stack = struct {
             .token_left_paren => .simple_block_paren,
             else => unreachable,
         };
-        const index = try addComponent(tree, allocator, .{ .next_sibling = undefined, .tag = component_tag, .location = location, .extra = 0 });
+        const index = try newComponent(tree, allocator, .{
+            .next_sibling = undefined,
+            .tag = component_tag,
+            .location = location,
+            .extra = Extra.make(0),
+        });
         try stack.list.append(allocator, .{
             .skip = 1,
             .index = index,
@@ -197,7 +241,7 @@ const Stack = struct {
             const combined_skip = parent_frame.skip + frame.skip;
             stack.last().skip += combined_skip;
             slice.items(.next_sibling)[parent_frame.index] = parent_frame.index + combined_skip;
-            slice.items(.extra)[parent_frame.index] = frame.index;
+            slice.items(.extra)[parent_frame.index] = Extra.make(frame.index);
         } else {
             stack.last().skip += frame.skip;
         }
@@ -272,7 +316,7 @@ fn consumeAtRule(stack: *Stack, tree: *ComponentTree, source: Source, location: 
                 return;
             },
             else => {
-                const must_suspend = try consumeComponentValue(stack, tree, tag, saved_location, allocator);
+                const must_suspend = try consumeComponentValue(stack, tree, source, tag, saved_location, allocator);
                 if (must_suspend) return;
             },
         }
@@ -298,14 +342,21 @@ fn consumeQualifiedRule(stack: *Stack, tree: *ComponentTree, source: Source, loc
                 return;
             },
             else => {
-                const must_suspend = try consumeComponentValue(stack, tree, tag, saved_location, allocator);
+                const must_suspend = try consumeComponentValue(stack, tree, source, tag, saved_location, allocator);
                 if (must_suspend) return;
             },
         }
     }
 }
 
-fn consumeComponentValue(stack: *Stack, tree: *ComponentTree, tag: Component.Tag, location: Source.Location, allocator: Allocator) !bool {
+fn consumeComponentValue(
+    stack: *Stack,
+    tree: *ComponentTree,
+    source: Source,
+    tag: Component.Tag,
+    location: Source.Location,
+    allocator: Allocator,
+) !bool {
     switch (tag) {
         .token_left_curly, .token_left_bracket, .token_left_paren => {
             try stack.pushSimpleBlock(tree, tag, location, false, allocator);
@@ -315,8 +366,13 @@ fn consumeComponentValue(stack: *Stack, tree: *ComponentTree, tag: Component.Tag
             try stack.pushFunction(tree, location, allocator);
             return true;
         },
+        .token_delim => {
+            const codepoint = source.getDelimeter(location);
+            try stack.addComponent(tree, .token_delim, location, Extra.make(codepoint), allocator);
+            return false;
+        },
         else => {
-            try stack.addToken(tree, tag, location, allocator);
+            try stack.addComponent(tree, tag, location, Extra.make(0), allocator);
             return false;
         },
     }
@@ -333,7 +389,7 @@ fn consumeSimpleBlock(stack: *Stack, tree: *ComponentTree, source: Source, locat
             // NOTE: Parse error
             return stack.popSimpleBlock(tree);
         } else {
-            const must_suspend = try consumeComponentValue(stack, tree, tag, saved_location, allocator);
+            const must_suspend = try consumeComponentValue(stack, tree, source, tag, saved_location, allocator);
             if (must_suspend) return;
         }
     }
@@ -350,7 +406,7 @@ fn consumeFunction(stack: *Stack, tree: *ComponentTree, source: Source, location
                 return stack.popFrame(tree);
             },
             else => {
-                const must_suspend = try consumeComponentValue(stack, tree, tag, saved_location, allocator);
+                const must_suspend = try consumeComponentValue(stack, tree, source, tag, saved_location, allocator);
                 if (must_suspend) return;
             },
         }
@@ -379,31 +435,31 @@ test "parse a stylesheet" {
 
     // zig fmt: off
     const expected = [25]Component{
-        .{ .next_sibling = 25, .tag = .rule_list,          .location = .{ .value = 0 },  .extra = 0 },
-        .{ .next_sibling = 4,  .tag = .at_rule,            .location = .{ .value = 0 },  .extra = 0 },
-        .{ .next_sibling = 3,  .tag = .token_whitespace,   .location = .{ .value = 8 },  .extra = 0 },
-        .{ .next_sibling = 4,  .tag = .token_string,       .location = .{ .value = 9 },  .extra = 0 },
-        .{ .next_sibling = 7,  .tag = .at_rule,            .location = .{ .value = 18 }, .extra = 6 },
-        .{ .next_sibling = 6,  .tag = .token_whitespace,   .location = .{ .value = 27 }, .extra = 0 },
-        .{ .next_sibling = 7,  .tag = .simple_block_curly, .location = .{ .value = 28 }, .extra = 0 },
-        .{ .next_sibling = 25, .tag = .qualified_rule,     .location = .{ .value = 32 }, .extra = 10 },
-        .{ .next_sibling = 9,  .tag = .token_ident,        .location = .{ .value = 32 }, .extra = 0 },
-        .{ .next_sibling = 10,  .tag = .token_whitespace,   .location = .{ .value = 36 }, .extra = 0 },
-        .{ .next_sibling = 25, .tag = .simple_block_curly, .location = .{ .value = 37 }, .extra = 0 },
-        .{ .next_sibling = 12,  .tag = .token_whitespace,   .location = .{ .value = 38 }, .extra = 0 },
-        .{ .next_sibling = 24, .tag = .function,           .location = .{ .value = 43 }, .extra = 0 },
-        .{ .next_sibling = 14,  .tag = .token_ident,        .location = .{ .value = 49 }, .extra = 0 },
-        .{ .next_sibling = 15,  .tag = .token_comma,        .location = .{ .value = 51 }, .extra = 0 },
-        .{ .next_sibling = 16,  .tag = .token_whitespace,   .location = .{ .value = 52 }, .extra = 0 },
-        .{ .next_sibling = 17,  .tag = .token_ident,        .location = .{ .value = 53 }, .extra = 0 },
-        .{ .next_sibling = 18,  .tag = .token_comma,        .location = .{ .value = 56 }, .extra = 0 },
-        .{ .next_sibling = 19,  .tag = .token_whitespace,   .location = .{ .value = 57 }, .extra = 0 },
-        .{ .next_sibling = 20,  .tag = .token_ident,        .location = .{ .value = 58 }, .extra = 0 },
-        .{ .next_sibling = 21,  .tag = .token_comma,        .location = .{ .value = 63 }, .extra = 0 },
-        .{ .next_sibling = 22,  .tag = .token_whitespace,   .location = .{ .value = 64 }, .extra = 0 },
-        .{ .next_sibling = 23,  .tag = .token_ident,        .location = .{ .value = 65 }, .extra = 0 },
-        .{ .next_sibling = 24,  .tag = .token_delim,        .location = .{ .value = 69 }, .extra = 0 },
-        .{ .next_sibling = 25,  .tag = .token_whitespace,   .location = .{ .value = 71 }, .extra = 0 },
+        .{ .next_sibling = 25, .tag = .rule_list,          .location = .{ .value = 0 },  .extra = Extra.make(0)   },
+        .{ .next_sibling = 4,  .tag = .at_rule,            .location = .{ .value = 0 },  .extra = Extra.make(0)   },
+        .{ .next_sibling = 3,  .tag = .token_whitespace,   .location = .{ .value = 8 },  .extra = Extra.make(0)   },
+        .{ .next_sibling = 4,  .tag = .token_string,       .location = .{ .value = 9 },  .extra = Extra.make(0)   },
+        .{ .next_sibling = 7,  .tag = .at_rule,            .location = .{ .value = 18 }, .extra = Extra.make(6)   },
+        .{ .next_sibling = 6,  .tag = .token_whitespace,   .location = .{ .value = 27 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 7,  .tag = .simple_block_curly, .location = .{ .value = 28 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 25, .tag = .qualified_rule,     .location = .{ .value = 32 }, .extra = Extra.make(10)  },
+        .{ .next_sibling = 9,  .tag = .token_ident,        .location = .{ .value = 32 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 10, .tag = .token_whitespace,   .location = .{ .value = 36 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 25, .tag = .simple_block_curly, .location = .{ .value = 37 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 12, .tag = .token_whitespace,   .location = .{ .value = 38 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 24, .tag = .function,           .location = .{ .value = 43 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 14, .tag = .token_ident,        .location = .{ .value = 49 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 15, .tag = .token_comma,        .location = .{ .value = 51 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 16, .tag = .token_whitespace,   .location = .{ .value = 52 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 17, .tag = .token_ident,        .location = .{ .value = 53 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 18, .tag = .token_comma,        .location = .{ .value = 56 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 19, .tag = .token_whitespace,   .location = .{ .value = 57 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 20, .tag = .token_ident,        .location = .{ .value = 58 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 21, .tag = .token_comma,        .location = .{ .value = 63 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 22, .tag = .token_whitespace,   .location = .{ .value = 64 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 23, .tag = .token_ident,        .location = .{ .value = 65 }, .extra = Extra.make(0)   },
+        .{ .next_sibling = 24, .tag = .token_delim,        .location = .{ .value = 69 }, .extra = Extra.make('!') },
+        .{ .next_sibling = 25, .tag = .token_whitespace,   .location = .{ .value = 71 }, .extra = Extra.make(0)   },
     };
     // zig fmt: on
 
