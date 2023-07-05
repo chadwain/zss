@@ -8,6 +8,10 @@ const Element = zss.ElementTree.Element;
 const used_values = zss.used_values;
 const ZssRect = used_values.ZssRect;
 
+pub const BoundedArrayList = @import("./bounded_array_list.zig").BoundedArrayList;
+pub const BoundedArrayHashMap = @import("./bounded_array_hash_map.zig").BoundedArrayHashMap;
+pub const unicode = @import("./unicode.zig");
+
 pub fn Ratio(comptime T: type) type {
     const typeInfo = @typeInfo(T).Int;
     const Unsigned = std.meta.Int(.unsigned, typeInfo.bits);

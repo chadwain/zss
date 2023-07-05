@@ -4,6 +4,8 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
+const zss = @import("../../zss.zig");
+const toLowercase = zss.util.unicode.toLowercase;
 const syntax = @import("./syntax.zig");
 const Component = syntax.Component;
 const Extra = Component.Extra;
@@ -34,15 +36,40 @@ pub const Source = struct {
     }
 
     fn getDelimeter(source: Source, location: Location) u21 {
-        return source.inner.getDelimTokenCodepoint(location);
+        return source.inner.delimTokenCodepoint(location);
+    }
+
+    pub fn identTokenIterator(source: Source, start: Location) IdentTokenIterator {
+        return .{ .inner = source.inner.identSequenceIterator(start) };
     }
 
     pub fn matchKeyword(source: Source, location: Location, keyword: []const u21) bool {
-        return source.inner.matchIdentTokenIgnoreCase(location, keyword);
+        var it = source.inner.identSequenceIterator(location);
+        for (keyword) |kw_codepoint| {
+            const it_codepoint = it.next(source) orelse return false;
+            if (toLowercase(kw_codepoint) != toLowercase(it_codepoint)) return false;
+        }
+        return it.next() == null;
     }
 
-    pub fn readIdentToken(source: Source, location: Location, allocator: Allocator) ![]u21 {
-        return source.inner.readIdentToken(location, allocator);
+    pub fn identTokensEqlIgnoreCase(source: Source, ident1: Location, ident2: Location) bool {
+        if (ident1.value == ident2.value) return true;
+        var it1 = source.inner.identSequenceIterator(ident1);
+        var it2 = source.inner.identSequenceIterator(ident2);
+        while (it1.next(source.inner)) |codepoint1| {
+            const codepoint2 = it2.next(source.inner) orelse return false;
+            if (toLowercase(codepoint1) != toLowercase(codepoint2)) return false;
+        } else {
+            return (it2.next(source.inner) == null);
+        }
+    }
+};
+
+pub const IdentTokenIterator = struct {
+    inner: tokenize.IdentSequenceIterator,
+
+    pub fn next(it: *IdentTokenIterator, source: Source) ?u21 {
+        return it.inner.next(source.inner);
     }
 };
 

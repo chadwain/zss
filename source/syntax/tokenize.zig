@@ -5,6 +5,8 @@ const assert = std.debug.assert;
 
 const zss = @import("../../zss.zig");
 const Tag = zss.syntax.Component.Tag;
+const toLowercase = zss.util.unicode.toLowercase;
+const hexDigitToNumber = zss.util.unicode.hexDigitToNumber;
 
 const u21_max = std.math.maxInt(u21);
 const replacement_character: u21 = 0xfffd;
@@ -24,34 +26,16 @@ pub const Source = struct {
         return Source{ .data = data };
     }
 
-    /// Asserts that `start` is the location of the start of an ident sequence.
-    pub fn readIdentToken(source: Source, start: Location, allocator: std.mem.Allocator) ![]u21 {
-        var list = std.ArrayList(u21).init(allocator);
-        defer list.deinit();
-
-        var location = start;
-        while (consumeIdentSequenceCodepoint(source, location)) |next_| {
-            location = next_.location;
-            try list.append(next_.codepoint);
-        }
-        assert(list.items.len > 0);
-        return list.toOwnedSlice();
-    }
-
-    pub fn matchIdentTokenIgnoreCase(source: Source, start: Location, string: []const u21) bool {
-        assert(string.len > 0);
-        var location = start;
-        for (string) |codepoint| {
-            const next_ = consumeIdentSequenceCodepoint(source, location) orelse return false;
-            location = next_.location;
-            if (toLowercase(codepoint) != toLowercase(next_.codepoint)) return false;
-        }
-
-        return consumeIdentSequenceCodepoint(source, location) == null;
-    }
-
-    pub fn getDelimTokenCodepoint(source: Source, location: Location) u21 {
+    pub fn delimTokenCodepoint(source: Source, location: Location) u21 {
         return source.next(location).codepoint;
+    }
+
+    /// Asserts that `start` is the location of the start of an ident sequence.
+    pub fn identSequenceIterator(source: Source, start: Location) IdentSequenceIterator {
+        var next_3: [3]u21 = undefined;
+        _ = source.read(start, &next_3);
+        assert(codepointsStartAnIdentSequence(next_3));
+        return IdentSequenceIterator{ .location = start };
     }
 
     const Next = struct { location: Location, codepoint: u21 };
@@ -72,6 +56,7 @@ pub const Source = struct {
                 break :blk '\n';
             },
             0x0C => '\n',
+            0x110000...u21_max => replacement_character,
             else => |c| c,
         };
         return Next{ .location = .{ .value = next_value }, .codepoint = codepoint };
@@ -85,6 +70,16 @@ pub const Source = struct {
             location = next_.location;
         }
         return location;
+    }
+};
+
+pub const IdentSequenceIterator = struct {
+    location: Source.Location,
+
+    pub fn next(it: *IdentSequenceIterator, source: Source) ?u21 {
+        const next_ = consumeIdentSequenceCodepoint(source, it.location) orelse return null;
+        it.location = next_.location;
+        return next_.codepoint;
     }
 };
 
@@ -181,35 +176,6 @@ pub fn nextToken(source: Source, location: Source.Location) NextToken {
     }
 }
 
-fn toLowercase(codepoint: u21) u21 {
-    return switch (codepoint) {
-        'A'...'Z' => codepoint - 'A' + 'a',
-        else => codepoint,
-    };
-}
-
-fn hexDigitToNumber(codepoint: u21) u4 {
-    return @intCast(u4, switch (codepoint) {
-        '0'...'9' => codepoint - '0',
-        'A'...'F' => codepoint - 'A' + 10,
-        'a'...'f' => codepoint - 'a' + 10,
-        else => unreachable,
-    });
-}
-
-fn isIdentCodepoint(codepoint: u21) bool {
-    switch (codepoint) {
-        '0'...'9',
-        'A'...'Z',
-        'a'...'z',
-        '-',
-        '_',
-        0x80...0x10FFFF,
-        => return true,
-        else => return false,
-    }
-}
-
 fn isIdentStartCodepoint(codepoint: u21) bool {
     switch (codepoint) {
         'A'...'Z',
@@ -227,7 +193,7 @@ fn isValidFirstEscapedCodepoint(codepoint: u21) bool {
 
 fn codepointsStartAnIdentSequence(codepoints: [3]u21) bool {
     return switch (codepoints[0]) {
-        '-' => return isIdentStartCodepoint(codepoints[1]) or
+        '-' => isIdentStartCodepoint(codepoints[1]) or
             (codepoints[1] == '-') or
             (codepoints[1] == '\\' and isValidFirstEscapedCodepoint(codepoints[2])),
 
@@ -237,7 +203,7 @@ fn codepointsStartAnIdentSequence(codepoints: [3]u21) bool {
         0x80...0x10FFFF,
         => true,
 
-        '\\' => return isValidFirstEscapedCodepoint(codepoints[1]),
+        '\\' => isValidFirstEscapedCodepoint(codepoints[1]),
 
         else => false,
     };
