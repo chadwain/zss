@@ -304,7 +304,7 @@ fn typeSelector(context: *Context, it: Iterator) !?Pair(selectors.TypeSelector) 
         }
 
         switch (second_name) {
-            .identifier => |identifier| result.name = try context.env.addTypeName(identifier, context.source),
+            .identifier => |identifier| result.name = try context.env.addTypeOrAttributeName(identifier, context.source),
             .asterisk => result.name = NameId.any,
         }
         return .{ result, element_type[1] };
@@ -313,7 +313,7 @@ fn typeSelector(context: *Context, it: Iterator) !?Pair(selectors.TypeSelector) 
         result.name = switch (element_type[0].first_name) {
             .empty => return null,
             .asterisk => NameId.any,
-            .identifier => |identifier| try context.env.addTypeName(identifier, context.source),
+            .identifier => |identifier| try context.env.addTypeOrAttributeName(identifier, context.source),
         };
 
         return .{ result, element_type[1] };
@@ -436,7 +436,7 @@ fn attributeSelector(context: *Context, it: Iterator) !?Pair(selectors.Attribute
         }
 
         switch (second_name) {
-            .identifier => |identifier| result.name = try context.env.addTypeName(identifier, context.source),
+            .identifier => |identifier| result.name = try context.env.addTypeOrAttributeName(identifier, context.source),
             // The local name must be an identifier
             .asterisk => return null,
         }
@@ -444,7 +444,7 @@ fn attributeSelector(context: *Context, it: Iterator) !?Pair(selectors.Attribute
         // An unspecified namespace resolves to no namespace
         result.namespace = NamespaceId.none;
         result.name = switch (element_type[0].first_name) {
-            .identifier => |identifier| try context.env.addTypeName(identifier, context.source),
+            .identifier => |identifier| try context.env.addTypeOrAttributeName(identifier, context.source),
             // The local name must be an identifier
             .empty, .asterisk => return null,
         };
