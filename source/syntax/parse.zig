@@ -46,10 +46,10 @@ pub const Source = struct {
     pub fn matchKeyword(source: Source, location: Location, keyword: []const u21) bool {
         var it = source.inner.identSequenceIterator(location);
         for (keyword) |kw_codepoint| {
-            const it_codepoint = it.next(source) orelse return false;
+            const it_codepoint = it.next(source.inner) orelse return false;
             if (toLowercase(kw_codepoint) != toLowercase(it_codepoint)) return false;
         }
-        return it.next() == null;
+        return it.next(source.inner) == null;
     }
 
     pub fn identTokensEqlIgnoreCase(source: Source, ident1: Location, ident2: Location) bool {
@@ -87,6 +87,20 @@ pub fn parseStylesheet(source: Source, allocator: Allocator) !ComponentTree {
     return tree;
 }
 
+pub fn parseListOfComponentValues(source: Source, allocator: Allocator) !ComponentTree {
+    var stack = try Stack.init(allocator);
+    defer stack.deinit(allocator);
+
+    var tree = ComponentTree{ .components = .{} };
+    errdefer tree.deinit(allocator);
+
+    var location = Source.Location{};
+
+    try stack.pushListOfComponentValues(&tree, location, allocator);
+    try loop(&stack, &tree, source, &location, allocator);
+    return tree;
+}
+
 const Stack = struct {
     list: ArrayListUnmanaged(Frame),
 
@@ -98,6 +112,7 @@ const Stack = struct {
         const Data = union(enum) {
             root,
             list_of_rules: ListOfRules,
+            list_of_component_values,
             qualified_rule,
             at_rule,
             simple_block: SimpleBlock,
@@ -172,6 +187,16 @@ const Stack = struct {
             .extra = Extra.make(0),
         });
         try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .{ .list_of_rules = .{ .top_level = top_level } } });
+    }
+
+    fn pushListOfComponentValues(stack: *Stack, tree: *ComponentTree, location: Source.Location, allocator: Allocator) !void {
+        const index = try newComponent(tree, allocator, .{
+            .next_sibling = undefined,
+            .tag = .component_list,
+            .location = location,
+            .extra = Extra.make(0),
+        });
+        try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .list_of_component_values });
     }
 
     fn pushAtRule(stack: *Stack, tree: *ComponentTree, location: Source.Location, allocator: Allocator) !void {
@@ -287,6 +312,7 @@ fn loop(stack: *Stack, tree: *ComponentTree, source: Source, location: *Source.L
         switch (frame.data) {
             .root => unreachable,
             .list_of_rules => try consumeListOfRules(stack, tree, source, location, allocator),
+            .list_of_component_values => try consumeListOfComponentValues(stack, tree, source, location, allocator),
             .qualified_rule => try consumeQualifiedRule(stack, tree, source, location, allocator),
             .at_rule => try consumeAtRule(stack, tree, source, location, allocator),
             .simple_block => try consumeSimpleBlock(stack, tree, source, location, allocator),
@@ -318,6 +344,20 @@ fn consumeListOfRules(stack: *Stack, tree: *ComponentTree, source: Source, locat
                 location.* = saved_location;
                 try stack.pushQualifiedRule(tree, saved_location, allocator);
                 return;
+            },
+        }
+    }
+}
+
+fn consumeListOfComponentValues(stack: *Stack, tree: *ComponentTree, source: Source, location: *Source.Location, allocator: Allocator) !void {
+    while (true) {
+        const saved_location = location.*;
+        const tag = source.next(location);
+        switch (tag) {
+            .token_eof => return stack.popFrame(tree),
+            else => {
+                const must_suspend = try consumeComponentValue(stack, tree, source, tag, saved_location, allocator);
+                if (must_suspend) return;
             },
         }
     }

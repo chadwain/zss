@@ -44,22 +44,22 @@ pub const Component = struct {
 
     pub const Tag = enum {
         /// The end of a sequence of tokens
-        /// location: The end of a Source
+        /// location: The end of the stylesheet
         token_eof,
         /// A sequence of one or more comment blocks
         /// location: The opening '/' of the first comment block
         token_comments,
 
-        /// An identifier.
+        /// An identifier
         /// location: The first codepoint of the identifier
         token_ident,
         /// An identifier + a '(' codepoint
-        /// location: The first codepoint of the function name
+        /// location: The first codepoint of the identifier
         token_function,
-        /// A '@' codepoint + an identifier
+        /// An '@' codepoint + an identifier
         /// location: The '@' codepoint
         token_at_keyword,
-        /// A '#' codepoint + an identifier
+        /// A '#' codepoint + an identifier, that does not form a valid ID selector
         /// location: The '#' codepoint
         token_hash_unrestricted,
         /// A '#' codepoint + an identifier, that also forms a valid ID selector
@@ -79,7 +79,7 @@ pub const Component = struct {
         token_bad_url,
         /// A single codepoint
         /// location: The codepoint
-        /// extra: The codepoint, which you can get with this code: `extra.codepoint()`.
+        /// extra: Use `extra.codepoint()` to get the value of the codepoint.
         token_delim,
         /// A numeric value (integral or floating point)
         /// location: The first codepoint of the number
@@ -127,42 +127,47 @@ pub const Component = struct {
         /// location: The codepoint
         token_right_curly,
 
-        /// A name beginning with '@'
+        /// An at-rule
         /// children: A prelude (an arbitrary sequence of components) + optionally, a `simple_block_curly`
-        /// location: The '@' of its name
+        /// location: The location of the <at-keyword-token> that started this rule
         /// extra: Use `extra.index()` to get a component tree index.
         ///        Then, if the value is 0, the at-rule does not have an associated <{}-block>.
         ///        Otherwise, the at-rule does have a <{}-block>, and the value is the index of that block (with tag = `simple_block_curly`).
         at_rule,
+        /// A qualified rule
         /// children: A prelude (an arbitrary sequence of components) + a `simple_block_curly`
+        /// location: The location of the first token of the prelude
         /// extra: Use `extra.index()` to get a component tree index.
         ///        The value is the index of the qualified rule's associated <{}-block> (with tag = `simple_block_curly`).
         qualified_rule,
-        /// An identifier
+        /// A function
         /// children: An arbitrary sequence of components
-        /// location: The first codepoint of its name
+        /// location: The location of the <function-token> that created this component
         function,
         /// A '[]-block'
         /// children: An arbitrary sequence of components
-        /// location: The '[' codepoint that opens the block
+        /// location: The location of the <[-token> that opens this block
         simple_block_bracket,
         /// A '{}-block'
         /// children: An arbitrary sequence of components
-        /// location: The '{' codepoint that opens the block
+        /// location: The location of the <{-token> that opens this block
         simple_block_curly,
         /// A '()-block'
         /// children: An arbitrary sequence of components
-        /// location: The '(' codepoint that opens the block
+        /// location: The location of the <(-token> that opens this block
         simple_block_paren,
 
-        /// A list of at-rules and qualified rules.
+        /// A list of at-rules and qualified rules
         /// children: A sequence of `at_rule` and `qualified_rule`
         /// location: The beginning of the stylesheet
         rule_list,
+        /// A list of component values
+        /// children: An arbitrary sequence of components
+        /// location: The beginning of the stylesheet
+        component_list,
     };
 };
 
-/// A tree of `Component`s. Implemented as a skip tree, with elements being indexed by `Size`.
 pub const ComponentTree = struct {
     components: List = .{},
 
