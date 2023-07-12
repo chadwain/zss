@@ -67,7 +67,7 @@ pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
     env.stylesheets.appendAssumeCapacity(stylesheet);
 }
 
-/// Assigns unique indeces to CSS identifiers (<ident-token>'s)
+/// Assigns unique indeces to CSS identifiers (<ident-token>'s).
 /// Identifiers are compared case-insensitively.
 const IdentifierSet = struct {
     map: AutoArrayHashMapUnmanaged(void, Slice) = .{},
@@ -110,7 +110,7 @@ const IdentifierSet = struct {
             var hasher = Hasher{};
             var it = key.iterator();
             while (it.next()) |codepoint| {
-                hasher.update(codepoint);
+                hasher.update(toLowercase(codepoint));
             }
             return hasher.final();
         }
@@ -142,10 +142,10 @@ const IdentifierSet = struct {
         const Adapter = struct {
             generic: AdapterGeneric,
 
-            pub fn hash(self: @This(), k: Key) u32 {
+            pub inline fn hash(self: @This(), k: Key) u32 {
                 return self.generic.hash(k);
             }
-            pub fn eql(self: @This(), k: Key, _: void, index: usize) bool {
+            pub inline fn eql(self: @This(), k: Key, _: void, index: usize) bool {
                 return self.generic.eql(k, {}, index);
             }
         };
