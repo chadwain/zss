@@ -2,12 +2,16 @@ const zss = @import("../../zss.zig");
 const Environment = zss.Environment;
 const NamespaceId = Environment.NamespaceId;
 const NameId = Environment.NameId;
+const ElementTree = zss.ElementTree;
+const Element = ElementTree.Element;
 const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;
 
 const parse = @import("./parse.zig");
 
 const std = @import("std");
+const assert = std.debug.assert;
+const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 
 pub const ComplexSelectorList = struct {
@@ -16,6 +20,13 @@ pub const ComplexSelectorList = struct {
     pub fn deinit(complex_selector_list: *ComplexSelectorList, allocator: Allocator) void {
         for (complex_selector_list.list) |*complex_selector| complex_selector.deinit(allocator);
         allocator.free(complex_selector_list.list);
+    }
+
+    pub fn matchElement(sel: ComplexSelectorList, slice: ElementTree.Slice, element: Element) bool {
+        for (sel.list) |complex| {
+            if (complex.matchElement(slice, element)) return true;
+        }
+        return false;
     }
 };
 
@@ -27,6 +38,14 @@ pub const ComplexSelector = struct {
         for (complex.compounds) |*compound| compound.deinit(allocator);
         allocator.free(complex.compounds);
         allocator.free(complex.combinators);
+    }
+
+    pub fn matchElement(sel: ComplexSelector, slice: ElementTree.Slice, element: Element) bool {
+        if (sel.compounds.len > 1) panic("TODO: More than 1 compound selector in a complex selector", .{});
+        for (sel.compounds, 0..) |_, i| {
+            const compound = sel.compounds[sel.compounds.len - 1 - i];
+            if (compound.matchElement(slice, element)) return true;
+        }
     }
 };
 
@@ -42,6 +61,16 @@ pub const CompoundSelector = struct {
         for (compound.pseudo_elements) |element| allocator.free(element.classes);
         allocator.free(compound.pseudo_elements);
     }
+
+    fn matchElement(sel: CompoundSelector, slice: ElementTree.Slice, element: Element) bool {
+        if (sel.type_selector) |type_selector| {
+            const element_type = slice.get(.type, element);
+            if (!type_selector.matches(element_type)) return false;
+        }
+        if (sel.subclasses.len > 0) panic("TODO: Subclass selectors in a compound selector", .{});
+        if (sel.pseudo_elements.len > 0) panic("TODO: Pseudo element selectors in a compound selector", .{});
+        return true;
+    }
 };
 
 pub const PseudoElement = struct {
@@ -52,7 +81,76 @@ pub const PseudoElement = struct {
 pub const TypeSelector = struct {
     namespace: NamespaceId,
     name: NameId,
+
+    fn matches(self: TypeSelector, element_type: ElementTree.Type) bool {
+        switch (element_type.namespace) {
+            .any => unreachable,
+            .none => {},
+            _ => {},
+        }
+        switch (self.namespace) {
+            .any => {},
+            .none => if (self.namespace != element_type.namespace) return false,
+            _ => if (self.namespace != element_type.namespace) return false,
+        }
+
+        switch (element_type.name) {
+            .any => unreachable,
+            .unspecified => {},
+            _ => {},
+        }
+        switch (self.name) {
+            .any => {},
+            .unspecified => return false,
+            _ => if (self.name != element_type.name) return false,
+        }
+
+        return true;
+    }
 };
+
+test "matching type selectors" {
+    const some_namespace = @intToEnum(NamespaceId, 24);
+    const some_name = @intToEnum(NameId, 42);
+
+    const e1 = ElementTree.Type{ .namespace = .none, .name = .unspecified };
+    const e2 = ElementTree.Type{ .namespace = .none, .name = some_name };
+    const e3 = ElementTree.Type{ .namespace = some_namespace, .name = .unspecified };
+    const e4 = ElementTree.Type{ .namespace = some_namespace, .name = some_name };
+
+    const expect = std.testing.expect;
+    const matches = TypeSelector.matches;
+
+    try expect(matches(.{ .namespace = .any, .name = .any }, e1));
+    try expect(matches(.{ .namespace = .any, .name = .any }, e2));
+    try expect(matches(.{ .namespace = .any, .name = .any }, e3));
+    try expect(matches(.{ .namespace = .any, .name = .any }, e4));
+
+    try expect(!matches(.{ .namespace = .any, .name = .unspecified }, e1));
+    try expect(!matches(.{ .namespace = .any, .name = .unspecified }, e2));
+    try expect(!matches(.{ .namespace = .any, .name = .unspecified }, e3));
+    try expect(!matches(.{ .namespace = .any, .name = .unspecified }, e4));
+
+    try expect(!matches(.{ .namespace = some_namespace, .name = .any }, e1));
+    try expect(!matches(.{ .namespace = some_namespace, .name = .any }, e2));
+    try expect(matches(.{ .namespace = some_namespace, .name = .any }, e3));
+    try expect(matches(.{ .namespace = some_namespace, .name = .any }, e4));
+
+    try expect(!matches(.{ .namespace = .any, .name = some_name }, e1));
+    try expect(matches(.{ .namespace = .any, .name = some_name }, e2));
+    try expect(!matches(.{ .namespace = .any, .name = some_name }, e3));
+    try expect(matches(.{ .namespace = .any, .name = some_name }, e4));
+
+    try expect(!matches(.{ .namespace = some_namespace, .name = .unspecified }, e1));
+    try expect(!matches(.{ .namespace = some_namespace, .name = .unspecified }, e2));
+    try expect(!matches(.{ .namespace = some_namespace, .name = .unspecified }, e3));
+    try expect(!matches(.{ .namespace = some_namespace, .name = .unspecified }, e4));
+
+    try expect(!matches(.{ .namespace = some_namespace, .name = some_name }, e1));
+    try expect(!matches(.{ .namespace = some_namespace, .name = some_name }, e2));
+    try expect(!matches(.{ .namespace = some_namespace, .name = some_name }, e3));
+    try expect(matches(.{ .namespace = some_namespace, .name = some_name }, e4));
+}
 
 pub const SubclassSelector = union(enum) {
     id: ComponentTree.Size,
@@ -99,16 +197,16 @@ pub fn parseSelectorList(
 const TestParseSelectorListExpected = []const struct {
     compounds: []const struct {
         type_selector: ?struct {
-            namespace: NamespaceId.Value = NamespaceId.any.value,
-            name: NameId.Value,
+            namespace: NamespaceId = .any,
+            name: NameId,
         } = null,
         subclasses: []const union(std.meta.Tag(SubclassSelector)) {
             id: ComponentTree.Size,
             class: ComponentTree.Size,
             pseudo: ComponentTree.Size,
             attribute: struct {
-                namespace: NamespaceId.Value = NamespaceId.none.value,
-                name: NameId.Value,
+                namespace: NamespaceId = .none,
+                name: NameId,
                 complex: ?AttributeSelector.Complex = null,
             },
         } = &.{},
@@ -132,8 +230,8 @@ fn expectEqualComplexSelectorLists(a: TestParseSelectorListExpected, b: []const 
         for (a_complex.compounds, b_complex.compounds) |a_compound, b_compound| {
             try expectEqual(a_compound.type_selector == null, b_compound.type_selector == null);
             if (a_compound.type_selector != null) {
-                try expectEqual(a_compound.type_selector.?.namespace, b_compound.type_selector.?.namespace.value);
-                try expectEqual(a_compound.type_selector.?.name, b_compound.type_selector.?.name.value);
+                try expectEqual(a_compound.type_selector.?.namespace, b_compound.type_selector.?.namespace);
+                try expectEqual(a_compound.type_selector.?.name, b_compound.type_selector.?.name);
             }
 
             try expectEqual(a_compound.subclasses.len, b_compound.subclasses.len);
@@ -145,8 +243,8 @@ fn expectEqualComplexSelectorLists(a: TestParseSelectorListExpected, b: []const 
                     .class => try expectEqual(a_sub.class, b_sub.class),
                     .pseudo => try expectEqual(a_sub.pseudo, b_sub.pseudo),
                     .attribute => {
-                        try expectEqual(a_sub.attribute.namespace, b_sub.attribute.namespace.value);
-                        try expectEqual(a_sub.attribute.name, b_sub.attribute.name.value);
+                        try expectEqual(a_sub.attribute.namespace, b_sub.attribute.namespace);
+                        try expectEqual(a_sub.attribute.name, b_sub.attribute.name);
                         try expectEqual(a_sub.attribute.complex, b_sub.attribute.complex);
                     },
                 }
@@ -181,10 +279,16 @@ fn testParseSelectorList(input: []const u7, expected: TestParseSelectorListExpec
 
 test "parsing selector lists" {
     const a = zss.util.ascii8ToAscii7;
+    const n = struct {
+        fn f(x: u24) NameId {
+            return @intToEnum(NameId, x);
+        }
+    }.f;
+
     try testParseSelectorList(a("element-name"), &.{
         .{
             .compounds = &.{
-                .{ .type_selector = .{ .name = 0 } },
+                .{ .type_selector = .{ .name = n(0) } },
             },
         },
     });
@@ -192,9 +296,9 @@ test "parsing selector lists" {
         .{
             .compounds = &.{
                 .{
-                    .type_selector = .{ .name = 0 },
+                    .type_selector = .{ .name = n(0) },
                     .subclasses = &.{
-                        .{ .attribute = .{ .name = 1 } },
+                        .{ .attribute = .{ .name = n(1) } },
                     },
                 },
             },
@@ -204,9 +308,9 @@ test "parsing selector lists" {
         .{
             .combinators = &.{ .descendant, .child },
             .compounds = &.{
-                .{ .type_selector = .{ .name = 0 } },
-                .{ .type_selector = .{ .name = 1 } },
-                .{ .type_selector = .{ .name = 2 } },
+                .{ .type_selector = .{ .name = n(0) } },
+                .{ .type_selector = .{ .name = n(1) } },
+                .{ .type_selector = .{ .name = n(2) } },
             },
         },
     });

@@ -1,3 +1,8 @@
+const zss = @import("../../zss.zig");
+const Environment = zss.Environment;
+const NamespaceId = Environment.NamespaceId;
+const NameId = Environment.NameId;
+
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -6,14 +11,16 @@ const builtin = @import("builtin");
 
 const ElementTree = @This();
 
-list: MultiArrayList(ListItem) = .{},
-free_list: Size = max_size,
+nodes: MultiArrayList(Node) = .{},
+free_list_head: Size = max_size,
 
-const ListItem = struct {
+const Node = struct {
     generation: Generation,
     first_child: Element,
     last_child: Element,
     next_sibling: Element,
+
+    type: Type,
 };
 
 pub const Size = u16;
@@ -38,73 +45,83 @@ pub const Element = packed struct {
     }
 };
 
+pub const Type = struct {
+    namespace: NamespaceId,
+    name: NameId,
+};
+
 pub fn deinit(tree: *ElementTree, allocator: Allocator) void {
-    tree.list.deinit(allocator);
+    tree.nodes.deinit(allocator);
 }
 
 pub fn allocateElement(tree: *ElementTree, allocator: Allocator) !Element {
-    if (tree.free_list == max_size) {
+    if (tree.free_list_head == max_size) {
         var result: [1]Element = undefined;
         try tree.allocateElementsNoFreeList(allocator, &result);
         return result[0];
     } else {
-        const index = tree.free_list;
-        const generation = tree.list.items(.generation)[index];
-        const next_sibling = &tree.list.items(.next_sibling)[index];
+        const index = tree.free_list_head;
+        const generation = tree.nodes.items(.generation)[index];
+        const next_sibling = &tree.nodes.items(.next_sibling)[index];
         const next_free_list = next_sibling.index;
         next_sibling.index = undefined;
-        tree.free_list = next_free_list;
+        tree.free_list_head = next_free_list;
         return Element{ .index = index, .generation = generation };
     }
 }
 
 pub fn allocateElements(tree: *ElementTree, allocator: Allocator, buffer: []Element) !void {
-    const list_slice = tree.list.slice();
+    const nodes = tree.nodes.slice();
     var i: Size = 0;
-    var free_element = tree.free_list;
+    var free_element = tree.free_list_head;
     while (i < buffer.len) : (i += 1) {
         if (free_element == max_size) {
             try tree.allocateElementsNoFreeList(allocator, buffer[i..]);
-            tree.free_list = max_size;
+            tree.free_list_head = max_size;
             return;
         }
-        buffer[i] = Element{ .index = free_element, .generation = list_slice.items(.generation)[free_element] };
-        free_element = list_slice.items(.next_sibling)[free_element].index;
+        buffer[i] = Element{ .index = free_element, .generation = nodes.items(.generation)[free_element] };
+        free_element = nodes.items(.next_sibling)[free_element].index;
     }
-    tree.free_list = free_element;
+    tree.free_list_head = free_element;
 }
 
-pub fn allocateElementsNoFreeList(tree: *ElementTree, allocator: Allocator, buffer: []Element) !void {
-    const list_len = @intCast(Size, tree.list.len);
-    if (buffer.len >= max_size - list_len) return error.ExhaustedAllPossibleElements;
-    const buffer_len = @intCast(Size, buffer.len);
-    try tree.list.resize(allocator, list_len + buffer.len);
+fn allocateElementsNoFreeList(tree: *ElementTree, allocator: Allocator, buffer: []Element) !void {
+    const nodes_len = @intCast(Size, tree.nodes.len);
+    if (buffer.len >= max_size - nodes_len) return error.OutOfMemory;
 
-    const generation = tree.list.items(.generation);
+    try tree.nodes.resize(allocator, nodes_len + @intCast(Size, buffer.len));
+    var nodes = tree.nodes.slice();
+
     var i: Size = 0;
-    while (i < buffer_len) : (i += 1) {
-        generation[list_len + i] = 0;
-        buffer[i] = Element{ .index = list_len + i, .generation = 0 };
+    while (i < buffer.len) : (i += 1) {
+        buffer[i] = Element{ .index = nodes_len + i, .generation = 0 };
+        nodes.set(nodes_len + i, Node{
+            .generation = 0,
+            .next_sibling = Element.null_element,
+            .first_child = Element.null_element,
+            .last_child = Element.null_element,
+            .type = Type{
+                .namespace = NamespaceId.none,
+                .name = NameId.unspecified,
+            },
+        });
     }
 }
 
 pub fn freeElement(tree: *ElementTree, element: Element) void {
-    assert(element.index < tree.list.len);
-    const generation = &tree.list.items(.generation)[element.index];
-    assert(element.generation == generation.*);
-    const next_sibling = &tree.list.items(.next_sibling)[element.index];
-    if (generation.* != max_generation) {
-        generation.* += 1;
-        next_sibling.* = .{ .index = tree.free_list, .generation = undefined };
-        tree.free_list = element.index;
-    } else {
-        next_sibling.* = undefined;
+    var new_node_value = @as(Node, undefined);
+    new_node_value.generation = tree.nodes.items(.generation)[element.index];
+    assert(element.generation == new_node_value.generation);
+
+    if (new_node_value.generation != max_generation) {
+        // This node can be used again; add it to the free list.
+        new_node_value.generation += 1;
+        new_node_value.next_sibling = .{ .index = tree.free_list_head, .generation = undefined };
+        tree.free_list_head = element.index;
     }
 
-    if (builtin.mode == .Debug) {
-        tree.list.items(.first_child)[element.index] = undefined;
-        tree.list.items(.last_child)[element.index] = undefined;
-    }
+    tree.nodes.set(element.index, new_node_value);
 }
 
 const Constness = enum { Const, Mutable };
@@ -169,13 +186,13 @@ fn SliceTemplate(comptime constness: Constness) type {
 }
 
 fn sliceTemplate(tree: *const ElementTree, comptime constness: Constness) SliceTemplate(constness) {
-    const list_slice = tree.list.slice();
+    const nodes = tree.nodes.slice();
     return SliceTemplate(constness){
-        .len = @intCast(Size, list_slice.len),
-        .generation = list_slice.items(.generation).ptr,
-        .first_child = list_slice.items(.first_child).ptr,
-        .last_child = list_slice.items(.last_child).ptr,
-        .next_sibling = list_slice.items(.next_sibling).ptr,
+        .len = @intCast(Size, nodes.len),
+        .generation = nodes.items(.generation).ptr,
+        .first_child = nodes.items(.first_child).ptr,
+        .last_child = nodes.items(.last_child).ptr,
+        .next_sibling = nodes.items(.next_sibling).ptr,
     };
 }
 

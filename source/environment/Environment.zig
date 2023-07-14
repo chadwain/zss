@@ -20,7 +20,7 @@ const SegmentedList = std.SegmentedList;
 
 allocator: Allocator,
 stylesheets: ArrayListUnmanaged(Stylesheet) = .{},
-type_or_attribute_names: IdentifierSet = .{},
+type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value },
 default_namespace: ?NamespaceId = null,
 
 pub fn init(allocator: Allocator) Environment {
@@ -72,13 +72,12 @@ pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
 const IdentifierSet = struct {
     map: AutoArrayHashMapUnmanaged(void, Slice) = .{},
     data: SegmentedList(u8, 0) = .{},
+    max_size: usize,
 
     const Slice = struct {
         begin: u32,
         len: u32,
     };
-
-    const Index = u24;
 
     fn deinit(set: *IdentifierSet, allocator: Allocator) void {
         set.map.deinit(allocator);
@@ -136,7 +135,7 @@ const IdentifierSet = struct {
         }
     };
 
-    fn getOrPutGeneric(set: *IdentifierSet, allocator: Allocator, key: anytype) !Index {
+    fn getOrPutGeneric(set: *IdentifierSet, allocator: Allocator, key: anytype) !usize {
         const Key = @TypeOf(key);
 
         const Adapter = struct {
@@ -154,8 +153,9 @@ const IdentifierSet = struct {
         const result = try set.map.getOrPutAdapted(allocator, key, adapter);
         errdefer set.map.swapRemoveAt(result.index);
 
-        const index = std.math.cast(Index, result.index) orelse return error.Overflow;
         if (!result.found_existing) {
+            if (result.index >= set.max_size) return error.Overflow;
+
             var slice = Slice{ .begin = @intCast(u32, set.data.len), .len = 0 };
             var it = key.iterator();
             var buffer: [4]u8 = undefined;
@@ -168,10 +168,10 @@ const IdentifierSet = struct {
             result.value_ptr.* = slice;
         }
 
-        return index;
+        return result.index;
     }
 
-    fn getOrPutFromParserSource(set: *IdentifierSet, allocator: Allocator, source: ParserSource, location: ParserSource.Location) !Index {
+    fn getOrPutFromParserSource(set: *IdentifierSet, allocator: Allocator, source: ParserSource, location: ParserSource.Location) !usize {
         const Key = struct {
             source: ParserSource,
             location: ParserSource.Location,
@@ -195,14 +195,16 @@ const IdentifierSet = struct {
     }
 };
 
-pub const NameId = struct {
-    value: Value,
+pub const NameId = enum(u24) {
+    pub const Value = u24;
+    const max_value = std.math.maxInt(Value) - 1;
 
-    pub const Value = IdentifierSet.Index;
-    pub const any = NameId{ .value = std.math.maxInt(Value) };
+    unspecified = max_value,
+    any = max_value + 1,
+    _,
 };
 
 pub fn addTypeOrAttributeName(env: *Environment, identifier: ParserSource.Location, source: ParserSource) !NameId {
     const index = try env.type_or_attribute_names.getOrPutFromParserSource(env.allocator, source, identifier);
-    return NameId{ .value = index };
+    return @intToEnum(NameId, @intCast(NameId.Value, index));
 }
