@@ -30,12 +30,19 @@ pub const Source = struct {
         return source.next(location).codepoint;
     }
 
-    /// Asserts that `start` is the location of the start of an ident sequence.
-    pub fn identSequenceIterator(source: Source, start: Location) IdentSequenceIterator {
+    /// Asserts that `start` is the location of the start of an ident token.
+    pub fn identTokenIterator(source: Source, start: Location) IdentSequenceIterator {
         var next_3: [3]u21 = undefined;
         _ = source.read(start, &next_3);
         assert(codepointsStartAnIdentSequence(next_3));
         return IdentSequenceIterator{ .location = start };
+    }
+
+    /// Asserts that `start` is the location of the start of a hash id token.
+    pub fn hashIdTokenIterator(source: Source, start: Location) IdentSequenceIterator {
+        const hash = source.next(start);
+        assert(hash.codepoint == '#');
+        return identTokenIterator(source, hash.location);
     }
 
     const Next = struct { location: Location, codepoint: u21 };

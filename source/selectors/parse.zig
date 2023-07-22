@@ -263,7 +263,7 @@ fn compoundSelector(context: *Context, start: Iterator) !?Pair(selectors.Compoun
         const element = pseudoSelector(context, element_colon_2.next_it) orelse break;
         try pseudo_elements.ensureUnusedCapacity(context.env.allocator, 1);
 
-        var pseudo_classes = ArrayListUnmanaged(ComponentTree.Size){};
+        var pseudo_classes = ArrayListUnmanaged(selectors.PseudoName){};
         defer pseudo_classes.deinit(context.env.allocator);
         it = element[1];
         while (true) {
@@ -388,16 +388,20 @@ fn elementTypeSecondName(context: *Context, it: Iterator) ?Pair(ElementType.Seco
 fn subclassSelector(context: *Context, it: Iterator) !?Pair(selectors.SubclassSelector) {
     const first_component = context.next(it) orelse return null;
     switch (first_component.tag) {
-        .token_hash_id => return .{
-            selectors.SubclassSelector{ .id = first_component.index },
-            first_component.next_it,
+        .token_hash_id => {
+            const name = try context.env.addIdName(first_component.location, context.source);
+            return .{
+                selectors.SubclassSelector{ .id = name },
+                first_component.next_it,
+            };
         },
         .token_delim => {
             if (first_component.extra.codepoint() != '.') return null;
             const class_name = context.nextNoWhitespace(first_component.next_it) orelse return null;
             if (class_name.tag != .token_ident) return null;
+            const name = try context.env.addClassName(class_name.location, context.source);
             return .{
-                selectors.SubclassSelector{ .class = class_name.index },
+                selectors.SubclassSelector{ .class = name },
                 class_name.next_it,
             };
         },
@@ -499,17 +503,23 @@ fn attributeSelector(context: *Context, it: Iterator) !?Pair(selectors.Attribute
 }
 
 // Assumes that a colon ':' has been seen already.
-fn pseudoSelector(context: *Context, it: Iterator) ?Pair(ComponentTree.Size) {
+fn pseudoSelector(context: *Context, it: Iterator) ?Pair(selectors.PseudoName) {
     const main_component = context.nextNoWhitespace(it) orelse return null;
     switch (main_component.tag) {
-        .token_ident => return .{
-            main_component.index,
-            main_component.next_it,
+        .token_ident => {
+            // TODO: Get the actual pseudo class name.
+            const class: selectors.PseudoName = .unrecognized;
+            return .{
+                class,
+                main_component.next_it,
+            };
         },
         .function => {
+            // TODO: Get the actual pseudo class name.
+            const class: selectors.PseudoName = .unrecognized;
             if (anyValue(context, main_component.index)) {
                 return .{
-                    main_component.index,
+                    class,
                     main_component.next_it,
                 };
             } else {

@@ -2,6 +2,7 @@ const zss = @import("../../zss.zig");
 const Environment = zss.Environment;
 const NamespaceId = Environment.NamespaceId;
 const NameId = Environment.NameId;
+const IdClassId = Environment.IdClassId;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const ComponentTree = zss.syntax.ComponentTree;
@@ -40,9 +41,9 @@ pub const ComplexSelector = struct {
         allocator.free(complex.combinators);
     }
 
-    pub fn matchElement(sel: ComplexSelector, slice: ElementTree.Slice, element: Element) bool {
+    fn matchElement(sel: ComplexSelector, slice: ElementTree.Slice, element: Element) bool {
         if (sel.compounds.len > 1) panic("TODO: More than 1 compound selector in a complex selector", .{});
-        for (sel.compounds, 0..) |_, i| {
+        for (0..sel.compounds.len) |i| {
             const compound = sel.compounds[sel.compounds.len - 1 - i];
             if (compound.matchElement(slice, element)) return true;
         }
@@ -74,35 +75,27 @@ pub const CompoundSelector = struct {
 };
 
 pub const PseudoElement = struct {
-    name: ComponentTree.Size,
-    classes: []ComponentTree.Size,
+    name: PseudoName,
+    classes: []PseudoName,
 };
 
 pub const TypeSelector = struct {
     namespace: NamespaceId,
     name: NameId,
 
-    fn matches(self: TypeSelector, element_type: ElementTree.Type) bool {
-        switch (element_type.namespace) {
-            .any => unreachable,
-            .none => {},
-            _ => {},
-        }
-        switch (self.namespace) {
+    fn matches(selector: TypeSelector, element_type: ElementTree.Type) bool {
+        assert(element_type.namespace != .any);
+        assert(element_type.name != .any);
+
+        switch (selector.namespace) {
             .any => {},
-            .none => if (self.namespace != element_type.namespace) return false,
-            _ => if (self.namespace != element_type.namespace) return false,
+            else => if (selector.namespace != element_type.namespace) return false,
         }
 
-        switch (element_type.name) {
-            .any => unreachable,
-            .unspecified => {},
-            _ => {},
-        }
-        switch (self.name) {
+        switch (selector.name) {
             .any => {},
             .unspecified => return false,
-            _ => if (self.name != element_type.name) return false,
+            _ => if (selector.name != element_type.name) return false,
         }
 
         return true;
@@ -153,11 +146,13 @@ test "matching type selectors" {
 }
 
 pub const SubclassSelector = union(enum) {
-    id: ComponentTree.Size,
-    class: ComponentTree.Size,
-    pseudo: ComponentTree.Size,
+    id: IdClassId,
+    class: IdClassId,
+    pseudo: PseudoName,
     attribute: AttributeSelector,
 };
+
+pub const PseudoName = enum(u1) { unrecognized };
 
 pub const AttributeSelector = struct {
     namespace: NamespaceId,
@@ -201,9 +196,9 @@ const TestParseSelectorListExpected = []const struct {
             name: NameId,
         } = null,
         subclasses: []const union(std.meta.Tag(SubclassSelector)) {
-            id: ComponentTree.Size,
-            class: ComponentTree.Size,
-            pseudo: ComponentTree.Size,
+            id: IdClassId,
+            class: IdClassId,
+            pseudo: PseudoName,
             attribute: struct {
                 namespace: NamespaceId = .none,
                 name: NameId,
@@ -211,8 +206,8 @@ const TestParseSelectorListExpected = []const struct {
             },
         } = &.{},
         pseudo_elements: []const struct {
-            name: ComponentTree.Size,
-            classes: []const ComponentTree.Size = &.{},
+            name: PseudoName,
+            classes: []const PseudoName = &.{},
         } = &.{},
     } = &.{},
     combinators: []const Combinator = &.{},
@@ -253,7 +248,7 @@ fn expectEqualComplexSelectorLists(a: TestParseSelectorListExpected, b: []const 
             try expectEqual(a_compound.pseudo_elements.len, b_compound.pseudo_elements.len);
             for (a_compound.pseudo_elements, b_compound.pseudo_elements) |a_pseudo, b_pseudo| {
                 try expectEqual(a_pseudo.name, b_pseudo.name);
-                try expectEqualSlices(ComponentTree.Size, a_pseudo.classes, b_pseudo.classes);
+                try expectEqualSlices(PseudoName, a_pseudo.classes, b_pseudo.classes);
             }
         }
     }
@@ -284,6 +279,11 @@ test "parsing selector lists" {
             return @intToEnum(NameId, x);
         }
     }.f;
+    const ic = struct {
+        fn f(x: u24) IdClassId {
+            return @intToEnum(IdClassId, x);
+        }
+    }.f;
 
     try testParseSelectorList(a("element-name"), &.{
         .{
@@ -292,13 +292,15 @@ test "parsing selector lists" {
             },
         },
     });
-    try testParseSelectorList(a("h1[size]"), &.{
+    try testParseSelectorList(a("h1[size].class#my-id"), &.{
         .{
             .compounds = &.{
                 .{
                     .type_selector = .{ .name = n(0) },
                     .subclasses = &.{
                         .{ .attribute = .{ .name = n(1) } },
+                        .{ .class = ic(0) },
+                        .{ .id = ic(1) },
                     },
                 },
             },
@@ -314,6 +316,16 @@ test "parsing selector lists" {
             },
         },
     });
+    try testParseSelectorList(a("*"), &.{.{
+        .compounds = &.{
+            .{ .type_selector = .{ .name = .any } },
+        },
+    }});
+    try testParseSelectorList(a("\\*"), &.{.{
+        .compounds = &.{
+            .{ .type_selector = .{ .name = n(0) } },
+        },
+    }});
 }
 
 pub const debug = struct {
@@ -341,15 +353,14 @@ pub const debug = struct {
 
     pub fn printCompoundSelector(c: CompoundSelector, writer: anytype) !void {
         if (c.type_selector) |ts| {
-            if (ts.namespace.value == NamespaceId.any.value) {
-                try writer.writeAll("*");
-            } else if (ts.namespace.value != NamespaceId.none.value) {
-                try writer.print("{}", .{ts.namespace.value});
+            switch (ts.namespace) {
+                .any => try writer.writeAll("*|"),
+                .none => {},
+                _ => try writer.print("{}|", .{@enumToInt(ts.namespace)}),
             }
-            if (ts.name.value == NamespaceId.any.value) {
-                try writer.writeAll("|*");
-            } else {
-                try writer.print("|{}", .{ts.name.value});
+            switch (ts.name) {
+                .any => try writer.writeAll("*"),
+                else => try writer.print("{}", .{@enumToInt(ts.name)}),
             }
         }
 
@@ -357,16 +368,17 @@ pub const debug = struct {
             switch (sub) {
                 .id => try writer.print("#{}", .{sub.id}),
                 .class => try writer.print(".{}", .{sub.class}),
-                .pseudo => try writer.print(":{}", .{sub.pseudo}),
+                .pseudo => try writer.print(":{s}", .{@tagName(sub.pseudo)}),
                 .attribute => |at| {
-                    if (at.namespace.value == NamespaceId.any.value) {
-                        try writer.writeAll("[*");
-                    } else if (at.namespace.value == NamespaceId.none.value) {
-                        try writer.writeAll("[");
-                    } else {
-                        try writer.print("[{}", .{at.namespace.value});
+                    switch (at.namespace) {
+                        .any => try writer.writeAll("[*|"),
+                        .none => try writer.writeAll("["),
+                        _ => try writer.print("[{}|", .{@enumToInt(at.namespace)}),
                     }
-                    try writer.print("|{}", .{at.name.value});
+                    switch (at.name) {
+                        .any => unreachable,
+                        else => try writer.print("{}", .{@enumToInt(at.name)}),
+                    }
                     if (at.complex) |complex| {
                         const operator = switch (complex.operator) {
                             .equals => "=",
@@ -392,7 +404,7 @@ pub const debug = struct {
         for (c.pseudo_elements) |elem| {
             try writer.print("::{}", .{elem.name});
             for (elem.classes) |class| {
-                try writer.print(":{}", .{class});
+                try writer.print(":{s}", .{@tagName(class)});
             }
         }
     }

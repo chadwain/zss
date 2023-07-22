@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
@@ -39,12 +40,16 @@ pub const Source = struct {
         return source.inner.delimTokenCodepoint(location);
     }
 
-    pub fn identTokenIterator(source: Source, start: Location) IdentTokenIterator {
-        return .{ .inner = source.inner.identSequenceIterator(start) };
+    pub fn identTokenIterator(source: Source, start: Location) IdentSequenceIterator {
+        return .{ .inner = source.inner.identTokenIterator(start) };
+    }
+
+    pub fn hashIdTokenIterator(source: Source, start: Location) IdentSequenceIterator {
+        return .{ .inner = source.inner.hashIdTokenIterator(start) };
     }
 
     pub fn matchKeyword(source: Source, location: Location, keyword: []const u21) bool {
-        var it = source.inner.identSequenceIterator(location);
+        var it = source.inner.identTokenIterator(location);
         for (keyword) |kw_codepoint| {
             const it_codepoint = it.next(source.inner) orelse return false;
             if (toLowercase(kw_codepoint) != toLowercase(it_codepoint)) return false;
@@ -54,8 +59,8 @@ pub const Source = struct {
 
     pub fn identTokensEqlIgnoreCase(source: Source, ident1: Location, ident2: Location) bool {
         if (ident1.value == ident2.value) return true;
-        var it1 = source.inner.identSequenceIterator(ident1);
-        var it2 = source.inner.identSequenceIterator(ident2);
+        var it1 = source.inner.identTokenIterator(ident1);
+        var it2 = source.inner.identTokenIterator(ident2);
         while (it1.next(source.inner)) |codepoint1| {
             const codepoint2 = it2.next(source.inner) orelse return false;
             if (toLowercase(codepoint1) != toLowercase(codepoint2)) return false;
@@ -65,44 +70,41 @@ pub const Source = struct {
     }
 };
 
-pub const IdentTokenIterator = struct {
+pub const IdentSequenceIterator = struct {
     inner: tokenize.IdentSequenceIterator,
 
-    pub fn next(it: *IdentTokenIterator, source: Source) ?u21 {
+    pub fn next(it: *IdentSequenceIterator, source: Source) ?u21 {
         return it.inner.next(source.inner);
     }
 };
 
 pub fn parseStylesheet(source: Source, allocator: Allocator) !ComponentTree {
-    var stack = try Stack.init(allocator);
-    defer stack.deinit(allocator);
-
-    var tree = ComponentTree{ .components = .{} };
-    errdefer tree.deinit(allocator);
+    var parser = try Parser.init(source, allocator);
+    defer parser.deinit();
 
     var location = Source.Location{};
 
-    try stack.pushListOfRules(&tree, location, true, allocator);
-    try loop(&stack, &tree, source, &location, allocator);
-    return tree;
+    try parser.pushListOfRules(location, true);
+    try loop(&parser, &location);
+    return parser.finish();
 }
 
 pub fn parseListOfComponentValues(source: Source, allocator: Allocator) !ComponentTree {
-    var stack = try Stack.init(allocator);
-    defer stack.deinit(allocator);
-
-    var tree = ComponentTree{ .components = .{} };
-    errdefer tree.deinit(allocator);
+    var parser = try Parser.init(source, allocator);
+    defer parser.deinit();
 
     var location = Source.Location{};
 
-    try stack.pushListOfComponentValues(&tree, location, allocator);
-    try loop(&stack, &tree, source, &location, allocator);
-    return tree;
+    try parser.pushListOfComponentValues(location);
+    try loop(&parser, &location);
+    return parser.finish();
 }
 
-const Stack = struct {
-    list: ArrayListUnmanaged(Frame),
+const Parser = struct {
+    stack: ArrayListUnmanaged(Frame),
+    tree: ComponentTree,
+    source: Source,
+    allocator: Allocator,
 
     const Frame = struct {
         skip: ComponentTree.Size,
@@ -118,136 +120,142 @@ const Stack = struct {
             simple_block: SimpleBlock,
             function,
         };
+
+        const ListOfRules = struct {
+            top_level: bool,
+        };
+
+        const SimpleBlock = struct {
+            tag: Component.Tag,
+            // true if the simple block is the associated {}-block of a qualified rule or an at rule.
+            in_a_rule: bool,
+
+            fn endingTokenTag(simple_block: SimpleBlock) Component.Tag {
+                return switch (simple_block.tag) {
+                    .simple_block_curly => .token_right_curly,
+                    .simple_block_bracket => .token_right_bracket,
+                    .simple_block_paren => .token_right_paren,
+                    else => unreachable,
+                };
+            }
+        };
     };
 
-    const ListOfRules = struct {
-        top_level: bool,
-    };
+    fn init(source: Source, allocator: Allocator) !Parser {
+        var stack = ArrayListUnmanaged(Frame){};
+        try stack.append(allocator, .{ .skip = 0, .index = undefined, .data = .root });
 
-    const SimpleBlock = struct {
-        tag: Component.Tag,
-        // true if the simple block is the associated {}-block of a qualified rule or an at rule.
-        in_a_rule: bool,
-
-        fn endingTokenTag(simple_block: SimpleBlock) Component.Tag {
-            return switch (simple_block.tag) {
-                .simple_block_curly => .token_right_curly,
-                .simple_block_bracket => .token_right_bracket,
-                .simple_block_paren => .token_right_paren,
-                else => unreachable,
-            };
-        }
-    };
-
-    fn init(allocator: Allocator) !Stack {
-        var stack = Stack{ .list = .{} };
-        try stack.list.append(allocator, .{ .skip = 0, .index = undefined, .data = .root });
-        return stack;
+        return Parser{
+            .stack = stack,
+            .tree = .{},
+            .source = source,
+            .allocator = allocator,
+        };
     }
 
-    fn deinit(stack: *Stack, allocator: Allocator) void {
-        stack.list.deinit(allocator);
+    fn deinit(parser: *Parser) void {
+        parser.stack.deinit(parser.allocator);
+        parser.tree.deinit(parser.allocator);
     }
 
-    fn last(stack: *Stack) *Frame {
-        return &stack.list.items[stack.list.items.len - 1];
+    fn finish(parser: *Parser) ComponentTree {
+        const tree = parser.tree;
+        parser.tree = .{};
+        return tree;
     }
 
-    fn newComponent(tree: *ComponentTree, allocator: Allocator, component: Component) !ComponentTree.Size {
-        if (tree.components.len == std.math.maxInt(ComponentTree.Size)) return error.Overflow;
-        const index = @intCast(ComponentTree.Size, tree.components.len);
-        try tree.components.append(allocator, component);
+    fn allocateComponent(parser: *Parser, component: Component) !ComponentTree.Size {
+        if (parser.tree.components.len == std.math.maxInt(ComponentTree.Size)) return error.Overflow;
+        const index = @intCast(ComponentTree.Size, parser.tree.components.len);
+        try parser.tree.components.append(parser.allocator, component);
         return index;
     }
 
     /// Creates a Component that has no children.
-    fn addComponent(
-        stack: *Stack,
-        tree: *ComponentTree,
-        tag: Component.Tag,
-        location: Source.Location,
-        extra: Component.Extra,
-        allocator: Allocator,
-    ) !void {
-        const index = @intCast(ComponentTree.Size, tree.components.len);
-        _ = try newComponent(tree, allocator, .{
+    fn addComponent(parser: *Parser, tag: Component.Tag, location: Source.Location, extra: Component.Extra) !void {
+        const index = @intCast(ComponentTree.Size, parser.tree.components.len);
+        _ = try parser.allocateComponent(.{
             .next_sibling = index + 1,
             .tag = tag,
             .location = location,
             .extra = extra,
         });
-        stack.last().skip += 1;
+        parser.stack.items[parser.stack.items.len - 1].skip += 1;
     }
 
-    fn pushListOfRules(stack: *Stack, tree: *ComponentTree, location: Source.Location, top_level: bool, allocator: Allocator) !void {
-        const index = try newComponent(tree, allocator, .{
+    fn pushListOfRules(parser: *Parser, location: Source.Location, top_level: bool) !void {
+        const index = try parser.allocateComponent(.{
             .next_sibling = undefined,
             .tag = .rule_list,
             .location = location,
             .extra = Extra.make(0),
         });
-        try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .{ .list_of_rules = .{ .top_level = top_level } } });
+        try parser.stack.append(parser.allocator, .{
+            .skip = 1,
+            .index = index,
+            .data = .{ .list_of_rules = .{ .top_level = top_level } },
+        });
     }
 
-    fn pushListOfComponentValues(stack: *Stack, tree: *ComponentTree, location: Source.Location, allocator: Allocator) !void {
-        const index = try newComponent(tree, allocator, .{
+    fn pushListOfComponentValues(parser: *Parser, location: Source.Location) !void {
+        const index = try parser.allocateComponent(.{
             .next_sibling = undefined,
             .tag = .component_list,
             .location = location,
             .extra = Extra.make(0),
         });
-        try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .list_of_component_values });
+        try parser.stack.append(parser.allocator, .{ .skip = 1, .index = index, .data = .list_of_component_values });
     }
 
-    fn pushAtRule(stack: *Stack, tree: *ComponentTree, location: Source.Location, allocator: Allocator) !void {
-        const index = try newComponent(tree, allocator, .{
+    /// `location` must be the location of the first token of the at-rule (i.e. the <at-keyword-token>).
+    fn pushAtRule(parser: *Parser, location: Source.Location) !void {
+        const index = try parser.allocateComponent(.{
             .next_sibling = undefined,
             .tag = .at_rule,
             .location = location,
             .extra = Extra.make(0),
         });
-        try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .at_rule });
+        try parser.stack.append(parser.allocator, .{ .skip = 1, .index = index, .data = .at_rule });
     }
 
-    fn pushQualifiedRule(stack: *Stack, tree: *ComponentTree, location: Source.Location, allocator: Allocator) !void {
-        const index = try newComponent(tree, allocator, .{
+    /// `location` must be the location of the first token of the qualified rule.
+    fn pushQualifiedRule(parser: *Parser, location: Source.Location) !void {
+        const index = try parser.allocateComponent(.{
             .next_sibling = undefined,
             .tag = .qualified_rule,
             .location = location,
             .extra = Extra.make(0),
         });
-        try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .qualified_rule });
+        try parser.stack.append(parser.allocator, .{ .skip = 1, .index = index, .data = .qualified_rule });
     }
 
-    fn pushFunction(stack: *Stack, tree: *ComponentTree, location: Source.Location, allocator: Allocator) !void {
-        const index = try newComponent(tree, allocator, .{
+    fn pushFunction(parser: *Parser, location: Source.Location) !void {
+        const index = try parser.allocateComponent(.{
             .next_sibling = undefined,
             .tag = .function,
             .location = location,
             .extra = Extra.make(0),
         });
-        try stack.list.append(allocator, .{ .skip = 1, .index = index, .data = .function });
+        try parser.stack.append(parser.allocator, .{ .skip = 1, .index = index, .data = .function });
     }
 
-    fn addSimpleBlock(stack: *Stack, tree: *ComponentTree, tag: Component.Tag, location: Source.Location, allocator: Allocator) !void {
-        const component_tag: Component.Tag = switch (tag) {
-            .token_left_curly => .simple_block_curly,
-            .token_left_bracket => .simple_block_bracket,
-            .token_left_paren => .simple_block_paren,
-            else => unreachable,
-        };
-        _ = try newComponent(tree, allocator, .{
-            .next_sibling = undefined,
-            .tag = component_tag,
-            .location = location,
-            .extra = Extra.make(0),
-        });
-        stack.last().skip += 1;
-    }
+    // fn addSimpleBlock(parser: *Parser, tag: Component.Tag, location: Source.Location) !void {
+    //     const component_tag: Component.Tag = switch (tag) {
+    //         .simple_block_curly, .simple_block_bracket, .simple_block_paren => {},
+    //         else => unreachable,
+    //     };
+    //     _ = try allocateComponent(tree, allocator, .{
+    //         .next_sibling = undefined,
+    //         .tag = component_tag,
+    //         .location = location,
+    //         .extra = Extra.make(0),
+    //     });
+    //     parser.stack.items[parser.stack.items.len - 1].skip += 1;
+    // }
 
-    fn pushSimpleBlock(stack: *Stack, tree: *ComponentTree, tag: Component.Tag, location: Source.Location, in_a_rule: bool, allocator: Allocator) !void {
+    fn pushSimpleBlock(parser: *Parser, tag: Component.Tag, location: Source.Location, in_a_rule: bool) !void {
         if (in_a_rule) {
-            switch (stack.last().data) {
+            switch (parser.stack.items[parser.stack.items.len - 1].data) {
                 .at_rule, .qualified_rule => {},
                 else => unreachable,
             }
@@ -259,221 +267,216 @@ const Stack = struct {
             .token_left_paren => .simple_block_paren,
             else => unreachable,
         };
-        const index = try newComponent(tree, allocator, .{
+        const index = try parser.allocateComponent(.{
             .next_sibling = undefined,
             .tag = component_tag,
             .location = location,
             .extra = Extra.make(0),
         });
-        try stack.list.append(allocator, .{
+        try parser.stack.append(parser.allocator, .{
             .skip = 1,
             .index = index,
             .data = .{ .simple_block = .{ .tag = component_tag, .in_a_rule = in_a_rule } },
         });
     }
 
-    fn popFrame(stack: *Stack, tree: *ComponentTree) void {
-        const frame = stack.list.pop();
+    fn popFrame(parser: *Parser) void {
+        const frame = parser.stack.pop();
         assert(frame.data != .simple_block); // Use popSimpleBlock instead
-        stack.last().skip += frame.skip;
-        tree.components.items(.next_sibling)[frame.index] = frame.index + frame.skip;
+        parser.stack.items[parser.stack.items.len - 1].skip += frame.skip;
+        parser.tree.components.items(.next_sibling)[frame.index] = frame.index + frame.skip;
     }
 
-    fn popSimpleBlock(stack: *Stack, tree: *ComponentTree) void {
-        const frame = stack.list.pop();
-        const slice = tree.components.slice();
+    fn popSimpleBlock(parser: *Parser) void {
+        const frame = parser.stack.pop();
+        const slice = parser.tree.components.slice();
         slice.items(.next_sibling)[frame.index] = frame.index + frame.skip;
 
         if (frame.data.simple_block.in_a_rule) {
-            const parent_frame = stack.list.pop();
+            const parent_frame = parser.stack.pop();
             switch (parent_frame.data) {
                 .at_rule, .qualified_rule => {},
                 else => unreachable,
             }
             const combined_skip = parent_frame.skip + frame.skip;
-            stack.last().skip += combined_skip;
+            parser.stack.items[parser.stack.items.len - 1].skip += combined_skip;
             slice.items(.next_sibling)[parent_frame.index] = parent_frame.index + combined_skip;
             slice.items(.extra)[parent_frame.index] = Extra.make(frame.index);
         } else {
-            stack.last().skip += frame.skip;
+            parser.stack.items[parser.stack.items.len - 1].skip += frame.skip;
         }
     }
 
-    fn ignoreQualifiedRule(stack: *Stack, tree: *ComponentTree) void {
-        const frame = stack.list.pop();
+    fn ignoreQualifiedRule(parser: *Parser) void {
+        const frame = parser.stack.pop();
         assert(frame.data == .qualified_rule);
-        tree.components.shrinkRetainingCapacity(frame.index);
+        parser.tree.components.shrinkRetainingCapacity(frame.index);
     }
 };
 
-fn loop(stack: *Stack, tree: *ComponentTree, source: Source, location: *Source.Location, allocator: Allocator) !void {
-    while (stack.list.items.len > 1) {
-        const frame = stack.last().*;
+fn loop(parser: *Parser, location: *Source.Location) !void {
+    while (parser.stack.items.len > 1) {
+        const frame = parser.stack.items[parser.stack.items.len - 1];
         switch (frame.data) {
             .root => unreachable,
-            .list_of_rules => try consumeListOfRules(stack, tree, source, location, allocator),
-            .list_of_component_values => try consumeListOfComponentValues(stack, tree, source, location, allocator),
-            .qualified_rule => try consumeQualifiedRule(stack, tree, source, location, allocator),
-            .at_rule => try consumeAtRule(stack, tree, source, location, allocator),
-            .simple_block => try consumeSimpleBlock(stack, tree, source, location, allocator),
-            .function => try consumeFunction(stack, tree, source, location, allocator),
+            .list_of_rules => try consumeListOfRules(parser, location),
+            .list_of_component_values => try consumeListOfComponentValues(parser, location),
+            .qualified_rule => try consumeQualifiedRule(parser, location),
+            .at_rule => try consumeAtRule(parser, location),
+            .simple_block => try consumeSimpleBlock(parser, location),
+            .function => try consumeFunction(parser, location),
         }
     }
 }
 
-fn consumeListOfRules(stack: *Stack, tree: *ComponentTree, source: Source, location: *Source.Location, allocator: Allocator) !void {
+fn consumeListOfRules(parser: *Parser, location: *Source.Location) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = source.next(location);
+        const tag = parser.source.next(location);
         switch (tag) {
             .token_whitespace => {},
-            .token_eof => return stack.popFrame(tree),
+            .token_eof => return parser.popFrame(),
             .token_cdo, .token_cdc => {
-                const top_level = stack.last().data.list_of_rules.top_level;
+                const top_level = parser.stack.items[parser.stack.items.len - 1].data.list_of_rules.top_level;
                 if (!top_level) {
                     location.* = saved_location;
-                    try stack.pushQualifiedRule(tree, saved_location, allocator);
+                    try parser.pushQualifiedRule(saved_location);
                     return;
                 }
             },
             .token_at_keyword => {
-                try stack.pushAtRule(tree, saved_location, allocator);
+                try parser.pushAtRule(saved_location);
                 return;
             },
             else => {
                 location.* = saved_location;
-                try stack.pushQualifiedRule(tree, saved_location, allocator);
+                try parser.pushQualifiedRule(saved_location);
                 return;
             },
         }
     }
 }
 
-fn consumeListOfComponentValues(stack: *Stack, tree: *ComponentTree, source: Source, location: *Source.Location, allocator: Allocator) !void {
+fn consumeListOfComponentValues(parser: *Parser, location: *Source.Location) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = source.next(location);
+        const tag = parser.source.next(location);
         switch (tag) {
-            .token_eof => return stack.popFrame(tree),
+            .token_eof => return parser.popFrame(),
             else => {
-                const must_suspend = try consumeComponentValue(stack, tree, source, tag, saved_location, allocator);
+                const must_suspend = try consumeComponentValue(parser, tag, saved_location);
                 if (must_suspend) return;
             },
         }
     }
 }
 
-fn consumeAtRule(stack: *Stack, tree: *ComponentTree, source: Source, location: *Source.Location, allocator: Allocator) !void {
+fn consumeAtRule(parser: *Parser, location: *Source.Location) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = source.next(location);
+        const tag = parser.source.next(location);
         switch (tag) {
-            .token_semicolon => return stack.popFrame(tree),
+            .token_semicolon => return parser.popFrame(),
             .token_eof => {
                 // NOTE: Parse error
-                return stack.popFrame(tree);
+                return parser.popFrame();
             },
             .token_left_curly => {
-                try stack.pushSimpleBlock(tree, tag, saved_location, true, allocator);
+                try parser.pushSimpleBlock(tag, saved_location, true);
                 return;
             },
             .simple_block_curly => {
-                try stack.addSimpleBlock(tree, tag, saved_location, allocator);
-                stack.popFrame(tree);
-                return;
+                // try parser.addSimpleBlock(tag, saved_location);
+                // parser.popFrame();
+                // return;
+                panic("Found a simple block while parsing", .{});
             },
             else => {
-                const must_suspend = try consumeComponentValue(stack, tree, source, tag, saved_location, allocator);
+                const must_suspend = try consumeComponentValue(parser, tag, saved_location);
                 if (must_suspend) return;
             },
         }
     }
 }
 
-fn consumeQualifiedRule(stack: *Stack, tree: *ComponentTree, source: Source, location: *Source.Location, allocator: Allocator) !void {
+fn consumeQualifiedRule(parser: *Parser, location: *Source.Location) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = source.next(location);
+        const tag = parser.source.next(location);
         switch (tag) {
             .token_eof => {
                 // NOTE: Parse error
-                return stack.ignoreQualifiedRule(tree);
+                return parser.ignoreQualifiedRule();
             },
             .token_left_curly => {
-                try stack.pushSimpleBlock(tree, tag, saved_location, true, allocator);
+                try parser.pushSimpleBlock(tag, saved_location, true);
                 return;
             },
             .simple_block_curly => {
-                try stack.addSimpleBlock(tree, tag, saved_location, allocator);
-                stack.popFrame(tree);
-                return;
+                // try parser.addSimpleBlock(tag, saved_location);
+                // parser.popFrame();
+                // return;
+                panic("Found a simple block while parsing", .{});
             },
             else => {
-                const must_suspend = try consumeComponentValue(stack, tree, source, tag, saved_location, allocator);
+                const must_suspend = try consumeComponentValue(parser, tag, saved_location);
                 if (must_suspend) return;
             },
         }
     }
 }
 
-fn consumeComponentValue(
-    stack: *Stack,
-    tree: *ComponentTree,
-    source: Source,
-    tag: Component.Tag,
-    location: Source.Location,
-    allocator: Allocator,
-) !bool {
+fn consumeComponentValue(parser: *Parser, tag: Component.Tag, location: Source.Location) !bool {
     switch (tag) {
         .token_left_curly, .token_left_bracket, .token_left_paren => {
-            try stack.pushSimpleBlock(tree, tag, location, false, allocator);
+            try parser.pushSimpleBlock(tag, location, false);
             return true;
         },
         .token_function => {
-            try stack.pushFunction(tree, location, allocator);
+            try parser.pushFunction(location);
             return true;
         },
         .token_delim => {
-            const codepoint = source.getDelimeter(location);
-            try stack.addComponent(tree, .token_delim, location, Extra.make(codepoint), allocator);
+            const codepoint = parser.source.getDelimeter(location);
+            try parser.addComponent(.token_delim, location, Extra.make(codepoint));
             return false;
         },
         else => {
-            try stack.addComponent(tree, tag, location, Extra.make(0), allocator);
+            try parser.addComponent(tag, location, Extra.make(0));
             return false;
         },
     }
 }
 
-fn consumeSimpleBlock(stack: *Stack, tree: *ComponentTree, source: Source, location: *Source.Location, allocator: Allocator) !void {
-    const ending_tag = stack.last().data.simple_block.endingTokenTag();
+fn consumeSimpleBlock(parser: *Parser, location: *Source.Location) !void {
+    const ending_tag = parser.stack.items[parser.stack.items.len - 1].data.simple_block.endingTokenTag();
     while (true) {
         const saved_location = location.*;
-        const tag = source.next(location);
+        const tag = parser.source.next(location);
         if (tag == ending_tag) {
-            return stack.popSimpleBlock(tree);
+            return parser.popSimpleBlock();
         } else if (tag == .token_eof) {
             // NOTE: Parse error
-            return stack.popSimpleBlock(tree);
+            return parser.popSimpleBlock();
         } else {
-            const must_suspend = try consumeComponentValue(stack, tree, source, tag, saved_location, allocator);
+            const must_suspend = try consumeComponentValue(parser, tag, saved_location);
             if (must_suspend) return;
         }
     }
 }
 
-fn consumeFunction(stack: *Stack, tree: *ComponentTree, source: Source, location: *Source.Location, allocator: Allocator) !void {
+fn consumeFunction(parser: *Parser, location: *Source.Location) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = source.next(location);
+        const tag = parser.source.next(location);
         switch (tag) {
-            .token_right_paren => return stack.popFrame(tree),
+            .token_right_paren => return parser.popFrame(),
             .token_eof => {
                 // NOTE: Parse error
-                return stack.popFrame(tree);
+                return parser.popFrame();
             },
             else => {
-                const must_suspend = try consumeComponentValue(stack, tree, source, tag, saved_location, allocator);
+                const must_suspend = try consumeComponentValue(parser, tag, saved_location);
                 if (must_suspend) return;
             },
         }

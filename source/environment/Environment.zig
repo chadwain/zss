@@ -20,7 +20,9 @@ const SegmentedList = std.SegmentedList;
 
 allocator: Allocator,
 stylesheets: ArrayListUnmanaged(Stylesheet) = .{},
-type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value },
+type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value, .case = .insensitive },
+// TODO: Case sensitivity depends on whether quirks mode is on
+id_or_class_names: IdentifierSet = .{ .max_size = IdClassId.max_value, .case = .sensitive },
 default_namespace: ?NamespaceId = null,
 
 pub fn init(allocator: Allocator) Environment {
@@ -29,6 +31,7 @@ pub fn init(allocator: Allocator) Environment {
 
 pub fn deinit(env: *Environment) void {
     env.type_or_attribute_names.deinit(env.allocator);
+    env.id_or_class_names.deinit(env.allocator);
     for (env.stylesheets.items) |*stylesheet| stylesheet.deinit(env.allocator);
     env.stylesheets.deinit(env.allocator);
 }
@@ -73,6 +76,7 @@ const IdentifierSet = struct {
     map: AutoArrayHashMapUnmanaged(void, Slice) = .{},
     data: SegmentedList(u8, 0) = .{},
     max_size: usize,
+    case: enum { sensitive, insensitive },
 
     const Slice = struct {
         begin: u32,
@@ -84,34 +88,30 @@ const IdentifierSet = struct {
         set.data.deinit(allocator);
     }
 
-    const toLowercase = zss.util.unicode.toLowercase;
-
-    const Hasher = struct {
-        inner: std.hash.Wyhash = std.hash.Wyhash.init(0),
-
-        fn update(hasher: *Hasher, codepoint: u21) void {
-            const lowercase = toLowercase(codepoint);
-            const bytes = std.mem.asBytes(&lowercase)[0..3];
-            hasher.inner.update(bytes);
-        }
-
-        fn final(hasher: *Hasher) u32 {
-            return @truncate(u32, hasher.inner.final());
-        }
-    };
+    fn adjustCase(set: IdentifierSet, codepoint: u21) u21 {
+        return switch (set.case) {
+            .sensitive => codepoint,
+            .insensitive => switch (codepoint) {
+                'A'...'Z' => codepoint - 'A' + 'a',
+                else => codepoint,
+            },
+        };
+    }
 
     // Unfortunately, Zig's hash maps don't allow the use of generic hash and eql functions,
     // so this adapter can't be used directly.
     const AdapterGeneric = struct {
         set: *const IdentifierSet,
 
-        pub fn hash(_: @This(), key: anytype) u32 {
-            var hasher = Hasher{};
+        pub fn hash(self: @This(), key: anytype) u32 {
+            var hasher = std.hash.Wyhash.init(0);
             var it = key.iterator();
             while (it.next()) |codepoint| {
-                hasher.update(toLowercase(codepoint));
+                const adjusted = self.set.adjustCase(codepoint);
+                const bytes = std.mem.asBytes(&adjusted)[0..3];
+                hasher.update(bytes);
             }
-            return hasher.final();
+            return @truncate(u32, hasher.final());
         }
 
         pub fn eql(self: @This(), key: anytype, _: void, index: usize) bool {
@@ -129,7 +129,7 @@ const IdentifierSet = struct {
                 for (1..len) |i| buffer[i] = string_it.next().?.*;
                 const string_codepoint = std.unicode.utf8Decode(buffer[0..len]) catch unreachable;
 
-                if (toLowercase(key_codepoint) != string_codepoint) return false;
+                if (self.set.adjustCase(key_codepoint) != string_codepoint) return false;
             }
             return key_it.next() == null;
         }
@@ -160,7 +160,7 @@ const IdentifierSet = struct {
             var it = key.iterator();
             var buffer: [4]u8 = undefined;
             while (it.next()) |codepoint| {
-                const len = std.unicode.utf8Encode(toLowercase(codepoint), &buffer) catch unreachable;
+                const len = std.unicode.utf8Encode(set.adjustCase(codepoint), &buffer) catch unreachable;
                 slice.len += len;
                 _ = try std.math.add(u32, slice.begin, slice.len);
                 try set.data.appendSlice(allocator, buffer[0..len]);
@@ -171,26 +171,26 @@ const IdentifierSet = struct {
         return result.index;
     }
 
-    fn getOrPutFromParserSource(set: *IdentifierSet, allocator: Allocator, source: ParserSource, location: ParserSource.Location) !usize {
+    fn getOrPutFromParserSource(
+        set: *IdentifierSet,
+        allocator: Allocator,
+        source: ParserSource,
+        ident_seq_it: syntax.parse.IdentSequenceIterator,
+    ) !usize {
         const Key = struct {
             source: ParserSource,
-            location: ParserSource.Location,
+            ident_seq_it: syntax.parse.IdentSequenceIterator,
 
-            fn iterator(self: @This()) Iterator {
-                return Iterator{ .source = self.source, .it = self.source.identTokenIterator(self.location) };
+            fn iterator(self: @This()) @This() {
+                return self;
             }
 
-            const Iterator = struct {
-                source: ParserSource,
-                it: syntax.parse.IdentTokenIterator,
-
-                fn next(self: *@This()) ?u21 {
-                    return self.it.next(self.source);
-                }
-            };
+            fn next(self: *@This()) ?u21 {
+                return self.ident_seq_it.next(self.source);
+            }
         };
 
-        const key = Key{ .source = source, .location = location };
+        const key = Key{ .source = source, .ident_seq_it = ident_seq_it };
         return set.getOrPutGeneric(allocator, key);
     }
 };
@@ -205,6 +205,23 @@ pub const NameId = enum(u24) {
 };
 
 pub fn addTypeOrAttributeName(env: *Environment, identifier: ParserSource.Location, source: ParserSource) !NameId {
-    const index = try env.type_or_attribute_names.getOrPutFromParserSource(env.allocator, source, identifier);
+    const index = try env.type_or_attribute_names.getOrPutFromParserSource(env.allocator, source, source.identTokenIterator(identifier));
     return @intToEnum(NameId, @intCast(NameId.Value, index));
+}
+
+pub const IdClassId = enum(u32) {
+    pub const Value = u32;
+    const max_value = std.math.maxInt(Value);
+
+    _,
+};
+
+pub fn addIdName(env: *Environment, hash_id: ParserSource.Location, source: ParserSource) !IdClassId {
+    const index = try env.id_or_class_names.getOrPutFromParserSource(env.allocator, source, source.hashIdTokenIterator(hash_id));
+    return @intToEnum(IdClassId, @intCast(IdClassId.Value, index));
+}
+
+pub fn addClassName(env: *Environment, hash_id: ParserSource.Location, source: ParserSource) !IdClassId {
+    const index = try env.id_or_class_names.getOrPutFromParserSource(env.allocator, source, source.identTokenIterator(hash_id));
+    return @intToEnum(IdClassId, @intCast(IdClassId.Value, index));
 }
