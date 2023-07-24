@@ -40,6 +40,10 @@ pub const Component = struct {
         pub fn codepoint(extra: Extra) u21 {
             return @intCast(u21, @bitCast(u32, extra));
         }
+
+        pub fn important(extra: Extra) bool {
+            return @intCast(u32, extra) != 0;
+        }
     };
 
     pub const Tag = enum {
@@ -135,11 +139,20 @@ pub const Component = struct {
         ///        Otherwise, the at-rule does have a <{}-block>, and the value is the index of that block (with tag = `simple_block_curly`).
         at_rule,
         /// A qualified rule
-        /// children: A prelude (an arbitrary sequence of components) + a `simple_block_curly`
+        /// children: A prelude (an arbitrary sequence of components) + a `simple_block_curly` or `style_block`
         /// location: The location of the first token of the prelude
         /// extra: Use `extra.index()` to get a component tree index.
-        ///        The value is the index of the qualified rule's associated <{}-block> (with tag = `simple_block_curly`).
+        ///        The value is the index of the qualified rule's associated <{}-block> (with tag = `simple_block_curly` or `style_block`).
         qualified_rule,
+        /// A '{}-block' containing style rules
+        /// children: A sequence of `declaration`, `qualified_rule`, and `at_rule`
+        /// location: The location of the <{-token> that opens this block
+        style_block,
+        /// A CSS property declaration
+        /// children: The declaration's value (an arbitrary sequence of components)
+        /// location: The location of the <ident-token> that is the name for this declaration
+        /// extra: Use `extra.important()` to see if this declaration was marked with "!important"
+        declaration,
         /// A function
         /// children: An arbitrary sequence of components
         /// location: The location of the <function-token> that created this component

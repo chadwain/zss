@@ -37,7 +37,7 @@ pub fn deinit(env: *Environment) void {
 }
 
 pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
-    var tree = try syntax.parse.parseStylesheet(source, env.allocator);
+    var tree = try syntax.parse.parseCssStylesheet(source, env.allocator);
     defer tree.deinit(env.allocator);
 
     const slice = tree.components.slice();
