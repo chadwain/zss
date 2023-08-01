@@ -2,7 +2,8 @@ const zss = @import("../../zss.zig");
 const Environment = zss.Environment;
 const NamespaceId = Environment.NamespaceId;
 const NameId = Environment.NameId;
-const IdClassId = Environment.IdClassId;
+const IdId = Environment.IdId;
+const ClassId = Environment.ClassId;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const ComponentTree = zss.syntax.ComponentTree;
@@ -146,8 +147,8 @@ test "matching type selectors" {
 }
 
 pub const SubclassSelector = union(enum) {
-    id: IdClassId,
-    class: IdClassId,
+    id: IdId,
+    class: ClassId,
     pseudo: PseudoName,
     attribute: AttributeSelector,
 };
@@ -196,8 +197,8 @@ const TestParseSelectorListExpected = []const struct {
             name: NameId,
         } = null,
         subclasses: []const union(std.meta.Tag(SubclassSelector)) {
-            id: IdClassId,
-            class: IdClassId,
+            id: IdId,
+            class: ClassId,
             pseudo: PseudoName,
             attribute: struct {
                 namespace: NamespaceId = .none,
@@ -279,9 +280,14 @@ test "parsing selector lists" {
             return @intToEnum(NameId, x);
         }
     }.f;
-    const ic = struct {
-        fn f(x: u24) IdClassId {
-            return @intToEnum(IdClassId, x);
+    const i = struct {
+        fn f(x: u24) IdId {
+            return @intToEnum(IdId, x);
+        }
+    }.f;
+    const c = struct {
+        fn f(x: u24) ClassId {
+            return @intToEnum(ClassId, x);
         }
     }.f;
 
@@ -299,8 +305,8 @@ test "parsing selector lists" {
                     .type_selector = .{ .name = n(0) },
                     .subclasses = &.{
                         .{ .attribute = .{ .name = n(1) } },
-                        .{ .class = ic(0) },
-                        .{ .id = ic(1) },
+                        .{ .class = c(0) },
+                        .{ .id = i(1) },
                     },
                 },
             },

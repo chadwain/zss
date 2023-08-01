@@ -22,7 +22,7 @@ allocator: Allocator,
 stylesheets: ArrayListUnmanaged(Stylesheet) = .{},
 type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value, .case = .insensitive },
 // TODO: Case sensitivity depends on whether quirks mode is on
-id_or_class_names: IdentifierSet = .{ .max_size = IdClassId.max_value, .case = .sensitive },
+id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensitive },
 default_namespace: ?NamespaceId = null,
 
 pub fn init(allocator: Allocator) Environment {
@@ -209,19 +209,30 @@ pub fn addTypeOrAttributeName(env: *Environment, identifier: ParserSource.Locati
     return @intToEnum(NameId, @intCast(NameId.Value, index));
 }
 
-pub const IdClassId = enum(u32) {
+pub const IdId = enum(u32) {
     pub const Value = u32;
     const max_value = std.math.maxInt(Value);
 
     _,
 };
 
-pub fn addIdName(env: *Environment, hash_id: ParserSource.Location, source: ParserSource) !IdClassId {
-    const index = try env.id_or_class_names.getOrPutFromParserSource(env.allocator, source, source.hashIdTokenIterator(hash_id));
-    return @intToEnum(IdClassId, @intCast(IdClassId.Value, index));
+pub const ClassId = enum(u32) {
+    pub const Value = u32;
+    const max_value = std.math.maxInt(Value);
+
+    _,
+};
+
+comptime {
+    assert(IdId.max_value == ClassId.max_value);
 }
 
-pub fn addClassName(env: *Environment, hash_id: ParserSource.Location, source: ParserSource) !IdClassId {
-    const index = try env.id_or_class_names.getOrPutFromParserSource(env.allocator, source, source.identTokenIterator(hash_id));
-    return @intToEnum(IdClassId, @intCast(IdClassId.Value, index));
+pub fn addIdName(env: *Environment, hash_id: ParserSource.Location, source: ParserSource) !IdId {
+    const index = try env.id_or_class_names.getOrPutFromParserSource(env.allocator, source, source.hashIdTokenIterator(hash_id));
+    return @intToEnum(IdId, @intCast(IdId.Value, index));
+}
+
+pub fn addClassName(env: *Environment, identifier: ParserSource.Location, source: ParserSource) !ClassId {
+    const index = try env.id_or_class_names.getOrPutFromParserSource(env.allocator, source, source.identTokenIterator(identifier));
+    return @intToEnum(ClassId, @intCast(ClassId.Value, index));
 }
