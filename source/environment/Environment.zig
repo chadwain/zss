@@ -59,9 +59,21 @@ pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
             .at_rule => panic("TODO: At-rules in a stylesheet\n", .{}),
             .qualified_rule => {
                 try stylesheet.rules.ensureUnusedCapacity(env.allocator, 1);
-                const end_of_prelude = extras[index].size();
-                const selector_list = (try zss.selectors.parseSelectorList(env, source, slice, index + 1, end_of_prelude)) orelse continue;
-                stylesheet.rules.appendAssumeCapacity(.{ .selector = selector_list });
+                const end_of_prelude = extras[index].index();
+                var selector_list = (try zss.selectors.parseSelectorList(env, source, slice, index + 1, end_of_prelude)) orelse continue;
+                errdefer selector_list.deinit(env.allocator);
+
+                var decls = try declsFromStyleBlock(env, slice, end_of_prelude);
+                errdefer {
+                    decls.normal.deinit(env.allocator);
+                    decls.important.deinit(env.allocator);
+                }
+
+                stylesheet.rules.appendAssumeCapacity(.{
+                    .selector = selector_list,
+                    .normal_declarations = decls.normal,
+                    .important_declarations = decls.important,
+                });
             },
             else => unreachable,
         }
@@ -70,12 +82,47 @@ pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
     env.stylesheets.appendAssumeCapacity(stylesheet);
 }
 
-/// Assigns unique indeces to CSS identifiers (<ident-token>'s).
-/// Identifiers are compared case-insensitively.
+fn declsFromStyleBlock(env: *Environment, slice: ComponentTree.List.Slice, start_of_style_block: ComponentTree.Size) !struct {
+    normal: Stylesheet.DeclarationList,
+    important: Stylesheet.DeclarationList,
+} {
+    assert(slice.items(.tag)[start_of_style_block] == .style_block);
+
+    var normal_declarations = ArrayListUnmanaged(Stylesheet.Declaration){};
+    defer normal_declarations.deinit(env.allocator);
+    var important_declarations = ArrayListUnmanaged(Stylesheet.Declaration){};
+    defer important_declarations.deinit(env.allocator);
+
+    var index = start_of_style_block + 1;
+    const end_of_style_block = slice.items(.next_sibling)[start_of_style_block];
+
+    while (index < end_of_style_block) {
+        defer index = slice.items(.next_sibling)[index];
+        if (slice.items(.tag)[index] != .declaration) continue;
+        const appropriate_list = switch (slice.items(.extra)[index].important()) {
+            true => &important_declarations,
+            false => &normal_declarations,
+        };
+        try appropriate_list.append(env.allocator, .{ .component_index = index, .name = .unrecognized });
+    }
+
+    const normal_declarations_owned = try normal_declarations.toOwnedSlice(env.allocator);
+    errdefer env.allocator.free(normal_declarations_owned);
+    const important_declarations_owned = try important_declarations.toOwnedSlice(env.allocator);
+    errdefer env.allocator.free(important_declarations_owned);
+
+    return .{ .normal = .{ .list = normal_declarations_owned }, .important = .{ .list = important_declarations_owned } };
+}
+
+/// Assigns unique indeces to CSS identifiers.
 const IdentifierSet = struct {
+    /// Maps adapted keys to `Slice`. `Slice` represents a sub-range of `string_data`.
     map: AutoArrayHashMapUnmanaged(void, Slice) = .{},
-    data: SegmentedList(u8, 0) = .{},
+    /// Stores identifiers as UTF-8 encoded strings.
+    string_data: SegmentedList(u8, 0) = .{},
+    /// The maximum number of identifiers this set can hold.
     max_size: usize,
+    /// Choose how to compare identifiers.
     case: enum { sensitive, insensitive },
 
     const Slice = struct {
@@ -85,7 +132,7 @@ const IdentifierSet = struct {
 
     fn deinit(set: *IdentifierSet, allocator: Allocator) void {
         set.map.deinit(allocator);
-        set.data.deinit(allocator);
+        set.string_data.deinit(allocator);
     }
 
     fn adjustCase(set: IdentifierSet, codepoint: u21) u21 {
@@ -118,16 +165,18 @@ const IdentifierSet = struct {
             var key_it = key.iterator();
 
             var slice = self.set.map.values()[index];
-            var string_it = self.set.data.constIterator(slice.begin);
+            var string_it = self.set.string_data.constIterator(slice.begin);
             var buffer: [4]u8 = undefined;
             while (slice.len > 0) {
                 const key_codepoint = key_it.next() orelse return false;
 
-                buffer[0] = string_it.next().?.*;
-                const len = std.unicode.utf8ByteSequenceLength(buffer[0]) catch unreachable;
-                slice.len -= len;
-                for (1..len) |i| buffer[i] = string_it.next().?.*;
-                const string_codepoint = std.unicode.utf8Decode(buffer[0..len]) catch unreachable;
+                const string_codepoint = blk: {
+                    buffer[0] = string_it.next().?.*;
+                    const len = std.unicode.utf8ByteSequenceLength(buffer[0]) catch unreachable;
+                    slice.len -= len;
+                    for (1..len) |i| buffer[i] = string_it.next().?.*;
+                    break :blk std.unicode.utf8Decode(buffer[0..len]) catch unreachable;
+                };
 
                 if (self.set.adjustCase(key_codepoint) != string_codepoint) return false;
             }
@@ -156,14 +205,14 @@ const IdentifierSet = struct {
         if (!result.found_existing) {
             if (result.index >= set.max_size) return error.Overflow;
 
-            var slice = Slice{ .begin = @intCast(u32, set.data.len), .len = 0 };
+            var slice = Slice{ .begin = @intCast(u32, set.string_data.len), .len = 0 };
             var it = key.iterator();
             var buffer: [4]u8 = undefined;
             while (it.next()) |codepoint| {
                 const len = std.unicode.utf8Encode(set.adjustCase(codepoint), &buffer) catch unreachable;
                 slice.len += len;
                 _ = try std.math.add(u32, slice.begin, slice.len);
-                try set.data.appendSlice(allocator, buffer[0..len]);
+                try set.string_data.appendSlice(allocator, buffer[0..len]);
             }
             result.value_ptr.* = slice;
         }
@@ -235,4 +284,15 @@ pub fn addIdName(env: *Environment, hash_id: ParserSource.Location, source: Pars
 pub fn addClassName(env: *Environment, identifier: ParserSource.Location, source: ParserSource) !ClassId {
     const index = try env.id_or_class_names.getOrPutFromParserSource(env.allocator, source, source.identTokenIterator(identifier));
     return @intToEnum(ClassId, @intCast(ClassId.Value, index));
+}
+
+test "adding a stylesheet" {
+    const allocator = std.testing.allocator;
+
+    var env = Environment.init(allocator);
+    defer env.deinit();
+
+    const input = "test {}";
+    const source = ParserSource.init(try zss.syntax.tokenize.Source.init(zss.util.ascii8ToAscii7(input)));
+    try env.addStylesheet(source);
 }

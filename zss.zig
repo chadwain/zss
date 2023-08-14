@@ -19,6 +19,7 @@ pub const CascadedValueStore = @import("source/layout/CascadedValueStore.zig");
 pub const Environment = @import("source/environment/Environment.zig");
 pub const ElementTree = @import("source/environment/ElementTree.zig");
 
+pub const declaration = @import("source/declaration.zig");
 pub const selectors = @import("source/selectors/selectors.zig");
 
 pub const syntax = @import("source/syntax/syntax.zig");

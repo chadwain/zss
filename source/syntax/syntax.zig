@@ -25,7 +25,7 @@ pub const Component = struct {
     extra: Extra,
 
     pub const Extra = extern struct {
-        /// Trying to read this field directly should not be attempted.
+        /// Trying to read/write this field directly should not be attempted.
         /// Better to use one of the member functions instead.
         _: u32,
 
@@ -42,7 +42,7 @@ pub const Component = struct {
         }
 
         pub fn important(extra: Extra) bool {
-            return @intCast(u32, extra) != 0;
+            return @bitCast(u32, extra) != 0;
         }
     };
 
@@ -146,10 +146,14 @@ pub const Component = struct {
         qualified_rule,
         /// A '{}-block' containing style rules
         /// children: A sequence of `declaration`, `qualified_rule`, and `at_rule`
+        ///           (Note: This sequence will match the order that each component appeared in the source.
+        ///           However, logically, it must be treated as if the declarations appear first, followed by the rules.
+        ///           See CSS Syntax Level 3 section 5.4.4 "Consume a style block’s contents".)
         /// location: The location of the <{-token> that opens this block
         style_block,
         /// A CSS property declaration
         /// children: The declaration's value (an arbitrary sequence of components)
+        ///           If the declaration's value originally ended with "!important", those tokens are not included in the tree
         /// location: The location of the <ident-token> that is the name for this declaration
         /// extra: Use `extra.important()` to see if this declaration was marked with "!important"
         declaration,

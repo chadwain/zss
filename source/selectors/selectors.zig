@@ -16,11 +16,42 @@ const assert = std.debug.assert;
 const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 
+/// Represents the specificity of a complex selector.
+pub const Specificity = struct {
+    a: u8 = 0,
+    b: u8 = 0,
+    c: u8 = 0,
+
+    pub const SelectorKind = enum { id, class, attribute, pseudo_class, type_ident, pseudo_element };
+
+    pub fn add(specificity: *Specificity, comptime kind: SelectorKind) void {
+        const field_name = switch (kind) {
+            .id => "a",
+            .class, .attribute, .pseudo_class => "b",
+            .type_ident, .pseudo_element => "c",
+        };
+        @field(specificity, field_name) +|= 1;
+    }
+
+    pub fn order(lhs: Specificity, rhs: Specificity) std.math.Order {
+        const ord = std.math.order;
+        return switch (ord(lhs.a, .rhs.a)) {
+            .lt => .lt,
+            .gt => .gt,
+            .eq => switch (ord(lhs.b, rhs.b)) {
+                .lt => .lt,
+                .gt => .gt,
+                .eq => ord(lhs.c, rhs.c),
+            },
+        };
+    }
+};
+
 pub const ComplexSelectorList = struct {
-    list: []ComplexSelector,
+    list: []ComplexSelectorFull,
 
     pub fn deinit(complex_selector_list: *ComplexSelectorList, allocator: Allocator) void {
-        for (complex_selector_list.list) |*complex_selector| complex_selector.deinit(allocator);
+        for (complex_selector_list.list) |*full| full.deinit(allocator);
         allocator.free(complex_selector_list.list);
     }
 
@@ -29,6 +60,19 @@ pub const ComplexSelectorList = struct {
             if (complex.matchElement(slice, element)) return true;
         }
         return false;
+    }
+};
+
+pub const ComplexSelectorFull = struct {
+    selector: ComplexSelector,
+    specificity: Specificity,
+
+    pub fn deinit(full: *ComplexSelectorFull, allocator: Allocator) void {
+        full.selector.deinit(allocator);
+    }
+
+    pub fn matchElement(sel: ComplexSelectorFull, slice: ElementTree.Slice, element: Element) bool {
+        return sel.selector.matchElement(slice, element);
     }
 };
 
@@ -214,12 +258,13 @@ const TestParseSelectorListExpected = []const struct {
     combinators: []const Combinator = &.{},
 };
 
-fn expectEqualComplexSelectorLists(a: TestParseSelectorListExpected, b: []const ComplexSelector) !void {
+fn expectEqualComplexSelectorLists(a: TestParseSelectorListExpected, b: []const ComplexSelectorFull) !void {
     const expectEqual = std.testing.expectEqual;
     const expectEqualSlices = std.testing.expectEqualSlices;
 
     try expectEqual(a.len, b.len);
-    for (a, b) |a_complex, b_complex| {
+    for (a, b) |a_complex, b_full| {
+        const b_complex = b_full.selector;
         try expectEqual(a_complex.compounds.len, b_complex.compounds.len);
         try expectEqualSlices(Combinator, a_complex.combinators, b_complex.combinators);
 

@@ -20,6 +20,8 @@ pub const Context = struct {
     end: ComponentTree.Size,
     unspecified_namespace: NamespaceId,
 
+    specificity: selectors.Specificity = undefined,
+
     pub fn init(env: *Environment, source: ParserSource, slice: ComponentTree.List.Slice, end: ComponentTree.Size) Context {
         return Context{
             .env = env,
@@ -125,8 +127,11 @@ fn Pair(comptime First: type) type {
 }
 
 pub fn complexSelectorList(context: *Context, start: Iterator) !?Pair(selectors.ComplexSelectorList) {
-    var list = ArrayListUnmanaged(selectors.ComplexSelector){};
-    defer list.deinit(context.env.allocator);
+    var list = ArrayListUnmanaged(selectors.ComplexSelectorFull){};
+    defer {
+        for (list.items) |*full| full.deinit(context.env.allocator);
+        list.deinit(context.env.allocator);
+    }
 
     var it = start;
     var expecting_comma = false;
@@ -139,7 +144,7 @@ pub fn complexSelectorList(context: *Context, start: Iterator) !?Pair(selectors.
         } else {
             try list.ensureUnusedCapacity(context.env.allocator, 1);
             const complex_selector = (try complexSelector(context, it)) orelse break;
-            list.appendAssumeCapacity(complex_selector[0]);
+            list.appendAssumeCapacity(.{ .selector = complex_selector[0], .specificity = context.specificity });
             it = complex_selector[1];
             expecting_comma = true;
         }
@@ -155,6 +160,7 @@ pub fn complexSelectorList(context: *Context, start: Iterator) !?Pair(selectors.
 
 fn complexSelector(context: *Context, start: Iterator) !?Pair(selectors.ComplexSelector) {
     var it = start;
+    context.specificity = .{};
 
     var compounds = ArrayListUnmanaged(selectors.CompoundSelector){};
     defer {
@@ -236,6 +242,10 @@ fn compoundSelector(context: *Context, start: Iterator) !?Pair(selectors.Compoun
     var type_selector: ?selectors.TypeSelector = undefined;
     if (try typeSelector(context, it)) |result| {
         type_selector = result[0];
+        if (result[0].name != .any) {
+            context.specificity.add(.type_ident);
+        }
+
         it = result[1];
     } else {
         type_selector = null;
@@ -247,6 +257,14 @@ fn compoundSelector(context: *Context, start: Iterator) !?Pair(selectors.Compoun
         if (context.nextIsWhitespace(it)) break;
         const subclass_selector = (try subclassSelector(context, it)) orelse break;
         try subclasses.append(context.env.allocator, subclass_selector[0]);
+
+        switch (subclass_selector[0]) {
+            .id => context.specificity.add(.id),
+            .class => context.specificity.add(.class),
+            .attribute => context.specificity.add(.attribute),
+            .pseudo => context.specificity.add(.pseudo_class),
+        }
+
         it = subclass_selector[1];
     }
 
@@ -262,6 +280,7 @@ fn compoundSelector(context: *Context, start: Iterator) !?Pair(selectors.Compoun
         if (element_colon_2.tag != .token_colon) break;
         const element = pseudoSelector(context, element_colon_2.next_it) orelse break;
         try pseudo_elements.ensureUnusedCapacity(context.env.allocator, 1);
+        context.specificity.add(.pseudo_element);
 
         var pseudo_classes = ArrayListUnmanaged(selectors.PseudoName){};
         defer pseudo_classes.deinit(context.env.allocator);
@@ -271,6 +290,7 @@ fn compoundSelector(context: *Context, start: Iterator) !?Pair(selectors.Compoun
             if (class_colon.tag != .token_colon) break;
             const class = pseudoSelector(context, class_colon.next_it) orelse break;
             try pseudo_classes.append(context.env.allocator, class[0]);
+            context.specificity.add(.pseudo_class);
             it = class[1];
         }
 
