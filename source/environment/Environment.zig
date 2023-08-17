@@ -4,10 +4,10 @@ const zss = @import("../../zss.zig");
 const syntax = zss.syntax;
 const ComponentTree = syntax.ComponentTree;
 const ParserSource = syntax.parse.Source;
-
+pub const declaration = @import("./declaration.zig");
+const Declaration = declaration.Declaration;
 const namespace = @import("./namespace.zig");
 pub const NamespaceId = namespace.NamespaceId;
-
 pub const Stylesheet = @import("./Stylesheet.zig");
 
 const std = @import("std");
@@ -24,6 +24,12 @@ type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value, .case 
 // TODO: Case sensitivity depends on whether quirks mode is on
 id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensitive },
 default_namespace: ?NamespaceId = null,
+
+comptime {
+    if (@import("builtin").is_test) {
+        _ = declaration;
+    }
+}
 
 pub fn init(allocator: Allocator) Environment {
     return Environment{ .allocator = allocator };
@@ -83,14 +89,14 @@ pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
 }
 
 fn declsFromStyleBlock(env: *Environment, slice: ComponentTree.List.Slice, start_of_style_block: ComponentTree.Size) !struct {
-    normal: Stylesheet.DeclarationList,
-    important: Stylesheet.DeclarationList,
+    normal: []const Declaration,
+    important: []const Declaration,
 } {
     assert(slice.items(.tag)[start_of_style_block] == .style_block);
 
-    var normal_declarations = ArrayListUnmanaged(Stylesheet.Declaration){};
+    var normal_declarations = ArrayListUnmanaged(Declaration){};
     defer normal_declarations.deinit(env.allocator);
-    var important_declarations = ArrayListUnmanaged(Stylesheet.Declaration){};
+    var important_declarations = ArrayListUnmanaged(Declaration){};
     defer important_declarations.deinit(env.allocator);
 
     var index = start_of_style_block + 1;
@@ -111,7 +117,7 @@ fn declsFromStyleBlock(env: *Environment, slice: ComponentTree.List.Slice, start
     const important_declarations_owned = try important_declarations.toOwnedSlice(env.allocator);
     errdefer env.allocator.free(important_declarations_owned);
 
-    return .{ .normal = .{ .list = normal_declarations_owned }, .important = .{ .list = important_declarations_owned } };
+    return .{ .normal = normal_declarations_owned, .important = important_declarations_owned };
 }
 
 /// Assigns unique indeces to CSS identifiers.
@@ -284,15 +290,4 @@ pub fn addIdName(env: *Environment, hash_id: ParserSource.Location, source: Pars
 pub fn addClassName(env: *Environment, identifier: ParserSource.Location, source: ParserSource) !ClassId {
     const index = try env.id_or_class_names.getOrPutFromParserSource(env.allocator, source, source.identTokenIterator(identifier));
     return @intToEnum(ClassId, @intCast(ClassId.Value, index));
-}
-
-test "adding a stylesheet" {
-    const allocator = std.testing.allocator;
-
-    var env = Environment.init(allocator);
-    defer env.deinit();
-
-    const input = "test {}";
-    const source = ParserSource.init(try zss.syntax.tokenize.Source.init(zss.util.ascii8ToAscii7(input)));
-    try env.addStylesheet(source);
 }

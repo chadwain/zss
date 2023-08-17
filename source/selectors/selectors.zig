@@ -17,7 +17,7 @@ const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 
 /// Represents the specificity of a complex selector.
-pub const Specificity = struct {
+pub const Specificity = packed struct {
     a: u8 = 0,
     b: u8 = 0,
     c: u8 = 0,
@@ -34,18 +34,30 @@ pub const Specificity = struct {
     }
 
     pub fn order(lhs: Specificity, rhs: Specificity) std.math.Order {
-        const ord = std.math.order;
-        return switch (ord(lhs.a, .rhs.a)) {
-            .lt => .lt,
-            .gt => .gt,
-            .eq => switch (ord(lhs.b, rhs.b)) {
-                .lt => .lt,
-                .gt => .gt,
-                .eq => ord(lhs.c, rhs.c),
-            },
-        };
+        return std.math.order(lhs.toInt(), rhs.toInt());
+    }
+
+    fn toInt(specificity: Specificity) u24 {
+        return std.mem.nativeToBig(u24, @bitCast(u24, specificity));
     }
 };
+
+test "Specificity.order" {
+    const Order = std.math.Order;
+    const order = Specificity.order;
+    const ex = std.testing.expectEqual;
+
+    try ex(Order.lt, order(.{}, .{ .c = 1 }));
+    try ex(Order.lt, order(.{}, .{ .b = 1 }));
+    try ex(Order.lt, order(.{}, .{ .a = 1 }));
+
+    try ex(Order.eq, order(.{ .a = 1 }, .{ .a = 1 }));
+    try ex(Order.gt, order(.{ .a = 1, .b = 1 }, .{ .a = 1 }));
+    try ex(Order.gt, order(.{ .a = 1, .c = 1 }, .{ .a = 1 }));
+    try ex(Order.lt, order(.{ .a = 1, .c = 1 }, .{ .a = 1, .b = 1 }));
+
+    try ex(Order.lt, order(.{}, .{ .a = 255, .b = 255, .c = 255 }));
+}
 
 pub const ComplexSelectorList = struct {
     list: []ComplexSelectorFull,
@@ -55,11 +67,20 @@ pub const ComplexSelectorList = struct {
         allocator.free(complex_selector_list.list);
     }
 
-    pub fn matchElement(sel: ComplexSelectorList, slice: ElementTree.Slice, element: Element) bool {
+    /// Determines if the element matches the complex selector list, and if so, returns the specificity of the list.
+    /// Note that the specificity of a selector list depends on the object that it's being matched on:
+    /// it is that of the most specific selector in the list that matches the element.
+    /// See CSS Selectors Level 4 section 17 "Calculating a selector’s specificity".
+    pub fn matchElement(sel: ComplexSelectorList, slice: ElementTree.Slice, element: Element) ?Specificity {
+        // TODO: If selectors in the list were already sorted by specificity (highest to lowest), we could return on the first match.
+        var result: ?Specificity = null;
         for (sel.list) |complex| {
-            if (complex.matchElement(slice, element)) return true;
+            if (!complex.matchElement(slice, element)) continue;
+            if (result == null or result.?.order(complex.specificity) == .lt) {
+                result = complex.specificity;
+            }
         }
-        return false;
+        return result;
     }
 };
 
@@ -88,10 +109,7 @@ pub const ComplexSelector = struct {
 
     fn matchElement(sel: ComplexSelector, slice: ElementTree.Slice, element: Element) bool {
         if (sel.compounds.len > 1) panic("TODO: More than 1 compound selector in a complex selector", .{});
-        for (0..sel.compounds.len) |i| {
-            const compound = sel.compounds[sel.compounds.len - 1 - i];
-            if (compound.matchElement(slice, element)) return true;
-        }
+        return sel.compounds[0].matchElement(slice, element);
     }
 };
 
@@ -110,7 +128,7 @@ pub const CompoundSelector = struct {
 
     fn matchElement(sel: CompoundSelector, slice: ElementTree.Slice, element: Element) bool {
         if (sel.type_selector) |type_selector| {
-            const element_type = slice.get(.type, element);
+            const element_type = slice.get(.fq_type, element);
             if (!type_selector.matches(element_type)) return false;
         }
         if (sel.subclasses.len > 0) panic("TODO: Subclass selectors in a compound selector", .{});
@@ -128,7 +146,7 @@ pub const TypeSelector = struct {
     namespace: NamespaceId,
     name: NameId,
 
-    fn matches(selector: TypeSelector, element_type: ElementTree.Type) bool {
+    fn matches(selector: TypeSelector, element_type: ElementTree.FqType) bool {
         assert(element_type.namespace != .any);
         assert(element_type.name != .any);
 
@@ -151,10 +169,10 @@ test "matching type selectors" {
     const some_namespace = @intToEnum(NamespaceId, 24);
     const some_name = @intToEnum(NameId, 42);
 
-    const e1 = ElementTree.Type{ .namespace = .none, .name = .unspecified };
-    const e2 = ElementTree.Type{ .namespace = .none, .name = some_name };
-    const e3 = ElementTree.Type{ .namespace = some_namespace, .name = .unspecified };
-    const e4 = ElementTree.Type{ .namespace = some_namespace, .name = some_name };
+    const e1 = ElementTree.FqType{ .namespace = .none, .name = .unspecified };
+    const e2 = ElementTree.FqType{ .namespace = .none, .name = some_name };
+    const e3 = ElementTree.FqType{ .namespace = some_namespace, .name = .unspecified };
+    const e4 = ElementTree.FqType{ .namespace = some_namespace, .name = some_name };
 
     const expect = std.testing.expect;
     const matches = TypeSelector.matches;

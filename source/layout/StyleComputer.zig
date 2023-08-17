@@ -158,30 +158,30 @@ pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: Element)
     current_stage.current_values = undefined;
 }
 
-pub fn setElementAny(self: *Self, comptime stage: Stage, child: ElementIndex) !void {
-    const parent = parent: {
-        while (self.element_stack.items.len > 0) {
-            const element = self.element_stack.items[self.element_stack.items.len - 1].index;
-            if (child >= element + 1 and child < element + self.element_tree_skips[element]) {
-                break :parent element;
-            } else {
-                self.popElement(stage);
-            }
-        } else {
-            break :parent root_element;
-        }
-    };
-
-    var iterator = zss.SkipTreeIterator(ElementIndex).init(parent, self.element_tree_skips);
-    while (iterator.index != child) : (iterator = iterator.firstChild(self.element_tree_skips).nextParent(child, self.element_tree_skips)) {
-        assert(!iterator.empty());
-        self.setElementDirectChild(stage, iterator.index);
-        try self.computeAndPushElement(stage);
-    }
-
-    assert(iterator.index == child);
-    self.setElementDirectChild(stage, child);
-}
+// pub fn setElementAny(self: *Self, comptime stage: Stage, child: ElementIndex) !void {
+//     const parent = parent: {
+//         while (self.element_stack.items.len > 0) {
+//             const element = self.element_stack.items[self.element_stack.items.len - 1].index;
+//             if (child >= element + 1 and child < element + self.element_tree_skips[element]) {
+//                 break :parent element;
+//             } else {
+//                 self.popElement(stage);
+//             }
+//         } else {
+//             break :parent root_element;
+//         }
+//     };
+//
+//     var iterator = zss.SkipTreeIterator(ElementIndex).init(parent, self.element_tree_skips);
+//     while (iterator.index != child) : (iterator = iterator.firstChild(self.element_tree_skips).nextParent(child, self.element_tree_skips)) {
+//         assert(!iterator.empty());
+//         self.setElementDirectChild(stage, iterator.index);
+//         try self.computeAndPushElement(stage);
+//     }
+//
+//     assert(iterator.index == child);
+//     self.setElementDirectChild(stage, child);
+// }
 
 pub fn setComputedValue(self: *Self, comptime stage: Stage, comptime property: zss.properties.AggregatePropertyEnum, value: property.Value()) void {
     const current_stage = &@field(self.stage, @tagName(stage));
@@ -259,6 +259,7 @@ pub fn getSpecifiedValue(
         // Use the value of the 'all' property.
         // CSS-CASCADE-4§3.2: The all property is a shorthand that resets all CSS properties except direction and unicode-bidi.
         //                    [...] It does not reset custom properties.
+        // TODO: The 'all' property should not be used in this way.
         if (property != .direction and property != .unicode_bidi and property != .custom) {
             switch (self.this_element.all) {
                 .initial => break :default .initial,

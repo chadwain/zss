@@ -20,7 +20,7 @@ const Node = struct {
     last_child: Element,
     next_sibling: Element,
 
-    type: Type,
+    fq_type: FqType,
 };
 
 pub const Size = u16;
@@ -45,7 +45,8 @@ pub const Element = packed struct {
     }
 };
 
-pub const Type = struct {
+/// A fully-qualified type.
+pub const FqType = struct {
     namespace: NamespaceId,
     name: NameId,
 };
@@ -101,7 +102,7 @@ fn allocateElementsNoFreeList(tree: *ElementTree, allocator: Allocator, buffer: 
             .next_sibling = Element.null_element,
             .first_child = Element.null_element,
             .last_child = Element.null_element,
-            .type = Type{
+            .fq_type = FqType{
                 .namespace = NamespaceId.none,
                 .name = NameId.unspecified,
             },
@@ -151,11 +152,13 @@ fn SliceTemplate(comptime constness: Constness) type {
         first_child: MultiPtr(Element),
         last_child: MultiPtr(Element),
         next_sibling: MultiPtr(Element),
+        fq_type: MultiPtr(FqType),
 
         pub const Value = struct {
             first_child: Element,
             last_child: Element,
             next_sibling: Element,
+            fq_type: FqType,
         };
 
         pub const Field = std.meta.FieldEnum(Value);
@@ -165,20 +168,25 @@ fn SliceTemplate(comptime constness: Constness) type {
             assert(element.generation == self.generation[element.index]);
         }
 
-        pub fn setAll(self: @This(), element: Element, value: Value) void {
+        pub fn setAll(self: @This(), element: Element, value: anytype) void {
             comptime assert(constness == .Mutable);
             self.validateElement(element);
-            inline for (std.meta.fields(Value)) |field_info| {
+            inline for (std.meta.fields(@TypeOf(value))) |field_info| {
                 @field(self, field_info.name)[element.index] = @field(value, field_info.name);
             }
         }
 
-        pub fn get(self: @This(), comptime field: Field, element: Element) Element {
+        pub fn set(self: @This(), comptime field: Field, element: Element, value: std.meta.fieldInfo(Value, field).type) void {
+            self.validateElement(element);
+            @field(self, @tagName(field))[element.index] = value;
+        }
+
+        pub fn get(self: @This(), comptime field: Field, element: Element) std.meta.fieldInfo(Value, field).type {
             self.validateElement(element);
             return @field(self, @tagName(field))[element.index];
         }
 
-        pub fn ptr(self: @This(), comptime field: Field, element: Element) Ptr(Element) {
+        pub fn ptr(self: @This(), comptime field: Field, element: Element) Ptr(std.meta.fieldInfo(Value, field).type) {
             self.validateElement(element);
             return &@field(self, @tagName(field))[element.index];
         }
@@ -193,6 +201,7 @@ fn sliceTemplate(tree: *const ElementTree, comptime constness: Constness) SliceT
         .first_child = nodes.items(.first_child).ptr,
         .last_child = nodes.items(.last_child).ptr,
         .next_sibling = nodes.items(.next_sibling).ptr,
+        .fq_type = nodes.items(.fq_type).ptr,
     };
 }
 
