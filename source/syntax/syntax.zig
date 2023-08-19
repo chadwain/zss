@@ -30,19 +30,19 @@ pub const Component = struct {
         _: u32,
 
         pub fn make(int: u32) Extra {
-            return @bitCast(Extra, int);
+            return @bitCast(int);
         }
 
         pub fn index(extra: Extra) ComponentTree.Size {
-            return @bitCast(ComponentTree.Size, extra);
+            return @bitCast(extra);
         }
 
         pub fn codepoint(extra: Extra) u21 {
-            return @intCast(u21, @bitCast(u32, extra));
+            return @intCast(@as(u32, @bitCast(extra)));
         }
 
         pub fn important(extra: Extra) bool {
-            return @bitCast(u32, extra) != 0;
+            return @as(u32, @bitCast(extra)) != 0;
         }
     };
 
@@ -218,7 +218,7 @@ pub const ComponentTree = struct {
                     const component = c.get(index);
                     const indent = (stack.items.len - 1) * 4;
                     try writer.writeByteNTimes(' ', indent);
-                    try writer.print("{} {s} {} {}\n", .{ index, @tagName(component.tag), component.location.value, @bitCast(u32, component.extra) });
+                    try writer.print("{} {s} {} {}\n", .{ index, @tagName(component.tag), component.location.value, @as(u32, @bitCast(component.extra)) });
 
                     last.current = component.next_sibling;
                     if (index + 1 != component.next_sibling) {

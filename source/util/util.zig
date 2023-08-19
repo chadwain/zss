@@ -30,11 +30,11 @@ pub fn Ratio(comptime T: type) type {
 
         pub fn initReduce(num: T, den: T) Self {
             assert(den > 0);
-            const d = switch (typeInfo.signedness) {
-                .signed => @intCast(T, if (num < 0)
-                    gcd(Unsigned, @intCast(Unsigned, -num), @intCast(Unsigned, den))
+            const d: T = switch (typeInfo.signedness) {
+                .signed => @intCast(if (num < 0)
+                    gcd(Unsigned, @as(Unsigned, @intCast(-num)), @as(Unsigned, @intCast(den)))
                 else
-                    gcd(Unsigned, @intCast(Unsigned, num), @intCast(Unsigned, den))),
+                    gcd(Unsigned, @as(Unsigned, @intCast(num)), @as(Unsigned, @intCast(den)))),
                 .unsigned => gcd(T, num, den),
             };
             return Self{
@@ -125,18 +125,18 @@ test "gcd" {
 
 pub fn divCeil(a: anytype, b: anytype) @TypeOf(a, b) {
     const Return = @TypeOf(a, b);
-    return @divFloor(a, b) + @as(Return, @boolToInt(@mod(a, b) != 0));
+    return @divFloor(a, b) + @as(Return, @intFromBool(@mod(a, b) != 0));
 }
 
 pub fn divRound(a: anytype, b: anytype) @TypeOf(a, b) {
     const Return = @TypeOf(a, b);
-    return @divFloor(a, b) + @as(Return, @boolToInt(2 * @mod(a, b) >= b));
+    return @divFloor(a, b) + @as(Return, @intFromBool(2 * @mod(a, b) >= b));
 }
 
 pub fn roundUp(a: anytype, comptime multiple: comptime_int) @TypeOf(a) {
     const Return = @TypeOf(a);
     const mod = @mod(a, multiple);
-    return a + (multiple - mod) * @as(Return, @boolToInt(mod != 0));
+    return a + (multiple - mod) * @as(Return, @intFromBool(mod != 0));
 }
 
 test "roundUp" {
@@ -152,7 +152,7 @@ pub fn ElementHashMap(comptime V: type) type {
             return lhs.eql(rhs);
         }
         pub fn hash(_: @This(), element: Element) u64 {
-            return @bitCast(u32, element);
+            return @as(u32, @bitCast(element));
         }
     };
     return std.HashMapUnmanaged(Element, V, Context, 80);

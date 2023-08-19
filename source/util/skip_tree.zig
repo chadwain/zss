@@ -82,7 +82,7 @@ pub fn SkipTree(comptime IndexType: type, comptime ValueSpec: type) type {
         }
 
         pub fn size(self: Self) Index {
-            return @intCast(Index, self.multi_list.len);
+            return @intCast(self.multi_list.len);
         }
 
         pub fn iterator(self: Self) ?Iterator {
@@ -306,7 +306,7 @@ pub fn SparseSkipTree(comptime IndexType: type, comptime ValueSpec: type) type {
             const reference_indeces = slice.items(.__reference_index);
 
             var index: Index = 0;
-            var end: Index = @intCast(Index, slice.len);
+            var end: Index = @intCast(slice.len);
             var previous_index: ?Index = null;
 
             while (true) {
@@ -471,7 +471,7 @@ pub fn sstSeeker(sst: anytype) SSTSeeker(@TypeOf(sst)) {
     var result = SSTSeeker(SST){
         .pointers = undefined,
         .refs = slice.items(.__reference_index).ptr,
-        .len = @intCast(SST.Index, sst.multi_list.len),
+        .len = @intCast(sst.multi_list.len),
     };
     inline for (std.meta.fields(SST.Value)) |field| {
         const tag = comptime std.meta.stringToEnum(SST.MultiList.Field, field.name).?;

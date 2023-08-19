@@ -8,7 +8,7 @@ pub const LengthUnit = enum { px };
 
 pub fn length(comptime unit: LengthUnit, value: f32) ZssUnit {
     return switch (unit) {
-        .px => @floatToInt(ZssUnit, @round(value * units_per_pixel)),
+        .px => @as(ZssUnit, @intFromFloat(@round(value * units_per_pixel))),
     };
 }
 
@@ -18,7 +18,7 @@ pub fn positiveLength(comptime unit: LengthUnit, value: f32) !ZssUnit {
 }
 
 pub fn percentage(value: f32, unit: ZssUnit) ZssUnit {
-    return @floatToInt(ZssUnit, @round(@intToFloat(f32, unit) * value));
+    return @as(ZssUnit, @intFromFloat(@round(@as(f32, @floatFromInt(unit)) * value)));
 }
 
 pub fn positivePercentage(value: f32, unit: ZssUnit) !ZssUnit {
@@ -27,7 +27,7 @@ pub fn positivePercentage(value: f32, unit: ZssUnit) !ZssUnit {
 }
 
 pub fn clampSize(size: ZssUnit, min_size: ZssUnit, max_size: ZssUnit) ZssUnit {
-    return std.math.max(min_size, std.math.min(size, max_size));
+    return @max(min_size, @min(size, max_size));
 }
 
 pub const BorderThickness = enum { thin, medium, thick };
@@ -258,13 +258,13 @@ pub fn background2(
         }
 
         if (repeat.x == .Round and repeat.y == .Round) {
-            size.width = @divFloor(positioning_area.width, std.math.max(1, divRound(positioning_area.width, size.width)));
-            size.height = @divFloor(positioning_area.height, std.math.max(1, divRound(positioning_area.height, size.height)));
+            size.width = @divFloor(positioning_area.width, @max(1, divRound(positioning_area.width, size.width)));
+            size.height = @divFloor(positioning_area.height, @max(1, divRound(positioning_area.height, size.height)));
         } else if (repeat.x == .Round) {
-            if (size.width > 0) size.width = @divFloor(positioning_area.width, std.math.max(1, divRound(positioning_area.width, size.width)));
+            if (size.width > 0) size.width = @divFloor(positioning_area.width, @max(1, divRound(positioning_area.width, size.width)));
             if (height_was_auto and natural.?.has_aspect_ratio) size.height = @divFloor(size.width * natural.?.height, natural.?.width);
         } else if (repeat.y == .Round) {
-            if (size.height > 0) size.height = @divFloor(positioning_area.height, std.math.max(1, divRound(positioning_area.height, size.height)));
+            if (size.height > 0) size.height = @divFloor(positioning_area.height, @max(1, divRound(positioning_area.height, size.height)));
             if (width_was_auto and natural.?.has_aspect_ratio) size.width = @divFloor(size.height * natural.?.width, natural.?.height);
         }
     }

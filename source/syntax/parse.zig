@@ -179,14 +179,14 @@ const Parser = struct {
 
     fn allocateComponent(parser: *Parser, component: Component) !ComponentTree.Size {
         if (parser.tree.components.len == std.math.maxInt(ComponentTree.Size)) return error.Overflow;
-        const index = @intCast(ComponentTree.Size, parser.tree.components.len);
+        const index = @as(ComponentTree.Size, @intCast(parser.tree.components.len));
         try parser.tree.components.append(parser.allocator, component);
         return index;
     }
 
     /// Creates a Component that has no children.
     fn addComponent(parser: *Parser, tag: Component.Tag, location: Source.Location, extra: Component.Extra) !void {
-        const index = @intCast(ComponentTree.Size, parser.tree.components.len);
+        const index = @as(ComponentTree.Size, @intCast(parser.tree.components.len));
         _ = try parser.allocateComponent(.{
             .next_sibling = index + 1,
             .tag = tag,
@@ -311,18 +311,18 @@ const Parser = struct {
             .declaration_value => unreachable, // use popDeclarationValue instead
             else => {},
         }
-        parser.tree.components.items(.next_sibling)[frame.index] = @intCast(ComponentTree.Size, parser.tree.components.len);
+        parser.tree.components.items(.next_sibling)[frame.index] = @intCast(parser.tree.components.len);
     }
 
     fn popQualifiedRule(parser: *Parser) void {
         const frame = parser.stack.pop();
-        parser.tree.components.items(.next_sibling)[frame.index] = @intCast(ComponentTree.Size, parser.tree.components.len);
+        parser.tree.components.items(.next_sibling)[frame.index] = @intCast(parser.tree.components.len);
         parser.tree.components.items(.extra)[frame.index] = Extra.make(frame.data.qualified_rule.index_of_block.?);
     }
 
     fn popAtRule(parser: *Parser) void {
         const frame = parser.stack.pop();
-        parser.tree.components.items(.next_sibling)[frame.index] = @intCast(ComponentTree.Size, parser.tree.components.len);
+        parser.tree.components.items(.next_sibling)[frame.index] = @intCast(parser.tree.components.len);
         parser.tree.components.items(.extra)[frame.index] = Extra.make(frame.data.at_rule.index_of_block orelse 0);
     }
 
@@ -436,7 +436,7 @@ fn consumeAtRule(parser: *Parser, location: *Source.Location, data: *Parser.Fram
                 return parser.popAtRule();
             },
             .token_left_curly => {
-                data.index_of_block = @intCast(ComponentTree.Size, parser.tree.components.len);
+                data.index_of_block = @intCast(parser.tree.components.len);
                 try parser.pushSimpleBlock(tag, saved_location);
                 return;
             },
@@ -471,7 +471,7 @@ fn consumeQualifiedRule(parser: *Parser, location: *Source.Location, data: *Pars
                 return parser.ignoreQualifiedRule();
             },
             .token_left_curly => {
-                data.index_of_block = @intCast(ComponentTree.Size, parser.tree.components.len);
+                data.index_of_block = @intCast(parser.tree.components.len);
                 switch (data.is_style_rule) {
                     false => try parser.pushSimpleBlock(tag, saved_location),
                     true => try parser.pushStyleBlock(saved_location),
@@ -611,7 +611,7 @@ fn consumeDeclarationValue(parser: *Parser, location: *Source.Location, data: *P
             else => {
                 data.index_of_last_three_non_whitespace_components[0] = data.index_of_last_three_non_whitespace_components[1];
                 data.index_of_last_three_non_whitespace_components[1] = data.index_of_last_three_non_whitespace_components[2];
-                data.index_of_last_three_non_whitespace_components[2] = @intCast(ComponentTree.Size, parser.tree.components.len);
+                data.index_of_last_three_non_whitespace_components[2] = @intCast(parser.tree.components.len);
                 data.num_non_whitespace_components +|= 1;
 
                 const must_suspend = try consumeComponentValue(parser, tag, saved_location);

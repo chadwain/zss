@@ -55,7 +55,7 @@ pub fn getDeclaredValuesList(
 
         pub fn swap(sc: @This(), a_index: usize, b_index: usize) void {
             inline for (std.meta.fields(GroupOfDeclarations), 0..) |field_info, i| {
-                const field = @intToEnum(Field, i);
+                const field = @as(Field, @enumFromInt(i));
                 const ptr = sc.slice.items(field);
                 std.mem.swap(field_info.type, &ptr[a_index], &ptr[b_index]);
             }
@@ -110,7 +110,7 @@ test "declarations" {
     defer tree.deinit(allocator);
     const element = try tree.allocateElement(allocator);
     const tree_slice = tree.slice();
-    tree_slice.set(.fq_type, element, .{ .namespace = .none, .name = @intToEnum(Environment.NameId, 0) });
+    tree_slice.set(.fq_type, element, .{ .namespace = .none, .name = @as(Environment.NameId, @enumFromInt(0)) });
 
     var declared_values = try getDeclaredValuesList(&env, tree_slice, element, allocator);
     defer declared_values.deinit(allocator);

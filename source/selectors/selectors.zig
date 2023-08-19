@@ -38,7 +38,7 @@ pub const Specificity = packed struct {
     }
 
     fn toInt(specificity: Specificity) u24 {
-        return std.mem.nativeToBig(u24, @bitCast(u24, specificity));
+        return std.mem.nativeToBig(u24, @as(u24, @bitCast(specificity)));
     }
 };
 
@@ -166,8 +166,8 @@ pub const TypeSelector = struct {
 };
 
 test "matching type selectors" {
-    const some_namespace = @intToEnum(NamespaceId, 24);
-    const some_name = @intToEnum(NameId, 42);
+    const some_namespace = @as(NamespaceId, @enumFromInt(24));
+    const some_name = @as(NameId, @enumFromInt(42));
 
     const e1 = ElementTree.FqType{ .namespace = .none, .name = .unspecified };
     const e2 = ElementTree.FqType{ .namespace = .none, .name = some_name };
@@ -339,17 +339,17 @@ fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpec
 test "parsing selector lists" {
     const n = struct {
         fn f(x: u24) NameId {
-            return @intToEnum(NameId, x);
+            return @as(NameId, @enumFromInt(x));
         }
     }.f;
     const i = struct {
         fn f(x: u24) IdId {
-            return @intToEnum(IdId, x);
+            return @as(IdId, @enumFromInt(x));
         }
     }.f;
     const c = struct {
         fn f(x: u24) ClassId {
-            return @intToEnum(ClassId, x);
+            return @as(ClassId, @enumFromInt(x));
         }
     }.f;
 
@@ -424,11 +424,11 @@ pub const debug = struct {
             switch (ts.namespace) {
                 .any => try writer.writeAll("*|"),
                 .none => {},
-                _ => try writer.print("{}|", .{@enumToInt(ts.namespace)}),
+                _ => try writer.print("{}|", .{@intFromEnum(ts.namespace)}),
             }
             switch (ts.name) {
                 .any => try writer.writeAll("*"),
-                else => try writer.print("{}", .{@enumToInt(ts.name)}),
+                else => try writer.print("{}", .{@intFromEnum(ts.name)}),
             }
         }
 
@@ -441,11 +441,11 @@ pub const debug = struct {
                     switch (at.namespace) {
                         .any => try writer.writeAll("[*|"),
                         .none => try writer.writeAll("["),
-                        _ => try writer.print("[{}|", .{@enumToInt(at.namespace)}),
+                        _ => try writer.print("[{}|", .{@intFromEnum(at.namespace)}),
                     }
                     switch (at.name) {
                         .any => unreachable,
-                        else => try writer.print("{}", .{@enumToInt(at.name)}),
+                        else => try writer.print("{}", .{@intFromEnum(at.name)}),
                     }
                     if (at.complex) |complex| {
                         const operator = switch (complex.operator) {

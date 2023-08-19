@@ -92,7 +92,7 @@ const Objects = struct {
         const size = @sizeOf(Data);
         const num_chunks = zss.util.divCeil(size, data_chunk_size);
         const chunks = objects.data.items[data_index..][0..num_chunks];
-        const bytes = @ptrCast([*]align(data_max_alignment) u8, chunks)[0..size];
+        const bytes = @as([*]align(data_max_alignment) u8, @ptrCast(chunks))[0..size];
         return std.mem.bytesAsValue(Data, bytes);
     }
 
@@ -116,11 +116,11 @@ const UsedMargins = struct {
     };
 
     fn isFieldAuto(self: UsedMargins, comptime field: Field) bool {
-        return self.auto_bitfield & @enumToInt(field) != 0;
+        return self.auto_bitfield & @intFromEnum(field) != 0;
     }
 
     fn set(self: *UsedMargins, comptime field: Field, value: ZssUnit) void {
-        self.auto_bitfield &= (~@enumToInt(field));
+        self.auto_bitfield &= (~@intFromEnum(field));
         @field(self, @tagName(field) ++ "_untagged") = value;
     }
 
@@ -132,8 +132,8 @@ const UsedMargins = struct {
         return UsedMargins{
             .inline_start_untagged = sizes.margin_inline_start_untagged,
             .inline_end_untagged = sizes.margin_inline_end_untagged,
-            .auto_bitfield = (@as(u2, @boolToInt(sizes.isFieldAuto(.margin_inline_end))) << 1) |
-                @as(u2, @boolToInt(sizes.isFieldAuto(.margin_inline_start))),
+            .auto_bitfield = (@as(u2, @intFromBool(sizes.isFieldAuto(.margin_inline_end))) << 1) |
+                @as(u2, @intFromBool(sizes.isFieldAuto(.margin_inline_start))),
         };
     }
 };
@@ -265,7 +265,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
 
                             if (used.get(.inline_size)) |inline_size| {
                                 const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
-                                parent_auto_width.* = std.math.max(parent_auto_width.*, inline_size + edge_width);
+                                parent_auto_width.* = @max(parent_auto_width.*, inline_size + edge_width);
 
                                 try layout.objects.tree.append(layout.allocator, .{ .skip = 1, .tag = .flow_normal, .element = element });
                                 layout.object_stack.items(.skip)[layout.object_stack.len - 1] += 1;
@@ -320,7 +320,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 };
 
                                 try layout.object_stack.append(layout.allocator, .{
-                                    .index = @intCast(Objects.Index, layout.objects.tree.len),
+                                    .index = @intCast(layout.objects.tree.len),
                                     .skip = 1,
                                     .data_index = data_index,
                                 });
@@ -347,7 +347,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                             const line_split_result = try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, new_subtree, ifc, containing_block_available_width);
 
                             const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
-                            parent_auto_width.* = std.math.max(parent_auto_width.*, line_split_result.longest_line_box_length);
+                            parent_auto_width.* = @max(parent_auto_width.*, line_split_result.longest_line_box_length);
 
                             const data_index = try layout.objects.allocData(layout.allocator, .ifc);
                             const data = layout.objects.getData(.ifc, data_index);
@@ -385,7 +385,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                     used.border_inline_start + used.border_inline_end +
                                     used.margin_inline_start_untagged + used.margin_inline_end_untagged;
                                 const parent_auto_width = &layout.widths.items(.auto)[layout.widths.len - 1];
-                                parent_auto_width.* = std.math.max(parent_auto_width.*, full_width);
+                                parent_auto_width.* = @max(parent_auto_width.*, full_width);
                             },
                             .flow_normal, .ifc => unreachable,
                         }
@@ -799,8 +799,8 @@ fn flowBlockAdjustMargins(margins: *UsedMargins, available_margin_space: ZssUnit
         // 'inline-size' is not auto, but at least one of 'margin-inline-start' and 'margin-inline-end' is.
         // If there is only one "auto", then that value gets the remaining margin space.
         // Else, there are 2 "auto"s, and both values get half the remaining margin space.
-        const shr_amount = @boolToInt(start and end);
-        const leftover_margin = std.math.max(0, available_margin_space - (margins.inline_start_untagged + margins.inline_end_untagged));
+        const shr_amount = @intFromBool(start and end);
+        const leftover_margin = @max(0, available_margin_space - (margins.inline_start_untagged + margins.inline_end_untagged));
         // TODO the margin that gets the extra 1 unit shall be determined by the 'direction' property
         if (start) margins.set(.inline_start, leftover_margin >> shr_amount);
         if (end) margins.set(.inline_end, (leftover_margin >> shr_amount) + @mod(leftover_margin, 2));

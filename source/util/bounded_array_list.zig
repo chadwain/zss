@@ -14,7 +14,7 @@ pub fn BoundedArrayList(comptime T: type, comptime upper_bound: comptime_int) ty
         }
 
         pub inline fn size(list: Self) Index {
-            return @intCast(Index, list.inner.items.len);
+            return @intCast(list.inner.items.len);
         }
 
         pub inline fn items(list: Self) []T {

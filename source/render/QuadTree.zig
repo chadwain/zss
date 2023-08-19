@@ -39,10 +39,10 @@ const PatchSpan = struct {
     bottom_right: PatchCoord,
 
     fn intersects(a: PatchSpan, b: PatchSpan) bool {
-        const left = std.math.max(a.top_left.x, b.top_left.x);
-        const right = std.math.min(a.bottom_right.x, b.bottom_right.x);
-        const top = std.math.max(a.top_left.y, b.top_left.y);
-        const bottom = std.math.min(a.bottom_right.y, b.bottom_right.y);
+        const left = @max(a.top_left.x, b.top_left.x);
+        const right = @min(a.bottom_right.x, b.bottom_right.x);
+        const top = @max(a.top_left.y, b.top_left.y);
+        const bottom = @min(a.bottom_right.y, b.bottom_right.y);
         return left < right and top < bottom;
     }
 };
@@ -108,7 +108,7 @@ const Node = struct {
             const intersection = rect.intersect(patch_intersect);
             if (!intersection.isEmpty()) {
                 num_intersects += 1;
-                quadrant_index = @intCast(u2, i);
+                quadrant_index = @intCast(i);
                 quadrant_intersect = intersection;
             }
         }
@@ -183,7 +183,7 @@ const Node = struct {
         }
         for (node.children, 0..) |child, i| {
             if (child) |child_node| {
-                const quadrant_string = switch (@intCast(u2, i)) {
+                const quadrant_string = switch (@as(u2, @intCast(i))) {
                     0 => "top left",
                     1 => "top right",
                     2 => "bottom left",

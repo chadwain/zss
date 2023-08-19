@@ -231,8 +231,8 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
 }
 
 pub fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
-    const width = @intCast(ZssUnit, computer.viewport_size.width * units_per_pixel);
-    const height = @intCast(ZssUnit, computer.viewport_size.height * units_per_pixel);
+    const width = @as(ZssUnit, @intCast(computer.viewport_size.width * units_per_pixel));
+    const height = @as(ZssUnit, @intCast(computer.viewport_size.height * units_per_pixel));
 
     const subtree_index = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = null });
     assert(subtree_index == initial_subtree);
@@ -412,7 +412,7 @@ pub const FlowBlockUsedSizes = struct {
     };
 
     pub fn set(self: *FlowBlockUsedSizes, comptime field: PossiblyAutoField, value: ZssUnit) void {
-        self.auto_bitfield &= (~@enumToInt(field));
+        self.auto_bitfield &= (~@intFromEnum(field));
         const clamped_value = switch (field) {
             .inline_size => solve.clampSize(value, self.min_inline_size, self.max_inline_size),
             .margin_inline_start, .margin_inline_end => value,
@@ -422,7 +422,7 @@ pub const FlowBlockUsedSizes = struct {
     }
 
     pub fn setAuto(self: *FlowBlockUsedSizes, comptime field: PossiblyAutoField) void {
-        self.auto_bitfield |= @enumToInt(field);
+        self.auto_bitfield |= @intFromEnum(field);
         @field(self, @tagName(field) ++ "_untagged") = 0;
     }
 
@@ -431,14 +431,14 @@ pub const FlowBlockUsedSizes = struct {
     }
 
     pub fn inlineSizeAndMarginsAreNotAuto(self: FlowBlockUsedSizes) bool {
-        const mask = @enumToInt(PossiblyAutoField.inline_size) |
-            @enumToInt(PossiblyAutoField.margin_inline_start) |
-            @enumToInt(PossiblyAutoField.margin_inline_end);
+        const mask = @intFromEnum(PossiblyAutoField.inline_size) |
+            @intFromEnum(PossiblyAutoField.margin_inline_start) |
+            @intFromEnum(PossiblyAutoField.margin_inline_end);
         return self.auto_bitfield & mask == 0;
     }
 
     pub fn isFieldAuto(self: FlowBlockUsedSizes, comptime field: PossiblyAutoField) bool {
-        return self.auto_bitfield & @enumToInt(field) != 0;
+        return self.auto_bitfield & @intFromEnum(field) != 0;
     }
 
     pub fn getUsedContentHeight(self: FlowBlockUsedSizes) UsedContentHeight {
@@ -804,8 +804,8 @@ fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_wi
         // Else, there are 2 "auto"s, and both values get half the remaining margin space.
         const start = used.isFieldAuto(.margin_inline_start);
         const end = used.isFieldAuto(.margin_inline_end);
-        const shr_amount = @boolToInt(start and end);
-        const leftover_margin = std.math.max(0, content_margin_space -
+        const shr_amount = @intFromBool(start and end);
+        const leftover_margin = @max(0, content_margin_space -
             (used.inline_size_untagged + used.margin_inline_start_untagged + used.margin_inline_end_untagged));
         // TODO the margin that gets the extra 1 unit shall be determined by the 'direction' property
         if (start) used.set(.margin_inline_start, leftover_margin >> shr_amount);

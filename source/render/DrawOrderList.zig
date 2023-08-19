@@ -118,11 +118,11 @@ pub const SubList = struct {
     fn addEntry(sub_list: *SubList, allocator: Allocator, drawable: Drawable) !Size {
         if (sub_list.entries.items.len == std.math.maxInt(Size)) return error.Overflow;
         try sub_list.entries.append(allocator, drawable);
-        return @intCast(Size, sub_list.entries.items.len - 1);
+        return @intCast(sub_list.entries.items.len - 1);
     }
 
     fn setMidpoint(sub_list: *SubList) void {
-        sub_list.midpoint = @intCast(Size, sub_list.before_and_after.items.len);
+        sub_list.midpoint = @intCast(sub_list.before_and_after.items.len);
     }
 };
 
@@ -245,7 +245,7 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawOrderList {
                 },
                 .midpoint => {
                     data.first_child_draw_index = draw_index;
-                    draw_index += @intCast(DrawIndex, data.entries.items.len - 1);
+                    draw_index += @intCast(data.entries.items.len - 1);
                     item.state = .after;
                     continue;
                 },
@@ -282,7 +282,7 @@ fn allocateSubList(
     stacking_context: StackingContextIndex,
 ) !void {
     if (draw_order_list.sub_lists.items.len == std.math.maxInt(SubListIndex)) return error.Overflow;
-    const index = @intCast(SubListIndex, draw_order_list.sub_lists.items.len);
+    const index = @as(SubListIndex, @intCast(draw_order_list.sub_lists.items.len));
     try draw_order_list.sub_lists.append(allocator, .{});
     try builder.pending_sub_lists.put(allocator, stacking_context, index);
 
@@ -426,7 +426,7 @@ fn populateSubList(
                         const child_subtree = box_tree.blocks.subtrees.items[proxy_subtree_index];
                         try stack.append(allocator, .{
                             .begin = 0,
-                            .end = @intCast(BlockBoxIndex, child_subtree.skip.items.len),
+                            .end = @intCast(child_subtree.skip.items.len),
                             .subtree_index = proxy_subtree_index,
                             .subtree = child_subtree,
                             .vector = vector,

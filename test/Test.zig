@@ -68,7 +68,7 @@ pub fn appendChild(self: *Test, parent: Element) Element {
     return element;
 }
 
-pub fn set(self: *Test, comptime field: FieldEnum, element: Element, value: store_fields[@enumToInt(field)].type.Value) void {
+pub fn set(self: *Test, comptime field: FieldEnum, element: Element, value: store_fields[@intFromEnum(field)].type.Value) void {
     const store = &@field(self.cascaded_values, @tagName(field));
     store.ensureTotalCapacity(allocator, store.map.size + 1) catch |err| fail(err);
     store.setAssumeCapacity(element, value);

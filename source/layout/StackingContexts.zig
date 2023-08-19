@@ -110,6 +110,6 @@ pub fn fixupStackingContextIndex(box_tree: *BoxTree, index: StackingContextIndex
 pub fn fixupStackingContextRef(box_tree: *BoxTree, ref: StackingContextRef, block_box: BlockBox) void {
     const tree = &box_tree.stacking_contexts;
     const refs = tree.list.items(.__ref);
-    const index = @intCast(StackingContextIndex, std.mem.indexOfScalar(StackingContextRef, refs, ref).?);
+    const index = @as(StackingContextIndex, @intCast(std.mem.indexOfScalar(StackingContextRef, refs, ref).?));
     fixupStackingContextIndex(box_tree, index, block_box);
 }

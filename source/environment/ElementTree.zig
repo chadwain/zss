@@ -69,7 +69,7 @@ pub fn allocateElements(tree: *ElementTree, allocator: Allocator, buffer: []Elem
     const old_nodes_len = tree.nodes.len;
     if (num_extra_nodes >= max_size - old_nodes_len) return error.Overflow;
     try tree.nodes.resize(allocator, old_nodes_len + num_extra_nodes);
-    tree.free_list_len = @intCast(u16, @as(usize, tree.free_list_len) -| buffer.len);
+    tree.free_list_len = @as(u16, @intCast(@as(usize, tree.free_list_len) -| buffer.len));
     const nodes = tree.nodes.slice();
 
     var free_element = tree.free_list_head;
@@ -88,7 +88,7 @@ pub fn allocateElements(tree: *ElementTree, allocator: Allocator, buffer: []Elem
     // Free list is completely used up.
     tree.free_list_head = max_size;
     for (buffer[buffer_index..], old_nodes_len..) |*element, node_index| {
-        element.* = Element{ .index = @intCast(Size, node_index), .generation = 0 };
+        element.* = Element{ .index = @as(Size, @intCast(node_index)), .generation = 0 };
         nodes.items(.generation)[node_index] = 0;
     }
 }
@@ -180,7 +180,7 @@ fn SliceTemplate(comptime constness: Constness) type {
 fn sliceTemplate(tree: *const ElementTree, comptime constness: Constness) SliceTemplate(constness) {
     const nodes = tree.nodes.slice();
     return SliceTemplate(constness){
-        .len = @intCast(Size, nodes.len),
+        .len = @as(Size, @intCast(nodes.len)),
         .generation = nodes.items(.generation).ptr,
         .first_child = nodes.items(.first_child).ptr,
         .last_child = nodes.items(.last_child).ptr,

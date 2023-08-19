@@ -95,7 +95,7 @@ pub fn main() !u8 {
     }
     defer assert(hb.FT_Done_Face(face) == hb.FT_Err_Ok);
 
-    assert(hb.FT_Set_Char_Size(face, 0, @intCast(c_long, args.font_size) * 64, 96, 96) == hb.FT_Err_Ok);
+    assert(hb.FT_Set_Char_Size(face, 0, @as(c_long, @intCast(args.font_size)) * 64, 96, 96) == hb.FT_Err_Ok);
 
     try createBoxTree(&args, window, renderer, face, allocator, text);
     return 0;

@@ -63,10 +63,10 @@ pub const ZssRect = struct {
     }
 
     pub fn intersect(a: Self, b: Self) Self {
-        const left = std.math.max(a.x, b.x);
-        const right = std.math.min(a.x + a.w, b.x + b.w);
-        const top = std.math.max(a.y, b.y);
-        const bottom = std.math.min(a.y + a.h, b.y + b.h);
+        const left = @max(a.x, b.x);
+        const right = @min(a.x + a.w, b.x + b.w);
+        const top = @max(a.y, b.y);
+        const bottom = @min(a.y + a.h, b.y + b.h);
 
         return Self{
             .x = left,
@@ -319,7 +319,7 @@ pub const InlineFormattingContext = struct {
 
         /// Recovers the data contained within a glyph index.
         pub fn decode(encoded_glyph_index: GlyphIndex) Special {
-            return @bitCast(Special, encoded_glyph_index);
+            return @bitCast(encoded_glyph_index);
         }
 
         // End users should not concern themselves with anything below this comment.
@@ -343,28 +343,28 @@ pub const InlineFormattingContext = struct {
 
         comptime {
             for (std.meta.fields(Kind)) |f| {
-                std.debug.assert(std.mem.eql(u8, f.name, @tagName(@intToEnum(LayoutInternalKind, f.value))));
+                std.debug.assert(std.mem.eql(u8, f.name, @tagName(@as(LayoutInternalKind, @enumFromInt(f.value)))));
             }
         }
 
         pub fn encodeBoxStart(index: InlineBoxIndex) GlyphIndex {
-            return @bitCast(GlyphIndex, Special{ .kind = .BoxStart, .data = index });
+            return @bitCast(Special{ .kind = .BoxStart, .data = index });
         }
 
         pub fn encodeBoxEnd(index: InlineBoxIndex) GlyphIndex {
-            return @bitCast(GlyphIndex, Special{ .kind = .BoxEnd, .data = index });
+            return @bitCast(Special{ .kind = .BoxEnd, .data = index });
         }
 
         pub fn encodeInlineBlock(index: BlockBoxIndex) GlyphIndex {
-            return @bitCast(GlyphIndex, Special{ .kind = .InlineBlock, .data = index });
+            return @bitCast(Special{ .kind = .InlineBlock, .data = index });
         }
 
         pub fn encodeZeroGlyphIndex() GlyphIndex {
-            return @bitCast(GlyphIndex, Special{ .kind = .ZeroGlyphIndex, .data = undefined });
+            return @bitCast(Special{ .kind = .ZeroGlyphIndex, .data = undefined });
         }
 
         pub fn encodeLineBreak() GlyphIndex {
-            return @bitCast(GlyphIndex, Special{ .kind = @intToEnum(Kind, @enumToInt(LayoutInternalKind.LineBreak)), .data = undefined });
+            return @bitCast(Special{ .kind = @as(Kind, @enumFromInt(@intFromEnum(LayoutInternalKind.LineBreak))), .data = undefined });
         }
     };
 

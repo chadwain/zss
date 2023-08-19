@@ -80,7 +80,7 @@ pub fn ReferencedSkipTree(comptime IndexType: type, comptime ReferenceType: type
         }
 
         pub fn size(self: Self) Index {
-            return @intCast(Index, self.list.len);
+            return @intCast(self.list.len);
         }
 
         pub fn iterator(self: Self) Iterator {
@@ -115,7 +115,7 @@ pub fn ReferencedSkipTree(comptime IndexType: type, comptime ReferenceType: type
         pub fn appendChildAssumeCapacity(self: *Self, parent: Ref, value: Value) Ref {
             const slice = self.list.slice();
             const refs = slice.items(.__ref);
-            const parent_index = @intCast(Index, std.mem.indexOfScalar(Ref, refs, parent).?);
+            const parent_index = @as(Index, @intCast(std.mem.indexOfScalar(Ref, refs, parent).?));
 
             const skips = slice.items(.__skip);
             const parent_next_sibling = parent_index + skips[parent_index];

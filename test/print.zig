@@ -71,7 +71,7 @@ fn printBlocks(box_tree: BoxTree, stdout: anytype, allocator: Allocator) !void {
 
                     const new_subtree = subtrees[subtree_index];
                     try subtree_stack.append(allocator, .{ .index = subtree_index, .subtree = new_subtree, .index_of_root = block_stack.items.len });
-                    try block_stack.append(allocator, .{ .begin = 0, .end = @intCast(BlockBoxIndex, new_subtree.skip.items.len), .indent = top.indent + 1 });
+                    try block_stack.append(allocator, .{ .begin = 0, .end = @intCast(new_subtree.skip.items.len), .indent = top.indent + 1 });
                 },
                 .block => {
                     const box_offsets = subtree.subtree.box_offsets.items[index];

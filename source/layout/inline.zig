@@ -90,7 +90,7 @@ fn createInlineBox(box_tree: *BoxTree, ifc: *InlineFormattingContext) !InlineBox
     _ = try ifc.block_start.addOne(box_tree.allocator);
     _ = try ifc.block_end.addOne(box_tree.allocator);
     _ = try ifc.margins.addOne(box_tree.allocator);
-    return @intCast(InlineBoxIndex, old_size);
+    return @intCast(old_size);
 }
 
 pub fn makeInlineFormattingContext(
@@ -386,7 +386,7 @@ fn ifcAddLineBreak(box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
 fn ifcAddText(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.values.Text, font: *hb.hb_font_t) !void {
     const buffer = hb.hb_buffer_create() orelse unreachable;
     defer hb.hb_buffer_destroy(buffer);
-    _ = hb.hb_buffer_pre_allocate(buffer, @intCast(c_uint, text.len));
+    _ = hb.hb_buffer_pre_allocate(buffer, @intCast(text.len));
     // TODO direction, script, and language must be determined by examining the text itself
     hb.hb_buffer_set_direction(buffer, hb.HB_DIRECTION_LTR);
     hb.hb_buffer_set_script(buffer, hb.HB_SCRIPT_LATIN);
@@ -405,7 +405,7 @@ fn ifcAddText(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.value
             '\r' => {
                 try ifcEndTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
                 try ifcAddLineBreak(box_tree, ifc);
-                run_end += @boolToInt(run_end + 1 < text.len and text[run_end + 1] == '\n');
+                run_end += @intFromBool(run_end + 1 < text.len and text[run_end + 1] == '\n');
                 run_begin = run_end + 1;
             },
             '\t' => {
@@ -427,7 +427,7 @@ fn ifcAddText(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.value
 
 fn ifcEndTextRun(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.values.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
     if (run_end > run_begin) {
-        hb.hb_buffer_add_latin1(buffer, text.ptr, @intCast(c_int, text.len), @intCast(c_uint, run_begin), @intCast(c_int, run_end - run_begin));
+        hb.hb_buffer_add_latin1(buffer, text.ptr, @intCast(text.len), @intCast(run_begin), @intCast(run_end - run_begin));
         if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
         try ifcAddTextRun(box_tree, ifc, buffer, font);
         assert(hb.hb_buffer_set_length(buffer, 0) != 0);
@@ -1020,7 +1020,7 @@ fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree) void {
         if (glyph_index == 0) {
             i += 1;
             const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
-            const kind = @intToEnum(InlineFormattingContext.Special.LayoutInternalKind, @enumToInt(special.kind));
+            const kind = @as(InlineFormattingContext.Special.LayoutInternalKind, @enumFromInt(@intFromEnum(special.kind)));
             switch (kind) {
                 .ZeroGlyphIndex => setMetricsGlyph(metrics, ifc.font, 0),
                 .BoxStart => {
@@ -1123,7 +1123,7 @@ const IFCLineSplitState = struct {
 
     fn finishLineBox(self: *IFCLineSplitState) void {
         self.line_box.baseline += self.max_top_height;
-        self.longest_line_box_length = std.math.max(self.longest_line_box_length, self.cursor);
+        self.longest_line_box_length = @max(self.longest_line_box_length, self.cursor);
 
         for (self.inline_blocks_in_this_line_box.items) |info| {
             const offset_x = info.cursor;
@@ -1205,7 +1205,7 @@ pub fn splitIntoLineBoxes(
         if (gi == 0) {
             i += 1;
             const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
-            switch (@intToEnum(InlineFormattingContext.Special.LayoutInternalKind, @enumToInt(special.kind))) {
+            switch (@as(InlineFormattingContext.Special.LayoutInternalKind, @enumFromInt(@intFromEnum(special.kind)))) {
                 .BoxStart => try s.pushInlineBox(allocator, @as(InlineBoxIndex, special.data)),
                 .BoxEnd => s.popInlineBox(@as(InlineBoxIndex, special.data)),
                 .LineBreak => {
@@ -1228,13 +1228,13 @@ pub fn splitIntoLineBoxes(
 
         if (gi == 0) {
             const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
-            switch (@intToEnum(InlineFormattingContext.Special.LayoutInternalKind, @enumToInt(special.kind))) {
+            switch (@as(InlineFormattingContext.Special.LayoutInternalKind, @enumFromInt(@intFromEnum(special.kind)))) {
                 .InlineBlock => {
                     const block_box_index = @as(BlockBoxIndex, special.data);
                     const box_offsets = &subtree.box_offsets.items[block_box_index];
                     const margins = subtree.margins.items[block_box_index];
                     const margin_box_height = box_offsets.border_size.h + margins.top + margins.bottom;
-                    s.max_top_height = std.math.max(s.max_top_height, margin_box_height);
+                    s.max_top_height = @max(s.max_top_height, margin_box_height);
                     try s.inline_blocks_in_this_line_box.append(
                         allocator,
                         .{ .box_offsets = box_offsets, .cursor = s.cursor, .height = margin_box_height - margins.top },

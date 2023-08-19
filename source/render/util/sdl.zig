@@ -9,10 +9,10 @@ pub fn rgbaMap(pixel_format: *sdl.SDL_PixelFormat, color: u32) [4]u8 {
     const color_le = std.mem.nativeToLittle(u32, color);
     const mapped = sdl.SDL_MapRGBA(
         pixel_format,
-        @truncate(u8, color_le >> 24),
-        @truncate(u8, color_le >> 16),
-        @truncate(u8, color_le >> 8),
-        @truncate(u8, color_le),
+        @truncate(color_le >> 24),
+        @truncate(color_le >> 16),
+        @truncate(color_le >> 8),
+        @truncate(color_le),
     );
     var rgba = @as([4]u8, undefined);
     sdl.SDL_GetRGBA(mapped, pixel_format, &rgba[0], &rgba[1], &rgba[2], &rgba[3]);
@@ -149,7 +149,7 @@ fn drawBordersSolidCorners(
         while (x < x2) : (x += 1) {
             const num = (x - x1) * dy;
             const mod = @mod(num, dx);
-            const y = y_low + @divFloor(num, dx) + @boolToInt(2 * mod >= dx);
+            const y = y_low + @divFloor(num, dx) + @intFromBool(2 * mod >= dx);
             drawVerticalLine(renderer, x, y, y_low, y_high, first_color, second_color);
         }
     } else {
@@ -157,7 +157,7 @@ fn drawBordersSolidCorners(
         while (x < x1) : (x += 1) {
             const num = (x1 - 1 - x) * dy;
             const mod = @mod(num, dx);
-            const y = y_low + @divFloor(num, dx) + @boolToInt(2 * mod >= dx);
+            const y = y_low + @divFloor(num, dx) + @intFromBool(2 * mod >= dx);
             drawVerticalLine(renderer, x, y, y_low, y_high, first_color, second_color);
         }
     }

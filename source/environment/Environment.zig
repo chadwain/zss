@@ -164,7 +164,7 @@ const IdentifierSet = struct {
                 const bytes = std.mem.asBytes(&adjusted)[0..3];
                 hasher.update(bytes);
             }
-            return @truncate(u32, hasher.final());
+            return @truncate(hasher.final());
         }
 
         pub fn eql(self: @This(), key: anytype, _: void, index: usize) bool {
@@ -211,7 +211,7 @@ const IdentifierSet = struct {
         if (!result.found_existing) {
             if (result.index >= set.max_size) return error.Overflow;
 
-            var slice = Slice{ .begin = @intCast(u32, set.string_data.len), .len = 0 };
+            var slice = Slice{ .begin = @intCast(set.string_data.len), .len = 0 };
             var it = key.iterator();
             var buffer: [4]u8 = undefined;
             while (it.next()) |codepoint| {
@@ -261,7 +261,7 @@ pub const NameId = enum(u24) {
 
 pub fn addTypeOrAttributeName(env: *Environment, identifier: ParserSource.Location, source: ParserSource) !NameId {
     const index = try env.type_or_attribute_names.getOrPutFromParserSource(env.allocator, source, source.identTokenIterator(identifier));
-    return @intToEnum(NameId, @intCast(NameId.Value, index));
+    return @enumFromInt(@as(NameId.Value, @intCast(index)));
 }
 
 pub const IdId = enum(u32) {
@@ -284,10 +284,10 @@ comptime {
 
 pub fn addIdName(env: *Environment, hash_id: ParserSource.Location, source: ParserSource) !IdId {
     const index = try env.id_or_class_names.getOrPutFromParserSource(env.allocator, source, source.hashIdTokenIterator(hash_id));
-    return @intToEnum(IdId, @intCast(IdId.Value, index));
+    return @enumFromInt(@as(IdId.Value, @intCast(index)));
 }
 
 pub fn addClassName(env: *Environment, identifier: ParserSource.Location, source: ParserSource) !ClassId {
     const index = try env.id_or_class_names.getOrPutFromParserSource(env.allocator, source, source.identTokenIterator(identifier));
-    return @intToEnum(ClassId, @intCast(ClassId.Value, index));
+    return @enumFromInt(@as(ClassId.Value, @intCast(index)));
 }

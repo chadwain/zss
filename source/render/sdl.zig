@@ -280,17 +280,17 @@ pub fn zssRectToSdlRect(rect: ZssRect) sdl.SDL_Rect {
 
 const bg_image_fns = struct {
     fn getNaturalSize(data: *zss.values.BackgroundImage.Object.Data) zss.values.BackgroundImage.Object.Dimensions {
-        const texture = @ptrCast(*sdl.SDL_Texture, data);
+        const texture = @as(*sdl.SDL_Texture, @ptrCast(data));
         var width: c_int = undefined;
         var height: c_int = undefined;
         assert(sdl.SDL_QueryTexture(texture, null, null, &width, &height) == 0);
-        return .{ .width = @intToFloat(f32, width), .height = @intToFloat(f32, height) };
+        return .{ .width = @as(f32, @floatFromInt(width)), .height = @as(f32, @floatFromInt(height)) };
     }
 };
 
 pub fn textureAsBackgroundImageObject(texture: *sdl.SDL_Texture) zss.values.BackgroundImage.Object {
     return .{
-        .data = @ptrCast(*zss.values.BackgroundImage.Object.Data, texture),
+        .data = @as(*zss.values.BackgroundImage.Object.Data, @ptrCast(texture)),
         .getNaturalSizeFn = bg_image_fns.getNaturalSize,
     };
 }
@@ -314,8 +314,8 @@ pub const GlyphAtlas = struct {
     const Self = @This();
 
     pub fn init(face: hb.FT_Face, renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, allocator: Allocator) !Self {
-        const max_glyph_width = @intCast(u16, zss.util.roundUp(zss.util.divCeil((face.*.bbox.xMax - face.*.bbox.xMin) * face.*.size.*.metrics.x_ppem, face.*.units_per_EM), 4));
-        const max_glyph_height = @intCast(u16, zss.util.roundUp(zss.util.divCeil((face.*.bbox.yMax - face.*.bbox.yMin) * face.*.size.*.metrics.y_ppem, face.*.units_per_EM), 4));
+        const max_glyph_width = @as(u16, @intCast(zss.util.roundUp(zss.util.divCeil((face.*.bbox.xMax - face.*.bbox.xMin) * face.*.size.*.metrics.x_ppem, face.*.units_per_EM), 4)));
+        const max_glyph_height = @as(u16, @intCast(zss.util.roundUp(zss.util.divCeil((face.*.bbox.yMax - face.*.bbox.yMin) * face.*.size.*.metrics.y_ppem, face.*.units_per_EM), 4)));
 
         const surface = sdl.SDL_CreateRGBSurfaceWithFormat(
             0,
@@ -384,10 +384,10 @@ pub const GlyphAtlas = struct {
             ) == 0);
 
             const entry = Entry{
-                .slot = @intCast(u8, self.next_slot),
-                .ascender_px = @intCast(i16, self.face.*.glyph.*.bitmap_top),
-                .width = @intCast(u16, bitmap.width),
-                .height = @intCast(u16, bitmap.rows),
+                .slot = @intCast(self.next_slot),
+                .ascender_px = @intCast(self.face.*.glyph.*.bitmap_top),
+                .width = @intCast(bitmap.width),
+                .height = @intCast(bitmap.rows),
             };
             self.map.putAssumeCapacity(glyph_index, entry);
             self.next_slot += 1;
@@ -400,12 +400,12 @@ pub const GlyphAtlas = struct {
 fn copyBitmapToSurface(surface: *sdl.SDL_Surface, bitmap: hb.FT_Bitmap) void {
     var src_index: usize = 0;
     var dest_index: usize = 0;
-    while (src_index < bitmap.pitch * @intCast(c_int, bitmap.rows)) : ({
-        src_index += @intCast(usize, bitmap.pitch);
-        dest_index += @intCast(usize, surface.pitch);
+    while (src_index < bitmap.pitch * @as(c_int, @intCast(bitmap.rows))) : ({
+        src_index += @intCast(bitmap.pitch);
+        dest_index += @intCast(surface.pitch);
     }) {
         const src_row = bitmap.buffer[src_index .. src_index + bitmap.width];
-        const dest_row = @ptrCast([*]u32, @alignCast(4, @ptrCast([*]u8, surface.pixels.?) + dest_index))[0..bitmap.width];
+        const dest_row = @as([*]u32, @ptrCast(@alignCast(@as([*]u8, @ptrCast(surface.pixels.?)) + dest_index)))[0..bitmap.width];
         for (src_row, dest_row) |src, *dest| {
             dest.* = sdl.SDL_MapRGBA(surface.format, 0xff, 0xff, 0xff, src);
         }
@@ -610,7 +610,7 @@ pub fn drawChildBlocks(
                 .subtree_proxy => |proxied_block| {
                     const proxied_block_subtree = blocks.subtrees.items[proxied_block];
                     try block_stack.append(allocator, .{
-                        .interval = .{ .begin = 0, .end = @intCast(BlockBoxIndex, proxied_block_subtree.skip.items.len) },
+                        .interval = .{ .begin = 0, .end = @intCast(proxied_block_subtree.skip.items.len) },
                         .translation = block_item.translation,
                     });
                     try subtree_stack.append(allocator, .{
@@ -687,7 +687,7 @@ pub fn drawBlockContainer(
 
     // draw background image
     if (background2.image) |texture_ptr| {
-        const texture = @ptrCast(*sdl.SDL_Texture, texture_ptr);
+        const texture = @as(*sdl.SDL_Texture, @ptrCast(texture_ptr));
         var tw: c_int = undefined;
         var th: c_int = undefined;
         assert(sdl.SDL_QueryTexture(texture, null, null, &tw, &th) == 0);

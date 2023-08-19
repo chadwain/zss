@@ -67,7 +67,7 @@ fn setupTest(t: *Test, info: TestInfo) void {
 
     if (!t.root.eqlNull()) {
         assert(hb.FT_New_Face(library, t.font.ptr, 0, &t.ft_face) == 0);
-        assert(hb.FT_Set_Char_Size(t.ft_face, 0, @intCast(c_int, t.font_size) * 64, 96, 96) == 0);
+        assert(hb.FT_Set_Char_Size(t.ft_face, 0, @as(c_int, @intCast(t.font_size)) * 64, 96, 96) == 0);
 
         t.hb_font = blk: {
             const hb_font = hb.hb_ft_font_create_referenced(t.ft_face).?;

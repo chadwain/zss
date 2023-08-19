@@ -25,7 +25,7 @@ pub fn BoundedArrayHashMap(
         }
 
         pub inline fn size(map: Self) Index {
-            return @intCast(Index, map.inner.count());
+            return @intCast(map.inner.count());
         }
 
         pub fn values(map: Self) []Value {
@@ -43,7 +43,7 @@ pub fn BoundedArrayHashMap(
                 .key_ptr = result.key_ptr,
                 .value_ptr = result.value_ptr,
                 .found_existing = result.found_existing,
-                .index = @intCast(Index, result.index),
+                .index = @intCast(result.index),
             };
         }
     };

@@ -59,7 +59,7 @@ const ProgramState = struct {
             root,
             cascaded_values,
             allocator,
-            .{ .width = @intCast(u32, result.width), .height = @intCast(u32, result.height) },
+            .{ .width = @intCast(result.width), .height = @intCast(result.height) },
         );
         errdefer result.box_tree.deinit();
 
@@ -88,7 +88,7 @@ const ProgramState = struct {
             self.root,
             self.cascaded_values,
             allocator,
-            .{ .width = @intCast(u32, self.width), .height = @intCast(u32, self.height) },
+            .{ .width = @intCast(self.width), .height = @intCast(self.height) },
         );
         defer new_box_tree.deinit();
         self.last_layout_time = self.timer.read();
@@ -103,7 +103,7 @@ const ProgramState = struct {
 
     fn updateMaxScroll(self: *Self) void {
         const root_box_offsets = self.box_tree.blocks.subtrees.items[0].box_offsets.items[1];
-        self.max_scroll_y = std.math.max(0, zss.render.sdl.zssUnitToPixel(root_box_offsets.border_pos.y + root_box_offsets.border_size.h) - self.height);
+        self.max_scroll_y = @max(0, zss.render.sdl.zssUnitToPixel(root_box_offsets.border_pos.y + root_box_offsets.border_size.h) - self.height);
         self.scroll_y = std.math.clamp(self.scroll_y, 0, self.max_scroll_y);
     }
 };
