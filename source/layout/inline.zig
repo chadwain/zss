@@ -209,9 +209,9 @@ fn ifcRunOnce(
     // TODO: Check position and float properties
     switch (computed.display) {
         .text => {
-            assert(computer.element_tree_slice.get(.first_child, element).eqlNull());
+            assert(computer.element_tree_slice.firstChild(element).eqlNull());
             try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .text);
-            element_ptr.* = computer.element_tree_slice.get(.next_sibling, element);
+            element_ptr.* = computer.element_tree_slice.nextSibling(element);
             const text = computer.getText();
             // TODO: Do proper font matching.
             if (ifc.font == hb.hb_font_get_empty()) panic("TODO: Found text, but no font was specified.", .{});
@@ -239,8 +239,8 @@ fn ifcRunOnce(
 
             try ifcAddBoxStart(box_tree, ifc, inline_box_index);
 
-            element_ptr.* = computer.element_tree_slice.get(.next_sibling, element);
-            if (!computer.element_tree_slice.get(.first_child, element).eqlNull()) {
+            element_ptr.* = computer.element_tree_slice.nextSibling(element);
+            if (!computer.element_tree_slice.firstChild(element).eqlNull()) {
                 layout.inline_box_depth += 1;
                 try layout.index.append(layout.allocator, inline_box_index);
                 try layout.skip.append(layout.allocator, 1);
@@ -252,7 +252,7 @@ fn ifcRunOnce(
             }
         },
         .inline_block => {
-            element_ptr.* = computer.element_tree_slice.get(.next_sibling, element);
+            element_ptr.* = computer.element_tree_slice.nextSibling(element);
             computer.setComputedValue(.box_gen, .box_style, computed);
 
             const subtree = box_tree.blocks.subtrees.items[layout.subtree_index];
@@ -346,7 +346,7 @@ fn ifcRunOnce(
                 //try ifc.glyph_indeces.appendSlice(box_tree.allocator, &.{ 0, undefined });
             }
         },
-        .none => element_ptr.* = computer.element_tree_slice.get(.next_sibling, element),
+        .none => element_ptr.* = computer.element_tree_slice.nextSibling(element),
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 

@@ -181,7 +181,7 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                             .initial, .inherit, .unset, .undeclared => unreachable,
                         }
 
-                        element_ptr.* = computer.element_tree_slice.get(.next_sibling, element);
+                        element_ptr.* = computer.element_tree_slice.nextSibling(element);
                         try computer.pushElement(.box_gen);
                     },
                     .inline_, .inline_block, .text => {
@@ -217,7 +217,7 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
 
                         advanceFlow(parent_auto_height, line_split_result.height);
                     },
-                    .none => element_ptr.* = computer.element_tree_slice.get(.next_sibling, element),
+                    .none => element_ptr.* = computer.element_tree_slice.nextSibling(element),
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 }
             } else {

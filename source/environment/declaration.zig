@@ -110,7 +110,7 @@ test "declarations" {
     defer tree.deinit(allocator);
     const element = try tree.allocateElement(allocator);
     const tree_slice = tree.slice();
-    tree_slice.set(.fq_type, element, .{ .namespace = .none, .name = @as(Environment.NameId, @enumFromInt(0)) });
+    tree_slice.set(.fq_type, element, ElementTree.FqType{ .namespace = .none, .name = @enumFromInt(0) });
 
     var declared_values = try getDeclaredValuesList(&env, tree_slice, element, allocator);
     defer declared_values.deinit(allocator);

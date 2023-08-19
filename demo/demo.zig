@@ -197,53 +197,14 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
 
     const footer = elements[7];
 
-    slice.setAll(root, .{
-        .next_sibling = null_element,
-        .first_child = removed_block,
-        .last_child = footer,
-    });
-
-    slice.setAll(removed_block, .{
-        .next_sibling = title_block,
-        .first_child = null_element,
-        .last_child = null_element,
-    });
-
-    slice.setAll(title_block, .{
-        .next_sibling = body_block,
-        .first_child = title_inline_box,
-        .last_child = title_inline_box,
-    });
-
-    slice.setAll(title_inline_box, .{
-        .next_sibling = null_element,
-        .first_child = title_text,
-        .last_child = title_text,
-    });
-
-    slice.setAll(title_text, .{
-        .next_sibling = null_element,
-        .first_child = null_element,
-        .last_child = null_element,
-    });
-
-    slice.setAll(body_block, .{
-        .next_sibling = footer,
-        .first_child = body_text,
-        .last_child = body_text,
-    });
-
-    slice.setAll(body_text, .{
-        .next_sibling = null_element,
-        .first_child = null_element,
-        .last_child = null_element,
-    });
-
-    slice.setAll(footer, .{
-        .next_sibling = null_element,
-        .first_child = null_element,
-        .last_child = null_element,
-    });
+    slice.placeElement(root, .root, {});
+    slice.placeElement(removed_block, .first_child_of, root);
+    slice.placeElement(title_block, .last_child_of, root);
+    slice.placeElement(title_inline_box, .first_child_of, title_block);
+    slice.placeElement(title_text, .first_child_of, title_inline_box);
+    slice.placeElement(body_block, .last_child_of, root);
+    slice.placeElement(body_text, .first_child_of, body_block);
+    slice.placeElement(footer, .last_child_of, root);
 
     var cascaded = zss.CascadedValueStore{};
     defer cascaded.deinit(allocator);

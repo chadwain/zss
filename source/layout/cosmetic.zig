@@ -72,7 +72,7 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
             .block_box => |block_box| {
                 try blockBoxCosmeticLayout(context, computer, box_tree, block_box, .Root);
 
-                if (!computer.element_tree_slice.get(.first_child, computer.root_element).eqlNull()) {
+                if (!computer.element_tree_slice.firstChild(computer.root_element).eqlNull()) {
                     const subtree = box_tree.blocks.subtrees.items[block_box.subtree];
                     const box_offsets = subtree.box_offsets.items[block_box.index];
                     try context.mode.append(computer.allocator, .Flow);
@@ -96,11 +96,11 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
 
         if (!element_ptr.eqlNull()) {
             const element = element_ptr.*;
-            element_ptr.* = computer.element_tree_slice.get(.next_sibling, element);
+            element_ptr.* = computer.element_tree_slice.nextSibling(element);
 
             const box_type = box_tree.element_to_generated_box.get(element) orelse continue;
             computer.setElementDirectChild(.cosmetic, element);
-            const has_children = !computer.element_tree_slice.get(.first_child, element).eqlNull();
+            const has_children = !computer.element_tree_slice.firstChild(element).eqlNull();
             switch (box_type) {
                 .text => continue,
                 .block_box => |block_box| {

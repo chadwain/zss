@@ -40,7 +40,7 @@ pub fn doLayout(
 ) Error!BoxTree {
     var computer = StyleComputer{
         .root_element = root,
-        .element_tree_slice = element_tree.constSlice(),
+        .element_tree_slice = element_tree.slice(),
         .cascaded_values = cascaded_value_store,
         // TODO: Store viewport_size in a LayoutInputs struct instead of the StyleComputer
         .viewport_size = viewport_size,

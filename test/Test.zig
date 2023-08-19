@@ -34,37 +34,14 @@ pub fn createRoot(self: *Test) Element {
     const element = self.element_tree.allocateElement(allocator) catch |err| fail(err);
     self.root = element;
     const slice = self.element_tree.slice();
-    slice.setAll(element, .{
-        .first_child = null_element,
-        .last_child = null_element,
-        .next_sibling = null_element,
-    });
+    slice.placeElement(element, .root, {});
     return element;
 }
 
 pub fn appendChild(self: *Test, parent: Element) Element {
     const element = self.element_tree.allocateElement(allocator) catch |err| fail(err);
     const slice = self.element_tree.slice();
-
-    slice.setAll(element, .{
-        .first_child = null_element,
-        .last_child = null_element,
-        .next_sibling = null_element,
-    });
-    const first_child = slice.ptr(.first_child, parent);
-    const last_child = slice.ptr(.last_child, parent);
-    if (first_child.eqlNull()) {
-        assert(last_child.eqlNull());
-        first_child.* = element;
-        last_child.* = element;
-    } else {
-        assert(!last_child.eqlNull());
-        const last_child_next_sibling = slice.ptr(.next_sibling, last_child.*);
-        assert(last_child_next_sibling.eqlNull());
-        last_child_next_sibling.* = element;
-        last_child.* = element;
-    }
-
+    slice.placeElement(element, .last_child_of, parent);
     return element;
 }
 

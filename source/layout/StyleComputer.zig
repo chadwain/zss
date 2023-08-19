@@ -88,7 +88,7 @@ const ThisElement = struct {
 };
 
 root_element: Element,
-element_tree_slice: ElementTree.ConstSlice,
+element_tree_slice: ElementTree.Slice,
 cascaded_values: *const CascadedValueStore,
 viewport_size: ViewportSize,
 allocator: Allocator,
@@ -140,10 +140,10 @@ pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: Element)
     assert((self.element_stack.items.len == 0) or blk: {
         const parent = self.element_stack.items[self.element_stack.items.len - 1].element;
         // TODO: If elements store a reference to their parent, use that information instead.
-        var next_child = self.element_tree_slice.ptr(.first_child, parent);
+        var next_child = self.element_tree_slice.firstChild(parent);
         while (!next_child.eql(null_element)) {
             if (next_child.eql(child)) break :blk true;
-            next_child = self.element_tree_slice.ptr(.next_sibling, next_child.*);
+            next_child = self.element_tree_slice.nextSibling(next_child);
         }
         break :blk false;
     });
@@ -193,7 +193,7 @@ pub fn setComputedValue(self: *Self, comptime stage: Stage, comptime property: z
 
 pub fn pushElement(self: *Self, comptime stage: Stage) !void {
     try self.element_stack.append(self.allocator, self.this_element);
-    try self.child_stack.append(self.allocator, self.element_tree_slice.ptr(.first_child, self.this_element.element).*);
+    try self.child_stack.append(self.allocator, self.element_tree_slice.firstChild(self.this_element.element));
 
     const current_stage = &@field(self.stage, @tagName(stage));
     const values = current_stage.current_values;

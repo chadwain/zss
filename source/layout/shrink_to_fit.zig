@@ -43,6 +43,7 @@ const Objects = struct {
     const data_chunk_size = 4;
     const data_max_alignment = 4;
 
+    // This tree can store as many objects as ElementTree can.
     const Index = ElementTree.Size;
     const Skip = Index;
     const DataIndex = usize;
@@ -256,7 +257,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 };
                                 computer.setComputedValue(.box_gen, .font, stuff.font);
                             }
-                            element_ptr.* = computer.element_tree_slice.get(.next_sibling, element);
+                            element_ptr.* = computer.element_tree_slice.nextSibling(element);
                             try computer.pushElement(.box_gen);
 
                             const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
@@ -327,7 +328,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 try layout.objects.tree.append(layout.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
                             }
                         },
-                        .none => element_ptr.* = computer.element_tree_slice.get(.next_sibling, element),
+                        .none => element_ptr.* = computer.element_tree_slice.nextSibling(element),
                         .inline_, .inline_block, .text => {
                             const new_subtree_index = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = undefined });
                             const new_subtree = box_tree.blocks.subtrees.items[new_subtree_index];
