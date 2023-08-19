@@ -13,16 +13,16 @@ pub const tests = [_]TestInfo{
 
 fn inlineBlock(t: *Test) void {
     const root = t.createRoot();
-    const inline_block = t.appendChild(root);
+    const inline_block = t.appendChild(root, .normal);
 
     t.set(.box_style, inline_block, .{ .display = .inline_block });
 }
 
 fn twoNestedInlineBlocks(t: *Test) void {
     const root = t.createRoot();
-    const inline_block = t.appendChild(root);
-    const inline_block_child_1 = t.appendChild(inline_block);
-    const inline_block_child_2 = t.appendChild(inline_block);
+    const inline_block = t.appendChild(root, .normal);
+    const inline_block_child_1 = t.appendChild(inline_block, .normal);
+    const inline_block_child_2 = t.appendChild(inline_block, .normal);
 
     t.set(.box_style, inline_block, .{ .display = .inline_block });
     t.set(.box_style, inline_block_child_1, .{ .display = .inline_block });
@@ -31,8 +31,8 @@ fn twoNestedInlineBlocks(t: *Test) void {
 
 fn inlineBlockText(t: *Test) void {
     const root = t.createRoot();
-    const inline_block = t.appendChild(root);
-    const text = t.appendChild(inline_block);
+    const inline_block = t.appendChild(root, .normal);
+    const text = t.appendChild(inline_block, .text);
 
     t.set(.box_style, inline_block, .{ .display = .inline_block });
     t.set(.box_style, text, .{ .display = .text });
@@ -41,8 +41,8 @@ fn inlineBlockText(t: *Test) void {
 
 fn inlineBlockWithFixedWidthChild(t: *Test) void {
     const root = t.createRoot();
-    const inline_block = t.appendChild(root);
-    const block = t.appendChild(inline_block);
+    const inline_block = t.appendChild(root, .normal);
+    const block = t.appendChild(inline_block, .normal);
 
     t.set(.box_style, inline_block, .{ .display = .inline_block });
     t.set(.box_style, block, .{ .display = .block });

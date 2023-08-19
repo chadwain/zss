@@ -137,16 +137,8 @@ pub fn deinitStage(self: *Self, comptime stage: Stage) void {
 }
 
 pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: Element) void {
-    assert((self.element_stack.items.len == 0) or blk: {
-        const parent = self.element_stack.items[self.element_stack.items.len - 1].element;
-        // TODO: If elements store a reference to their parent, use that information instead.
-        var next_child = self.element_tree_slice.firstChild(parent);
-        while (!next_child.eql(null_element)) {
-            if (next_child.eql(child)) break :blk true;
-            next_child = self.element_tree_slice.nextSibling(next_child);
-        }
-        break :blk false;
-    });
+    assert(self.element_stack.items.len == 0 or
+        self.element_tree_slice.parent(child).eql(self.element_stack.items[self.element_stack.items.len - 1].element));
 
     self.this_element = .{
         .element = child,

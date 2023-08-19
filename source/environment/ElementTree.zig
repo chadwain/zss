@@ -18,10 +18,13 @@ free_list_len: Size = 0,
 /// If a Node is in the free list, then node.next_sibling.index stores the next item in the free list.
 const Node = struct {
     generation: Generation,
+    parent: Element,
     first_child: Element,
     last_child: Element,
     next_sibling: Element,
+    previous_sibling: Element,
 
+    category: Category,
     fq_type: FqType,
 };
 
@@ -46,6 +49,11 @@ pub const Element = packed struct {
     pub fn eqlNull(self: Element) bool {
         return self.eql(null_element);
     }
+};
+
+pub const Category = enum {
+    normal,
+    text,
 };
 
 /// A fully-qualified type.
@@ -73,7 +81,7 @@ pub fn allocateElement(tree: *ElementTree, allocator: Allocator) !Element {
 pub fn allocateElements(tree: *ElementTree, allocator: Allocator, buffer: []Element) !void {
     const num_extra_nodes = buffer.len -| tree.free_list_len;
     const old_nodes_len = tree.nodes.len;
-    if (num_extra_nodes >= max_size - old_nodes_len) return error.Overflow;
+    if (num_extra_nodes >= max_size - old_nodes_len) return error.ElementTreeMaxSizeExceeded;
     try tree.nodes.resize(allocator, old_nodes_len + num_extra_nodes);
     tree.free_list_len = @intCast(@as(usize, tree.free_list_len) -| buffer.len);
     const nodes = tree.nodes.slice();
@@ -99,6 +107,7 @@ pub fn allocateElements(tree: *ElementTree, allocator: Allocator, buffer: []Elem
     }
 }
 
+// TODO: Consider moving this function into Slice
 pub fn destroyElement(tree: *ElementTree, element: Element) void {
     var new_node_value = @as(Node, undefined);
     new_node_value.generation = tree.nodes.items(.generation)[element.index];
@@ -112,6 +121,19 @@ pub fn destroyElement(tree: *ElementTree, element: Element) void {
         tree.free_list_len += 1;
     }
 
+    const parent = tree.nodes.items(.parent)[element.index];
+    if (!parent.eqlNull()) {
+        const parent_first_child = &tree.nodes.items(.parent_first_child)[parent.index];
+        const parent_last_child = &tree.nodes.items(.parent_last_child)[parent.index];
+        if (parent_first_child.eql(element)) parent_first_child.* = Element.null_element;
+        if (parent_last_child.eql(element)) parent_last_child.* = Element.null_element;
+    }
+
+    const previous_sibling = tree.nodes.items(.previous_sibling)[element.index];
+    const next_sibling = tree.nodes.items(.next_sibling)[element.index];
+    if (!previous_sibling.eqlNull()) tree.nodes.items(.next_sibling)[previous_sibling.index] = next_sibling;
+    if (!next_sibling.eqlNull()) tree.nodes.items(.previous_sibling)[next_sibling.index] = previous_sibling;
+
     tree.nodes.set(element.index, new_node_value);
 }
 
@@ -119,46 +141,72 @@ pub fn slice(tree: *const ElementTree) Slice {
     const nodes = tree.nodes.slice();
     return Slice{
         .len = @intCast(nodes.len),
-        .generation = nodes.items(.generation).ptr,
-        .first_child = nodes.items(.first_child).ptr,
-        .last_child = nodes.items(.last_child).ptr,
-        .next_sibling = nodes.items(.next_sibling).ptr,
-        .fq_type = nodes.items(.fq_type).ptr,
+        .ptrs = .{
+            .generation = nodes.items(.generation).ptr,
+
+            .parent = nodes.items(.parent).ptr,
+            .first_child = nodes.items(.first_child).ptr,
+            .last_child = nodes.items(.last_child).ptr,
+            .next_sibling = nodes.items(.next_sibling).ptr,
+            .previous_sibling = nodes.items(.previous_sibling).ptr,
+
+            .category = nodes.items(.category).ptr,
+            .fq_type = nodes.items(.fq_type).ptr,
+        },
     };
 }
 
 pub const Slice = struct {
     len: Size,
-    generation: [*]Generation,
-    first_child: [*]Element,
-    last_child: [*]Element,
-    next_sibling: [*]Element,
-    fq_type: [*]FqType,
+    ptrs: struct {
+        generation: [*]Generation,
+
+        parent: [*]Element,
+        first_child: [*]Element,
+        last_child: [*]Element,
+        next_sibling: [*]Element,
+        previous_sibling: [*]Element,
+
+        category: [*]Category,
+        fq_type: [*]FqType,
+    },
 
     pub const Value = struct {
-        fq_type: FqType,
+        category: Category = .normal,
+        fq_type: FqType = .{ .namespace = .none, .name = .unspecified },
     };
 
     pub const Field = std.meta.FieldEnum(Value);
+    const fields = std.meta.fields(Value);
 
     fn validateElement(self: Slice, element: Element) void {
         assert(element.index < self.len);
-        assert(element.generation == self.generation[element.index]);
+        assert(element.generation == self.ptrs.generation[element.index]);
+    }
+
+    pub fn parent(self: Slice, element: Element) Element {
+        self.validateElement(element);
+        return self.ptrs.parent[element.index];
     }
 
     pub fn firstChild(self: Slice, element: Element) Element {
         self.validateElement(element);
-        return self.first_child[element.index];
+        return self.ptrs.first_child[element.index];
     }
 
     pub fn lastChild(self: Slice, element: Element) Element {
         self.validateElement(element);
-        return self.last_child[element.index];
+        return self.ptrs.last_child[element.index];
     }
 
     pub fn nextSibling(self: Slice, element: Element) Element {
         self.validateElement(element);
-        return self.next_sibling[element.index];
+        return self.ptrs.next_sibling[element.index];
+    }
+
+    pub fn previousSibling(self: Slice, element: Element) Element {
+        self.validateElement(element);
+        return self.ptrs.previous_sibling[element.index];
     }
 
     pub fn set(self: Slice, comptime field: Field, element: Element, value: std.meta.fieldInfo(Value, field).type) void {
@@ -174,6 +222,13 @@ pub const Slice = struct {
     pub fn ptr(self: Slice, comptime field: Field, element: Element) *std.meta.fieldInfo(Value, field).type {
         self.validateElement(element);
         return &@field(self, @tagName(field))[element.index];
+    }
+
+    pub fn initElement(self: Slice, element: Element, value: Value) void {
+        self.validateElement(element);
+        inline for (fields) |field_info| {
+            @field(self.ptrs, field_info.name)[element.index] = @field(value, field_info.name);
+        }
     }
 
     pub const NodePlacement = enum {
@@ -196,35 +251,53 @@ pub const Slice = struct {
         self.validateElement(element);
         switch (placement) {
             .root => {
-                self.first_child[element.index] = Element.null_element;
-                self.last_child[element.index] = Element.null_element;
-                self.next_sibling[element.index] = Element.null_element;
+                self.ptrs.parent[element.index] = Element.null_element;
+                self.ptrs.first_child[element.index] = Element.null_element;
+                self.ptrs.last_child[element.index] = Element.null_element;
+                self.ptrs.next_sibling[element.index] = Element.null_element;
+                self.ptrs.previous_sibling[element.index] = Element.null_element;
             },
             .first_child_of => {
                 self.validateElement(payload);
-                const former_first_child = self.first_child[payload.index];
-                self.first_child[payload.index] = element;
-                if (former_first_child.eqlNull()) {
-                    self.last_child[payload.index] = element;
+                switch (self.ptrs.category[payload.index]) {
+                    .normal => {},
+                    .text => unreachable,
                 }
 
-                self.first_child[element.index] = Element.null_element;
-                self.last_child[element.index] = Element.null_element;
-                self.next_sibling[element.index] = former_first_child;
+                const former_first_child = self.ptrs.first_child[payload.index];
+                self.ptrs.first_child[payload.index] = element;
+                if (former_first_child.eqlNull()) {
+                    self.ptrs.last_child[payload.index] = element;
+                } else {
+                    self.ptrs.previous_sibling[former_first_child.index] = element;
+                }
+
+                self.ptrs.parent[element.index] = payload;
+                self.ptrs.first_child[element.index] = Element.null_element;
+                self.ptrs.last_child[element.index] = Element.null_element;
+                self.ptrs.next_sibling[element.index] = former_first_child;
+                self.ptrs.previous_sibling[element.index] = Element.null_element;
             },
             .last_child_of => {
                 self.validateElement(payload);
-                const former_last_child = self.last_child[payload.index];
-                self.last_child[payload.index] = element;
-                if (former_last_child.eqlNull()) {
-                    self.first_child[payload.index] = element;
-                } else {
-                    self.next_sibling[former_last_child.index] = element;
+                switch (self.ptrs.category[payload.index]) {
+                    .normal => {},
+                    .text => unreachable,
                 }
 
-                self.first_child[element.index] = Element.null_element;
-                self.last_child[element.index] = Element.null_element;
-                self.next_sibling[element.index] = Element.null_element;
+                const former_last_child = self.ptrs.last_child[payload.index];
+                self.ptrs.last_child[payload.index] = element;
+                if (former_last_child.eqlNull()) {
+                    self.ptrs.first_child[payload.index] = element;
+                } else {
+                    self.ptrs.next_sibling[former_last_child.index] = element;
+                }
+
+                self.ptrs.parent[element.index] = payload;
+                self.ptrs.first_child[element.index] = Element.null_element;
+                self.ptrs.last_child[element.index] = Element.null_element;
+                self.ptrs.next_sibling[element.index] = Element.null_element;
+                self.ptrs.previous_sibling[element.index] = former_last_child;
             },
         }
     }

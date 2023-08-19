@@ -12,7 +12,7 @@ pub const tests = [_]TestInfo{
 
 pub fn blockBox(t: *Test) void {
     const root = t.createRoot();
-    const block = t.appendChild(root);
+    const block = t.appendChild(root, .normal);
 
     t.set(.content_width, root, .{ .size = .{ .px = 400 } });
     t.set(.content_height, root, .{ .size = .{ .px = 400 } });
@@ -26,8 +26,8 @@ pub fn blockBox(t: *Test) void {
 
 pub fn inlineBoxText(t: *Test) void {
     const root = t.createRoot();
-    const inline_box = t.appendChild(root);
-    const text = t.appendChild(inline_box);
+    const inline_box = t.appendChild(root, .normal);
+    const text = t.appendChild(inline_box, .text);
 
     t.set(.content_width, root, .{ .size = .{ .px = 400 } });
     t.set(.content_height, root, .{ .size = .{ .px = 400 } });

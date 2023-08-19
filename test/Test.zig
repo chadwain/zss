@@ -34,13 +34,15 @@ pub fn createRoot(self: *Test) Element {
     const element = self.element_tree.allocateElement(allocator) catch |err| fail(err);
     self.root = element;
     const slice = self.element_tree.slice();
+    slice.initElement(element, .{});
     slice.placeElement(element, .root, {});
     return element;
 }
 
-pub fn appendChild(self: *Test, parent: Element) Element {
+pub fn appendChild(self: *Test, parent: Element, category: ElementTree.Category) Element {
     const element = self.element_tree.allocateElement(allocator) catch |err| fail(err);
     const slice = self.element_tree.slice();
+    slice.initElement(element, .{ .category = category });
     slice.placeElement(element, .last_child_of, parent);
     return element;
 }

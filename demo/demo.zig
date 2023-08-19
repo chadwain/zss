@@ -197,6 +197,15 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
 
     const footer = elements[7];
 
+    slice.initElement(root, .{});
+    slice.initElement(removed_block, .{});
+    slice.initElement(title_block, .{});
+    slice.initElement(title_inline_box, .{});
+    slice.initElement(title_text, .{ .category = .text });
+    slice.initElement(body_block, .{});
+    slice.initElement(body_text, .{ .category = .text });
+    slice.initElement(footer, .{});
+
     slice.placeElement(root, .root, {});
     slice.placeElement(removed_block, .first_child_of, root);
     slice.placeElement(title_block, .last_child_of, root);
