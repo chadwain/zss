@@ -13,6 +13,7 @@ const ElementTree = @This();
 
 nodes: MultiArrayList(Node) = .{},
 free_list_head: Size = max_size,
+free_list_len: Size = 0,
 
 const Node = struct {
     generation: Generation,
@@ -29,6 +30,7 @@ const max_size = std.math.maxInt(Size);
 pub const Generation = u16;
 const max_generation = std.math.maxInt(Generation);
 
+/// A reference to a Node.
 pub const Element = packed struct {
     index: Size,
     generation: Generation,
@@ -56,57 +58,38 @@ pub fn deinit(tree: *ElementTree, allocator: Allocator) void {
 }
 
 pub fn allocateElement(tree: *ElementTree, allocator: Allocator) !Element {
-    if (tree.free_list_head == max_size) {
-        var result: [1]Element = undefined;
-        try tree.allocateElementsNoFreeList(allocator, &result);
-        return result[0];
-    } else {
-        const index = tree.free_list_head;
-        const generation = tree.nodes.items(.generation)[index];
-        const next_sibling = &tree.nodes.items(.next_sibling)[index];
-        const next_free_list = next_sibling.index;
-        next_sibling.index = undefined;
-        tree.free_list_head = next_free_list;
-        return Element{ .index = index, .generation = generation };
-    }
+    var result: [1]Element = undefined;
+    try tree.allocateElements(allocator, &result);
+    return result[0];
 }
 
+/// Populates `buffer` with `buffer.len` newly-created elements.
 pub fn allocateElements(tree: *ElementTree, allocator: Allocator, buffer: []Element) !void {
+    const num_extra_nodes = buffer.len -| tree.free_list_len;
+    const old_nodes_len = tree.nodes.len;
+    if (num_extra_nodes >= max_size - old_nodes_len) return error.Overflow;
+    try tree.nodes.resize(allocator, old_nodes_len + num_extra_nodes);
+    tree.free_list_len = @intCast(u16, @as(usize, tree.free_list_len) -| buffer.len);
     const nodes = tree.nodes.slice();
-    var i: Size = 0;
+
     var free_element = tree.free_list_head;
-    while (i < buffer.len) : (i += 1) {
-        if (free_element == max_size) {
-            try tree.allocateElementsNoFreeList(allocator, buffer[i..]);
-            tree.free_list_head = max_size;
+    var buffer_index: Size = 0;
+    while (true) {
+        if (buffer_index == buffer.len) {
+            tree.free_list_head = free_element;
             return;
         }
-        buffer[i] = Element{ .index = free_element, .generation = nodes.items(.generation)[free_element] };
+        if (free_element == max_size) break;
+        buffer[buffer_index] = Element{ .index = free_element, .generation = nodes.items(.generation)[free_element] };
+        buffer_index += 1;
         free_element = nodes.items(.next_sibling)[free_element].index;
     }
-    tree.free_list_head = free_element;
-}
 
-fn allocateElementsNoFreeList(tree: *ElementTree, allocator: Allocator, buffer: []Element) !void {
-    const nodes_len = @intCast(Size, tree.nodes.len);
-    if (buffer.len >= max_size - nodes_len) return error.OutOfMemory;
-
-    try tree.nodes.resize(allocator, nodes_len + @intCast(Size, buffer.len));
-    var nodes = tree.nodes.slice();
-
-    var i: Size = 0;
-    while (i < buffer.len) : (i += 1) {
-        buffer[i] = Element{ .index = nodes_len + i, .generation = 0 };
-        nodes.set(nodes_len + i, Node{
-            .generation = 0,
-            .next_sibling = Element.null_element,
-            .first_child = Element.null_element,
-            .last_child = Element.null_element,
-            .fq_type = FqType{
-                .namespace = NamespaceId.none,
-                .name = NameId.unspecified,
-            },
-        });
+    // Free list is completely used up.
+    tree.free_list_head = max_size;
+    for (buffer[buffer_index..], old_nodes_len..) |*element, node_index| {
+        element.* = Element{ .index = @intCast(Size, node_index), .generation = 0 };
+        nodes.items(.generation)[node_index] = 0;
     }
 }
 
@@ -120,6 +103,7 @@ pub fn freeElement(tree: *ElementTree, element: Element) void {
         new_node_value.generation += 1;
         new_node_value.next_sibling = .{ .index = tree.free_list_head, .generation = undefined };
         tree.free_list_head = element.index;
+        tree.free_list_len += 1;
     }
 
     tree.nodes.set(element.index, new_node_value);
