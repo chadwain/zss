@@ -693,11 +693,7 @@ test "parse a stylesheet" {
         \\
         \\broken_rule
     ;
-
-    const ascii8ToAscii7 = @import("../../zss.zig").util.ascii8ToAscii7;
-    const ascii = ascii8ToAscii7(input);
-
-    const token_source = Source.init(try tokenize.Source.init(ascii));
+    const token_source = Source.init(try tokenize.Source.init(input));
 
     var tree = try parseCssStylesheet(token_source, allocator);
     defer tree.deinit(allocator);

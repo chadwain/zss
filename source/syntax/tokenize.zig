@@ -13,7 +13,7 @@ const replacement_character: u21 = 0xfffd;
 const eof_codepoint: u21 = std.math.maxInt(u21);
 
 pub const Source = struct {
-    data: []const u7,
+    data: []const u8,
 
     pub const Location = struct {
         value: Value = 0,
@@ -21,7 +21,8 @@ pub const Source = struct {
         const Value = u32;
     };
 
-    pub fn init(data: []const u7) !Source {
+    /// `data` is expected to be an 8-bit ASCII string.
+    pub fn init(data: []const u8) !Source {
         if (data.len > std.math.maxInt(Location.Value)) return error.SourceDataTooLong;
         return Source{ .data = data };
     }
@@ -51,10 +52,10 @@ pub const Source = struct {
         if (location.value == source.data.len) return Next{ .location = location, .codepoint = eof_codepoint };
 
         var next_value = location.value + 1;
-        const codepoint: u21 = switch (@as(u21, source.data[location.value])) {
+        const input = source.data[location.value];
+        const codepoint: u21 = switch (input) {
             0x00,
-            0xD800...0xDBFF,
-            0xDC00...0xDFFF,
+            0x80...0xFF,
             => replacement_character,
             '\r' => blk: {
                 if (next_value < source.data.len and source.data[next_value] == '\n') {
@@ -63,9 +64,27 @@ pub const Source = struct {
                 break :blk '\n';
             },
             0x0C => '\n',
-            0x110000...u21_max => replacement_character,
             else => |c| c,
         };
+
+        // NOTE: If @TypeOf(input) == u21, use this code instead of the above.
+        comptime assert(@TypeOf(input) == u8);
+        // const codepoint: u21 = switch (input) {
+        //     0x00,
+        //     0xD800...0xDBFF,
+        //     0xDC00...0xDFFF,
+        //     => replacement_character,
+        //     '\r' => blk: {
+        //         if (next_value < source.data.len and source.data[next_value] == '\n') {
+        //             next_value += 1;
+        //         }
+        //         break :blk '\n';
+        //     },
+        //     0x0C => '\n',
+        //     0x110000...u21_max => replacement_character,
+        //     else => |c| c,
+        // };
+
         return Next{ .location = .{ .value = next_value }, .codepoint = codepoint };
     }
 
@@ -637,7 +656,7 @@ fn numberSign(source: Source, after_number_sign: Source.Location) NextToken {
 }
 
 test "tokenization" {
-    const input = zss.util.ascii8ToAscii7(
+    const input =
         \\@charset "utf-8";
         \\#good-id
         \\#1bad-id
@@ -648,7 +667,7 @@ test "tokenization" {
         \\
         \\/* comments here */
         \\end
-    );
+    ;
     const source = try Source.init(input);
     const expected = [_]Tag{
         .token_at_keyword,

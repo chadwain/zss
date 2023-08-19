@@ -19,20 +19,13 @@ pub fn main() !u8 {
     const input = try std.io.getStdIn().reader().readAllAlloc(allocator, 1_000_000);
     defer allocator.free(input);
 
-    for (input) |c| {
-        if (c >= 0x80) {
-            try std.io.getStdErr().writer().writeAll("Error: Invalid 7-bit ASCII\n");
-            return 1;
-        }
-    }
-
     if (args.len == 1 or std.mem.eql(u8, args[1], "stylesheet")) {
-        const source = parse.Source.init(try tokenize.Source.init(@ptrCast([]u7, input)));
-        var tree = try parse.parseStylesheet(source, allocator);
+        const source = parse.Source.init(try tokenize.Source.init(input));
+        var tree = try parse.parseCssStylesheet(source, allocator);
         defer tree.deinit(allocator);
         try zss.syntax.ComponentTree.debug.print(tree, allocator, stdout);
     } else if (std.mem.eql(u8, args[1], "tokenize")) {
-        const source = try tokenize.Source.init(@ptrCast([]u7, input));
+        const source = try tokenize.Source.init(input);
 
         var location = tokenize.Source.Location{};
         var i: usize = 0;

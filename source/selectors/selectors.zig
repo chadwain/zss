@@ -318,7 +318,7 @@ fn expectEqualComplexSelectorLists(a: TestParseSelectorListExpected, b: []const 
     }
 }
 
-fn testParseSelectorList(input: []const u7, expected: TestParseSelectorListExpected) !void {
+fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpected) !void {
     const allocator = std.testing.allocator;
     var env = Environment.init(allocator);
     defer env.deinit();
@@ -337,7 +337,6 @@ fn testParseSelectorList(input: []const u7, expected: TestParseSelectorListExpec
 }
 
 test "parsing selector lists" {
-    const a = zss.util.ascii8ToAscii7;
     const n = struct {
         fn f(x: u24) NameId {
             return @intToEnum(NameId, x);
@@ -354,14 +353,14 @@ test "parsing selector lists" {
         }
     }.f;
 
-    try testParseSelectorList(a("element-name"), &.{
+    try testParseSelectorList("element-name", &.{
         .{
             .compounds = &.{
                 .{ .type_selector = .{ .name = n(0) } },
             },
         },
     });
-    try testParseSelectorList(a("h1[size].class#my-id"), &.{
+    try testParseSelectorList("h1[size].class#my-id", &.{
         .{
             .compounds = &.{
                 .{
@@ -375,7 +374,7 @@ test "parsing selector lists" {
             },
         },
     });
-    try testParseSelectorList(a("h1 h2 > h3"), &.{
+    try testParseSelectorList("h1 h2 > h3", &.{
         .{
             .combinators = &.{ .descendant, .child },
             .compounds = &.{
@@ -385,12 +384,12 @@ test "parsing selector lists" {
             },
         },
     });
-    try testParseSelectorList(a("*"), &.{.{
+    try testParseSelectorList("*", &.{.{
         .compounds = &.{
             .{ .type_selector = .{ .name = .any } },
         },
     }});
-    try testParseSelectorList(a("\\*"), &.{.{
+    try testParseSelectorList("\\*", &.{.{
         .compounds = &.{
             .{ .type_selector = .{ .name = n(0) } },
         },

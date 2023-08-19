@@ -103,7 +103,7 @@ test "declarations" {
         \\  height: tall ! important;
         \\}
     ;
-    const source = zss.syntax.parse.Source.init(try zss.syntax.tokenize.Source.init(zss.util.ascii8ToAscii7(input)));
+    const source = zss.syntax.parse.Source.init(try zss.syntax.tokenize.Source.init(input));
     try env.addStylesheet(source);
 
     var tree = zss.ElementTree{};
@@ -115,10 +115,9 @@ test "declarations" {
     var declared_values = try getDeclaredValuesList(&env, tree_slice, element, allocator);
     defer declared_values.deinit(allocator);
 
-    var stderr = std.io.getStdErr().writer();
+    var num_declarations: usize = 0;
     for (declared_values.items(.declarations)) |decls| {
-        for (decls) |decl| {
-            try stderr.print("{} {}\n", .{ @enumToInt(decl.name), decl.component_index });
-        }
+        num_declarations += decls.len;
     }
+    try std.testing.expectEqual(@as(usize, 4), num_declarations);
 }
