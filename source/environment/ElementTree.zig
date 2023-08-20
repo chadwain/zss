@@ -211,17 +211,17 @@ pub const Slice = struct {
 
     pub fn set(self: Slice, comptime field: Field, element: Element, value: std.meta.fieldInfo(Value, field).type) void {
         self.validateElement(element);
-        @field(self, @tagName(field))[element.index] = value;
+        @field(self.ptrs, @tagName(field))[element.index] = value;
     }
 
     pub fn get(self: Slice, comptime field: Field, element: Element) std.meta.fieldInfo(Value, field).type {
         self.validateElement(element);
-        return @field(self, @tagName(field))[element.index];
+        return @field(self.ptrs, @tagName(field))[element.index];
     }
 
     pub fn ptr(self: Slice, comptime field: Field, element: Element) *std.meta.fieldInfo(Value, field).type {
         self.validateElement(element);
-        return &@field(self, @tagName(field))[element.index];
+        return &@field(self.ptrs, @tagName(field))[element.index];
     }
 
     pub fn initElement(self: Slice, element: Element, value: Value) void {

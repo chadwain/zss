@@ -108,8 +108,57 @@ pub const ComplexSelector = struct {
     }
 
     fn matchElement(sel: ComplexSelector, slice: ElementTree.Slice, element: Element) bool {
-        if (sel.compounds.len > 1) panic("TODO: More than 1 compound selector in a complex selector", .{});
-        return sel.compounds[0].matchElement(slice, element);
+        if (!sel.compounds[sel.compounds.len - 1].matchElement(slice, element)) return false;
+        var current_element = element;
+        for (0..sel.compounds.len - 1) |i| {
+            const index = sel.compounds.len - 1 - i;
+            switch (sel.combinators[index]) {
+                .descendant => {
+                    current_element = slice.parent(current_element);
+                    while (!current_element.eqlNull()) {
+                        if (sel.compounds[index].matchElement(slice, current_element)) break;
+                        current_element = slice.parent(current_element);
+                    } else {
+                        return false;
+                    }
+                },
+                .child => {
+                    current_element = slice.parent(current_element);
+                    if (current_element.eqlNull()) return false;
+                    if (!sel.compounds[index].matchElement(slice, current_element)) return false;
+                },
+                .subsequent_sibling => {
+                    current_element = slice.previousSibling(current_element);
+                    while (!current_element.eqlNull()) {
+                        if (slice.get(.category, current_element) == .normal) {
+                            if (sel.compounds[index].matchElement(slice, current_element)) {
+                                break;
+                            }
+                        }
+                        current_element = slice.previousSibling(current_element);
+                    } else {
+                        return false;
+                    }
+                },
+                .next_sibling => {
+                    current_element = slice.previousSibling(current_element);
+                    while (!current_element.eqlNull()) {
+                        if (slice.get(.category, current_element) == .normal) {
+                            if (sel.compounds[index].matchElement(slice, current_element)) {
+                                break;
+                            } else {
+                                return false;
+                            }
+                        }
+                        current_element = slice.previousSibling(current_element);
+                    } else {
+                        return false;
+                    }
+                },
+                else => |combinator| panic("TODO: Unsupported combinator: {s}\n", .{@tagName(combinator)}),
+            }
+        }
+        return true;
     }
 };
 
