@@ -67,7 +67,7 @@ pub const Source = struct {
             else => |c| c,
         };
 
-        // NOTE: If @TypeOf(input) == u21, use this code instead of the above.
+        // TODO: If @TypeOf(input) == u21, use this code instead of the above.
         comptime assert(@TypeOf(input) == u8);
         // const codepoint: u21 = switch (input) {
         //     0x00,
@@ -108,6 +108,16 @@ pub const IdentSequenceIterator = struct {
         return next_.codepoint;
     }
 };
+
+pub fn stringIsIdentSequence(string: []const u8) !bool {
+    const source = try Source.init(string);
+    var location = Source.Location{};
+    var first_3: [3]u21 = undefined;
+    _ = source.read(location, &first_3);
+    if (!codepointsStartAnIdentSequence(first_3)) return false;
+    location = consumeIdentSequence(source, location);
+    return source.next(location).codepoint == eof_codepoint;
+}
 
 pub const NextToken = struct { tag: Tag, next_location: Source.Location };
 

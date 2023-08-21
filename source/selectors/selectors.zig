@@ -108,10 +108,11 @@ pub const ComplexSelector = struct {
     }
 
     fn matchElement(sel: ComplexSelector, slice: ElementTree.Slice, element: Element) bool {
+        assert(slice.get(.category, element) == .normal);
         if (!sel.compounds[sel.compounds.len - 1].matchElement(slice, element)) return false;
         var current_element = element;
         for (0..sel.compounds.len - 1) |i| {
-            const index = sel.compounds.len - 1 - i;
+            const index = sel.compounds.len - 2 - i;
             switch (sel.combinators[index]) {
                 .descendant => {
                     current_element = slice.parent(current_element);
@@ -367,20 +368,23 @@ fn expectEqualComplexSelectorLists(a: TestParseSelectorListExpected, b: []const 
     }
 }
 
-fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpected) !void {
-    const allocator = std.testing.allocator;
-    var env = Environment.init(allocator);
-    defer env.deinit();
-
+fn stringToSelectorList(input: []const u8, env: *Environment) !?ComplexSelectorList {
     const source = ParserSource.init(try zss.syntax.tokenize.Source.init(input));
-    var tree = try zss.syntax.parse.parseListOfComponentValues(source, allocator);
-    defer tree.deinit(allocator);
+    var tree = try zss.syntax.parse.parseListOfComponentValues(source, env.allocator);
+    defer tree.deinit(env.allocator);
     const slice = tree.components.slice();
     std.debug.assert(slice.items(.tag)[0] == .component_list);
     const start: ComponentTree.Size = 0 + 1;
     const end: ComponentTree.Size = slice.items(.next_sibling)[0];
 
-    var selector_list = (try parseSelectorList(&env, source, slice, start, end)) orelse return error.TestFailure;
+    return parseSelectorList(env, source, slice, start, end);
+}
+
+fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpected) !void {
+    const allocator = std.testing.allocator;
+    var env = Environment.init(allocator);
+    defer env.deinit();
+    var selector_list = (try stringToSelectorList(input, &env)) orelse return error.TestFailure;
     defer selector_list.deinit(allocator);
     try expectEqualComplexSelectorLists(expected, selector_list.list);
 }
@@ -443,6 +447,66 @@ test "parsing selector lists" {
             .{ .type_selector = .{ .name = n(0) } },
         },
     }});
+}
+
+test "complex selector matching" {
+    const allocator = std.testing.allocator;
+
+    var env = Environment.init(allocator);
+    defer env.deinit();
+    const type_names = [5]Environment.NameId{
+        try env.addTypeOrAttributeNameString("root"),
+        try env.addTypeOrAttributeNameString("first"),
+        try env.addTypeOrAttributeNameString("second"),
+        try env.addTypeOrAttributeNameString("grandchild"),
+        try env.addTypeOrAttributeNameString("third"),
+    };
+
+    var tree = ElementTree{};
+    defer tree.deinit(allocator);
+    var elements: [6]ElementTree.Element = undefined;
+    try tree.allocateElements(allocator, &elements);
+    const slice = tree.slice();
+    slice.initElement(elements[0], .{ .fq_type = .{ .namespace = .none, .name = type_names[0] } });
+    slice.initElement(elements[1], .{ .fq_type = .{ .namespace = .none, .name = type_names[1] } });
+    slice.initElement(elements[2], .{ .fq_type = .{ .namespace = .none, .name = type_names[2] } });
+    slice.initElement(elements[3], .{ .fq_type = .{ .namespace = .none, .name = type_names[3] } });
+    slice.initElement(elements[4], .{ .category = .text });
+    slice.initElement(elements[5], .{ .fq_type = .{ .namespace = .none, .name = type_names[4] } });
+
+    slice.placeElement(elements[0], .root, {});
+    slice.placeElement(elements[1], .last_child_of, elements[0]);
+    slice.placeElement(elements[2], .last_child_of, elements[0]);
+    slice.placeElement(elements[3], .first_child_of, elements[2]);
+    slice.placeElement(elements[4], .last_child_of, elements[0]);
+    slice.placeElement(elements[5], .last_child_of, elements[0]);
+
+    const doTest = struct {
+        fn f(selector_string: []const u8, en: *Environment, s: ElementTree.Slice, e: ElementTree.Element) !bool {
+            var selector = (try stringToSelectorList(selector_string, en)) orelse return false;
+            defer selector.deinit(allocator);
+            return (selector.matchElement(s, e) != null);
+        }
+    }.f;
+    const expect = std.testing.expect;
+
+    try expect(try doTest("root", &env, slice, elements[0]));
+    try expect(try doTest("first", &env, slice, elements[1]));
+    try expect(try doTest("root > first", &env, slice, elements[1]));
+    try expect(try doTest("root first", &env, slice, elements[1]));
+    try expect(try doTest("second", &env, slice, elements[2]));
+    try expect(try doTest("first + second", &env, slice, elements[2]));
+    try expect(try doTest("first ~ second", &env, slice, elements[2]));
+    try expect(try doTest("third", &env, slice, elements[5]));
+    try expect(try doTest("second + third", &env, slice, elements[5]));
+    try expect(try doTest("second ~ third", &env, slice, elements[5]));
+    try expect(!try doTest("first + third", &env, slice, elements[5]));
+    try expect(try doTest("grandchild", &env, slice, elements[3]));
+    try expect(try doTest("second > grandchild", &env, slice, elements[3]));
+    try expect(try doTest("second grandchild", &env, slice, elements[3]));
+    try expect(try doTest("root grandchild", &env, slice, elements[3]));
+    try expect(try doTest("root second grandchild", &env, slice, elements[3]));
+    try expect(!try doTest("root > grandchild", &env, slice, elements[3]));
 }
 
 pub const debug = struct {

@@ -7,6 +7,7 @@ const MultiArrayList = std.MultiArrayList;
 
 pub const tokenize = @import("./tokenize.zig");
 pub const parse = @import("./parse.zig");
+pub const IdentifierSet = @import("./IdentifierSet.zig");
 
 comptime {
     if (@import("builtin").is_test) {
