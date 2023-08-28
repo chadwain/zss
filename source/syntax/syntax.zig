@@ -41,10 +41,6 @@ pub const Component = struct {
         pub fn codepoint(extra: Extra) u21 {
             return @intCast(@as(u32, @bitCast(extra)));
         }
-
-        pub fn important(extra: Extra) bool {
-            return @as(u32, @bitCast(extra)) != 0;
-        }
     };
 
     pub const Tag = enum {
@@ -146,18 +142,35 @@ pub const Component = struct {
         ///        The value is the index of the qualified rule's associated <{}-block> (with tag = `simple_block_curly` or `style_block`).
         qualified_rule,
         /// A '{}-block' containing style rules
-        /// children: A sequence of `declaration`, `qualified_rule`, and `at_rule`
+        /// children: A sequence of `declaration_normal`, `declaration_important`, `qualified_rule`, and `at_rule`
         ///           (Note: This sequence will match the order that each component appeared in the stylesheet.
         ///           However, logically, it must be treated as if all of the declarations appear first, followed by the rules.
         ///           See CSS Syntax Level 3 section 5.4.4 "Consume a style block’s contents".)
         /// location: The location of the <{-token> that opens this block
+        /// extra: Use `extra.index()` to get a component tree index.
+        ///        Then, if the value is 0, the style block does not contain any declarations.
+        ///        Otherwise, the value is the index of the *last* declaration in the style block
+        ///        (with tag = `declaration_normal` or `declaration_important`).
         style_block,
-        /// A CSS property declaration
+        /// A CSS property declaration that does not end with "!important"
         /// children: The declaration's value (an arbitrary sequence of components)
-        ///           If the declaration's value originally ended with "!important", those tokens are not included as children
+        ///           Trailing and leading <whitespace-token>s are not included
         /// location: The location of the <ident-token> that is the name for this declaration
-        /// extra: Use `extra.important()` to see if this declaration was marked with "!important"
-        declaration,
+        /// extra: Use `extra.index()` to get a component tree index.
+        ///        Then, if the value is 0, the declaration is the first declaration in its containing style block.
+        ///        Otherwise, the value is the index of the declaration that appeared just before this one
+        ///        (with tag = `declaration_normal` or `declaration_important`).
+        declaration_normal,
+        /// A CSS property declaration that ends with "!important"
+        /// children: The declaration's value (an arbitrary sequence of components)
+        ///           Trailing and leading <whitespace-token>s are not included
+        ///           The <delim-token> and <ident-token> that make up "!important" are not included
+        /// location: The location of the <ident-token> that is the name for this declaration
+        /// extra: Use `extra.index()` to get a component tree index.
+        ///        Then, if the value is 0, the declaration is the first declaration in its containing style block.
+        ///        Otherwise, the value is the index of the declaration that appeared just before this one
+        ///        (with tag = `declaration_normal` or `declaration_important`).
+        declaration_important,
         /// A function
         /// children: An arbitrary sequence of components
         /// location: The location of the <function-token> that created this component

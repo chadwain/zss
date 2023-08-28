@@ -97,15 +97,13 @@ fn declsFromStyleBlock(env: *Environment, slice: ComponentTree.Slice, start_of_s
     var important_declarations = ArrayListUnmanaged(Declaration){};
     defer important_declarations.deinit(env.allocator);
 
-    var index = start_of_style_block + 1;
-    const end_of_style_block = slice.nextSibling(start_of_style_block);
-
-    while (index < end_of_style_block) {
-        defer index = slice.nextSibling(index);
-        if (slice.tag(index) != .declaration) continue;
-        const appropriate_list = switch (slice.extra(index).important()) {
-            true => &important_declarations,
-            false => &normal_declarations,
+    var index = slice.extra(start_of_style_block).index();
+    while (index != 0) {
+        defer index = slice.extra(index).index();
+        const appropriate_list = switch (slice.tag(index)) {
+            .declaration_important => &important_declarations,
+            .declaration_normal => &normal_declarations,
+            else => unreachable,
         };
         try appropriate_list.append(env.allocator, .{ .component_index = index, .name = .unrecognized });
     }

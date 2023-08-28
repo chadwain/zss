@@ -36,6 +36,7 @@ pub const Source = struct {
         }
     }
 
+    // TODO: Make `next` also return a delimeter's codepoint, eliminating the need for this function.
     fn getDelimeter(source: Source, location: Location) u21 {
         return source.inner.delimTokenCodepoint(location);
     }
@@ -52,6 +53,8 @@ pub const Source = struct {
         return struct { []const u8, Type };
     }
 
+    /// Given that `location` is the location of an <ident-token>, map the identifier at that location
+    /// to the value given in `kvs`, using case-insensitive matching. If there was no match, null is returned.
     pub fn mapIdentifier(source: Source, location: Location, comptime Type: type, kvs: []const KV(Type)) ?Type {
         // TODO: Use a hash map/trie or something
         for (kvs) |kv| {
@@ -63,18 +66,6 @@ pub const Source = struct {
             if (it.next(source.inner) == null) return kv[1];
         }
         return null;
-    }
-
-    pub fn identTokensEqlIgnoreCase(source: Source, ident1: Location, ident2: Location) bool {
-        if (ident1.value == ident2.value) return true;
-        var it1 = source.inner.identTokenIterator(ident1);
-        var it2 = source.inner.identTokenIterator(ident2);
-        while (it1.next(source.inner)) |codepoint1| {
-            const codepoint2 = it2.next(source.inner) orelse return false;
-            if (toLowercase(codepoint1) != toLowercase(codepoint2)) return false;
-        } else {
-            return (it2.next(source.inner) == null);
-        }
     }
 };
 
@@ -122,7 +113,7 @@ const Parser = struct {
             root,
             list_of_rules: ListOfRules,
             list_of_component_values,
-            style_block,
+            style_block: StyleBlock,
             declaration_value: DeclarationValue,
             qualified_rule: QualifiedRule,
             at_rule: AtRule,
@@ -148,6 +139,10 @@ const Parser = struct {
             /// The most recent component is at the end (index 2).
             index_of_last_three_non_whitespace_components: [3]ComponentTree.Size = undefined,
             num_non_whitespace_components: u2 = 0,
+        };
+
+        const StyleBlock = struct {
+            index_of_last_declaration: ComponentTree.Size = 0,
         };
 
         const SimpleBlock = struct {
@@ -228,17 +223,6 @@ const Parser = struct {
         try parser.stack.append(parser.allocator, .{ .index = index, .data = .list_of_component_values });
     }
 
-    /// `location` must be the location of a <{-token>.
-    fn pushStyleBlock(parser: *Parser, location: Source.Location) !void {
-        const index = try parser.allocateComponent(.{
-            .next_sibling = undefined,
-            .tag = .style_block,
-            .location = location,
-            .extra = Extra.make(0),
-        });
-        try parser.stack.append(parser.allocator, .{ .index = index, .data = .style_block });
-    }
-
     /// `location` must be the location of a <function-token>.
     fn pushFunction(parser: *Parser, location: Source.Location) !void {
         const index = try parser.allocateComponent(.{
@@ -275,6 +259,7 @@ const Parser = struct {
         switch (frame.data) {
             .qualified_rule => unreachable, // use popQualifiedRule instead
             .at_rule => unreachable, // use popAtRule instead
+            .style_block => unreachable, // use popStyleBlock instead
             .declaration_value => unreachable, // use popDeclarationValue instead
             else => {},
         }
@@ -323,13 +308,31 @@ const Parser = struct {
         parser.tree.components.shrinkRetainingCapacity(frame.index);
     }
 
-    /// To finish this component, use `popDeclarationValue`.
-    fn pushDeclarationValue(parser: *Parser, location: Source.Location) !void {
+    /// `location` must be the location of a <{-token>.
+    /// To finish this component, use `popStyleBlock`.
+    fn pushStyleBlock(parser: *Parser, location: Source.Location) !void {
         const index = try parser.allocateComponent(.{
             .next_sibling = undefined,
-            .tag = .declaration,
+            .tag = .style_block,
             .location = location,
             .extra = undefined,
+        });
+        try parser.stack.append(parser.allocator, .{ .index = index, .data = .{ .style_block = .{} } });
+    }
+
+    fn popStyleBlock(parser: *Parser) void {
+        const frame = parser.stack.pop();
+        parser.tree.components.items(.next_sibling)[frame.index] = @intCast(parser.tree.components.len);
+        parser.tree.components.items(.extra)[frame.index] = Extra.make(frame.data.style_block.index_of_last_declaration);
+    }
+
+    /// To finish this component, use `popDeclarationValue`.
+    fn pushDeclarationValue(parser: *Parser, location: Source.Location, previous_declaration: ComponentTree.Size) !void {
+        const index = try parser.allocateComponent(.{
+            .next_sibling = undefined,
+            .tag = undefined,
+            .location = location,
+            .extra = Extra.make(previous_declaration),
         });
         try parser.stack.append(parser.allocator, .{ .index = index, .data = .{ .declaration_value = .{} } });
     }
@@ -349,11 +352,11 @@ const Parser = struct {
                 parser.source.mapIdentifier(slice.location(important_string), void, &.{.{ "important", {} }}) != null;
         };
         if (is_important) {
-            slice.extras()[frame.index] = Extra.make(1);
+            slice.tags()[frame.index] = .declaration_important;
             data.index_of_last_three_non_whitespace_components[2] = data.index_of_last_three_non_whitespace_components[0];
             data.num_non_whitespace_components -= 2;
         } else {
-            slice.extras()[frame.index] = Extra.make(0);
+            slice.tags()[frame.index] = .declaration_normal;
         }
 
         const next_sibling = if (data.num_non_whitespace_components > 0) blk: {
@@ -375,7 +378,7 @@ fn loop(parser: *Parser, location: *Source.Location) !void {
             .list_of_component_values => try consumeListOfComponentValues(parser, location),
             .qualified_rule => |*qualified_rule| try consumeQualifiedRule(parser, location, qualified_rule),
             .at_rule => |*at_rule| try consumeAtRule(parser, location, at_rule),
-            .style_block => try consumeStyleBlockContents(parser, location),
+            .style_block => |*style_block| try consumeStyleBlockContents(parser, location, style_block),
             .declaration_value => |*declaration_value| try consumeDeclarationValue(parser, location, declaration_value),
             .simple_block => |*simple_block| try consumeSimpleBlock(parser, location, simple_block),
             .function => try consumeFunction(parser, location),
@@ -482,14 +485,14 @@ fn consumeQualifiedRule(parser: *Parser, location: *Source.Location, data: *Pars
     }
 }
 
-fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location) !void {
+fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location, data: *Parser.Frame.StyleBlock) !void {
     while (true) {
         const saved_location = location.*;
         const tag = parser.source.next(location);
         switch (tag) {
             .token_whitespace, .token_semicolon => {},
             .token_right_curly, .token_eof => {
-                parser.popComponent();
+                parser.popStyleBlock();
                 return;
             },
             .token_at_keyword => {
@@ -497,8 +500,12 @@ fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location) !void 
                 return;
             },
             .token_ident => {
-                const must_suspend = try consumeDeclaration(parser, location, saved_location);
-                if (must_suspend) return;
+                const last_declaration: ComponentTree.Size = @intCast(parser.tree.components.len);
+                const must_suspend = try consumeDeclaration(parser, location, saved_location, data.index_of_last_declaration);
+                if (must_suspend) {
+                    data.index_of_last_declaration = last_declaration;
+                    return;
+                }
             },
             else => {
                 if (tag == .token_delim and parser.source.getDelimeter(saved_location) == '&') {
@@ -550,7 +557,8 @@ fn discardDeclaration(parser: *Parser, location: *Source.Location) !void {
     }
 }
 
-fn consumeDeclaration(parser: *Parser, location: *Source.Location, name_location: Source.Location) !bool {
+/// Returns true if there is a valid declaration.
+fn consumeDeclaration(parser: *Parser, location: *Source.Location, name_location: Source.Location, previous_declaration: ComponentTree.Size) !bool {
     while (true) {
         const saved_location = location.*;
         const tag = parser.source.next(location);
@@ -572,7 +580,7 @@ fn consumeDeclaration(parser: *Parser, location: *Source.Location, name_location
             .token_whitespace => {},
             else => {
                 location.* = saved_location;
-                try parser.pushDeclarationValue(name_location);
+                try parser.pushDeclarationValue(name_location, previous_declaration);
                 return true;
             },
         }
@@ -609,6 +617,7 @@ fn consumeDeclarationValue(parser: *Parser, location: *Source.Location, data: *P
     }
 }
 
+/// Returns true if the component is "complex" (it may contain children).
 fn consumeComponentValue(parser: *Parser, tag: Component.Tag, location: Source.Location) !bool {
     switch (tag) {
         .token_left_curly, .token_left_bracket, .token_left_paren => {
@@ -688,24 +697,24 @@ test "parse a stylesheet" {
 
     // zig fmt: off
     const expected = [18]Component{
-        .{ .next_sibling = 18, .tag = .rule_list,          .location = .{ .value = 0 },  .extra = Extra.make(0)  },
-        .{ .next_sibling = 4,  .tag = .at_rule,            .location = .{ .value = 0 },  .extra = Extra.make(0)  },
-        .{ .next_sibling = 3,  .tag = .token_whitespace,   .location = .{ .value = 8 },  .extra = Extra.make(0)  },
-        .{ .next_sibling = 4,  .tag = .token_string,       .location = .{ .value = 9 },  .extra = Extra.make(0)  },
-        .{ .next_sibling = 7,  .tag = .at_rule,            .location = .{ .value = 18 }, .extra = Extra.make(6)  },
-        .{ .next_sibling = 6,  .tag = .token_whitespace,   .location = .{ .value = 27 }, .extra = Extra.make(0)  },
-        .{ .next_sibling = 7,  .tag = .simple_block_curly, .location = .{ .value = 28 }, .extra = Extra.make(0)  },
-        .{ .next_sibling = 14, .tag = .qualified_rule,     .location = .{ .value = 32 }, .extra = Extra.make(10) },
-        .{ .next_sibling = 9,  .tag = .token_ident,        .location = .{ .value = 32 }, .extra = Extra.make(0)  },
-        .{ .next_sibling = 10, .tag = .token_whitespace,   .location = .{ .value = 36 }, .extra = Extra.make(0)  },
-        .{ .next_sibling = 14, .tag = .style_block,        .location = .{ .value = 37 }, .extra = Extra.make(0)  },
-        .{ .next_sibling = 13, .tag = .declaration,        .location = .{ .value = 43 }, .extra = Extra.make(0)  },
-        .{ .next_sibling = 13, .tag = .token_ident,        .location = .{ .value = 49 }, .extra = Extra.make(0)  },
-        .{ .next_sibling = 14, .tag = .declaration,        .location = .{ .value = 60 }, .extra = Extra.make(1)  },
-        .{ .next_sibling = 18, .tag = .qualified_rule,     .location = .{ .value = 81 }, .extra = Extra.make(17) },
-        .{ .next_sibling = 16, .tag = .token_ident,        .location = .{ .value = 81 }, .extra = Extra.make(0)  },
-        .{ .next_sibling = 17, .tag = .token_whitespace,   .location = .{ .value = 86 }, .extra = Extra.make(0)  },
-        .{ .next_sibling = 18, .tag = .style_block,        .location = .{ .value = 87 }, .extra = Extra.make(0)  },
+        .{ .next_sibling = 18, .tag = .rule_list,             .location = .{ .value = 0 },  .extra = Extra.make(0)  },
+        .{ .next_sibling = 4,  .tag = .at_rule,               .location = .{ .value = 0 },  .extra = Extra.make(0)  },
+        .{ .next_sibling = 3,  .tag = .token_whitespace,      .location = .{ .value = 8 },  .extra = Extra.make(0)  },
+        .{ .next_sibling = 4,  .tag = .token_string,          .location = .{ .value = 9 },  .extra = Extra.make(0)  },
+        .{ .next_sibling = 7,  .tag = .at_rule,               .location = .{ .value = 18 }, .extra = Extra.make(6)  },
+        .{ .next_sibling = 6,  .tag = .token_whitespace,      .location = .{ .value = 27 }, .extra = Extra.make(0)  },
+        .{ .next_sibling = 7,  .tag = .simple_block_curly,    .location = .{ .value = 28 }, .extra = Extra.make(0)  },
+        .{ .next_sibling = 14, .tag = .qualified_rule,        .location = .{ .value = 32 }, .extra = Extra.make(10) },
+        .{ .next_sibling = 9,  .tag = .token_ident,           .location = .{ .value = 32 }, .extra = Extra.make(0)  },
+        .{ .next_sibling = 10, .tag = .token_whitespace,      .location = .{ .value = 36 }, .extra = Extra.make(0)  },
+        .{ .next_sibling = 14, .tag = .style_block,           .location = .{ .value = 37 }, .extra = Extra.make(13) },
+        .{ .next_sibling = 13, .tag = .declaration_normal,    .location = .{ .value = 43 }, .extra = Extra.make(0)  },
+        .{ .next_sibling = 13, .tag = .token_ident,           .location = .{ .value = 49 }, .extra = Extra.make(0)  },
+        .{ .next_sibling = 14, .tag = .declaration_important, .location = .{ .value = 60 }, .extra = Extra.make(11) },
+        .{ .next_sibling = 18, .tag = .qualified_rule,        .location = .{ .value = 81 }, .extra = Extra.make(17) },
+        .{ .next_sibling = 16, .tag = .token_ident,           .location = .{ .value = 81 }, .extra = Extra.make(0)  },
+        .{ .next_sibling = 17, .tag = .token_whitespace,      .location = .{ .value = 86 }, .extra = Extra.make(0)  },
+        .{ .next_sibling = 18, .tag = .style_block,           .location = .{ .value = 87 }, .extra = Extra.make(0)  },
     };
     // zig fmt: on
 
