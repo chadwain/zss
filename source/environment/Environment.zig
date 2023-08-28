@@ -47,26 +47,23 @@ pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
     var tree = try syntax.parse.parseCssStylesheet(source, env.allocator);
     defer tree.deinit(env.allocator);
 
-    const slice = tree.components.slice();
-    const tags = slice.items(.tag);
-    const next_siblings = slice.items(.next_sibling);
-    const extras = slice.items(.extra);
+    const slice = tree.slice();
 
     try env.stylesheets.ensureUnusedCapacity(env.allocator, 1);
     var stylesheet = Stylesheet{};
     errdefer stylesheet.deinit(env.allocator);
 
-    assert(tags[0] == .rule_list);
+    assert(slice.tag(0) == .rule_list);
     var next_index: ComponentTree.Size = 1;
-    const end_of_stylesheet = next_siblings[0];
+    const end_of_stylesheet = slice.nextSibling(0);
     while (next_index < end_of_stylesheet) {
         const index = next_index;
-        next_index = next_siblings[next_index];
-        switch (tags[index]) {
+        next_index = slice.nextSibling(next_index);
+        switch (slice.tag(index)) {
             .at_rule => panic("TODO: At-rules in a stylesheet\n", .{}),
             .qualified_rule => {
                 try stylesheet.rules.ensureUnusedCapacity(env.allocator, 1);
-                const end_of_prelude = extras[index].index();
+                const end_of_prelude = slice.extra(index).index();
                 var selector_list = (try zss.selectors.parseSelectorList(env, source, slice, index + 1, end_of_prelude)) orelse continue;
                 errdefer selector_list.deinit(env.allocator);
 
@@ -89,11 +86,11 @@ pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
     env.stylesheets.appendAssumeCapacity(stylesheet);
 }
 
-fn declsFromStyleBlock(env: *Environment, slice: ComponentTree.List.Slice, start_of_style_block: ComponentTree.Size) !struct {
+fn declsFromStyleBlock(env: *Environment, slice: ComponentTree.Slice, start_of_style_block: ComponentTree.Size) !struct {
     normal: []const Declaration,
     important: []const Declaration,
 } {
-    assert(slice.items(.tag)[start_of_style_block] == .style_block);
+    assert(slice.tag(start_of_style_block) == .style_block);
 
     var normal_declarations = ArrayListUnmanaged(Declaration){};
     defer normal_declarations.deinit(env.allocator);
@@ -101,12 +98,12 @@ fn declsFromStyleBlock(env: *Environment, slice: ComponentTree.List.Slice, start
     defer important_declarations.deinit(env.allocator);
 
     var index = start_of_style_block + 1;
-    const end_of_style_block = slice.items(.next_sibling)[start_of_style_block];
+    const end_of_style_block = slice.nextSibling(start_of_style_block);
 
     while (index < end_of_style_block) {
-        defer index = slice.items(.next_sibling)[index];
-        if (slice.items(.tag)[index] != .declaration) continue;
-        const appropriate_list = switch (slice.items(.extra)[index].important()) {
+        defer index = slice.nextSibling(index);
+        if (slice.tag(index) != .declaration) continue;
+        const appropriate_list = switch (slice.extra(index).important()) {
             true => &important_declarations,
             false => &normal_declarations,
         };

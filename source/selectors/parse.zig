@@ -16,13 +16,13 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 pub const Context = struct {
     env: *Environment,
     source: ParserSource,
-    slice: ComponentTree.List.Slice,
+    slice: ComponentTree.Slice,
     end: ComponentTree.Size,
     unspecified_namespace: NamespaceId,
 
     specificity: selectors.Specificity = undefined,
 
-    pub fn init(env: *Environment, source: ParserSource, slice: ComponentTree.List.Slice, end: ComponentTree.Size) Context {
+    pub fn init(env: *Environment, source: ParserSource, slice: ComponentTree.Slice, end: ComponentTree.Size) Context {
         return Context{
             .env = env,
             .source = source,
@@ -41,20 +41,17 @@ pub const Context = struct {
     };
 
     fn next(context: Context, it: Iterator) ?Next {
-        const tags = context.slice.items(.tag);
-        const next_siblings = context.slice.items(.next_sibling);
-
         var index = it.index;
         while (index < context.end) {
-            const tag = tags[index];
-            const next_index = next_siblings[index];
+            const tag = context.slice.tag(index);
+            const next_index = context.slice.nextSibling(index);
             switch (tag) {
                 .token_whitespace => index = next_index,
                 else => return .{
                     .index = index,
                     .tag = tag,
-                    .location = context.slice.items(.location)[index],
-                    .extra = context.slice.items(.extra)[index],
+                    .location = context.slice.location(index),
+                    .extra = context.slice.extra(index),
                     .next_it = .{ .index = next_index },
                 },
             }
@@ -65,15 +62,15 @@ pub const Context = struct {
 
     fn nextNoWhitespace(context: Context, it: Iterator) ?Next {
         if (it.index < context.end) {
-            const tag = context.slice.items(.tag)[it.index];
+            const tag = context.slice.tag(it.index);
             switch (tag) {
                 .token_whitespace => return null,
                 else => return .{
                     .index = it.index,
                     .tag = tag,
-                    .location = context.slice.items(.location)[it.index],
-                    .extra = context.slice.items(.extra)[it.index],
-                    .next_it = .{ .index = context.slice.items(.next_sibling)[it.index] },
+                    .location = context.slice.location(it.index),
+                    .extra = context.slice.extra(it.index),
+                    .next_it = .{ .index = context.slice.nextSibling(it.index) },
                 },
             }
         }
@@ -83,21 +80,18 @@ pub const Context = struct {
 
     fn nextIsWhitespace(context: Context, it: Iterator) bool {
         if (it.index < context.end) {
-            return context.slice.items(.tag)[it.index] == .token_whitespace;
+            return context.slice.tag(it.index) == .token_whitespace;
         } else {
             return false;
         }
     }
 
     fn consumeWhitespace(context: Context, it: Iterator) Iterator {
-        const tags = context.slice.items(.tag);
-        const next_siblings = context.slice.items(.next_sibling);
-
         var index = it.index;
         while (index < context.end) {
-            const tag = tags[index];
+            const tag = context.slice.tag(index);
             if (tag == .token_whitespace) {
-                index = next_siblings[index];
+                index = context.slice.nextSibling(index);
             } else {
                 break;
             }
@@ -107,10 +101,6 @@ pub const Context = struct {
 
     pub fn finishParsing(context: Context, it: Iterator) bool {
         return context.next(it) == null;
-    }
-
-    fn matchKeyword(context: Context, location: ParserSource.Location, string: []const u21) bool {
-        return context.source.matchKeyword(location, string);
     }
 };
 
@@ -427,7 +417,7 @@ fn subclassSelector(context: *Context, it: Iterator) !?Pair(selectors.SubclassSe
         },
         .simple_block_bracket => {
             const old_end = context.end;
-            const end_of_block = context.slice.items(.next_sibling)[first_component.index];
+            const end_of_block = context.slice.nextSibling(first_component.index);
             context.end = end_of_block;
             defer context.end = old_end;
             const new_it = Iterator.init(first_component.index + 1);
@@ -511,13 +501,10 @@ fn attributeSelector(context: *Context, it: Iterator) !?Pair(selectors.Attribute
         return .{ result, value.next_it };
     };
     if (modifier.tag != .token_ident) return null;
-    if (context.matchKeyword(modifier.location, &.{'i'})) {
-        result.complex.?.case = .ignore_case;
-    } else if (context.matchKeyword(modifier.location, &.{'s'})) {
-        result.complex.?.case = .same_case;
-    } else {
-        return null;
-    }
+    result.complex.?.case = context.source.mapIdentifier(modifier.location, selectors.AttributeSelector.Case, &.{
+        .{ "i", .ignore_case },
+        .{ "s", .same_case },
+    }) orelse return null;
 
     return .{ result, modifier.next_it };
 }
@@ -552,16 +539,13 @@ fn pseudoSelector(context: *Context, it: Iterator) ?Pair(selectors.PseudoName) {
 
 // `start` must be the index of a function or a block
 fn anyValue(context: *Context, start: ComponentTree.Size) bool {
-    const tags = context.slice.items(.tag);
-    const next_siblings = context.slice.items(.next_sibling);
-
     var index = start + 1;
-    const end = next_siblings[start];
+    const end = context.slice.nextSibling(start);
     while (index < end) {
-        const tag = tags[index];
+        const tag = context.slice.tag(index);
         switch (tag) {
             .token_bad_string, .token_bad_url, .token_right_paren, .token_right_bracket, .token_right_curly => return false,
-            else => index = next_siblings[index],
+            else => index = context.slice.nextSibling(index),
         }
     }
 

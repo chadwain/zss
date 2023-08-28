@@ -287,7 +287,7 @@ pub const AttributeSelector = struct {
 pub fn parseSelectorList(
     env: *Environment,
     source: ParserSource,
-    slice: ComponentTree.List.Slice,
+    slice: ComponentTree.Slice,
     start: ComponentTree.Size,
     end: ComponentTree.Size,
 ) !?ComplexSelectorList {
@@ -372,10 +372,10 @@ fn stringToSelectorList(input: []const u8, env: *Environment) !?ComplexSelectorL
     const source = ParserSource.init(try zss.syntax.tokenize.Source.init(input));
     var tree = try zss.syntax.parse.parseListOfComponentValues(source, env.allocator);
     defer tree.deinit(env.allocator);
-    const slice = tree.components.slice();
-    std.debug.assert(slice.items(.tag)[0] == .component_list);
+    const slice = tree.slice();
+    std.debug.assert(slice.tag(0) == .component_list);
     const start: ComponentTree.Size = 0 + 1;
-    const end: ComponentTree.Size = slice.items(.next_sibling)[0];
+    const end: ComponentTree.Size = slice.nextSibling(0);
 
     return parseSelectorList(env, source, slice, start, end);
 }

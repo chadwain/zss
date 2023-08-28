@@ -64,10 +64,10 @@ pub const Component = struct {
         /// An '@' codepoint + an identifier
         /// location: The '@' codepoint
         token_at_keyword,
-        /// A '#' codepoint + an identifier, that does not form a valid ID selector
+        /// A '#' codepoint + an identifier that does not form a valid ID selector
         /// location: The '#' codepoint
         token_hash_unrestricted,
-        /// A '#' codepoint + an identifier, that also forms a valid ID selector
+        /// A '#' codepoint + an identifier that forms a valid ID selector
         /// location: The '#' codepoint
         token_hash_id,
         /// A quoted string
@@ -147,14 +147,14 @@ pub const Component = struct {
         qualified_rule,
         /// A '{}-block' containing style rules
         /// children: A sequence of `declaration`, `qualified_rule`, and `at_rule`
-        ///           (Note: This sequence will match the order that each component appeared in the source.
-        ///           However, logically, it must be treated as if the declarations appear first, followed by the rules.
+        ///           (Note: This sequence will match the order that each component appeared in the stylesheet.
+        ///           However, logically, it must be treated as if all of the declarations appear first, followed by the rules.
         ///           See CSS Syntax Level 3 section 5.4.4 "Consume a style block’s contents".)
         /// location: The location of the <{-token> that opens this block
         style_block,
         /// A CSS property declaration
         /// children: The declaration's value (an arbitrary sequence of components)
-        ///           If the declaration's value originally ended with "!important", those tokens are not included in the tree
+        ///           If the declaration's value originally ended with "!important", those tokens are not included as children
         /// location: The location of the <ident-token> that is the name for this declaration
         /// extra: Use `extra.important()` to see if this declaration was marked with "!important"
         declaration,
@@ -187,14 +187,82 @@ pub const Component = struct {
 };
 
 pub const ComponentTree = struct {
-    components: List = .{},
+    components: MultiArrayList(Component) = .{},
 
     pub const Size = u32;
-    pub const List = MultiArrayList(Component);
 
     /// Free resources associated with the ComponentTree.
     pub fn deinit(tree: *ComponentTree, allocator: Allocator) void {
         tree.components.deinit(allocator);
+    }
+
+    pub const Slice = struct {
+        len: Size,
+        ptrs: struct {
+            next_sibling: [*]ComponentTree.Size,
+            tag: [*]Component.Tag,
+            location: [*]parse.Source.Location,
+            extra: [*]Component.Extra,
+        },
+
+        pub fn get(self: Slice, index: ComponentTree.Size) Component {
+            assert(index < self.len);
+            return Component{
+                .next_sibling = self.ptrs.next_sibling[index],
+                .tag = self.ptrs.tag[index],
+                .location = self.ptrs.location[index],
+                .extra = self.ptrs.extra[index],
+            };
+        }
+
+        pub fn nextSibling(self: Slice, index: ComponentTree.Size) ComponentTree.Size {
+            assert(index < self.len);
+            return self.ptrs.next_sibling[index];
+        }
+
+        pub fn tag(self: Slice, index: ComponentTree.Size) Component.Tag {
+            assert(index < self.len);
+            return self.ptrs.tag[index];
+        }
+
+        pub fn location(self: Slice, index: ComponentTree.Size) parse.Source.Location {
+            assert(index < self.len);
+            return self.ptrs.location[index];
+        }
+
+        pub fn extra(self: Slice, index: ComponentTree.Size) Component.Extra {
+            assert(index < self.len);
+            return self.ptrs.extra[index];
+        }
+
+        pub fn nextSiblings(self: Slice) []ComponentTree.Size {
+            return self.ptrs.next_sibling[0..self.len];
+        }
+
+        pub fn tags(self: Slice) []Component.Tag {
+            return self.ptrs.tag[0..self.len];
+        }
+
+        pub fn locations(self: Slice) []parse.Source.Location {
+            return self.ptrs.location[0..self.len];
+        }
+
+        pub fn extras(self: Slice) []Component.Extra {
+            return self.ptrs.extra[0..self.len];
+        }
+    };
+
+    pub fn slice(tree: ComponentTree) Slice {
+        const list_slice = tree.components.slice();
+        return Slice{
+            .len = @intCast(list_slice.len),
+            .ptrs = .{
+                .next_sibling = list_slice.items(.next_sibling).ptr,
+                .tag = list_slice.items(.tag).ptr,
+                .location = list_slice.items(.location).ptr,
+                .extra = list_slice.items(.extra).ptr,
+            },
+        };
     }
 
     pub const debug = struct {
