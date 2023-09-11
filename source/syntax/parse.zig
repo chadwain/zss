@@ -146,16 +146,7 @@ const Parser = struct {
         };
 
         const SimpleBlock = struct {
-            tag: Component.Tag,
-
-            fn endingTokenTag(simple_block: SimpleBlock) Component.Tag {
-                return switch (simple_block.tag) {
-                    .simple_block_curly => .token_right_curly,
-                    .simple_block_bracket => .token_right_bracket,
-                    .simple_block_paren => .token_right_paren,
-                    else => unreachable,
-                };
-            }
+            ending_token: Component.Tag,
         };
     };
 
@@ -238,7 +229,7 @@ const Parser = struct {
     fn pushSimpleBlock(parser: *Parser, tag: Component.Tag, location: Source.Location) !void {
         const component_tag: Component.Tag = switch (tag) {
             .token_left_curly => .simple_block_curly,
-            .token_left_bracket => .simple_block_bracket,
+            .token_left_square => .simple_block_square,
             .token_left_paren => .simple_block_paren,
             else => unreachable,
         };
@@ -250,7 +241,7 @@ const Parser = struct {
         });
         try parser.stack.append(parser.allocator, .{
             .index = index,
-            .data = .{ .simple_block = .{ .tag = component_tag } },
+            .data = .{ .simple_block = .{ .ending_token = mirrorToken(tag) } },
         });
     }
 
@@ -285,7 +276,7 @@ const Parser = struct {
     }
 
     /// `location` must be the location of the first token of the qualified rule.
-    /// To finish this component, use either `popQualifiedRule` or `ignoreQualifiedRule`.
+    /// To finish this component, use either `popQualifiedRule` or `discardQualifiedRule`.
     fn pushQualifiedRule(parser: *Parser, location: Source.Location, is_style_rule: bool) !void {
         const index = try parser.allocateComponent(.{
             .next_sibling = undefined,
@@ -302,7 +293,7 @@ const Parser = struct {
         parser.tree.components.items(.extra)[frame.index] = Extra.make(frame.data.qualified_rule.index_of_block.?);
     }
 
-    fn ignoreQualifiedRule(parser: *Parser) void {
+    fn discardQualifiedRule(parser: *Parser) void {
         const frame = parser.stack.pop();
         assert(frame.data == .qualified_rule);
         parser.tree.components.shrinkRetainingCapacity(frame.index);
@@ -467,7 +458,7 @@ fn consumeQualifiedRule(parser: *Parser, location: *Source.Location, data: *Pars
         switch (tag) {
             .token_eof => {
                 // NOTE: Parse error
-                return parser.ignoreQualifiedRule();
+                return parser.discardQualifiedRule();
             },
             .token_left_curly => {
                 data.index_of_block = @intCast(parser.tree.components.len);
@@ -490,11 +481,13 @@ fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location, data: 
         const saved_location = location.*;
         const tag = parser.source.next(location);
         switch (tag) {
-            .token_whitespace, .token_semicolon => {},
             .token_right_curly, .token_eof => {
+                // NOTE: This prong replicates the behavior of consumeSimpleBlock (because style blocks are simple blocks)
+                // NOTE: Parse error, if it's an <EOF-token>
                 parser.popStyleBlock();
                 return;
             },
+            .token_whitespace, .token_semicolon => {},
             .token_at_keyword => {
                 try parser.pushAtRule(saved_location);
                 return;
@@ -523,36 +516,16 @@ fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location, data: 
 }
 
 fn discardDeclaration(parser: *Parser, location: *Source.Location) !void {
-    const BlockType = enum { curly, bracket, paren };
-    var open_blocks = ArrayListUnmanaged(BlockType){};
-    defer open_blocks.deinit(parser.allocator);
-
     while (true) {
         const saved_location = location.*;
         const tag = parser.source.next(location);
         switch (tag) {
-            .token_eof => break,
-            .token_semicolon => {
-                if (open_blocks.items.len == 0) break;
-            },
-            .token_function, .token_left_paren => try open_blocks.append(parser.allocator, .paren),
-            .token_left_bracket => try open_blocks.append(parser.allocator, .bracket),
-            .token_left_curly => try open_blocks.append(parser.allocator, .curly),
-            .token_right_bracket => {
-                if (open_blocks.items.len > 0 and open_blocks.items[open_blocks.items.len - 1] == .bracket) _ = open_blocks.pop();
-            },
+            .token_semicolon, .token_eof => break,
             .token_right_curly => {
-                if (open_blocks.items.len == 0) {
-                    location.* = saved_location;
-                    break;
-                } else if (open_blocks.items[open_blocks.items.len - 1] == .curly) {
-                    _ = open_blocks.pop();
-                }
+                location.* = saved_location;
+                break;
             },
-            .token_right_paren => {
-                if (open_blocks.items.len > 0 and open_blocks.items[open_blocks.items.len - 1] == .paren) _ = open_blocks.pop();
-            },
-            else => {},
+            else => try ignoreComponentValue(parser, tag, location),
         }
     }
 }
@@ -620,7 +593,7 @@ fn consumeDeclarationValue(parser: *Parser, location: *Source.Location, data: *P
 /// Returns true if the component is "complex" (it may contain children).
 fn consumeComponentValue(parser: *Parser, tag: Component.Tag, location: Source.Location) !bool {
     switch (tag) {
-        .token_left_curly, .token_left_bracket, .token_left_paren => {
+        .token_left_curly, .token_left_square, .token_left_paren => {
             try parser.pushSimpleBlock(tag, location);
             return true;
         },
@@ -640,12 +613,43 @@ fn consumeComponentValue(parser: *Parser, tag: Component.Tag, location: Source.L
     }
 }
 
+fn ignoreComponentValue(parser: *Parser, first_tag: Component.Tag, location: *Source.Location) !void {
+    switch (first_tag) {
+        .token_left_curly, .token_left_square, .token_left_paren, .token_function => {},
+        else => return,
+    }
+
+    const initial_len = parser.stack.items.len;
+    defer assert(parser.stack.items.len == initial_len);
+
+    var tag = first_tag;
+    while (true) {
+        switch (tag) {
+            .token_left_curly, .token_left_square, .token_left_paren, .token_function => try parser.stack.append(parser.allocator, .{
+                .index = undefined,
+                .data = .{ .simple_block = .{ .ending_token = mirrorToken(tag) } },
+            }),
+            .token_right_curly, .token_right_square, .token_right_paren => {
+                if (parser.stack.items[parser.stack.items.len - 1].data.simple_block.ending_token == tag) {
+                    _ = parser.stack.pop();
+                    if (parser.stack.items.len == initial_len) return;
+                }
+            },
+            .token_eof => {
+                parser.stack.shrinkRetainingCapacity(initial_len);
+                return;
+            },
+            else => {},
+        }
+        tag = parser.source.next(location);
+    }
+}
+
 fn consumeSimpleBlock(parser: *Parser, location: *Source.Location, data: *const Parser.Frame.SimpleBlock) !void {
-    const ending_tag = data.endingTokenTag();
     while (true) {
         const saved_location = location.*;
         const tag = parser.source.next(location);
-        if (tag == ending_tag) {
+        if (tag == data.ending_token) {
             return parser.popComponent();
         } else if (tag == .token_eof) {
             // NOTE: Parse error
@@ -673,6 +677,16 @@ fn consumeFunction(parser: *Parser, location: *Source.Location) !void {
             },
         }
     }
+}
+
+/// Given a token that opens a block, return the token that would close the block.
+fn mirrorToken(token: Component.Tag) Component.Tag {
+    return switch (token) {
+        .token_left_square => .token_right_square,
+        .token_left_curly => .token_right_curly,
+        .token_left_paren, .token_function => .token_right_paren,
+        else => unreachable,
+    };
 }
 
 test "parse a stylesheet" {

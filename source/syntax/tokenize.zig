@@ -188,7 +188,7 @@ pub fn nextToken(source: Source, location: Source.Location) NextToken {
                 return NextToken{ .tag = .token_delim, .next_location = next.location };
             }
         },
-        '[' => return NextToken{ .tag = .token_left_bracket, .next_location = next.location },
+        '[' => return NextToken{ .tag = .token_left_square, .next_location = next.location },
         '\\' => {
             const first_escaped = source.next(next.location);
             if (isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
@@ -198,7 +198,7 @@ pub fn nextToken(source: Source, location: Source.Location) NextToken {
                 return NextToken{ .tag = .token_delim, .next_location = next.location };
             }
         },
-        ']' => return NextToken{ .tag = .token_right_bracket, .next_location = next.location },
+        ']' => return NextToken{ .tag = .token_right_square, .next_location = next.location },
         '{' => return NextToken{ .tag = .token_left_curly, .next_location = next.location },
         '}' => return NextToken{ .tag = .token_right_curly, .next_location = next.location },
         '0'...'9' => return consumeNumericToken(source, location),

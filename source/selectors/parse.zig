@@ -415,7 +415,7 @@ fn subclassSelector(context: *Context, it: Iterator) !?Pair(selectors.SubclassSe
                 class_name.next_it,
             };
         },
-        .simple_block_bracket => {
+        .simple_block_square => {
             const old_end = context.end;
             const end_of_block = context.slice.nextSibling(first_component.index);
             context.end = end_of_block;
@@ -544,7 +544,7 @@ fn anyValue(context: *Context, start: ComponentTree.Size) bool {
     while (index < end) {
         const tag = context.slice.tag(index);
         switch (tag) {
-            .token_bad_string, .token_bad_url, .token_right_paren, .token_right_bracket, .token_right_curly => return false,
+            .token_bad_string, .token_bad_url, .token_right_paren, .token_right_square, .token_right_curly => return false,
             else => index = context.slice.nextSibling(index),
         }
     }

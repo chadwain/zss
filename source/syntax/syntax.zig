@@ -111,10 +111,10 @@ pub const Component = struct {
         token_comma,
         /// A '[' codepoint
         /// location: The codepoint
-        token_left_bracket,
+        token_left_square,
         /// A ']' codepoint
         /// location: The codepoint
-        token_right_bracket,
+        token_right_square,
         /// A '(' codepoint
         /// location: The codepoint
         token_left_paren,
@@ -178,7 +178,7 @@ pub const Component = struct {
         /// A '[]-block'
         /// children: An arbitrary sequence of components
         /// location: The location of the <[-token> that opens this block
-        simple_block_bracket,
+        simple_block_square,
         /// A '{}-block'
         /// children: An arbitrary sequence of components
         /// location: The location of the <{-token> that opens this block
