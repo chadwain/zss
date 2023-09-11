@@ -139,3 +139,16 @@ cvs.background2.setAssumeCapacity(my_element, .{ .image = .{ .object = bg_img_ob
 ```
 
 Other background-related properties can be set using the `background1` and `background2` fields of `CascadedValueStore`.
+
+# Standards Implemented
+In general, zss tries to implement the standards contained in [CSS Snapshot 2023](https://www.w3.org/TR/css-2023/).
+
+| Module | Level | Progress |
+| ------ | ----- | ----- |
+| CSS Level 2 | 2.2 | Partial |
+| Syntax | 3 | Partial |
+| Selectors | 3 | Partial |
+| Cascading and Inheritance | 4 | Partial |
+| Backgrounds and Borders | 3 | Partial |
+| Values and Units | 3 | Not started |
+| Namespaces | 3 | Not started |
