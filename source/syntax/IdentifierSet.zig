@@ -15,6 +15,7 @@ string_data: SegmentedList(u8, 0) = .{},
 /// The maximum number of identifiers this set can hold.
 max_size: usize,
 /// Choose how to compare identifiers.
+// TODO: We may want to have identifiers that are compared either case-insensitively or case-sensitively in the same set.
 case: enum { sensitive, insensitive },
 
 const Slice = struct {
@@ -42,22 +43,22 @@ fn adjustCase(set: IdentifierSet, codepoint: u21) u21 {
 const AdapterGeneric = struct {
     set: *const IdentifierSet,
 
-    pub fn hash(self: @This(), key: anytype) u32 {
+    pub fn hash(adapter: AdapterGeneric, key: anytype) u32 {
         var hasher = std.hash.Wyhash.init(0);
         var it = key.iterator();
         while (it.next()) |codepoint| {
-            const adjusted = self.set.adjustCase(codepoint);
+            const adjusted = adapter.set.adjustCase(codepoint);
             const bytes = std.mem.asBytes(&adjusted)[0..3];
             hasher.update(bytes);
         }
         return @truncate(hasher.final());
     }
 
-    pub fn eql(self: @This(), key: anytype, _: void, index: usize) bool {
+    pub fn eql(adapter: AdapterGeneric, key: anytype, _: void, index: usize) bool {
         var key_it = key.iterator();
 
-        var slice = self.set.map.values()[index];
-        var string_it = self.set.string_data.constIterator(slice.begin);
+        var slice = adapter.set.map.values()[index];
+        var string_it = adapter.set.string_data.constIterator(slice.begin);
         var buffer: [4]u8 = undefined;
         while (slice.len > 0) {
             const key_codepoint = key_it.next() orelse return false;
@@ -70,7 +71,7 @@ const AdapterGeneric = struct {
                 break :blk std.unicode.utf8Decode(buffer[0..len]) catch unreachable;
             };
 
-            if (self.set.adjustCase(key_codepoint) != string_codepoint) return false;
+            if (adapter.set.adjustCase(key_codepoint) != string_codepoint) return false;
         }
         return key_it.next() == null;
     }

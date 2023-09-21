@@ -1,5 +1,5 @@
+pub const declaration = @import("source/declaration/declaration.zig");
 pub const values = @import("source/values/values.zig");
-pub const properties = @import("source/values/properties.zig");
 
 const skip_tree = @import("source/util/skip_tree.zig");
 pub const SkipTree = skip_tree.SkipTree;

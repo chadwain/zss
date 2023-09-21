@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
+const aggregates = zss.values.aggregates;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const null_element = Element.null_element;
@@ -20,25 +21,25 @@ const Self = @This();
 pub const Stage = enum { box_gen, cosmetic };
 
 const BoxGenComputedValueStack = struct {
-    box_style: ArrayListUnmanaged(zss.properties.BoxStyle) = .{},
-    content_width: ArrayListUnmanaged(zss.properties.ContentSize) = .{},
-    horizontal_edges: ArrayListUnmanaged(zss.properties.BoxEdges) = .{},
-    content_height: ArrayListUnmanaged(zss.properties.ContentSize) = .{},
-    vertical_edges: ArrayListUnmanaged(zss.properties.BoxEdges) = .{},
-    border_styles: ArrayListUnmanaged(zss.properties.BorderStyles) = .{},
-    z_index: ArrayListUnmanaged(zss.properties.ZIndex) = .{},
-    font: ArrayListUnmanaged(zss.properties.Font) = .{},
+    box_style: ArrayListUnmanaged(aggregates.BoxStyle) = .{},
+    content_width: ArrayListUnmanaged(aggregates.ContentSize) = .{},
+    horizontal_edges: ArrayListUnmanaged(aggregates.BoxEdges) = .{},
+    content_height: ArrayListUnmanaged(aggregates.ContentSize) = .{},
+    vertical_edges: ArrayListUnmanaged(aggregates.BoxEdges) = .{},
+    border_styles: ArrayListUnmanaged(aggregates.BorderStyles) = .{},
+    z_index: ArrayListUnmanaged(aggregates.ZIndex) = .{},
+    font: ArrayListUnmanaged(aggregates.Font) = .{},
 };
 
 const BoxGenCurrentValues = struct {
-    box_style: zss.properties.BoxStyle,
-    content_width: zss.properties.ContentSize,
-    horizontal_edges: zss.properties.BoxEdges,
-    content_height: zss.properties.ContentSize,
-    vertical_edges: zss.properties.BoxEdges,
-    border_styles: zss.properties.BorderStyles,
-    z_index: zss.properties.ZIndex,
-    font: zss.properties.Font,
+    box_style: aggregates.BoxStyle,
+    content_width: aggregates.ContentSize,
+    horizontal_edges: aggregates.BoxEdges,
+    content_height: aggregates.ContentSize,
+    vertical_edges: aggregates.BoxEdges,
+    border_styles: aggregates.BorderStyles,
+    z_index: aggregates.ZIndex,
+    font: aggregates.Font,
 };
 
 const BoxGenComptutedValueFlags = struct {
@@ -53,23 +54,23 @@ const BoxGenComptutedValueFlags = struct {
 };
 
 const CosmeticComputedValueStack = struct {
-    box_style: ArrayListUnmanaged(zss.properties.BoxStyle) = .{},
-    border_colors: ArrayListUnmanaged(zss.properties.BorderColors) = .{},
-    border_styles: ArrayListUnmanaged(zss.properties.BorderStyles) = .{},
-    background1: ArrayListUnmanaged(zss.properties.Background1) = .{},
-    background2: ArrayListUnmanaged(zss.properties.Background2) = .{},
-    color: ArrayListUnmanaged(zss.properties.Color) = .{},
-    insets: ArrayListUnmanaged(zss.properties.Insets) = .{},
+    box_style: ArrayListUnmanaged(aggregates.BoxStyle) = .{},
+    border_colors: ArrayListUnmanaged(aggregates.BorderColors) = .{},
+    border_styles: ArrayListUnmanaged(aggregates.BorderStyles) = .{},
+    background1: ArrayListUnmanaged(aggregates.Background1) = .{},
+    background2: ArrayListUnmanaged(aggregates.Background2) = .{},
+    color: ArrayListUnmanaged(aggregates.Color) = .{},
+    insets: ArrayListUnmanaged(aggregates.Insets) = .{},
 };
 
 const CosmeticCurrentValues = struct {
-    box_style: zss.properties.BoxStyle,
-    border_colors: zss.properties.BorderColors,
-    border_styles: zss.properties.BorderStyles,
-    background1: zss.properties.Background1,
-    background2: zss.properties.Background2,
-    color: zss.properties.Color,
-    insets: zss.properties.Insets,
+    box_style: aggregates.BoxStyle,
+    border_colors: aggregates.BorderColors,
+    border_styles: aggregates.BorderStyles,
+    background1: aggregates.Background1,
+    background2: aggregates.Background2,
+    color: aggregates.Color,
+    insets: aggregates.Insets,
 };
 
 const CosmeticComptutedValueFlags = struct {
@@ -175,12 +176,12 @@ pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: Element)
 //     self.setElementDirectChild(stage, child);
 // }
 
-pub fn setComputedValue(self: *Self, comptime stage: Stage, comptime property: zss.properties.AggregatePropertyEnum, value: property.Value()) void {
+pub fn setComputedValue(self: *Self, comptime stage: Stage, comptime tag: aggregates.Tag, value: tag.Value()) void {
     const current_stage = &@field(self.stage, @tagName(stage));
-    const flag = &@field(current_stage.current_flags, @tagName(property));
+    const flag = &@field(current_stage.current_flags, @tagName(tag));
     assert(!flag.*);
     flag.* = true;
-    @field(current_stage.current_values, @tagName(property)) = value;
+    @field(current_stage.current_values, @tagName(tag)) = value;
 }
 
 pub fn pushElement(self: *Self, comptime stage: Stage) !void {
@@ -203,10 +204,10 @@ pub fn computeAndPushElement(self: *Self, comptime stage: Stage) !void {
     const current_stage = &@field(self.stage, @tagName(stage));
     inline for (std.meta.fields(@TypeOf(current_stage.current_values))) |field_info| {
         @setEvalBranchQuota(10000);
-        const property = comptime std.meta.stringToEnum(zss.properties.AggregatePropertyEnum, field_info.name).?;
-        const specified = self.getSpecifiedValue(stage, property);
-        const computed = try self.compute(stage, property, specified);
-        self.setComputedValue(stage, property, computed);
+        const tag = comptime std.meta.stringToEnum(aggregates.Tag, field_info.name).?;
+        const specified = self.getSpecifiedValue(stage, tag);
+        const computed = try self.compute(stage, tag, specified);
+        self.setComputedValue(stage, tag, computed);
     }
     try self.pushElement(stage);
 }
@@ -229,17 +230,17 @@ pub fn getText(self: Self) zss.values.Text {
 pub fn getSpecifiedValue(
     self: Self,
     comptime stage: Stage,
-    comptime property: zss.properties.AggregatePropertyEnum,
-) property.Value() {
-    const Value = property.Value();
-    const inheritance_type = comptime property.inheritanceType();
+    comptime tag: aggregates.Tag,
+) tag.Value() {
+    const Value = tag.Value();
+    const inheritance_type = comptime tag.inheritanceType();
 
     // Find the value using the cascaded value tree.
     // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do this.
-    const store = @field(self.cascaded_values, @tagName(property));
+    const store = @field(self.cascaded_values, @tagName(tag));
     var cascaded_value = store.get(self.this_element.element);
     if (cascaded_value) |*value| {
-        if (property == .color) {
+        if (tag == .color) {
             // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
             if (value.color == .current_color) {
                 value.color = .inherit;
@@ -252,7 +253,7 @@ pub fn getSpecifiedValue(
         // CSS-CASCADE-4§3.2: The all property is a shorthand that resets all CSS properties except direction and unicode-bidi.
         //                    [...] It does not reset custom properties.
         // TODO: The 'all' property should not be used in this way.
-        if (property != .direction and property != .unicode_bidi and property != .custom) {
+        if (tag != .direction and tag != .unicode_bidi and tag != .custom) {
             switch (self.this_element.all) {
                 .initial => break :default .initial,
                 .inherit => break :default .inherit,
@@ -274,7 +275,7 @@ pub fn getSpecifiedValue(
 
     const inherited_value = inherited_value: {
         const current_stage = @field(self.stage, @tagName(stage));
-        const value_stack = @field(current_stage.value_stack, @tagName(property));
+        const value_stack = @field(current_stage.value_stack, @tagName(tag));
         if (value_stack.items.len > 0) {
             break :inherited_value value_stack.items[value_stack.items.len - 1];
         } else {
@@ -307,23 +308,23 @@ pub fn getSpecifiedValue(
     return cascaded_value.?;
 }
 
-fn compute(self: Self, comptime stage: Stage, comptime property: zss.properties.AggregatePropertyEnum, specified: property.Value()) !property.Value() {
+fn compute(self: Self, comptime stage: Stage, comptime tag: aggregates.Tag, specified: tag.Value()) !tag.Value() {
     {
         const current_stage = @field(self.stage, @tagName(stage));
-        if (@field(current_stage.current_flags, @tagName(property))) {
-            return @field(current_stage.current_values, @tagName(property));
+        if (@field(current_stage.current_flags, @tagName(tag))) {
+            return @field(current_stage.current_values, @tagName(tag));
         }
     }
 
     const solve = @import("./solve.zig");
 
-    switch (property) {
+    switch (tag) {
         .box_style => if (self.this_element.index == root_element) {
             return solve.boxStyle(specified, .Root);
         } else {
             return solve.boxStyle(specified, .NonRoot);
         },
-        .content_width, .content_height => return zss.properties.ContentSize{
+        .content_width, .content_height => return aggregates.ContentSize{
             .size = switch (specified.size) {
                 .px => |value| .{ .px = value },
                 .percentage => |value| .{ .percentage = value },
@@ -344,7 +345,7 @@ fn compute(self: Self, comptime stage: Stage, comptime property: zss.properties.
         },
         .horizontal_edges, .vertical_edges => {
             const border_styles = try self.compute(stage, .border_styles, self.getSpecifiedValue(stage, .border_styles));
-            return zss.properties.BoxEdges{
+            return aggregates.BoxEdges{
                 .padding_start = switch (specified.padding_start) {
                     .px => |value| .{ .px = value },
                     .percentage => |value| .{ .percentage = value },
@@ -356,7 +357,7 @@ fn compute(self: Self, comptime stage: Stage, comptime property: zss.properties.
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 },
                 .border_start = blk: {
-                    const multiplier = solve.borderWidthMultiplier(if (property == .horizontal_edges) border_styles.left else border_styles.top);
+                    const multiplier = solve.borderWidthMultiplier(if (tag == .horizontal_edges) border_styles.left else border_styles.top);
                     break :blk @as(zss.values.BorderWidth, switch (specified.border_start) {
                         .px => |value| .{ .px = value },
                         .thin => .{ .px = solve.borderWidth(.thin) * multiplier },
@@ -366,7 +367,7 @@ fn compute(self: Self, comptime stage: Stage, comptime property: zss.properties.
                     });
                 },
                 .border_end = blk: {
-                    const multiplier = solve.borderWidthMultiplier(if (property == .horizontal_edges) border_styles.right else border_styles.bottom);
+                    const multiplier = solve.borderWidthMultiplier(if (tag == .horizontal_edges) border_styles.right else border_styles.bottom);
                     break :blk @as(zss.values.BorderWidth, switch (specified.border_end) {
                         .px => |value| .{ .px = value },
                         .thin => .{ .px = solve.borderWidth(.thin) * multiplier },
@@ -390,14 +391,14 @@ fn compute(self: Self, comptime stage: Stage, comptime property: zss.properties.
             };
         },
         .border_styles => return specified,
-        .z_index => return zss.properties.ZIndex{
+        .z_index => return aggregates.ZIndex{
             .z_index = switch (specified.z_index) {
                 .integer => |value| .{ .integer = value },
                 .auto => .auto,
                 .initial, .inherit, .unset, .undeclared => unreachable,
             },
         },
-        .font => return zss.properties.Font{
+        .font => return aggregates.Font{
             .font = switch (specified.font) {
                 .font => |font| .{ .font = font },
                 .zss_default => .zss_default,
@@ -412,6 +413,6 @@ fn compute(self: Self, comptime stage: Stage, comptime property: zss.properties.
         .direction,
         .unicode_bidi,
         .custom,
-        => @compileError("TODO: compute(" ++ @typeName(property.Value()) ++ ")"),
+        => @compileError("TODO: compute(" ++ @typeName(tag.Value()) ++ ")"),
     }
 }

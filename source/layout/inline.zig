@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
+const aggregates = zss.values.aggregates;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const StyleComputer = @import("./StyleComputer.zig");
@@ -468,8 +469,8 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
     };
 
     var computed: struct {
-        horizontal_edges: zss.properties.BoxEdges,
-        vertical_edges: zss.properties.BoxEdges,
+        horizontal_edges: aggregates.BoxEdges,
+        vertical_edges: aggregates.BoxEdges,
     } = undefined;
 
     var used: struct {

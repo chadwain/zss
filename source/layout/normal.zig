@@ -7,6 +7,7 @@ const ArrayListAlignedUnmanaged = std.ArrayListAlignedUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../../zss.zig");
+const aggregates = zss.values.aggregates;
 const root_element = @as(zss.ElementIndex, 0);
 
 const solve = @import("./solve.zig");
@@ -375,10 +376,10 @@ fn popFlowBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
 }
 
 pub const FlowBlockComputedSizes = struct {
-    content_width: zss.properties.ContentSize,
-    horizontal_edges: zss.properties.BoxEdges,
-    content_height: zss.properties.ContentSize,
-    vertical_edges: zss.properties.BoxEdges,
+    content_width: aggregates.ContentSize,
+    horizontal_edges: aggregates.BoxEdges,
+    content_height: aggregates.ContentSize,
+    vertical_edges: aggregates.BoxEdges,
 };
 
 pub const FlowBlockUsedSizes = struct {
@@ -454,7 +455,7 @@ pub const FlowBlockUsedSizes = struct {
 fn flowBlockSolveWidths(
     specified: FlowBlockComputedSizes,
     containing_block_width: ZssUnit,
-    border_styles: zss.properties.BorderStyles,
+    border_styles: aggregates.BorderStyles,
     computed: *FlowBlockComputedSizes,
     used: *FlowBlockUsedSizes,
 ) !void {
@@ -612,9 +613,9 @@ fn flowBlockSolveWidths(
 }
 
 pub fn flowBlockSolveContentHeight(
-    specified: zss.properties.ContentSize,
+    specified: aggregates.ContentSize,
     containing_block_height: ?ZssUnit,
-    computed: *zss.properties.ContentSize,
+    computed: *aggregates.ContentSize,
     used: *FlowBlockUsedSizes,
 ) !void {
     if (containing_block_height) |h| assert(h >= 0);
@@ -673,10 +674,10 @@ pub fn flowBlockSolveContentHeight(
 
 /// This is an implementation of CSS2§10.5 and CSS2§10.6.3.
 pub fn flowBlockSolveVerticalEdges(
-    specified: zss.properties.BoxEdges,
+    specified: aggregates.BoxEdges,
     containing_block_width: ZssUnit,
-    border_styles: zss.properties.BorderStyles,
-    computed: *zss.properties.BoxEdges,
+    border_styles: aggregates.BorderStyles,
+    computed: *aggregates.BoxEdges,
     used: *FlowBlockUsedSizes,
 ) !void {
     // TODO: Also use the logical properties ('block-size', 'border-block-start', etc.) to determine lengths.

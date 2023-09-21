@@ -1,16 +1,10 @@
-//! Each struct defines 1 or more CSS properties.
-//!
-//! We group several related properties together (into an aggregate), rather
-//! than having every property be separate.
-//!
+//! Each struct is an aggregate of some values that are likely to be used together.
 //! Within an aggregate, each property *must* have the same inheritance type
 //! (meaning, they must be all inherited properties or all non-inherited properties).
-//! The default value of each field is the initial value of that property.
 
-const zss = @import("../../zss.zig");
-const values = zss.values;
+const values = @import("./values.zig");
 
-pub const AggregatePropertyEnum = enum {
+pub const Tag = enum {
     box_style,
     content_width,
     horizontal_edges,

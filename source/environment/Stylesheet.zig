@@ -1,27 +1,25 @@
 const Stylesheet = @This();
 
 const zss = @import("../../zss.zig");
-const selectors = zss.selectors;
-const Declaration = zss.Environment.declaration.Declaration;
+const ComplexSelectorList = zss.selectors.ComplexSelectorList;
+const ParsedDeclarations = zss.declaration.ParsedDeclarations;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
 pub const StyleRule = struct {
-    selector: selectors.ComplexSelectorList,
-    normal_declarations: []const Declaration,
-    important_declarations: []const Declaration,
+    selector: ComplexSelectorList,
+    declarations: ParsedDeclarations,
 };
 
 rules: MultiArrayList(StyleRule) = .{},
 
 pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
     const slice = stylesheet.rules.slice();
-    for (slice.items(.selector), slice.items(.normal_declarations), slice.items(.important_declarations)) |*selector, normal, important| {
+    for (slice.items(.selector), slice.items(.declarations)) |*selector, *decls| {
         selector.deinit(allocator);
-        allocator.free(normal);
-        allocator.free(important);
+        decls.deinit(allocator);
     }
     stylesheet.rules.deinit(allocator);
 }

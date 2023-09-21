@@ -1,3 +1,31 @@
+pub const aggregates = @import("./aggregates.zig");
+pub const parse = @import("./parse.zig");
+
+pub const CssWideKeyword = enum {
+    initial,
+    inherit,
+    unset,
+
+    pub fn apply(cwk: CssWideKeyword, ptrs: anytype) void {
+        switch (cwk) {
+            inline else => |cwk_comptime| {
+                const cwk_as_enum_literal = cwk_comptime.toEnumLiteral();
+                inline for (ptrs) |ptr| {
+                    ptr.* = cwk_as_enum_literal;
+                }
+            },
+        }
+    }
+
+    fn toEnumLiteral(comptime cwk: CssWideKeyword) @Type(.EnumLiteral) {
+        return switch (cwk) {
+            .initial => .initial,
+            .inherit => .inherit,
+            .unset => .unset,
+        };
+    }
+};
+
 pub const All = enum {
     initial,
     inherit,

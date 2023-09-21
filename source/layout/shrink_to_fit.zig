@@ -7,6 +7,7 @@ const ArrayListAlignedUnmanaged = std.ArrayListAlignedUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../../zss.zig");
+const aggregates = zss.values.aggregates;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 
@@ -624,8 +625,8 @@ fn popFlowBlock(layout: *ShrinkToFitLayoutContext) struct { auto_width: ZssUnit 
 }
 
 fn flowBlockSolveContentWidth(
-    specified: zss.properties.ContentSize,
-    computed: *zss.properties.ContentSize,
+    specified: aggregates.ContentSize,
+    computed: *aggregates.ContentSize,
     used: *FlowBlockUsedSizes,
 ) !void {
     switch (specified.min_size) {
@@ -673,9 +674,9 @@ fn flowBlockSolveContentWidth(
 }
 
 fn flowBlockSolveHorizontalEdges(
-    specified: zss.properties.BoxEdges,
-    border_styles: zss.properties.BorderStyles,
-    computed: *zss.properties.BoxEdges,
+    specified: aggregates.BoxEdges,
+    border_styles: aggregates.BorderStyles,
+    computed: *aggregates.BoxEdges,
     used: *FlowBlockUsedSizes,
 ) !void {
     {

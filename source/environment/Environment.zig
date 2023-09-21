@@ -5,8 +5,6 @@ const syntax = zss.syntax;
 const ComponentTree = syntax.ComponentTree;
 const ParserSource = syntax.parse.Source;
 const IdentifierSet = syntax.IdentifierSet;
-pub const declaration = @import("./declaration.zig");
-const Declaration = declaration.Declaration;
 const namespace = @import("./namespace.zig");
 pub const NamespaceId = namespace.NamespaceId;
 pub const Stylesheet = @import("./Stylesheet.zig");
@@ -25,12 +23,6 @@ type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value, .case 
 // TODO: Case sensitivity depends on whether quirks mode is on
 id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensitive },
 default_namespace: ?NamespaceId = null,
-
-comptime {
-    if (@import("builtin").is_test) {
-        _ = declaration;
-    }
-}
 
 pub fn init(allocator: Allocator) Environment {
     return Environment{ .allocator = allocator };
@@ -64,56 +56,20 @@ pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
             .qualified_rule => {
                 try stylesheet.rules.ensureUnusedCapacity(env.allocator, 1);
                 const end_of_prelude = slice.extra(index).index();
+
                 var selector_list = (try zss.selectors.parseSelectorList(env, source, slice, index + 1, end_of_prelude)) orelse continue;
                 errdefer selector_list.deinit(env.allocator);
 
-                var decls = try declsFromStyleBlock(env, slice, end_of_prelude);
-                errdefer {
-                    decls.normal.deinit(env.allocator);
-                    decls.important.deinit(env.allocator);
-                }
+                var decls = try zss.declaration.parse.parseStyleBlockDeclarations(env.allocator, slice, source, end_of_prelude);
+                errdefer decls.deinit(env.allocator);
 
-                stylesheet.rules.appendAssumeCapacity(.{
-                    .selector = selector_list,
-                    .normal_declarations = decls.normal,
-                    .important_declarations = decls.important,
-                });
+                stylesheet.rules.appendAssumeCapacity(.{ .selector = selector_list, .declarations = decls });
             },
             else => unreachable,
         }
     }
 
     env.stylesheets.appendAssumeCapacity(stylesheet);
-}
-
-fn declsFromStyleBlock(env: *Environment, slice: ComponentTree.Slice, start_of_style_block: ComponentTree.Size) !struct {
-    normal: []const Declaration,
-    important: []const Declaration,
-} {
-    assert(slice.tag(start_of_style_block) == .style_block);
-
-    var normal_declarations = ArrayListUnmanaged(Declaration){};
-    defer normal_declarations.deinit(env.allocator);
-    var important_declarations = ArrayListUnmanaged(Declaration){};
-    defer important_declarations.deinit(env.allocator);
-
-    var index = slice.extra(start_of_style_block).index();
-    while (index != 0) {
-        defer index = slice.extra(index).index();
-        const appropriate_list = switch (slice.tag(index)) {
-            .declaration_important => &important_declarations,
-            .declaration_normal => &normal_declarations,
-            else => unreachable,
-        };
-        try appropriate_list.append(env.allocator, .{ .component_index = index, .name = .unrecognized });
-    }
-
-    const normal_declarations_owned = try normal_declarations.toOwnedSlice(env.allocator);
-    errdefer env.allocator.free(normal_declarations_owned);
-    const important_declarations_owned = try important_declarations.toOwnedSlice(env.allocator);
-    errdefer env.allocator.free(important_declarations_owned);
-
-    return .{ .normal = normal_declarations_owned, .important = important_declarations_owned };
 }
 
 pub const NameId = enum(u24) {

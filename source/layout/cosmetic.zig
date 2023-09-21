@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
+const aggregates = zss.values.aggregates;
 
 const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
@@ -156,7 +157,7 @@ fn blockBoxCosmeticLayout(context: Context, computer: *StyleComputer, box_tree: 
     const computed_box_style = solve.boxStyle(specified.box_style, is_root);
     const current_color = solve.currentColor(specified.color.color);
 
-    var computed_insets: zss.properties.Insets = undefined;
+    var computed_insets: aggregates.Insets = undefined;
     {
         const used_insets = &subtree.insets.items[block_box.index];
         switch (computed_box_style.position) {
@@ -198,8 +199,8 @@ fn blockBoxCosmeticLayout(context: Context, computer: *StyleComputer, box_tree: 
 }
 
 fn solveInsetsStatic(
-    specified: zss.properties.Insets,
-    computed: *zss.properties.Insets,
+    specified: aggregates.Insets,
+    computed: *aggregates.Insets,
     used: *used_values.Insets,
 ) void {
     switch (specified.left) {
@@ -230,9 +231,9 @@ fn solveInsetsStatic(
 }
 
 fn solveInsetsRelative(
-    specified: zss.properties.Insets,
+    specified: aggregates.Insets,
     containing_block_size: ZssSize,
-    computed: *zss.properties.Insets,
+    computed: *aggregates.Insets,
     used: *used_values.Insets,
 ) void {
     var left: ?ZssUnit = undefined;
@@ -330,7 +331,7 @@ fn inlineBoxCosmeticLayout(context: Context, computer: *StyleComputer, ifc: *Inl
 
     const computed_box_style = solve.boxStyle(specified.box_style, .NonRoot);
 
-    var computed_insets: zss.properties.Insets = undefined;
+    var computed_insets: aggregates.Insets = undefined;
     {
         const used_insets = &ifc.insets.items[inline_box_index];
         switch (computed_box_style.position) {

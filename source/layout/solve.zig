@@ -1,5 +1,6 @@
 const std = @import("std");
 const zss = @import("../../zss.zig");
+const aggregates = zss.values.aggregates;
 const used_values = @import("./used_values.zig");
 const units_per_pixel = used_values.units_per_pixel;
 const ZssUnit = used_values.ZssUnit;
@@ -70,8 +71,8 @@ pub const IsRoot = enum {
     NonRoot,
 };
 
-pub fn boxStyle(specified: zss.properties.BoxStyle, comptime is_root: IsRoot) zss.properties.BoxStyle {
-    var computed: zss.properties.BoxStyle = .{
+pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: IsRoot) aggregates.BoxStyle {
+    var computed: aggregates.BoxStyle = .{
         .display = undefined,
         .position = specified.position,
         .float = specified.float,
@@ -103,7 +104,7 @@ fn @"CSS2.2Section9.7Table"(display: zss.values.Display) zss.values.Display {
     };
 }
 
-pub fn borderColors(border_colors: zss.properties.BorderColors, current_color: used_values.Color) used_values.BorderColor {
+pub fn borderColors(border_colors: aggregates.BorderColors, current_color: used_values.Color) used_values.BorderColor {
     return used_values.BorderColor{
         .left_rgba = color(border_colors.left, current_color),
         .right_rgba = color(border_colors.right, current_color),
@@ -112,7 +113,7 @@ pub fn borderColors(border_colors: zss.properties.BorderColors, current_color: u
     };
 }
 
-pub fn borderStyles(border_styles: zss.properties.BorderStyles) void {
+pub fn borderStyles(border_styles: aggregates.BorderStyles) void {
     const solveOne = struct {
         fn f(border_style: zss.values.BorderStyle) void {
             switch (border_style) {
@@ -123,12 +124,12 @@ pub fn borderStyles(border_styles: zss.properties.BorderStyles) void {
         }
     }.f;
 
-    inline for (std.meta.fields(zss.properties.BorderStyles)) |field_info| {
+    inline for (std.meta.fields(aggregates.BorderStyles)) |field_info| {
         solveOne(@field(border_styles, field_info.name));
     }
 }
 
-pub fn background1(bg: zss.properties.Background1, current_color: used_values.Color) used_values.Background1 {
+pub fn background1(bg: aggregates.Background1, current_color: used_values.Color) used_values.Background1 {
     return used_values.Background1{
         .color_rgba = color(bg.color, current_color),
         .clip = switch (bg.clip) {
@@ -141,7 +142,7 @@ pub fn background1(bg: zss.properties.Background1, current_color: used_values.Co
 }
 
 pub fn background2(
-    bg: zss.properties.Background2,
+    bg: aggregates.Background2,
     box_offsets: *const used_values.BoxOffsets,
     borders: *const used_values.Borders,
 ) !used_values.Background2 {

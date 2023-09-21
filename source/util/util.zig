@@ -10,6 +10,15 @@ const ZssRect = used_values.ZssRect;
 
 pub const unicode = @import("./unicode.zig");
 
+fn expectSuccess(error_union: anytype, expected: @typeInfo(@TypeOf(error_union)).ErrorUnion.payload) !void {
+    if (error_union) |success| {
+        return std.testing.expectEqual(expected, success);
+    } else |err| {
+        std.debug.print("unexpected error error.{s}\n", .{@errorName(err)});
+        return error.TestUnexpectedError;
+    }
+}
+
 pub fn Ratio(comptime T: type) type {
     const typeInfo = @typeInfo(T).Int;
     const Unsigned = std.meta.Int(.unsigned, typeInfo.bits);
@@ -142,6 +151,64 @@ test "roundUp" {
     try expect(roundUp(1, 4) == 4);
     try expect(roundUp(3, 4) == 4);
     try expect(roundUp(62, 7) == 63);
+}
+
+pub fn CheckedInt(comptime Int: type) type {
+    return struct {
+        overflow: bool,
+        value: Int,
+
+        const Self = @This();
+
+        pub fn init(int: Int) Self {
+            return Self{
+                .overflow = false,
+                .value = int,
+            };
+        }
+
+        pub fn unwrap(checked: Self) error{Overflow}!Int {
+            if (checked.overflow) return error.Overflow;
+            return checked.value;
+        }
+
+        pub fn add(checked: *Self, int: Int) void {
+            const add_result = @addWithOverflow(checked.value, int);
+            checked.value = add_result[0];
+            checked.overflow = checked.overflow or @bitCast(add_result[1]);
+        }
+
+        pub fn alignForward(checked: *Self, comptime alignment: Int) void {
+            comptime assert(std.mem.isValidAlign(alignment));
+            const lower_addr_bits = checked.value & (alignment - 1);
+            if (lower_addr_bits != 0) {
+                checked.add(alignment - lower_addr_bits);
+            }
+        }
+    };
+}
+
+test "CheckedInt.alignForward" {
+    const alignForward = struct {
+        fn f(addr: usize, comptime alignment: comptime_int) !usize {
+            var checked_int = CheckedInt(usize).init(addr);
+            checked_int.alignForward(alignment);
+            return checked_int.unwrap();
+        }
+    }.f;
+
+    try expectSuccess(alignForward(0, 1), 0);
+    try expectSuccess(alignForward(1, 1), 1);
+
+    try expectSuccess(alignForward(0, 2), 0);
+    try expectSuccess(alignForward(1, 2), 2);
+    try expectSuccess(alignForward(2, 2), 2);
+    try expectSuccess(alignForward(3, 2), 4);
+
+    try expectSuccess(alignForward(0, 4), 0);
+    try expectSuccess(alignForward(1, 4), 4);
+    try expectSuccess(alignForward(2, 4), 4);
+    try expectSuccess(alignForward(3, 4), 4);
 }
 
 pub fn ElementHashMap(comptime V: type) type {
