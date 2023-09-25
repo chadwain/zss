@@ -1,7 +1,7 @@
 const zss = @import("../../zss.zig");
 const values = zss.values;
 
-const aggregates = values.aggregates;
+const aggregates = zss.properties.aggregates;
 const BoxStyle = aggregates.BoxStyle;
 
 pub const ParserFnInput = union(enum) {

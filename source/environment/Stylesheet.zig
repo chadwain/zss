@@ -2,7 +2,7 @@ const Stylesheet = @This();
 
 const zss = @import("../../zss.zig");
 const ComplexSelectorList = zss.selectors.ComplexSelectorList;
-const ParsedDeclarations = zss.declaration.ParsedDeclarations;
+const ParsedDeclarations = zss.properties.declaration.ParsedDeclarations;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

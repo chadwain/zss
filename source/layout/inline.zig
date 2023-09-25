@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
-const aggregates = zss.values.aggregates;
+const aggregates = zss.properties.aggregates;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const StyleComputer = @import("./StyleComputer.zig");
@@ -469,8 +469,8 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
     };
 
     var computed: struct {
-        horizontal_edges: aggregates.BoxEdges,
-        vertical_edges: aggregates.BoxEdges,
+        horizontal_edges: aggregates.HorizontalEdges,
+        vertical_edges: aggregates.VerticalEdges,
     } = undefined;
 
     var used: struct {
@@ -486,106 +486,106 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
         padding_block_end: ZssUnit,
     } = undefined;
 
-    switch (specified.horizontal_edges.margin_start) {
+    switch (specified.horizontal_edges.margin_left) {
         .px => |value| {
-            computed.horizontal_edges.margin_start = .{ .px = value };
+            computed.horizontal_edges.margin_left = .{ .px = value };
             used.margin_inline_start = solve.length(.px, value);
         },
         .percentage => |value| {
-            computed.horizontal_edges.margin_start = .{ .percentage = value };
+            computed.horizontal_edges.margin_left = .{ .percentage = value };
             used.margin_inline_start = solve.percentage(value, layout.percentage_base_unit);
         },
         .auto => {
-            computed.horizontal_edges.margin_start = .auto;
+            computed.horizontal_edges.margin_left = .auto;
             used.margin_inline_start = 0;
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
     {
         const multiplier = solve.borderWidthMultiplier(specified.border_styles.left);
-        switch (specified.horizontal_edges.border_start) {
+        switch (specified.horizontal_edges.border_left) {
             .px => |value| {
                 const width = value * multiplier;
-                computed.horizontal_edges.border_start = .{ .px = width };
+                computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = try solve.positiveLength(.px, width);
             },
             .thin => {
                 const width = solve.borderWidth(.thin) * multiplier;
-                computed.horizontal_edges.border_start = .{ .px = width };
+                computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
             },
             .medium => {
                 const width = solve.borderWidth(.medium) * multiplier;
-                computed.horizontal_edges.border_start = .{ .px = width };
+                computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
             },
             .thick => {
                 const width = solve.borderWidth(.thick) * multiplier;
-                computed.horizontal_edges.border_start = .{ .px = width };
+                computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
-    switch (specified.horizontal_edges.padding_start) {
+    switch (specified.horizontal_edges.padding_left) {
         .px => |value| {
-            computed.horizontal_edges.padding_start = .{ .px = value };
+            computed.horizontal_edges.padding_left = .{ .px = value };
             used.padding_inline_start = try solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.horizontal_edges.padding_start = .{ .percentage = value };
+            computed.horizontal_edges.padding_left = .{ .percentage = value };
             used.padding_inline_start = try solve.positivePercentage(value, layout.percentage_base_unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.horizontal_edges.margin_end) {
+    switch (specified.horizontal_edges.margin_right) {
         .px => |value| {
-            computed.horizontal_edges.margin_end = .{ .px = value };
+            computed.horizontal_edges.margin_right = .{ .px = value };
             used.margin_inline_end = solve.length(.px, value);
         },
         .percentage => |value| {
-            computed.horizontal_edges.margin_end = .{ .percentage = value };
+            computed.horizontal_edges.margin_right = .{ .percentage = value };
             used.margin_inline_end = solve.percentage(value, layout.percentage_base_unit);
         },
         .auto => {
-            computed.horizontal_edges.margin_end = .auto;
+            computed.horizontal_edges.margin_right = .auto;
             used.margin_inline_end = 0;
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
     {
         const multiplier = solve.borderWidthMultiplier(specified.border_styles.right);
-        switch (specified.horizontal_edges.border_end) {
+        switch (specified.horizontal_edges.border_right) {
             .px => |value| {
                 const width = value * multiplier;
-                computed.horizontal_edges.border_end = .{ .px = width };
+                computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = try solve.positiveLength(.px, width);
             },
             .thin => {
                 const width = solve.borderWidth(.thin) * multiplier;
-                computed.horizontal_edges.border_end = .{ .px = width };
+                computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
             },
             .medium => {
                 const width = solve.borderWidth(.medium) * multiplier;
-                computed.horizontal_edges.border_end = .{ .px = width };
+                computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
             },
             .thick => {
                 const width = solve.borderWidth(.thick) * multiplier;
-                computed.horizontal_edges.border_end = .{ .px = width };
+                computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
-    switch (specified.horizontal_edges.padding_end) {
+    switch (specified.horizontal_edges.padding_right) {
         .px => |value| {
-            computed.horizontal_edges.padding_end = .{ .px = value };
+            computed.horizontal_edges.padding_right = .{ .px = value };
             used.padding_inline_end = try solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.horizontal_edges.padding_end = .{ .percentage = value };
+            computed.horizontal_edges.padding_right = .{ .percentage = value };
             used.padding_inline_end = try solve.positivePercentage(value, layout.percentage_base_unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
@@ -593,81 +593,81 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
 
     {
         const multiplier = solve.borderWidthMultiplier(specified.border_styles.top);
-        switch (specified.vertical_edges.border_start) {
+        switch (specified.vertical_edges.border_top) {
             .px => |value| {
                 const width = value * multiplier;
-                computed.vertical_edges.border_start = .{ .px = width };
+                computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = try solve.positiveLength(.px, width);
             },
             .thin => {
                 const width = solve.borderWidth(.thin) * multiplier;
-                computed.vertical_edges.border_start = .{ .px = width };
+                computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
             },
             .medium => {
                 const width = solve.borderWidth(.medium) * multiplier;
-                computed.vertical_edges.border_start = .{ .px = width };
+                computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
             },
             .thick => {
                 const width = solve.borderWidth(.thick) * multiplier;
-                computed.vertical_edges.border_start = .{ .px = width };
+                computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
-    switch (specified.vertical_edges.padding_start) {
+    switch (specified.vertical_edges.padding_top) {
         .px => |value| {
-            computed.vertical_edges.padding_start = .{ .px = value };
+            computed.vertical_edges.padding_top = .{ .px = value };
             used.padding_block_start = try solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.vertical_edges.padding_start = .{ .percentage = value };
+            computed.vertical_edges.padding_top = .{ .percentage = value };
             used.padding_block_start = try solve.positivePercentage(value, layout.percentage_base_unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
     {
         const multiplier = solve.borderWidthMultiplier(specified.border_styles.bottom);
-        switch (specified.vertical_edges.border_end) {
+        switch (specified.vertical_edges.border_bottom) {
             .px => |value| {
                 const width = value * multiplier;
-                computed.vertical_edges.border_end = .{ .px = width };
+                computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = try solve.positiveLength(.px, width);
             },
             .thin => {
                 const width = solve.borderWidth(.thin) * multiplier;
-                computed.vertical_edges.border_end = .{ .px = width };
+                computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
             },
             .medium => {
                 const width = solve.borderWidth(.medium) * multiplier;
-                computed.vertical_edges.border_end = .{ .px = width };
+                computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
             },
             .thick => {
                 const width = solve.borderWidth(.thick) * multiplier;
-                computed.vertical_edges.border_end = .{ .px = width };
+                computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
-    switch (specified.vertical_edges.padding_end) {
+    switch (specified.vertical_edges.padding_bottom) {
         .px => |value| {
-            computed.vertical_edges.padding_end = .{ .px = value };
+            computed.vertical_edges.padding_bottom = .{ .px = value };
             used.padding_block_end = try solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.vertical_edges.padding_end = .{ .percentage = value };
+            computed.vertical_edges.padding_bottom = .{ .percentage = value };
             used.padding_block_end = try solve.positivePercentage(value, layout.percentage_base_unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
-    computed.vertical_edges.margin_start = specified.vertical_edges.margin_start;
-    computed.vertical_edges.margin_end = specified.vertical_edges.margin_end;
+    computed.vertical_edges.margin_top = specified.vertical_edges.margin_top;
+    computed.vertical_edges.margin_bottom = specified.vertical_edges.margin_bottom;
 
     computer.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
     computer.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
@@ -702,25 +702,25 @@ fn inlineBlockSolveSizes(
 
     {
         const multiplier = solve.borderWidthMultiplier(border_styles.left);
-        switch (specified.horizontal_edges.border_start) {
+        switch (specified.horizontal_edges.border_left) {
             .px => |value| {
                 const width = value * multiplier;
-                computed.horizontal_edges.border_start = .{ .px = width };
+                computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = try solve.positiveLength(.px, width);
             },
             .thin => {
                 const width = solve.borderWidth(.thin) * multiplier;
-                computed.horizontal_edges.border_start = .{ .px = width };
+                computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
             },
             .medium => {
                 const width = solve.borderWidth(.medium) * multiplier;
-                computed.horizontal_edges.border_start = .{ .px = width };
+                computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
             },
             .thick => {
                 const width = solve.borderWidth(.thick) * multiplier;
-                computed.horizontal_edges.border_start = .{ .px = width };
+                computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
@@ -728,120 +728,120 @@ fn inlineBlockSolveSizes(
     }
     {
         const multiplier = solve.borderWidthMultiplier(border_styles.right);
-        switch (specified.horizontal_edges.border_end) {
+        switch (specified.horizontal_edges.border_right) {
             .px => |value| {
                 const width = value * multiplier;
-                computed.horizontal_edges.border_end = .{ .px = width };
+                computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = try solve.positiveLength(.px, width);
             },
             .thin => {
                 const width = solve.borderWidth(.thin) * multiplier;
-                computed.horizontal_edges.border_end = .{ .px = width };
+                computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
             },
             .medium => {
                 const width = solve.borderWidth(.medium) * multiplier;
-                computed.horizontal_edges.border_end = .{ .px = width };
+                computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
             },
             .thick => {
                 const width = solve.borderWidth(.thick) * multiplier;
-                computed.horizontal_edges.border_end = .{ .px = width };
+                computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
-    switch (specified.horizontal_edges.padding_start) {
+    switch (specified.horizontal_edges.padding_left) {
         .px => |value| {
-            computed.horizontal_edges.padding_start = .{ .px = value };
+            computed.horizontal_edges.padding_left = .{ .px = value };
             used.padding_inline_start = try solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.horizontal_edges.padding_start = .{ .percentage = value };
+            computed.horizontal_edges.padding_left = .{ .percentage = value };
             used.padding_inline_start = try solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.horizontal_edges.padding_end) {
+    switch (specified.horizontal_edges.padding_right) {
         .px => |value| {
-            computed.horizontal_edges.padding_end = .{ .px = value };
+            computed.horizontal_edges.padding_right = .{ .px = value };
             used.padding_inline_end = try solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.horizontal_edges.padding_end = .{ .percentage = value };
+            computed.horizontal_edges.padding_right = .{ .percentage = value };
             used.padding_inline_end = try solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.horizontal_edges.margin_start) {
+    switch (specified.horizontal_edges.margin_left) {
         .px => |value| {
-            computed.horizontal_edges.margin_start = .{ .px = value };
+            computed.horizontal_edges.margin_left = .{ .px = value };
             used.set(.margin_inline_start, solve.length(.px, value));
         },
         .percentage => |value| {
-            computed.horizontal_edges.margin_start = .{ .percentage = value };
+            computed.horizontal_edges.margin_left = .{ .percentage = value };
             used.set(.margin_inline_start, solve.percentage(value, containing_block_width));
         },
         .auto => {
-            computed.horizontal_edges.margin_start = .auto;
+            computed.horizontal_edges.margin_left = .auto;
             used.set(.margin_inline_start, 0);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.horizontal_edges.margin_end) {
+    switch (specified.horizontal_edges.margin_right) {
         .px => |value| {
-            computed.horizontal_edges.margin_end = .{ .px = value };
+            computed.horizontal_edges.margin_right = .{ .px = value };
             used.set(.margin_inline_end, solve.length(.px, value));
         },
         .percentage => |value| {
-            computed.horizontal_edges.margin_end = .{ .percentage = value };
+            computed.horizontal_edges.margin_right = .{ .percentage = value };
             used.set(.margin_inline_end, solve.percentage(value, containing_block_width));
         },
         .auto => {
-            computed.horizontal_edges.margin_end = .auto;
+            computed.horizontal_edges.margin_right = .auto;
             used.set(.margin_inline_end, 0);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.content_width.min_size) {
+    switch (specified.content_width.min_width) {
         .px => |value| {
-            computed.content_width.min_size = .{ .px = value };
+            computed.content_width.min_width = .{ .px = value };
             used.min_inline_size = try solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.content_width.min_size = .{ .percentage = value };
+            computed.content_width.min_width = .{ .percentage = value };
             used.min_inline_size = try solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.content_width.max_size) {
+    switch (specified.content_width.max_width) {
         .px => |value| {
-            computed.content_width.max_size = .{ .px = value };
+            computed.content_width.max_width = .{ .px = value };
             used.max_inline_size = try solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.content_width.max_size = .{ .percentage = value };
+            computed.content_width.max_width = .{ .percentage = value };
             used.max_inline_size = try solve.positivePercentage(value, containing_block_width);
         },
         .none => {
-            computed.content_width.max_size = .none;
+            computed.content_width.max_width = .none;
             used.max_inline_size = std.math.maxInt(ZssUnit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
-    switch (specified.content_width.size) {
+    switch (specified.content_width.width) {
         .px => |value| {
-            computed.content_width.size = .{ .px = value };
+            computed.content_width.width = .{ .px = value };
             used.set(.inline_size, try solve.positiveLength(.px, value));
         },
         .percentage => |value| {
-            computed.content_width.size = .{ .percentage = value };
+            computed.content_width.width = .{ .percentage = value };
             used.set(.inline_size, try solve.positivePercentage(value, containing_block_width));
         },
         .auto => {
-            computed.content_width.size = .auto;
+            computed.content_width.width = .auto;
             used.setAuto(.inline_size);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
@@ -849,25 +849,25 @@ fn inlineBlockSolveSizes(
 
     {
         const multiplier = solve.borderWidthMultiplier(border_styles.top);
-        switch (specified.vertical_edges.border_start) {
+        switch (specified.vertical_edges.border_top) {
             .px => |value| {
                 const width = value * multiplier;
-                computed.vertical_edges.border_start = .{ .px = width };
+                computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = try solve.positiveLength(.px, width);
             },
             .thin => {
                 const width = solve.borderWidth(.thin) * multiplier;
-                computed.vertical_edges.border_start = .{ .px = width };
+                computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
             },
             .medium => {
                 const width = solve.borderWidth(.medium) * multiplier;
-                computed.vertical_edges.border_start = .{ .px = width };
+                computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
             },
             .thick => {
                 const width = solve.borderWidth(.thick) * multiplier;
-                computed.vertical_edges.border_start = .{ .px = width };
+                computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
@@ -875,89 +875,89 @@ fn inlineBlockSolveSizes(
     }
     {
         const multiplier = solve.borderWidthMultiplier(border_styles.bottom);
-        switch (specified.vertical_edges.border_end) {
+        switch (specified.vertical_edges.border_bottom) {
             .px => |value| {
                 const width = value * multiplier;
-                computed.vertical_edges.border_end = .{ .px = width };
+                computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = try solve.positiveLength(.px, width);
             },
             .thin => {
                 const width = solve.borderWidth(.thin) * multiplier;
-                computed.vertical_edges.border_end = .{ .px = width };
+                computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
             },
             .medium => {
                 const width = solve.borderWidth(.medium) * multiplier;
-                computed.vertical_edges.border_end = .{ .px = width };
+                computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
             },
             .thick => {
                 const width = solve.borderWidth(.thick) * multiplier;
-                computed.vertical_edges.border_end = .{ .px = width };
+                computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
-    switch (specified.vertical_edges.padding_start) {
+    switch (specified.vertical_edges.padding_top) {
         .px => |value| {
-            computed.vertical_edges.padding_start = .{ .px = value };
+            computed.vertical_edges.padding_top = .{ .px = value };
             used.padding_block_start = try solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.vertical_edges.padding_start = .{ .percentage = value };
+            computed.vertical_edges.padding_top = .{ .percentage = value };
             used.padding_block_start = try solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.vertical_edges.padding_end) {
+    switch (specified.vertical_edges.padding_bottom) {
         .px => |value| {
-            computed.vertical_edges.padding_end = .{ .px = value };
+            computed.vertical_edges.padding_bottom = .{ .px = value };
             used.padding_block_end = try solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.vertical_edges.padding_end = .{ .percentage = value };
+            computed.vertical_edges.padding_bottom = .{ .percentage = value };
             used.padding_block_end = try solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.vertical_edges.margin_start) {
+    switch (specified.vertical_edges.margin_top) {
         .px => |value| {
-            computed.vertical_edges.margin_start = .{ .px = value };
+            computed.vertical_edges.margin_top = .{ .px = value };
             used.margin_block_start = solve.length(.px, value);
         },
         .percentage => |value| {
-            computed.vertical_edges.margin_start = .{ .percentage = value };
+            computed.vertical_edges.margin_top = .{ .percentage = value };
             used.margin_block_start = solve.percentage(value, containing_block_width);
         },
         .auto => {
-            computed.vertical_edges.margin_start = .auto;
+            computed.vertical_edges.margin_top = .auto;
             used.margin_block_start = 0;
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.vertical_edges.margin_end) {
+    switch (specified.vertical_edges.margin_bottom) {
         .px => |value| {
-            computed.vertical_edges.margin_end = .{ .px = value };
+            computed.vertical_edges.margin_bottom = .{ .px = value };
             used.margin_block_end = solve.length(.px, value);
         },
         .percentage => |value| {
-            computed.vertical_edges.margin_end = .{ .percentage = value };
+            computed.vertical_edges.margin_bottom = .{ .percentage = value };
             used.margin_block_end = solve.percentage(value, containing_block_width);
         },
         .auto => {
-            computed.vertical_edges.margin_end = .auto;
+            computed.vertical_edges.margin_bottom = .auto;
             used.margin_block_end = 0;
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.content_height.min_size) {
+    switch (specified.content_height.min_height) {
         .px => |value| {
-            computed.content_height.min_size = .{ .px = value };
+            computed.content_height.min_height = .{ .px = value };
             used.min_block_size = try solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.content_height.min_size = .{ .percentage = value };
+            computed.content_height.min_height = .{ .percentage = value };
             used.min_block_size = if (containing_block_height) |h|
                 try solve.positivePercentage(value, h)
             else
@@ -965,38 +965,38 @@ fn inlineBlockSolveSizes(
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.content_height.max_size) {
+    switch (specified.content_height.max_height) {
         .px => |value| {
-            computed.content_height.max_size = .{ .px = value };
+            computed.content_height.max_height = .{ .px = value };
             used.max_block_size = try solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.content_height.max_size = .{ .percentage = value };
+            computed.content_height.max_height = .{ .percentage = value };
             used.max_block_size = if (containing_block_height) |h|
                 try solve.positivePercentage(value, h)
             else
                 std.math.maxInt(ZssUnit);
         },
         .none => {
-            computed.content_height.max_size = .none;
+            computed.content_height.max_height = .none;
             used.max_block_size = std.math.maxInt(ZssUnit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.content_height.size) {
+    switch (specified.content_height.height) {
         .px => |value| {
-            computed.content_height.size = .{ .px = value };
+            computed.content_height.height = .{ .px = value };
             used.set(.block_size, try solve.positiveLength(.px, value));
         },
         .percentage => |value| {
-            computed.content_height.size = .{ .percentage = value };
+            computed.content_height.height = .{ .percentage = value };
             if (containing_block_height) |h|
                 used.set(.block_size, try solve.positivePercentage(value, h))
             else
                 used.setAuto(.block_size);
         },
         .auto => {
-            computed.content_height.size = .auto;
+            computed.content_height.height = .auto;
             used.setAuto(.block_size);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,

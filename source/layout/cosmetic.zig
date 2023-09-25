@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
-const aggregates = zss.values.aggregates;
+const aggregates = zss.properties.aggregates;
 
 const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");

@@ -4,7 +4,7 @@
 //! of the value struct corresponds to a particular CSS property.
 
 const zss = @import("../../zss.zig");
-const aggregates = zss.values.aggregates;
+const aggregates = zss.properties.aggregates;
 const Element = zss.ElementTree.Element;
 
 const std = @import("std");
@@ -42,79 +42,20 @@ pub fn Store(comptime ValueType: type) type {
     };
 }
 
-/// * all -> all
 all: Store(aggregates.All) = .{},
-
-/// * text -> Does not correspond to any CSS property. Instead it represents the text of a text element.
 text: Store(aggregates.Text) = .{},
-
-/// * display  -> display
-/// * position -> position
-/// * float    -> float
 box_style: Store(aggregates.BoxStyle) = .{},
-
-/// * size     -> width
-/// * min_size -> min-width
-/// * max_size -> max-width
-content_width: Store(aggregates.ContentSize) = .{},
-
-/// * padding_start -> padding-left
-/// * padding_end   -> padding-right
-/// * border_start  -> border-width-left
-/// * border_end    -> border-width-right
-/// * margin_start  -> margin-left
-/// * margin_end    -> margin-right
-horizontal_edges: Store(aggregates.BoxEdges) = .{},
-
-/// * size     -> height
-/// * min_size -> min-height
-/// * max_size -> max-height
-content_height: Store(aggregates.ContentSize) = .{},
-
-/// * padding_start -> padding-top
-/// * padding_end   -> padding-bottom
-/// * border_start  -> border-width-top
-/// * border_end    -> border-width-bottom
-/// * margin_start  -> margin-top
-/// * margin_end    -> margin-bottom
-vertical_edges: Store(aggregates.BoxEdges) = .{},
-
-/// * z_index -> z-index
+content_width: Store(aggregates.ContentWidth) = .{},
+horizontal_edges: Store(aggregates.HorizontalEdges) = .{},
+content_height: Store(aggregates.ContentHeight) = .{},
+vertical_edges: Store(aggregates.VerticalEdges) = .{},
 z_index: Store(aggregates.ZIndex) = .{},
-
-/// * left   -> left
-/// * right  -> right
-/// * top    -> top
-/// * bottom -> bottom
 insets: Store(aggregates.Insets) = .{},
-
-/// * color -> color
 color: Store(aggregates.Color) = .{},
-
-/// * left   -> border-left-color
-/// * right  -> border-right-color
-/// * top    -> border-top-color
-/// * bottom -> border-bottom-color
 border_colors: Store(aggregates.BorderColors) = .{},
-
-/// * left   -> border-left-style
-/// * right  -> border-right-style
-/// * top    -> border-top-style
-/// * bottom -> border-bottom-style
 border_styles: Store(aggregates.BorderStyles) = .{},
-
-/// * color -> background-color
-/// * clip  -> background-clip
 background1: Store(aggregates.Background1) = .{},
-
-/// * image    -> background-image
-/// * repeat   -> background-image
-/// * position -> background-position
-/// * origin   -> background-origin
-/// * size     -> background-size
 background2: Store(aggregates.Background2) = .{},
-
-/// * font -> Does not correspond to any CSS property. Instead it represents a font object.
 font: Store(aggregates.Font) = .{},
 
 pub fn deinit(self: *CascadedValueStore, allocator: Allocator) void {

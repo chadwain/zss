@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
-const aggregates = zss.values.aggregates;
+const aggregates = zss.properties.aggregates;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const null_element = Element.null_element;
@@ -22,10 +22,10 @@ pub const Stage = enum { box_gen, cosmetic };
 
 const BoxGenComputedValueStack = struct {
     box_style: ArrayListUnmanaged(aggregates.BoxStyle) = .{},
-    content_width: ArrayListUnmanaged(aggregates.ContentSize) = .{},
-    horizontal_edges: ArrayListUnmanaged(aggregates.BoxEdges) = .{},
-    content_height: ArrayListUnmanaged(aggregates.ContentSize) = .{},
-    vertical_edges: ArrayListUnmanaged(aggregates.BoxEdges) = .{},
+    content_width: ArrayListUnmanaged(aggregates.ContentWidth) = .{},
+    horizontal_edges: ArrayListUnmanaged(aggregates.HorizontalEdges) = .{},
+    content_height: ArrayListUnmanaged(aggregates.ContentHeight) = .{},
+    vertical_edges: ArrayListUnmanaged(aggregates.VerticalEdges) = .{},
     border_styles: ArrayListUnmanaged(aggregates.BorderStyles) = .{},
     z_index: ArrayListUnmanaged(aggregates.ZIndex) = .{},
     font: ArrayListUnmanaged(aggregates.Font) = .{},
@@ -33,10 +33,10 @@ const BoxGenComputedValueStack = struct {
 
 const BoxGenCurrentValues = struct {
     box_style: aggregates.BoxStyle,
-    content_width: aggregates.ContentSize,
-    horizontal_edges: aggregates.BoxEdges,
-    content_height: aggregates.ContentSize,
-    vertical_edges: aggregates.BoxEdges,
+    content_width: aggregates.ContentWidth,
+    horizontal_edges: aggregates.HorizontalEdges,
+    content_height: aggregates.ContentHeight,
+    vertical_edges: aggregates.VerticalEdges,
     border_styles: aggregates.BorderStyles,
     z_index: aggregates.ZIndex,
     font: aggregates.Font,

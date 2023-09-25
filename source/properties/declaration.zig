@@ -1,5 +1,5 @@
 const zss = @import("../../zss.zig");
-const aggregates = zss.values.aggregates;
+const aggregates = zss.properties.aggregates;
 const CssWideKeyword = zss.values.CssWideKeyword;
 const ComponentTree = zss.syntax.ComponentTree;
 const Environment = zss.Environment;

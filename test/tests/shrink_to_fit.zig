@@ -46,5 +46,5 @@ fn inlineBlockWithFixedWidthChild(t: *Test) void {
 
     t.set(.box_style, inline_block, .{ .display = .inline_block });
     t.set(.box_style, block, .{ .display = .block });
-    t.set(.content_width, block, .{ .size = .{ .px = 50 } });
+    t.set(.content_width, block, .{ .width = .{ .px = 50 } });
 }

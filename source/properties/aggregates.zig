@@ -1,8 +1,14 @@
-//! Each struct is an aggregate of some values that are likely to be used together.
+//! CSS properties are grouped in aggregates.
+//! Each aggregate contains properties that are likely to be used together.
 //! Within an aggregate, each property *must* have the same inheritance type
-//! (meaning, they must be all inherited properties or all non-inherited properties).
+//! (i.e. they must be all inherited properties or all non-inherited properties.
+//! See https://www.w3.org/TR/css-cascade/#inherited-property).
+//!
+//! Each aggregate has comments which map each field to a CSS property, in this format:
+//! /// <field-name> -> <CSS-property-name>
 
-const values = @import("./values.zig");
+const zss = @import("../../zss.zig");
+const values = zss.values;
 
 pub const Tag = enum {
     box_style,
@@ -24,13 +30,13 @@ pub const Tag = enum {
     unicode_bidi,
     custom, // Custom property
 
-    pub fn Value(comptime self: @This()) type {
-        return switch (self) {
+    pub fn Value(comptime tag: Tag) type {
+        return switch (tag) {
             .box_style => BoxStyle,
-            .content_width => ContentSize,
-            .horizontal_edges => BoxEdges,
-            .content_height => ContentSize,
-            .vertical_edges => BoxEdges,
+            .content_width => ContentWidth,
+            .horizontal_edges => HorizontalEdges,
+            .content_height => ContentHeight,
+            .vertical_edges => VerticalEdges,
             .z_index => ZIndex,
             .insets => Insets,
             .border_colors => BorderColors,
@@ -43,14 +49,14 @@ pub const Tag = enum {
             .direction,
             .unicode_bidi,
             .custom,
-            => @compileError("TODO: Value(" ++ @tagName(self) ++ ")"),
+            => @compileError("TODO: Value(" ++ @tagName(tag) ++ ")"),
         };
     }
 
     pub const InheritanceType = enum { inherited, not_inherited };
 
-    pub fn inheritanceType(self: @This()) InheritanceType {
-        return switch (self) {
+    pub fn inheritanceType(tag: Tag) InheritanceType {
+        return switch (tag) {
             .box_style,
             .content_width,
             .horizontal_edges,
@@ -74,14 +80,17 @@ pub const Tag = enum {
     }
 };
 
+/// all -> all
 pub const All = struct {
     all: values.All = .undeclared,
 };
 
+/// text -> Does not correspond to any CSS property. Instead it represents the text of a text element.
 pub const Text = struct {
     text: values.Text,
 };
 
+/// font -> Does not correspond to any CSS property. Instead it represents a font object.
 pub const Font = struct {
     font: values.Font = .undeclared,
 
@@ -90,6 +99,9 @@ pub const Font = struct {
     };
 };
 
+/// display  -> display
+/// position -> position
+/// float    -> float
 pub const BoxStyle = struct {
     display: values.Display = .undeclared,
     position: values.Position = .undeclared,
@@ -102,36 +114,85 @@ pub const BoxStyle = struct {
     };
 };
 
-pub const ContentSize = struct {
-    size: values.Size = .undeclared,
-    min_size: values.MinSize = .undeclared,
-    max_size: values.MaxSize = .undeclared,
+/// width     -> width
+/// min_width -> min-width
+/// max_width -> max-width
+pub const ContentWidth = struct {
+    width: values.Size = .undeclared,
+    min_width: values.MinSize = .undeclared,
+    max_width: values.MaxSize = .undeclared,
 
-    pub const initial_values = ContentSize{
-        .size = .auto,
-        .min_size = .{ .px = 0 },
-        .max_size = .none,
+    pub const initial_values = ContentWidth{
+        .width = .auto,
+        .min_width = .{ .px = 0 },
+        .max_width = .none,
     };
 };
 
-pub const BoxEdges = struct {
-    padding_start: values.Padding = .undeclared,
-    padding_end: values.Padding = .undeclared,
-    border_start: values.BorderWidth = .undeclared,
-    border_end: values.BorderWidth = .undeclared,
-    margin_start: values.Margin = .undeclared,
-    margin_end: values.Margin = .undeclared,
+/// height     -> height
+/// min_height -> min-height
+/// max_height -> max-height
+pub const ContentHeight = struct {
+    height: values.Size = .undeclared,
+    min_height: values.MinSize = .undeclared,
+    max_height: values.MaxSize = .undeclared,
 
-    pub const initial_values = BoxEdges{
-        .padding_start = .{ .px = 0 },
-        .padding_end = .{ .px = 0 },
-        .border_start = .medium,
-        .border_end = .medium,
-        .margin_start = .{ .px = 0 },
-        .margin_end = .{ .px = 0 },
+    pub const initial_values = ContentHeight{
+        .height = .auto,
+        .min_height = .{ .px = 0 },
+        .max_height = .none,
     };
 };
 
+/// padding_left  -> padding-left
+/// padding_right -> padding-right
+/// border_left   -> border-width-left
+/// border_right  -> border-width-right
+/// margin_left   -> margin-left
+/// margin_right  -> margin-right
+pub const HorizontalEdges = struct {
+    padding_left: values.Padding = .undeclared,
+    padding_right: values.Padding = .undeclared,
+    border_left: values.BorderWidth = .undeclared,
+    border_right: values.BorderWidth = .undeclared,
+    margin_left: values.Margin = .undeclared,
+    margin_right: values.Margin = .undeclared,
+
+    pub const initial_values = HorizontalEdges{
+        .padding_left = .{ .px = 0 },
+        .padding_right = .{ .px = 0 },
+        .border_left = .medium,
+        .border_right = .medium,
+        .margin_left = .{ .px = 0 },
+        .margin_right = .{ .px = 0 },
+    };
+};
+
+/// padding_top    -> padding-top
+/// padding_bottom -> padding-bottom
+/// border_top     -> border-width-top
+/// border_bottom  -> border-width-bottom
+/// margin_top     -> margin-top
+/// margin_bottom  -> margin-bottom
+pub const VerticalEdges = struct {
+    padding_top: values.Padding = .undeclared,
+    padding_bottom: values.Padding = .undeclared,
+    border_top: values.BorderWidth = .undeclared,
+    border_bottom: values.BorderWidth = .undeclared,
+    margin_top: values.Margin = .undeclared,
+    margin_bottom: values.Margin = .undeclared,
+
+    pub const initial_values = VerticalEdges{
+        .padding_top = .{ .px = 0 },
+        .padding_bottom = .{ .px = 0 },
+        .border_top = .medium,
+        .border_bottom = .medium,
+        .margin_top = .{ .px = 0 },
+        .margin_bottom = .{ .px = 0 },
+    };
+};
+
+/// z_index -> z-index
 pub const ZIndex = struct {
     z_index: values.ZIndex = .undeclared,
 
@@ -140,6 +201,10 @@ pub const ZIndex = struct {
     };
 };
 
+/// left   -> left
+/// right  -> right
+/// top    -> top
+/// bottom -> bottom
 pub const Insets = struct {
     left: values.Inset = .undeclared,
     right: values.Inset = .undeclared,
@@ -154,6 +219,7 @@ pub const Insets = struct {
     };
 };
 
+/// color -> color
 pub const Color = struct {
     color: values.Color = .undeclared,
 
@@ -162,6 +228,10 @@ pub const Color = struct {
     };
 };
 
+/// left   -> border-left-color
+/// right  -> border-right-color
+/// top    -> border-top-color
+/// bottom -> border-bottom-color
 pub const BorderColors = struct {
     left: values.Color = .undeclared,
     right: values.Color = .undeclared,
@@ -176,6 +246,10 @@ pub const BorderColors = struct {
     };
 };
 
+/// left   -> border-left-style
+/// right  -> border-right-style
+/// top    -> border-top-style
+/// bottom -> border-bottom-style
 pub const BorderStyles = struct {
     left: values.BorderStyle = .undeclared,
     right: values.BorderStyle = .undeclared,
@@ -190,6 +264,8 @@ pub const BorderStyles = struct {
     };
 };
 
+/// color -> background-color
+/// clip  -> background-clip
 pub const Background1 = struct {
     color: values.Color = .undeclared,
     clip: values.BackgroundClip = .undeclared,
@@ -200,6 +276,11 @@ pub const Background1 = struct {
     };
 };
 
+/// image    -> background-image
+/// repeat   -> background-image
+/// position -> background-position
+/// origin   -> background-origin
+/// size     -> background-size
 pub const Background2 = struct {
     image: values.BackgroundImage = .undeclared,
     repeat: values.BackgroundRepeat = .undeclared,

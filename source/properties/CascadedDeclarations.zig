@@ -2,7 +2,7 @@ const CascadedDeclarations = @This();
 
 const zss = @import("../../zss.zig");
 const values = zss.values;
-const AggregateTag = zss.values.aggregates.Tag;
+const AggregateTag = zss.properties.aggregates.Tag;
 
 const std = @import("std");
 const assert = std.debug.assert;

@@ -224,9 +224,9 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     const root_padding = zss.values.Padding{ .px = 30 };
     const root_border_color = zss.values.Color{ .rgba = 0xaf2233ff };
     cascaded.box_style.setAssumeCapacity(root, .{ .display = .block });
-    cascaded.content_width.setAssumeCapacity(root, .{ .min_size = .{ .px = 200 } });
-    cascaded.horizontal_edges.setAssumeCapacity(root, .{ .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border });
-    cascaded.vertical_edges.setAssumeCapacity(root, .{ .padding_start = root_padding, .padding_end = root_padding, .border_start = root_border, .border_end = root_border });
+    cascaded.content_width.setAssumeCapacity(root, .{ .min_width = .{ .px = 200 } });
+    cascaded.horizontal_edges.setAssumeCapacity(root, .{ .padding_left = root_padding, .padding_right = root_padding, .border_left = root_border, .border_right = root_border });
+    cascaded.vertical_edges.setAssumeCapacity(root, .{ .padding_top = root_padding, .padding_bottom = root_padding, .border_top = root_border, .border_bottom = root_border });
     cascaded.border_colors.setAssumeCapacity(root, .{ .top = root_border_color, .right = root_border_color, .bottom = root_border_color, .left = root_border_color });
     cascaded.border_styles.setAssumeCapacity(root, .{ .top = .solid, .right = .solid, .bottom = .solid, .left = .solid });
     cascaded.background1.setAssumeCapacity(root, .{ .color = .{ .rgba = args.bg_color } });
@@ -243,21 +243,21 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
 
     // Large element with display: none
     cascaded.box_style.setAssumeCapacity(removed_block, .{ .display = .none });
-    cascaded.content_width.setAssumeCapacity(removed_block, .{ .size = .{ .px = 10000 } });
-    cascaded.content_height.setAssumeCapacity(removed_block, .{ .size = .{ .px = 10000 } });
+    cascaded.content_width.setAssumeCapacity(removed_block, .{ .width = .{ .px = 10000 } });
+    cascaded.content_height.setAssumeCapacity(removed_block, .{ .height = .{ .px = 10000 } });
     cascaded.background1.setAssumeCapacity(removed_block, .{ .color = .{ .rgba = 0xff00ffff } });
 
     // Title block box
     cascaded.box_style.setAssumeCapacity(title_block, .{ .display = .block, .position = .relative });
-    cascaded.vertical_edges.setAssumeCapacity(title_block, .{ .border_end = .{ .px = 2 }, .margin_end = .{ .px = 24 } });
+    cascaded.vertical_edges.setAssumeCapacity(title_block, .{ .border_bottom = .{ .px = 2 }, .margin_bottom = .{ .px = 24 } });
     cascaded.z_index.setAssumeCapacity(title_block, .{ .z_index = .{ .integer = -1 } });
     cascaded.border_colors.setAssumeCapacity(title_block, .{ .bottom = .{ .rgba = 0x202020ff } });
     cascaded.border_styles.setAssumeCapacity(title_block, .{ .bottom = .solid });
 
     // Title inline box
     cascaded.box_style.setAssumeCapacity(title_inline_box, .{ .display = .inline_ });
-    cascaded.horizontal_edges.setAssumeCapacity(title_inline_box, .{ .padding_start = .{ .px = 10 }, .padding_end = .{ .px = 10 } });
-    cascaded.vertical_edges.setAssumeCapacity(title_inline_box, .{ .padding_end = .{ .px = 5 } });
+    cascaded.horizontal_edges.setAssumeCapacity(title_inline_box, .{ .padding_left = .{ .px = 10 }, .padding_right = .{ .px = 10 } });
+    cascaded.vertical_edges.setAssumeCapacity(title_inline_box, .{ .padding_bottom = .{ .px = 5 } });
     cascaded.background1.setAssumeCapacity(title_inline_box, .{ .color = .{ .rgba = 0xfa58007f } });
 
     // Title text
@@ -273,10 +273,10 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
 
     // Footer block
     cascaded.box_style.setAssumeCapacity(footer, .{ .display = .block });
-    // cascaded.content_width.setAssumeCapacity(footer, .{ .size = .{ .px = 50 } });
-    cascaded.content_height.setAssumeCapacity(footer, .{ .size = .{ .px = 50 } });
-    cascaded.horizontal_edges.setAssumeCapacity(footer, .{ .border_start = .inherit, .border_end = .inherit });
-    cascaded.vertical_edges.setAssumeCapacity(footer, .{ .margin_start = .{ .px = 10 }, .border_start = .inherit, .border_end = .inherit });
+    // cascaded.content_width.setAssumeCapacity(footer, .{ .width = .{ .px = 50 } });
+    cascaded.content_height.setAssumeCapacity(footer, .{ .height = .{ .px = 50 } });
+    cascaded.horizontal_edges.setAssumeCapacity(footer, .{ .border_left = .inherit, .border_right = .inherit });
+    cascaded.vertical_edges.setAssumeCapacity(footer, .{ .margin_top = .{ .px = 10 }, .border_top = .inherit, .border_bottom = .inherit });
     cascaded.border_colors.setAssumeCapacity(footer, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
     cascaded.border_styles.setAssumeCapacity(footer, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
     cascaded.background2.setAssumeCapacity(footer, .{

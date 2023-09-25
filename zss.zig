@@ -1,4 +1,4 @@
-pub const declaration = @import("source/declaration/declaration.zig");
+pub const properties = @import("source/properties/properties.zig");
 pub const values = @import("source/values/values.zig");
 
 const skip_tree = @import("source/util/skip_tree.zig");
