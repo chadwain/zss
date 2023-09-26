@@ -299,7 +299,7 @@ pub fn parseSelectorList(
     if (parse_context.finishParsing(selector_list[1])) {
         return selector_list[0];
     } else {
-        selector_list[0].deinit(env.allocator);
+        // selector_list[0].deinit(arena.allocator);
         return null;
     }
 }

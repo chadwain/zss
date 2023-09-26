@@ -2,20 +2,15 @@ const Environment = @This();
 
 const zss = @import("../../zss.zig");
 const syntax = zss.syntax;
-const ComponentTree = syntax.ComponentTree;
 const ParserSource = syntax.parse.Source;
 const IdentifierSet = syntax.IdentifierSet;
 const namespace = @import("./namespace.zig");
-pub const NamespaceId = namespace.NamespaceId;
-pub const Stylesheet = @import("./Stylesheet.zig");
 
 const std = @import("std");
 const assert = std.debug.assert;
 const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
-const SegmentedList = std.SegmentedList;
 
 allocator: Allocator,
 stylesheets: ArrayListUnmanaged(Stylesheet) = .{},
@@ -35,6 +30,8 @@ pub fn deinit(env: *Environment) void {
     env.stylesheets.deinit(env.allocator);
 }
 
+pub const Stylesheet = @import("./Stylesheet.zig");
+
 pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
     var components = try syntax.parse.parseCssStylesheet(source, env.allocator);
     defer components.deinit(env.allocator);
@@ -44,6 +41,8 @@ pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
     const stylesheet = try Stylesheet.create(slice, source, env.allocator, env);
     env.stylesheets.appendAssumeCapacity(stylesheet);
 }
+
+pub const NamespaceId = namespace.NamespaceId;
 
 pub const NameId = enum(u24) {
     pub const Value = u24;
