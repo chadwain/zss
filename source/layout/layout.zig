@@ -30,7 +30,7 @@ pub const ViewportSize = struct {
 };
 
 pub fn doLayout(
-    element_tree: *const ElementTree,
+    element_tree_slice: ElementTree.Slice,
     root: Element,
     cascaded_value_store: *const CascadedValueStore,
     allocator: Allocator,
@@ -40,7 +40,7 @@ pub fn doLayout(
 ) Error!BoxTree {
     var computer = StyleComputer{
         .root_element = root,
-        .element_tree_slice = element_tree.slice(),
+        .element_tree_slice = element_tree_slice,
         .cascaded_values = cascaded_value_store,
         // TODO: Store viewport_size in a LayoutInputs struct instead of the StyleComputer
         .viewport_size = viewport_size,

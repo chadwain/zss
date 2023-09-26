@@ -15,6 +15,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 
 /// Represents the specificity of a complex selector.
 pub const Specificity = packed struct {
@@ -286,12 +287,13 @@ pub const AttributeSelector = struct {
 
 pub fn parseSelectorList(
     env: *Environment,
+    arena: *ArenaAllocator,
     source: ParserSource,
     slice: ComponentTree.Slice,
     start: ComponentTree.Size,
     end: ComponentTree.Size,
 ) !?ComplexSelectorList {
-    var parse_context = parse.Context.init(env, source, slice, end);
+    var parse_context = parse.Context.init(env, arena, source, slice, end);
     const iterator = parse.Iterator.init(start);
     var selector_list = (try parse.complexSelectorList(&parse_context, iterator)) orelse return null;
     if (parse_context.finishParsing(selector_list[1])) {
@@ -368,7 +370,7 @@ fn expectEqualComplexSelectorLists(a: TestParseSelectorListExpected, b: []const 
     }
 }
 
-fn stringToSelectorList(input: []const u8, env: *Environment) !?ComplexSelectorList {
+fn stringToSelectorList(input: []const u8, env: *Environment, arena: *ArenaAllocator) !?ComplexSelectorList {
     const source = ParserSource.init(try zss.syntax.tokenize.Source.init(input));
     var tree = try zss.syntax.parse.parseListOfComponentValues(source, env.allocator);
     defer tree.deinit(env.allocator);
@@ -377,15 +379,17 @@ fn stringToSelectorList(input: []const u8, env: *Environment) !?ComplexSelectorL
     const start: ComponentTree.Size = 0 + 1;
     const end: ComponentTree.Size = slice.nextSibling(0);
 
-    return parseSelectorList(env, source, slice, start, end);
+    return parseSelectorList(env, arena, source, slice, start, end);
 }
 
 fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpected) !void {
     const allocator = std.testing.allocator;
     var env = Environment.init(allocator);
     defer env.deinit();
-    var selector_list = (try stringToSelectorList(input, &env)) orelse return error.TestFailure;
-    defer selector_list.deinit(allocator);
+    var arena = ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    var selector_list = (try stringToSelectorList(input, &env, &arena)) orelse return error.TestFailure;
+    // defer selector_list.deinit(allocator);
     try expectEqualComplexSelectorLists(expected, selector_list.list);
 }
 
@@ -482,31 +486,34 @@ test "complex selector matching" {
     slice.placeElement(elements[5], .last_child_of, elements[0]);
 
     const doTest = struct {
-        fn f(selector_string: []const u8, en: *Environment, s: ElementTree.Slice, e: ElementTree.Element) !bool {
-            var selector = (try stringToSelectorList(selector_string, en)) orelse return false;
-            defer selector.deinit(allocator);
+        fn f(selector_string: []const u8, en: *Environment, ar: *ArenaAllocator, s: ElementTree.Slice, e: ElementTree.Element) !bool {
+            var selector = (try stringToSelectorList(selector_string, en, ar)) orelse return false;
+            // defer selector.deinit(allocator);
             return (selector.matchElement(s, e) != null);
         }
     }.f;
     const expect = std.testing.expect;
 
-    try expect(try doTest("root", &env, slice, elements[0]));
-    try expect(try doTest("first", &env, slice, elements[1]));
-    try expect(try doTest("root > first", &env, slice, elements[1]));
-    try expect(try doTest("root first", &env, slice, elements[1]));
-    try expect(try doTest("second", &env, slice, elements[2]));
-    try expect(try doTest("first + second", &env, slice, elements[2]));
-    try expect(try doTest("first ~ second", &env, slice, elements[2]));
-    try expect(try doTest("third", &env, slice, elements[5]));
-    try expect(try doTest("second + third", &env, slice, elements[5]));
-    try expect(try doTest("second ~ third", &env, slice, elements[5]));
-    try expect(!try doTest("first + third", &env, slice, elements[5]));
-    try expect(try doTest("grandchild", &env, slice, elements[3]));
-    try expect(try doTest("second > grandchild", &env, slice, elements[3]));
-    try expect(try doTest("second grandchild", &env, slice, elements[3]));
-    try expect(try doTest("root grandchild", &env, slice, elements[3]));
-    try expect(try doTest("root second grandchild", &env, slice, elements[3]));
-    try expect(!try doTest("root > grandchild", &env, slice, elements[3]));
+    var arena = ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    try expect(try doTest("root", &env, &arena, slice, elements[0]));
+    try expect(try doTest("first", &env, &arena, slice, elements[1]));
+    try expect(try doTest("root > first", &env, &arena, slice, elements[1]));
+    try expect(try doTest("root first", &env, &arena, slice, elements[1]));
+    try expect(try doTest("second", &env, &arena, slice, elements[2]));
+    try expect(try doTest("first + second", &env, &arena, slice, elements[2]));
+    try expect(try doTest("first ~ second", &env, &arena, slice, elements[2]));
+    try expect(try doTest("third", &env, &arena, slice, elements[5]));
+    try expect(try doTest("second + third", &env, &arena, slice, elements[5]));
+    try expect(try doTest("second ~ third", &env, &arena, slice, elements[5]));
+    try expect(!try doTest("first + third", &env, &arena, slice, elements[5]));
+    try expect(try doTest("grandchild", &env, &arena, slice, elements[3]));
+    try expect(try doTest("second > grandchild", &env, &arena, slice, elements[3]));
+    try expect(try doTest("second grandchild", &env, &arena, slice, elements[3]));
+    try expect(try doTest("root grandchild", &env, &arena, slice, elements[3]));
+    try expect(try doTest("root second grandchild", &env, &arena, slice, elements[3]));
+    try expect(!try doTest("root > grandchild", &env, &arena, slice, elements[3]));
 }
 
 pub const debug = struct {

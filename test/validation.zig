@@ -21,7 +21,7 @@ pub fn run(tests: []const Test) !void {
         defer stdout.print("\n", .{}) catch {};
 
         var box_tree = try zss.layout.doLayout(
-            &t.element_tree,
+            t.slice,
             t.root,
             &t.cascaded_values,
             allocator,

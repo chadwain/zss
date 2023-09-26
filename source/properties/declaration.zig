@@ -1,9 +1,10 @@
 const zss = @import("../../zss.zig");
 const aggregates = zss.properties.aggregates;
-const CssWideKeyword = zss.values.CssWideKeyword;
+const CascadedValues = zss.ElementTree.CascadedValues;
 const ComponentTree = zss.syntax.ComponentTree;
-const Environment = zss.Environment;
+const CssWideKeyword = zss.values.CssWideKeyword;
 const ElementTree = Environment.ElementTree;
+const Environment = zss.Environment;
 const ParserSource = zss.syntax.parse.Source;
 const Specificity = zss.selectors.Specificity;
 
@@ -11,35 +12,31 @@ const std = @import("std");
 const assert = std.debug.assert;
 const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 pub const parsers = @import("./parsers.zig");
-pub const CascadedDeclarations = @import("./CascadedDeclarations.zig");
 
 pub const ParsedDeclarations = struct {
-    normal: CascadedDeclarations,
-    important: CascadedDeclarations,
-
-    pub fn deinit(decls: *ParsedDeclarations, allocator: Allocator) void {
-        decls.normal.deinit(allocator);
-        decls.important.deinit(allocator);
-    }
+    normal: CascadedValues,
+    important: CascadedValues,
 };
 
 pub fn parseStyleBlockDeclarations(
-    allocator: Allocator,
+    arena: *ArenaAllocator,
     components: ComponentTree.Slice,
     parser_source: ParserSource,
     style_block: ComponentTree.Size,
 ) !ParsedDeclarations {
     assert(components.tag(style_block) == .style_block);
 
-    var normal = CascadedDeclarations{};
-    errdefer normal.deinit(allocator);
-    var important = CascadedDeclarations{};
-    errdefer important.deinit(allocator);
+    const allocator = arena.allocator();
+    var normal = CascadedValues{};
+    // errdefer normal.deinit(allocator);
+    var important = CascadedValues{};
+    // errdefer important.deinit(allocator);
 
     var index = components.extra(style_block).index();
     while (index != 0) {
@@ -52,26 +49,25 @@ pub fn parseStyleBlockDeclarations(
         try parseDeclaration(destination, allocator, components, parser_source, index);
     }
 
-    // TODO: Sort the results according to cascade order?
     return ParsedDeclarations{ .normal = normal, .important = important };
 }
 
 fn parseDeclaration(
-    cascaded: *CascadedDeclarations,
+    cascaded: *CascadedValues,
     allocator: Allocator,
     components: ComponentTree.Slice,
     parser_source: ParserSource,
     declaration_index: ComponentTree.Size,
 ) !void {
+    if (cascaded.all != null) return;
+
     const declaration_name = parseDeclarationName(components, parser_source, declaration_index) orelse return;
     if (declaration_name == .all) {
         return parseAllDeclaration(cascaded, components, parser_source, declaration_index);
-    } else if (cascaded.all != .undeclared) {
-        return;
     }
 
     const declaration_end = components.nextSibling(declaration_index);
-    const css_wide_keyword = parseCssWideKeyword(components, parser_source, declaration_index, declaration_end);
+    const css_wide_keyword = zss.values.parse.cssWideKeyword(components, parser_source, declaration_index, declaration_end);
 
     var source: zss.values.parse.Source = undefined;
     var input: parsers.ParserFnInput = undefined;
@@ -88,20 +84,20 @@ fn parseDeclaration(
             const parserFn = comptime_tag.parserFn();
             const box_style = parserFn(input) orelse return;
             if (input == .source and (input.source.position != input.source.end)) return;
-            try cascaded.setAggregate(allocator, .box_style, box_style);
+            try cascaded.add(allocator, .box_style, box_style);
         },
     }
 }
 
 fn parseAllDeclaration(
-    cascaded: *CascadedDeclarations,
+    cascaded: *CascadedValues,
     components: ComponentTree.Slice,
     parser_source: ParserSource,
     declaration_index: ComponentTree.Size,
 ) void {
     const declaration_end = components.nextSibling(declaration_index);
-    const css_wide_keyword = parseCssWideKeyword(components, parser_source, declaration_index, declaration_end) orelse return;
-    css_wide_keyword.apply(.{&cascaded.all});
+    const css_wide_keyword = zss.values.parse.cssWideKeyword(components, parser_source, declaration_index, declaration_end) orelse return;
+    cascaded.all = css_wide_keyword;
 }
 
 const DeclarationName = enum {
@@ -141,25 +137,6 @@ fn parseDeclarationName(
     });
 }
 
-fn parseCssWideKeyword(
-    components: zss.syntax.ComponentTree.Slice,
-    parser_source: zss.syntax.parse.Source,
-    declaration_index: ComponentTree.Size,
-    declaration_end: ComponentTree.Size,
-) ?CssWideKeyword {
-    if (declaration_end - declaration_index == 2) {
-        if (components.tag(declaration_index + 1) == .token_ident) {
-            const location = components.location(declaration_index + 1);
-            return parser_source.mapIdentifier(location, CssWideKeyword, &.{
-                .{ "initial", .initial },
-                .{ "inherit", .inherit },
-                .{ "unset", .unset },
-            });
-        }
-    }
-    return null;
-}
-
 test {
     const allocator = std.testing.allocator;
     const input =
@@ -185,114 +162,16 @@ test {
     assert(slice.tag(qualified_rule) == .qualified_rule);
     const style_block = slice.extra(qualified_rule).index();
     assert(slice.tag(style_block) == .style_block);
-    var decls = try parseStyleBlockDeclarations(allocator, slice, source, style_block);
-    defer decls.deinit(allocator);
+    var arena = ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const decls = try parseStyleBlockDeclarations(&arena, slice, source, style_block);
 
     const expectEqual = std.testing.expectEqual;
     const values = zss.values;
-    try expectEqual(values.All.unset, decls.normal.all);
-    const box_style_declared_values = decls.normal.get(.box_style).?;
+    const all = decls.normal.all orelse return error.TestFailure;
+    try expectEqual(values.CssWideKeyword.unset, all);
+    const box_style_declared_values = decls.normal.get(.box_style) orelse return error.TestFailure;
     try expectEqual(values.Display.inline_, box_style_declared_values.display);
     try expectEqual(values.Position.relative, box_style_declared_values.position);
     try expectEqual(values.Float.none, box_style_declared_values.float);
-}
-
-pub const ValueReference = struct {
-    stylesheet_index: usize,
-    style_rule_index: usize,
-};
-
-pub const DeclaredValues = []ValueReference;
-
-/// Gets all declared values for an element.
-pub fn getDeclaredValues(
-    env: *const Environment,
-    tree: ElementTree.Slice,
-    element: ElementTree.Element,
-    allocator: Allocator,
-) !DeclaredValues {
-    if (env.stylesheets.items.len == 0) return .{};
-    if (env.stylesheets.items.len > 1) panic("TODO: getDeclaredValues: Can only handle one stylesheet", .{});
-
-    var refs = ArrayListUnmanaged(ValueReference){};
-    errdefer refs.deinit(allocator);
-
-    // Determines the order for values that have the same precedence in the cascade (i.e. they have the same origin, specificity, etc.).
-    const ValuePrecedence = struct {
-        specificity: Specificity,
-        important: bool,
-    };
-
-    var precedences = MultiArrayList(ValuePrecedence){};
-    defer precedences.deinit(allocator);
-
-    const stylesheet_index: usize = 0;
-    const rules = env.stylesheets.items[stylesheet_index].rules.slice();
-    for (rules.items(.selector), rules.items(.declarations), 0..) |selector, declarations, i| {
-        const specificity = selector.matchElement(tree, element) orelse continue;
-
-        const ref = ValueReference{
-            .stylesheet_index = stylesheet_index,
-            .style_rule_index = i,
-        };
-
-        var precendence = ValuePrecedence{
-            .specificity = specificity,
-            .important = undefined,
-        };
-
-        if (declarations.important.size() > 0) {
-            precendence.important = true;
-            try refs.append(allocator, ref);
-            try precedences.append(allocator, precendence);
-        }
-
-        if (declarations.normal.size() > 0) {
-            precendence.important = false;
-            try refs.append(allocator, ref);
-            try precedences.append(allocator, precendence);
-        }
-    }
-
-    const result = try refs.toOwnedSlice(allocator);
-    errdefer allocator.free(result);
-
-    // Sort the declared values such that values that are of higher precedence in the cascade are earlier in the list.
-    const SortContext = struct {
-        refs: DeclaredValues,
-        precedences: MultiArrayList(ValuePrecedence).Slice,
-
-        pub fn swap(sc: @This(), a_index: usize, b_index: usize) void {
-            std.mem.swap(ValueReference, &sc.refs.items[a_index], &sc.refs.items[b_index]);
-            inline for (std.meta.fields(ValuePrecedence), 0..) |field_info, i| {
-                const Field = std.meta.FieldEnum(ValuePrecedence);
-                const field = @as(Field, @enumFromInt(i));
-                const slice = sc.precedences.items(field);
-                std.mem.swap(field_info.type, &slice[a_index], &slice[b_index]);
-            }
-        }
-
-        pub fn lessThan(sc: @This(), a_index: usize, b_index: usize) bool {
-            const left_important = sc.precedences.items(.important)[a_index];
-            const right_important = sc.precedences.items(.important)[b_index];
-            if (left_important != right_important) {
-                return left_important;
-            }
-
-            const left_specificity = sc.precedences.items(.specificity)[a_index];
-            const right_specificity = sc.precedences.items(.specificity)[b_index];
-            switch (left_specificity.order(right_specificity)) {
-                .lt => return false,
-                .gt => return true,
-                .eq => {},
-            }
-
-            return false;
-        }
-    };
-
-    // Must be a stable sort.
-    std.sort.insertionContext(0, refs.len, SortContext{ .refs = result, .precedences = precedences.slice() });
-
-    return result;
 }

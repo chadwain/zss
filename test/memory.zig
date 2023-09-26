@@ -22,7 +22,7 @@ pub fn run(tests: []const Test) !void {
 
         const viewport_size = ViewportSize{ .width = t.width, .height = t.height };
         try std.testing.checkAllAllocationFailures(allocator, testFn, .{
-            @as(*const ElementTree, &t.element_tree),
+            t.slice,
             t.root,
             @as(*const CascadedValueStore, &t.cascaded_values),
 
@@ -35,7 +35,13 @@ pub fn run(tests: []const Test) !void {
     try stdout.print("memory safety: all {} tests passed\n", .{tests.len});
 }
 
-fn testFn(allocator: std.mem.Allocator, element_tree: *const ElementTree, root: Element, cascaded_values: *const CascadedValueStore, viewport_size: ViewportSize) !void {
-    var box_tree = try zss.layout.doLayout(element_tree, root, cascaded_values, allocator, viewport_size);
+fn testFn(
+    allocator: std.mem.Allocator,
+    element_tree_slice: ElementTree.Slice,
+    root: Element,
+    cascaded_values: *const CascadedValueStore,
+    viewport_size: ViewportSize,
+) !void {
+    var box_tree = try zss.layout.doLayout(element_tree_slice, root, cascaded_values, allocator, viewport_size);
     defer box_tree.deinit();
 }

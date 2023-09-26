@@ -235,8 +235,6 @@ pub fn getSpecifiedValue(
     const Value = tag.Value();
     const inheritance_type = comptime tag.inheritanceType();
 
-    // Find the value using the cascaded value tree.
-    // TODO: This always uses a binary search to look for values. There might be more efficient/complicated ways to do this.
     const store = @field(self.cascaded_values, @tagName(tag));
     var cascaded_value = store.get(self.this_element.element);
     if (cascaded_value) |*value| {

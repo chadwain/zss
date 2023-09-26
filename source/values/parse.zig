@@ -45,6 +45,25 @@ pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const Par
     return source.mapKeyword(keyword.position, Type, kvs);
 }
 
+pub fn cssWideKeyword(
+    components: zss.syntax.ComponentTree.Slice,
+    parser_source: zss.syntax.parse.Source,
+    declaration_index: ComponentTree.Size,
+    declaration_end: ComponentTree.Size,
+) ?values.CssWideKeyword {
+    if (declaration_end - declaration_index == 2) {
+        if (components.tag(declaration_index + 1) == .token_ident) {
+            const location = components.location(declaration_index + 1);
+            return parser_source.mapIdentifier(location, values.CssWideKeyword, &.{
+                .{ "initial", .initial },
+                .{ "inherit", .inherit },
+                .{ "unset", .unset },
+            });
+        }
+    }
+    return null;
+}
+
 /// Spec: CSS 2.2
 // 	inline | block | list-item | inline-block | table | inline-table | table-row-group | table-header-group
 //  | table-footer-group | table-row | table-column-group | table-column | table-cell | table-caption | none

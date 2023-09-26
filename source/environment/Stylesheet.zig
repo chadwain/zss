@@ -6,6 +6,7 @@ const ParsedDeclarations = zss.properties.declaration.ParsedDeclarations;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const MultiArrayList = std.MultiArrayList;
 
 pub const StyleRule = struct {
@@ -14,12 +15,10 @@ pub const StyleRule = struct {
 };
 
 rules: MultiArrayList(StyleRule) = .{},
+arena: ArenaAllocator.State = .{},
 
 pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
-    const slice = stylesheet.rules.slice();
-    for (slice.items(.selector), slice.items(.declarations)) |*selector, *decls| {
-        selector.deinit(allocator);
-        decls.deinit(allocator);
-    }
-    stylesheet.rules.deinit(allocator);
+    var arena = stylesheet.arena.promote(allocator);
+    defer stylesheet.arena = arena.state;
+    arena.deinit();
 }

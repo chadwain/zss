@@ -1,21 +1,34 @@
 const zss = @import("../../zss.zig");
+const AggregateTag = zss.properties.aggregates.Tag;
 const Environment = zss.Environment;
 const NamespaceId = Environment.NamespaceId;
 const NameId = Environment.NameId;
+const Specificity = zss.selectors.Specificity;
 
 const std = @import("std");
 const assert = std.debug.assert;
+const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
-const builtin = @import("builtin");
 
 const ElementTree = @This();
+pub const CascadedValues = @import("./CascadedValues.zig");
+
+comptime {
+    if (@import("builtin").is_test) {
+        _ = CascadedValues;
+    }
+}
 
 nodes: MultiArrayList(Node) = .{},
 free_list_head: Size = max_size,
 free_list_len: Size = 0,
+cascaded_values_arena: ArenaAllocator.State = .{},
 
-/// If a Node is in the free list, then node.next_sibling.index stores the next item in the free list.
+/// If a Node is in the free list, then node.next_sibling.index stores the next item in the free list, and
+/// node.cascaded_values has its default value.
 const Node = struct {
     generation: Generation,
     parent: Element,
@@ -26,6 +39,7 @@ const Node = struct {
 
     category: Category,
     fq_type: FqType,
+    cascaded_values: CascadedValues,
 };
 
 const Generation = u16;
@@ -35,6 +49,7 @@ pub const Size = u16;
 const max_size = std.math.maxInt(Size);
 
 /// A reference to a Node.
+// TODO: Remove packed
 pub const Element = packed struct {
     generation: Generation,
     index: Size,
@@ -63,6 +78,9 @@ pub const FqType = struct {
 };
 
 pub fn deinit(tree: *ElementTree, allocator: Allocator) void {
+    var arena = tree.cascaded_values_arena.promote(allocator);
+    defer tree.cascaded_values_arena = arena.state;
+    arena.deinit();
     tree.nodes.deinit(allocator);
 }
 
@@ -104,6 +122,7 @@ pub fn allocateElements(tree: *ElementTree, allocator: Allocator, buffer: []Elem
     for (buffer[buffer_index..], old_nodes_len..) |*element, node_index| {
         element.* = Element{ .index = @intCast(node_index), .generation = 0 };
         nodes.items(.generation)[node_index] = 0;
+        nodes.items(.cascaded_values)[node_index] = .{};
     }
 }
 
@@ -117,6 +136,7 @@ pub fn destroyElement(tree: *ElementTree, element: Element) void {
         // This node can be used again: add it to the free list.
         new_node_value.generation += 1;
         new_node_value.next_sibling = .{ .index = tree.free_list_head, .generation = undefined };
+        new_node_value.cascaded_values = .{};
         tree.free_list_head = element.index;
         tree.free_list_len += 1;
     }
@@ -137,7 +157,7 @@ pub fn destroyElement(tree: *ElementTree, element: Element) void {
     tree.nodes.set(element.index, new_node_value);
 }
 
-pub fn slice(tree: *const ElementTree) Slice {
+pub fn slice(tree: *ElementTree) Slice {
     const nodes = tree.nodes.slice();
     return Slice{
         .len = @intCast(nodes.len),
@@ -152,7 +172,9 @@ pub fn slice(tree: *const ElementTree) Slice {
 
             .category = nodes.items(.category).ptr,
             .fq_type = nodes.items(.fq_type).ptr,
+            .cascaded_values = nodes.items(.cascaded_values).ptr,
         },
+        .cascaded_values_arena = &tree.cascaded_values_arena,
     };
 }
 
@@ -169,7 +191,9 @@ pub const Slice = struct {
 
         category: [*]Category,
         fq_type: [*]FqType,
+        cascaded_values: [*]CascadedValues,
     },
+    cascaded_values_arena: *ArenaAllocator.State,
 
     pub const Value = struct {
         category: Category = .normal,
@@ -300,5 +324,114 @@ pub const Slice = struct {
                 self.ptrs.previous_sibling[element.index] = former_last_child;
             },
         }
+    }
+
+    pub fn runCascade(
+        self: Slice,
+        element: Element,
+        allocator: Allocator,
+        env: *const Environment,
+    ) !void {
+        self.validateElement(element);
+
+        if (env.stylesheets.items.len == 0) return .{};
+        if (env.stylesheets.items.len > 1) panic("TODO: runCascade: Can only handle one stylesheet", .{});
+
+        var sources = ArrayListUnmanaged(*const CascadedValues){};
+        defer sources.deinit(allocator);
+
+        // Determines the order for values that have the same precedence in the cascade (i.e. they have the same origin, specificity, etc.).
+        const ValuePrecedence = struct {
+            specificity: Specificity,
+            important: bool,
+        };
+
+        var precedences = MultiArrayList(ValuePrecedence){};
+        defer precedences.deinit(allocator);
+
+        const stylesheet_index: usize = 0;
+        const rules = env.stylesheets.items[stylesheet_index].rules.slice();
+        for (rules.items(.selector), rules.items(.declarations)) |selector, declarations| {
+            const specificity = selector.matchElement(self, element) orelse continue;
+
+            var precendence = ValuePrecedence{
+                .specificity = specificity,
+                .important = undefined,
+            };
+
+            if (declarations.important.size() > 0) {
+                precendence.important = true;
+                try sources.append(allocator, &declarations.important);
+                try precedences.append(allocator, precendence);
+            }
+
+            if (declarations.normal.size() > 0) {
+                precendence.important = false;
+                try sources.append(allocator, &declarations.normal);
+                try precedences.append(allocator, precendence);
+            }
+        }
+
+        // Sort the declared values such that values that are of higher precedence in the cascade are earlier in the list.
+        const SortContext = struct {
+            sources: []*const CascadedValues,
+            precedences: MultiArrayList(ValuePrecedence).Slice,
+
+            pub fn swap(sc: @This(), a_index: usize, b_index: usize) void {
+                std.mem.swap(*const CascadedValues, &sc.sources[a_index], &sc.sources[b_index]);
+                inline for (std.meta.fields(ValuePrecedence), 0..) |field_info, i| {
+                    const field = @as(std.meta.FieldEnum(ValuePrecedence), @enumFromInt(i));
+                    const items = sc.precedences.items(field);
+                    std.mem.swap(field_info.type, &items[a_index], &items[b_index]);
+                }
+            }
+
+            pub fn lessThan(sc: @This(), a_index: usize, b_index: usize) bool {
+                const left_important = sc.precedences.items(.important)[a_index];
+                const right_important = sc.precedences.items(.important)[b_index];
+                if (left_important != right_important) {
+                    return left_important;
+                }
+
+                const left_specificity = sc.precedences.items(.specificity)[a_index];
+                const right_specificity = sc.precedences.items(.specificity)[b_index];
+                switch (left_specificity.order(right_specificity)) {
+                    .lt => return false,
+                    .gt => return true,
+                    .eq => {},
+                }
+
+                return false;
+            }
+        };
+
+        // Must be a stable sort.
+        std.sort.insertionContext(0, sources.len, SortContext{ .sources = sources.items, .precedences = precedences.slice() });
+
+        var arena = self.cascaded_values_arena.promote(allocator);
+        defer self.cascaded_values_arena.* = arena.state;
+        const arena_allocator = arena.allocator();
+
+        const cascaded_values = &self.items(.cascaded_values)[element.index];
+        for (sources) |source| {
+            // TODO: CascadedValues should have a higher level API
+            cascaded_values.addAll(source.all);
+            for (source.indeces.keys()) |tag| {
+                switch (tag) {
+                    inline else => {
+                        const source_value = source.get(tag).?;
+                        try cascaded_values.add(arena_allocator, tag, source_value);
+                    },
+                }
+            }
+        }
+    }
+
+    pub fn setCascadedValue(self: Slice, allocator: Allocator, element: Element, comptime tag: AggregateTag, value: tag.Value()) !void {
+        self.validateElement(element);
+        var arena = self.cascaded_values_arena.promote(allocator);
+        defer self.cascaded_values_arena.* = arena.state;
+        const cascaded_values = &self.items(.cascaded_values)[element.index];
+        try cascaded_values.addNewValues(arena.allocator(), tag, value);
     }
 };

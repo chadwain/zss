@@ -15,6 +15,7 @@ const assert = std.debug.assert;
 const hb = @import("harfbuzz");
 
 name: []const u8,
+slice: ElementTree.Slice,
 ft_face: hb.FT_Face,
 hb_font: ?*hb.hb_font_t,
 

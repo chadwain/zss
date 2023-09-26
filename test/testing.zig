@@ -61,9 +61,10 @@ pub fn main() !void {
 }
 
 fn setupTest(t: *Test, info: TestInfo) void {
-    t.* = Test{ .name = undefined, .ft_face = undefined, .hb_font = undefined };
+    t.* = Test{ .name = undefined, .slice = undefined, .ft_face = undefined, .hb_font = undefined };
     info[1](t);
     t.name = info[0];
+    t.slice = t.element_tree.slice();
 
     if (!t.root.eqlNull()) {
         assert(hb.FT_New_Face(library, t.font.ptr, 0, &t.ft_face) == 0);

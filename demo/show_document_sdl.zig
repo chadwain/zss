@@ -16,7 +16,7 @@ const QuadTree = zss.render.QuadTree;
 const sdl = @import("SDL2");
 const hb = @import("harfbuzz");
 const ProgramState = struct {
-    element_tree: *const ElementTree,
+    element_tree: ElementTree.Slice,
     root: Element,
     cascaded_values: *const CascadedValueStore,
     box_tree: zss.used_values.BoxTree,
@@ -35,7 +35,7 @@ const ProgramState = struct {
     const Self = @This();
 
     fn init(
-        element_tree: *const ElementTree,
+        element_tree: ElementTree.Slice,
         root: Element,
         cascaded_values: *const CascadedValueStore,
         window: *sdl.SDL_Window,
@@ -113,7 +113,7 @@ pub fn sdlMainLoop(
     renderer: *sdl.SDL_Renderer,
     face: hb.FT_Face,
     allocator: Allocator,
-    element_tree: *const ElementTree,
+    element_tree: ElementTree.Slice,
     root: Element,
     cascaded_values: *const CascadedValueStore,
 ) !void {

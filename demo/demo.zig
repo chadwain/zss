@@ -289,5 +289,5 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         .size = .contain,
     });
 
-    try sdlMainLoop(window, renderer, face, allocator, &element_tree, root, &cascaded);
+    try sdlMainLoop(window, renderer, face, allocator, element_tree.slice(), root, &cascaded);
 }

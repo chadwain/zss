@@ -11,10 +11,12 @@ const ParserSource = syntax.parse.Source;
 const std = @import("std");
 const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 pub const Context = struct {
     env: *Environment,
+    arena: Allocator,
     source: ParserSource,
     slice: ComponentTree.Slice,
     end: ComponentTree.Size,
@@ -22,9 +24,16 @@ pub const Context = struct {
 
     specificity: selectors.Specificity = undefined,
 
-    pub fn init(env: *Environment, source: ParserSource, slice: ComponentTree.Slice, end: ComponentTree.Size) Context {
+    pub fn init(
+        env: *Environment,
+        arena: *ArenaAllocator,
+        source: ParserSource,
+        slice: ComponentTree.Slice,
+        end: ComponentTree.Size,
+    ) Context {
         return Context{
             .env = env,
+            .arena = arena.allocator(),
             .source = source,
             .slice = slice,
             .end = end,
@@ -119,8 +128,8 @@ fn Pair(comptime First: type) type {
 pub fn complexSelectorList(context: *Context, start: Iterator) !?Pair(selectors.ComplexSelectorList) {
     var list = ArrayListUnmanaged(selectors.ComplexSelectorFull){};
     defer {
-        for (list.items) |*full| full.deinit(context.env.allocator);
-        list.deinit(context.env.allocator);
+        for (list.items) |*full| full.deinit(context.arena);
+        list.deinit(context.arena);
     }
 
     var it = start;
@@ -132,7 +141,7 @@ pub fn complexSelectorList(context: *Context, start: Iterator) !?Pair(selectors.
             it = comma.next_it;
             expecting_comma = false;
         } else {
-            try list.ensureUnusedCapacity(context.env.allocator, 1);
+            try list.ensureUnusedCapacity(context.arena, 1);
             const complex_selector = (try complexSelector(context, it)) orelse break;
             list.appendAssumeCapacity(.{ .selector = complex_selector[0], .specificity = context.specificity });
             it = complex_selector[1];
@@ -143,7 +152,7 @@ pub fn complexSelectorList(context: *Context, start: Iterator) !?Pair(selectors.
     if (list.items.len == 0) {
         return null;
     } else {
-        const owned = try list.toOwnedSlice(context.env.allocator);
+        const owned = try list.toOwnedSlice(context.arena);
         return .{ selectors.ComplexSelectorList{ .list = owned }, it };
     }
 }
@@ -154,14 +163,14 @@ fn complexSelector(context: *Context, start: Iterator) !?Pair(selectors.ComplexS
 
     var compounds = ArrayListUnmanaged(selectors.CompoundSelector){};
     defer {
-        for (compounds.items) |*compound| compound.deinit(context.env.allocator);
-        compounds.deinit(context.env.allocator);
+        for (compounds.items) |*compound| compound.deinit(context.arena);
+        compounds.deinit(context.arena);
     }
     var combinators = ArrayListUnmanaged(selectors.Combinator){};
-    defer combinators.deinit(context.env.allocator);
+    defer combinators.deinit(context.arena);
 
     {
-        try compounds.ensureUnusedCapacity(context.env.allocator, 1);
+        try compounds.ensureUnusedCapacity(context.arena, 1);
         const compound = (try compoundSelector(context, it)) orelse return null;
         compounds.appendAssumeCapacity(compound[0]);
         it = compound[1];
@@ -170,17 +179,17 @@ fn complexSelector(context: *Context, start: Iterator) !?Pair(selectors.ComplexS
     while (true) {
         const com = combinator(context, it) orelse break;
 
-        try compounds.ensureUnusedCapacity(context.env.allocator, 1);
+        try compounds.ensureUnusedCapacity(context.arena, 1);
         const compound = (try compoundSelector(context, com[1])) orelse break;
 
         compounds.appendAssumeCapacity(compound[0]);
-        try combinators.append(context.env.allocator, com[0]);
+        try combinators.append(context.arena, com[0]);
         it = compound[1];
     }
 
-    const combinators_owned = try combinators.toOwnedSlice(context.env.allocator);
-    errdefer context.env.allocator.free(combinators_owned);
-    const compounds_owned = try compounds.toOwnedSlice(context.env.allocator);
+    const combinators_owned = try combinators.toOwnedSlice(context.arena);
+    errdefer context.arena.free(combinators_owned);
+    const compounds_owned = try compounds.toOwnedSlice(context.arena);
     return .{
         selectors.ComplexSelector{ .compounds = compounds_owned, .combinators = combinators_owned },
         it,
@@ -242,11 +251,11 @@ fn compoundSelector(context: *Context, start: Iterator) !?Pair(selectors.Compoun
     }
 
     var subclasses = ArrayListUnmanaged(selectors.SubclassSelector){};
-    defer subclasses.deinit(context.env.allocator);
+    defer subclasses.deinit(context.arena);
     while (true) {
         if (context.nextIsWhitespace(it)) break;
         const subclass_selector = (try subclassSelector(context, it)) orelse break;
-        try subclasses.append(context.env.allocator, subclass_selector[0]);
+        try subclasses.append(context.arena, subclass_selector[0]);
 
         switch (subclass_selector[0]) {
             .id => context.specificity.add(.id),
@@ -260,8 +269,8 @@ fn compoundSelector(context: *Context, start: Iterator) !?Pair(selectors.Compoun
 
     var pseudo_elements = ArrayListUnmanaged(selectors.PseudoElement){};
     defer {
-        for (pseudo_elements.items) |element| context.env.allocator.free(element.classes);
-        pseudo_elements.deinit(context.env.allocator);
+        for (pseudo_elements.items) |element| context.arena.free(element.classes);
+        pseudo_elements.deinit(context.arena);
     }
     while (true) {
         const element_colon = context.nextNoWhitespace(it) orelse break;
@@ -269,30 +278,30 @@ fn compoundSelector(context: *Context, start: Iterator) !?Pair(selectors.Compoun
         const element_colon_2 = context.nextNoWhitespace(element_colon.next_it) orelse break;
         if (element_colon_2.tag != .token_colon) break;
         const element = pseudoSelector(context, element_colon_2.next_it) orelse break;
-        try pseudo_elements.ensureUnusedCapacity(context.env.allocator, 1);
+        try pseudo_elements.ensureUnusedCapacity(context.arena, 1);
         context.specificity.add(.pseudo_element);
 
         var pseudo_classes = ArrayListUnmanaged(selectors.PseudoName){};
-        defer pseudo_classes.deinit(context.env.allocator);
+        defer pseudo_classes.deinit(context.arena);
         it = element[1];
         while (true) {
             const class_colon = context.nextNoWhitespace(it) orelse break;
             if (class_colon.tag != .token_colon) break;
             const class = pseudoSelector(context, class_colon.next_it) orelse break;
-            try pseudo_classes.append(context.env.allocator, class[0]);
+            try pseudo_classes.append(context.arena, class[0]);
             context.specificity.add(.pseudo_class);
             it = class[1];
         }
 
-        const pseudo_classes_owned = try pseudo_classes.toOwnedSlice(context.env.allocator);
+        const pseudo_classes_owned = try pseudo_classes.toOwnedSlice(context.arena);
         pseudo_elements.appendAssumeCapacity(.{ .name = element[0], .classes = pseudo_classes_owned });
     }
 
     if (type_selector == null and subclasses.items.len == 0 and pseudo_elements.items.len == 0) return null;
 
-    const subclasses_owned = try subclasses.toOwnedSlice(context.env.allocator);
-    errdefer context.env.allocator.free(subclasses_owned);
-    const pseudo_elements_owned = try pseudo_elements.toOwnedSlice(context.env.allocator);
+    const subclasses_owned = try subclasses.toOwnedSlice(context.arena);
+    errdefer context.arena.free(subclasses_owned);
+    const pseudo_elements_owned = try pseudo_elements.toOwnedSlice(context.arena);
     return .{
         selectors.CompoundSelector{
             .type_selector = type_selector,
