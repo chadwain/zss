@@ -36,39 +36,12 @@ pub fn deinit(env: *Environment) void {
 }
 
 pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
-    var tree = try syntax.parse.parseCssStylesheet(source, env.allocator);
-    defer tree.deinit(env.allocator);
-
-    const slice = tree.slice();
+    var components = try syntax.parse.parseCssStylesheet(source, env.allocator);
+    defer components.deinit(env.allocator);
+    const slice = components.slice();
 
     try env.stylesheets.ensureUnusedCapacity(env.allocator, 1);
-    var stylesheet = Stylesheet{};
-    errdefer stylesheet.deinit(env.allocator);
-
-    var arena = stylesheet.arena.promote(env.allocator);
-    defer stylesheet.arena = arena.state;
-    const arena_allocator = arena.allocator();
-
-    assert(slice.tag(0) == .rule_list);
-    var next_index: ComponentTree.Size = 1;
-    const end_of_stylesheet = slice.nextSibling(0);
-    while (next_index < end_of_stylesheet) {
-        const index = next_index;
-        next_index = slice.nextSibling(next_index);
-        switch (slice.tag(index)) {
-            .at_rule => panic("TODO: At-rules in a stylesheet\n", .{}),
-            .qualified_rule => {
-                const end_of_prelude = slice.extra(index).index();
-
-                try stylesheet.rules.ensureUnusedCapacity(arena_allocator, 1);
-                const selector_list = (try zss.selectors.parseSelectorList(env, &arena, source, slice, index + 1, end_of_prelude)) orelse continue;
-                const decls = try zss.declaration.parse.parseStyleBlockDeclarations(&arena, slice, source, end_of_prelude);
-                stylesheet.rules.appendAssumeCapacity(.{ .selector = selector_list, .declarations = decls });
-            },
-            else => unreachable,
-        }
-    }
-
+    const stylesheet = try Stylesheet.create(slice, source, env.allocator, env);
     env.stylesheets.appendAssumeCapacity(stylesheet);
 }
 
