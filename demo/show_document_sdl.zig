@@ -8,7 +8,6 @@ const BoxTree = zss.BoxTree;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const null_element = Element.null_element;
-const CascadedValueStore = zss.CascadedValueStore;
 const pixelToZssUnit = zss.render.sdl.pixelToZssUnit;
 const DrawOrderList = zss.render.DrawOrderList;
 const QuadTree = zss.render.QuadTree;
@@ -18,7 +17,6 @@ const hb = @import("harfbuzz");
 const ProgramState = struct {
     element_tree: ElementTree.Slice,
     root: Element,
-    cascaded_values: *const CascadedValueStore,
     box_tree: zss.used_values.BoxTree,
     draw_order_list: DrawOrderList,
     atlas: zss.render.sdl.GlyphAtlas,
@@ -37,7 +35,6 @@ const ProgramState = struct {
     fn init(
         element_tree: ElementTree.Slice,
         root: Element,
-        cascaded_values: *const CascadedValueStore,
         window: *sdl.SDL_Window,
         renderer: *sdl.SDL_Renderer,
         pixel_format: *sdl.SDL_PixelFormat,
@@ -48,7 +45,6 @@ const ProgramState = struct {
 
         result.element_tree = element_tree;
         result.root = root;
-        result.cascaded_values = cascaded_values;
         sdl.SDL_GetWindowSize(window, &result.width, &result.height);
         result.timer = try std.time.Timer.start();
         result.grid_size_log_2 = 7;
@@ -57,7 +53,6 @@ const ProgramState = struct {
         result.box_tree = try zss.layout.doLayout(
             element_tree,
             root,
-            cascaded_values,
             allocator,
             .{ .width = @intCast(result.width), .height = @intCast(result.height) },
         );
@@ -86,7 +81,6 @@ const ProgramState = struct {
         var new_box_tree = try zss.layout.doLayout(
             self.element_tree,
             self.root,
-            self.cascaded_values,
             allocator,
             .{ .width = @intCast(self.width), .height = @intCast(self.height) },
         );
@@ -115,12 +109,11 @@ pub fn sdlMainLoop(
     allocator: Allocator,
     element_tree: ElementTree.Slice,
     root: Element,
-    cascaded_values: *const CascadedValueStore,
 ) !void {
     const pixel_format = sdl.SDL_AllocFormat(sdl.SDL_PIXELFORMAT_RGBA32) orelse unreachable;
     defer sdl.SDL_FreeFormat(pixel_format);
 
-    var ps = try ProgramState.init(element_tree, root, cascaded_values, window, renderer, pixel_format, face, allocator);
+    var ps = try ProgramState.init(element_tree, root, window, renderer, pixel_format, face, allocator);
     defer ps.deinit(allocator);
 
     const stderr = std.io.getStdErr().writer();

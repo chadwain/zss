@@ -12,6 +12,6 @@ pub fn setup(t: *Test) void {
     t.set(.box_style, block, .{ .display = .block });
     t.set(.box_style, inline_box, .{ .display = .inline_ });
     t.set(.box_style, text, .{ .display = .text });
-    t.set(.text, text, .{ .text = strings[0] });
+    t.setText(text, strings[0]);
     t.font_size = 18;
 }

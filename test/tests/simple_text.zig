@@ -8,5 +8,5 @@ pub fn setup(t: *Test) void {
     const text = t.appendChild(root, .text);
 
     t.set(.box_style, text, .{ .display = .text });
-    t.set(.text, text, .{ .text = testing.strings[0] });
+    t.setText(text, testing.strings[0]);
 }

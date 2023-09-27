@@ -4,7 +4,6 @@ const Allocator = std.mem.Allocator;
 const zss = @import("../../zss.zig");
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
-const CascadedValueStore = zss.CascadedValueStore;
 
 const normal = @import("./normal.zig");
 const cosmetic = @import("./cosmetic.zig");
@@ -32,7 +31,6 @@ pub const ViewportSize = struct {
 pub fn doLayout(
     element_tree_slice: ElementTree.Slice,
     root: Element,
-    cascaded_value_store: *const CascadedValueStore,
     allocator: Allocator,
     /// The size of the viewport in pixels.
     // TODO: Make this ZssUnits instead of pixels
@@ -41,7 +39,6 @@ pub fn doLayout(
     var computer = StyleComputer{
         .root_element = root,
         .element_tree_slice = element_tree_slice,
-        .cascaded_values = cascaded_value_store,
         // TODO: Store viewport_size in a LayoutInputs struct instead of the StyleComputer
         .viewport_size = viewport_size,
         .stage = undefined,

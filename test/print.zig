@@ -25,7 +25,6 @@ pub fn run(tests: []const Test) !void {
         var box_tree = try zss.layout.doLayout(
             t.slice,
             t.root,
-            &t.cascaded_values,
             allocator,
             .{ .width = t.width, .height = t.height },
         );

@@ -1,7 +1,6 @@
 const zss = @import("zss");
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
-const CascadedValueStore = zss.CascadedValueStore;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -76,10 +75,10 @@ fn setupTest(t: *Test, info: TestInfo) void {
             break :blk hb_font;
         };
 
-        t.cascaded_values.font.ensureUnusedCapacity(allocator, 1) catch |err| fail(err);
-        t.cascaded_values.color.ensureUnusedCapacity(allocator, 1) catch |err| fail(err);
-        t.cascaded_values.font.setAssumeCapacity(t.root, .{ .font = .{ .font = t.hb_font.? } });
-        t.cascaded_values.color.setAssumeCapacity(t.root, .{ .color = .{ .rgba = t.font_color } });
+        var cv_slice = t.element_tree.cascadedValuesSlice(allocator);
+        const cv = cv_slice.get(t.root);
+        cv_slice.add(cv, .font, .{ .font = .{ .font = t.hb_font.? } }) catch |err| fail(err);
+        cv_slice.add(cv, .color, .{ .color = .{ .rgba = t.font_color } }) catch |err| fail(err);
     } else {
         t.ft_face = undefined;
         t.hb_font = null;
@@ -93,7 +92,6 @@ fn fail(err: anyerror) noreturn {
 
 fn deinitTest(t: *Test) void {
     t.element_tree.deinit(allocator);
-    t.cascaded_values.deinit(allocator);
     if (t.hb_font) |font| {
         hb.hb_font_destroy(font);
         _ = hb.FT_Done_Face(t.ft_face);

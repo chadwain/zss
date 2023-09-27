@@ -15,6 +15,7 @@ const MultiArrayList = std.MultiArrayList;
 
 const ElementTree = @This();
 pub const CascadedValues = @import("./CascadedValues.zig");
+pub const Text = ?[]const u8;
 
 comptime {
     if (@import("builtin").is_test) {
@@ -39,6 +40,8 @@ const Node = struct {
 
     category: Category,
     fq_type: FqType,
+    // TODO: text should be owned by ElementTree
+    text: Text,
     cascaded_values: CascadedValues,
 };
 
@@ -172,9 +175,9 @@ pub fn slice(tree: *ElementTree) Slice {
 
             .category = nodes.items(.category).ptr,
             .fq_type = nodes.items(.fq_type).ptr,
+            .text = nodes.items(.text).ptr,
             .cascaded_values = nodes.items(.cascaded_values).ptr,
         },
-        .cascaded_values_arena = &tree.cascaded_values_arena,
     };
 }
 
@@ -191,13 +194,14 @@ pub const Slice = struct {
 
         category: [*]Category,
         fq_type: [*]FqType,
+        text: [*]Text,
         cascaded_values: [*]CascadedValues,
     },
-    cascaded_values_arena: *ArenaAllocator.State,
 
     pub const Value = struct {
         category: Category = .normal,
         fq_type: FqType = .{ .namespace = .none, .name = .unspecified },
+        text: Text = null,
     };
 
     pub const Field = std.meta.FieldEnum(Value);
@@ -231,6 +235,11 @@ pub const Slice = struct {
     pub fn previousSibling(self: Slice, element: Element) Element {
         self.validateElement(element);
         return self.ptrs.previous_sibling[element.index];
+    }
+
+    pub fn cascadedValues(self: Slice, element: Element) CascadedValues {
+        self.validateElement(element);
+        return self.ptrs.cascaded_values[element.index];
     }
 
     pub fn set(self: Slice, comptime field: Field, element: Element, value: std.meta.fieldInfo(Value, field).type) void {
@@ -426,12 +435,50 @@ pub const Slice = struct {
             }
         }
     }
+};
 
-    pub fn setCascadedValue(self: Slice, allocator: Allocator, element: Element, comptime tag: AggregateTag, value: tag.Value()) !void {
+pub fn cascadedValuesSlice(tree: *ElementTree, allocator: Allocator) CascadedValuesSlice {
+    const nodes = tree.nodes.slice();
+    return CascadedValuesSlice{
+        .len = @intCast(nodes.len),
+        .ptrs = .{
+            .generation = nodes.items(.generation).ptr,
+            .text = nodes.items(.text).ptr,
+            .cascaded_values = nodes.items(.cascaded_values).ptr,
+        },
+        .original_arena = &tree.cascaded_values_arena,
+        .arena = tree.cascaded_values_arena.promote(allocator),
+    };
+}
+
+pub const CascadedValuesSlice = struct {
+    len: Size,
+    ptrs: struct {
+        generation: [*]Generation,
+        text: [*]Text,
+        cascaded_values: [*]CascadedValues,
+    },
+    original_arena: *ArenaAllocator.State,
+    arena: ArenaAllocator,
+
+    fn validateElement(self: CascadedValuesSlice, element: Element) void {
+        assert(element.index < self.len);
+        assert(element.generation == self.ptrs.generation[element.index]);
+    }
+
+    pub fn get(self: CascadedValuesSlice, element: Element) *CascadedValues {
         self.validateElement(element);
-        var arena = self.cascaded_values_arena.promote(allocator);
-        defer self.cascaded_values_arena.* = arena.state;
-        const cascaded_values = &self.items(.cascaded_values)[element.index];
-        try cascaded_values.addNewValues(arena.allocator(), tag, value);
+        return &self.ptrs.cascaded_values[element.index];
+    }
+
+    pub fn add(self: *CascadedValuesSlice, cascaded_values: *CascadedValues, comptime tag: AggregateTag, value: tag.Value()) !void {
+        defer self.original_arena.* = self.arena.state;
+        const allocator = self.arena.allocator();
+        try cascaded_values.add(allocator, tag, value);
+    }
+
+    pub fn setText(self: *CascadedValuesSlice, element: Element, text: Text) void {
+        self.validateElement(element);
+        self.ptrs.text[element.index] = text;
     }
 };

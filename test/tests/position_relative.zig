@@ -37,5 +37,5 @@ pub fn inlineBoxText(t: *Test) void {
     t.set(.insets, inline_box, .{ .left = .{ .px = 100 }, .top = .{ .px = 150 } });
 
     t.set(.box_style, text, .{ .display = .text });
-    t.set(.text, text, .{ .text = testing.strings[0] });
+    t.setText(text, testing.strings[0]);
 }

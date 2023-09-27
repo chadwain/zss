@@ -47,7 +47,7 @@ pub fn run(tests: []const Test) !void {
         try stdout.print("sdl: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
 
-        var box_tree = try zss.layout.doLayout(t.slice, t.root, &t.cascaded_values, allocator, .{ .width = t.width, .height = t.height });
+        var box_tree = try zss.layout.doLayout(t.slice, t.root, allocator, .{ .width = t.width, .height = t.height });
         defer box_tree.deinit();
 
         var root_sizes: struct { width: i32, height: i32 } = undefined;

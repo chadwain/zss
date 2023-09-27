@@ -6,9 +6,9 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const zss = @import("../../zss.zig");
 const aggregates = zss.properties.aggregates;
 const ElementTree = zss.ElementTree;
+const CascadedValues = ElementTree.CascadedValues;
 const Element = ElementTree.Element;
 const null_element = Element.null_element;
-const CascadedValueStore = zss.CascadedValueStore;
 const ViewportSize = zss.layout.ViewportSize;
 
 const ElementIndex = undefined;
@@ -85,12 +85,11 @@ const CosmeticComptutedValueFlags = struct {
 
 const ThisElement = struct {
     element: Element,
-    all: zss.values.All,
+    cascaded_values: CascadedValues,
 };
 
 root_element: Element,
 element_tree_slice: ElementTree.Slice,
-cascaded_values: *const CascadedValueStore,
 viewport_size: ViewportSize,
 allocator: Allocator,
 
@@ -143,7 +142,7 @@ pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: Element)
 
     self.this_element = .{
         .element = child,
-        .all = if (self.cascaded_values.all.get(child)) |value| value.all else .undeclared,
+        .cascaded_values = self.element_tree_slice.cascadedValues(child),
     };
 
     const current_stage = &@field(self.stage, @tagName(stage));
@@ -224,7 +223,7 @@ pub fn popElement(self: *Self, comptime stage: Stage) void {
 }
 
 pub fn getText(self: Self) zss.values.Text {
-    return if (self.cascaded_values.text.get(self.this_element.element)) |value| value.text else "";
+    return self.element_tree_slice.get(.text, self.this_element.element) orelse "";
 }
 
 pub fn getSpecifiedValue(
@@ -232,31 +231,28 @@ pub fn getSpecifiedValue(
     comptime stage: Stage,
     comptime tag: aggregates.Tag,
 ) tag.Value() {
-    const Value = tag.Value();
-    const inheritance_type = comptime tag.inheritanceType();
+    var cascaded_value = self.this_element.cascaded_values.get(tag);
 
-    const store = @field(self.cascaded_values, @tagName(tag));
-    var cascaded_value = store.get(self.this_element.element);
-    if (cascaded_value) |*value| {
-        if (tag == .color) {
-            // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
+    // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
+    if (tag == .color) {
+        if (cascaded_value) |*value| {
             if (value.color == .current_color) {
                 value.color = .inherit;
             }
         }
     }
 
+    const inheritance_type = comptime tag.inheritanceType();
     const default: enum { inherit, initial } = default: {
         // Use the value of the 'all' property.
         // CSS-CASCADE-4§3.2: The all property is a shorthand that resets all CSS properties except direction and unicode-bidi.
         //                    [...] It does not reset custom properties.
-        // TODO: The 'all' property should not be used in this way.
         if (tag != .direction and tag != .unicode_bidi and tag != .custom) {
-            switch (self.this_element.all) {
+            if (self.this_element.cascaded_values.all) |all| switch (all) {
                 .initial => break :default .initial,
                 .inherit => break :default .inherit,
-                .unset, .undeclared => {},
-            }
+                .unset => {},
+            };
         }
 
         // Just use the inheritance type.
@@ -266,44 +262,56 @@ pub fn getSpecifiedValue(
         }
     };
 
-    const initial_value = Value.initial_values;
+    const Aggregate = tag.Value();
+    const initial_value = Aggregate.initial_values;
     if (cascaded_value == null and default == .initial) {
         return initial_value;
     }
 
-    const inherited_value = inherited_value: {
-        const current_stage = @field(self.stage, @tagName(stage));
-        const value_stack = @field(current_stage.value_stack, @tagName(tag));
-        if (value_stack.items.len > 0) {
-            break :inherited_value value_stack.items[value_stack.items.len - 1];
-        } else {
-            break :inherited_value initial_value;
-        }
-    };
+    var inherited_value = OptionalInheritedValue(tag){};
     if (cascaded_value == null and default == .inherit) {
-        return inherited_value;
+        return inherited_value.get(self, stage);
     }
 
-    inline for (std.meta.fields(Value)) |field_info| {
-        const sub_property = &@field(cascaded_value.?, field_info.name);
-        switch (sub_property.*) {
-            .inherit => sub_property.* = @field(inherited_value, field_info.name),
-            .initial => sub_property.* = @field(initial_value, field_info.name),
+    const cv = &cascaded_value.?;
+    inline for (std.meta.fields(Aggregate)) |field_info| {
+        const property = &@field(cv, field_info.name);
+        switch (property.*) {
+            .inherit => property.* = @field(inherited_value.get(self, stage), field_info.name),
+            .initial => property.* = @field(initial_value, field_info.name),
             .unset => switch (inheritance_type) {
-                .inherited => sub_property.* = @field(inherited_value, field_info.name),
-                .not_inherited => sub_property.* = @field(initial_value, field_info.name),
+                .inherited => property.* = @field(inherited_value.get(self, stage), field_info.name),
+                .not_inherited => property.* = @field(initial_value, field_info.name),
             },
-            // TODO: Make this a switch statement
-            .undeclared => if (default == .inherit) {
-                sub_property.* = @field(inherited_value, field_info.name);
-            } else {
-                sub_property.* = @field(initial_value, field_info.name);
+            .undeclared => switch (default) {
+                .inherit => property.* = @field(inherited_value.get(self, stage), field_info.name),
+                .initial => property.* = @field(initial_value, field_info.name),
             },
             else => {},
         }
     }
 
-    return cascaded_value.?;
+    return cv.*;
+}
+
+fn OptionalInheritedValue(comptime tag: aggregates.Tag) type {
+    const Aggregate = tag.Value();
+    return struct {
+        value: ?Aggregate = null,
+
+        fn get(self: *@This(), computer: Self, comptime stage: Stage) Aggregate {
+            if (self.value) |value| return value;
+
+            const current_stage = @field(computer.stage, @tagName(stage));
+            const value_stack = @field(current_stage.value_stack, @tagName(tag));
+            if (value_stack.items.len > 0) {
+                self.value = value_stack.items[value_stack.items.len - 1];
+            } else {
+                self.value = Aggregate.initial_values;
+            }
+            return self.value.?;
+        }
+    };
 }
 
 fn compute(self: Self, comptime stage: Stage, comptime tag: aggregates.Tag, specified: tag.Value()) !tag.Value() {
