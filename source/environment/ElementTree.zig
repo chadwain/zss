@@ -26,19 +26,19 @@ comptime {
 nodes: MultiArrayList(Node) = .{},
 free_list_head: Size = max_size,
 free_list_len: Size = 0,
-cascaded_values_arena: ArenaAllocator.State = .{},
+arena: ArenaAllocator,
 
 /// If a Node is in the free list, then node.next_sibling.index stores the next item in the free list, and
 /// node.cascaded_values has its default value.
 const Node = struct {
     generation: Generation,
+    category: Category,
     parent: Element,
     first_child: Element,
     last_child: Element,
     next_sibling: Element,
     previous_sibling: Element,
 
-    category: Category,
     fq_type: FqType,
     // TODO: text should be owned by ElementTree
     text: Text,
@@ -80,10 +80,12 @@ pub const FqType = struct {
     name: NameId,
 };
 
+pub fn init(allocator: Allocator) ElementTree {
+    return ElementTree{ .arena = ArenaAllocator.init(allocator) };
+}
+
 pub fn deinit(tree: *ElementTree, allocator: Allocator) void {
-    var arena = tree.cascaded_values_arena.promote(allocator);
-    defer tree.cascaded_values_arena = arena.state;
-    arena.deinit();
+    tree.arena.deinit();
     tree.nodes.deinit(allocator);
 }
 
@@ -167,17 +169,18 @@ pub fn slice(tree: *ElementTree) Slice {
         .ptrs = .{
             .generation = nodes.items(.generation).ptr,
 
+            .category = nodes.items(.category).ptr,
             .parent = nodes.items(.parent).ptr,
             .first_child = nodes.items(.first_child).ptr,
             .last_child = nodes.items(.last_child).ptr,
             .next_sibling = nodes.items(.next_sibling).ptr,
             .previous_sibling = nodes.items(.previous_sibling).ptr,
 
-            .category = nodes.items(.category).ptr,
             .fq_type = nodes.items(.fq_type).ptr,
             .text = nodes.items(.text).ptr,
             .cascaded_values = nodes.items(.cascaded_values).ptr,
         },
+        .arena = &tree.arena,
     };
 }
 
@@ -186,30 +189,27 @@ pub const Slice = struct {
     ptrs: struct {
         generation: [*]Generation,
 
+        category: [*]Category,
         parent: [*]Element,
         first_child: [*]Element,
         last_child: [*]Element,
         next_sibling: [*]Element,
         previous_sibling: [*]Element,
 
-        category: [*]Category,
         fq_type: [*]FqType,
         text: [*]Text,
         cascaded_values: [*]CascadedValues,
     },
-
-    pub const Value = struct {
-        category: Category = .normal,
-        fq_type: FqType = .{ .namespace = .none, .name = .unspecified },
-        text: Text = null,
-    };
-
-    pub const Field = std.meta.FieldEnum(Value);
-    const fields = std.meta.fields(Value);
+    arena: *ArenaAllocator,
 
     fn validateElement(self: Slice, element: Element) void {
         assert(element.index < self.len);
         assert(element.generation == self.ptrs.generation[element.index]);
+    }
+
+    pub fn category(self: Slice, element: Element) Category {
+        self.validateElement(element);
+        return self.ptrs.category[element.index];
     }
 
     pub fn parent(self: Slice, element: Element) Element {
@@ -237,56 +237,67 @@ pub const Slice = struct {
         return self.ptrs.previous_sibling[element.index];
     }
 
-    pub fn cascadedValues(self: Slice, element: Element) CascadedValues {
-        self.validateElement(element);
-        return self.ptrs.cascaded_values[element.index];
-    }
+    pub const Field = enum {
+        fq_type,
+        text,
+        cascaded_values,
 
-    pub fn set(self: Slice, comptime field: Field, element: Element, value: std.meta.fieldInfo(Value, field).type) void {
+        pub fn Type(comptime field: Field) type {
+            return switch (field) {
+                .fq_type => FqType,
+                .text => Text,
+                .cascaded_values => CascadedValues,
+            };
+        }
+
+        pub fn default(comptime field: Field) field.Type() {
+            return switch (field) {
+                .fq_type => FqType{ .namespace = .none, .name = .unspecified },
+                .text => @as(Text, null),
+                .cascaded_values => CascadedValues{},
+            };
+        }
+    };
+
+    pub fn set(self: Slice, comptime field: Field, element: Element, value: field.Type()) void {
         self.validateElement(element);
         @field(self.ptrs, @tagName(field))[element.index] = value;
     }
 
-    pub fn get(self: Slice, comptime field: Field, element: Element) std.meta.fieldInfo(Value, field).type {
+    pub fn get(self: Slice, comptime field: Field, element: Element) field.Type() {
         self.validateElement(element);
         return @field(self.ptrs, @tagName(field))[element.index];
     }
 
-    pub fn ptr(self: Slice, comptime field: Field, element: Element) *std.meta.fieldInfo(Value, field).type {
+    pub fn ptr(self: Slice, comptime field: Field, element: Element) *field.Type() {
         self.validateElement(element);
         return &@field(self.ptrs, @tagName(field))[element.index];
     }
 
-    pub fn initElement(self: Slice, element: Element, value: Value) void {
-        self.validateElement(element);
-        inline for (fields) |field_info| {
-            @field(self.ptrs, field_info.name)[element.index] = @field(value, field_info.name);
-        }
-    }
-
     pub const NodePlacement = enum {
-        root,
+        orphan,
         first_child_of,
         last_child_of,
 
-        fn Payload(comptime tag: NodePlacement) type {
+        pub fn Payload(comptime tag: NodePlacement) type {
             return switch (tag) {
-                .root => void,
+                .orphan => void,
                 .first_child_of => Element,
                 .last_child_of => Element,
             };
         }
     };
 
-    /// Places an element at the specificied spot in the tree.
-    /// If `payload` is an Element, it is a prerequisite that that element must have already been placed.
-    pub fn placeElement(self: Slice, element: Element, comptime placement: NodePlacement, payload: placement.Payload()) void {
+    /// Initializes an element and places it at the specificied spot in the tree.
+    /// If `payload` is an Element, it is a prerequisite that that element must have already been initialized.
+    pub fn initElement(self: Slice, element: Element, initial_category: Category, comptime placement: NodePlacement, payload: placement.Payload()) void {
         self.validateElement(element);
+        self.ptrs.category[element.index] = initial_category;
+        self.ptrs.first_child[element.index] = Element.null_element;
+        self.ptrs.last_child[element.index] = Element.null_element;
         switch (placement) {
-            .root => {
+            .orphan => {
                 self.ptrs.parent[element.index] = Element.null_element;
-                self.ptrs.first_child[element.index] = Element.null_element;
-                self.ptrs.last_child[element.index] = Element.null_element;
                 self.ptrs.next_sibling[element.index] = Element.null_element;
                 self.ptrs.previous_sibling[element.index] = Element.null_element;
             },
@@ -306,8 +317,6 @@ pub const Slice = struct {
                 }
 
                 self.ptrs.parent[element.index] = payload;
-                self.ptrs.first_child[element.index] = Element.null_element;
-                self.ptrs.last_child[element.index] = Element.null_element;
                 self.ptrs.next_sibling[element.index] = former_first_child;
                 self.ptrs.previous_sibling[element.index] = Element.null_element;
             },
@@ -327,11 +336,13 @@ pub const Slice = struct {
                 }
 
                 self.ptrs.parent[element.index] = payload;
-                self.ptrs.first_child[element.index] = Element.null_element;
-                self.ptrs.last_child[element.index] = Element.null_element;
                 self.ptrs.next_sibling[element.index] = Element.null_element;
                 self.ptrs.previous_sibling[element.index] = former_last_child;
             },
+        }
+
+        inline for (comptime std.meta.tags(Field)) |tag| {
+            @field(self.ptrs, @tagName(tag))[element.index] = tag.default();
         }
     }
 
@@ -434,51 +445,5 @@ pub const Slice = struct {
                 }
             }
         }
-    }
-};
-
-pub fn cascadedValuesSlice(tree: *ElementTree, allocator: Allocator) CascadedValuesSlice {
-    const nodes = tree.nodes.slice();
-    return CascadedValuesSlice{
-        .len = @intCast(nodes.len),
-        .ptrs = .{
-            .generation = nodes.items(.generation).ptr,
-            .text = nodes.items(.text).ptr,
-            .cascaded_values = nodes.items(.cascaded_values).ptr,
-        },
-        .original_arena = &tree.cascaded_values_arena,
-        .arena = tree.cascaded_values_arena.promote(allocator),
-    };
-}
-
-pub const CascadedValuesSlice = struct {
-    len: Size,
-    ptrs: struct {
-        generation: [*]Generation,
-        text: [*]Text,
-        cascaded_values: [*]CascadedValues,
-    },
-    original_arena: *ArenaAllocator.State,
-    arena: ArenaAllocator,
-
-    fn validateElement(self: CascadedValuesSlice, element: Element) void {
-        assert(element.index < self.len);
-        assert(element.generation == self.ptrs.generation[element.index]);
-    }
-
-    pub fn get(self: CascadedValuesSlice, element: Element) *CascadedValues {
-        self.validateElement(element);
-        return &self.ptrs.cascaded_values[element.index];
-    }
-
-    pub fn add(self: *CascadedValuesSlice, cascaded_values: *CascadedValues, comptime tag: AggregateTag, value: tag.Value()) !void {
-        defer self.original_arena.* = self.arena.state;
-        const allocator = self.arena.allocator();
-        try cascaded_values.add(allocator, tag, value);
-    }
-
-    pub fn setText(self: *CascadedValuesSlice, element: Element, text: Text) void {
-        self.validateElement(element);
-        self.ptrs.text[element.index] = text;
     }
 };

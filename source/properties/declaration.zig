@@ -32,7 +32,6 @@ pub fn parseStyleBlockDeclarations(
 ) !ParsedDeclarations {
     assert(components.tag(style_block) == .style_block);
 
-    const allocator = arena.allocator();
     var normal = CascadedValues{};
     // errdefer normal.deinit(allocator);
     var important = CascadedValues{};
@@ -46,7 +45,7 @@ pub fn parseStyleBlockDeclarations(
             .declaration_normal => &normal,
             else => unreachable,
         };
-        try parseDeclaration(destination, allocator, components, parser_source, index);
+        try parseDeclaration(destination, arena, components, parser_source, index);
     }
 
     return ParsedDeclarations{ .normal = normal, .important = important };
@@ -54,7 +53,7 @@ pub fn parseStyleBlockDeclarations(
 
 fn parseDeclaration(
     cascaded: *CascadedValues,
-    allocator: Allocator,
+    arena: *ArenaAllocator,
     components: ComponentTree.Slice,
     parser_source: ParserSource,
     declaration_index: ComponentTree.Size,
@@ -84,7 +83,7 @@ fn parseDeclaration(
             const parserFn = comptime_tag.parserFn();
             const box_style = parserFn(input) orelse return;
             if (input == .source and (input.source.position != input.source.end)) return;
-            try cascaded.add(allocator, .box_style, box_style);
+            try cascaded.add(arena, .box_style, box_style);
         },
     }
 }

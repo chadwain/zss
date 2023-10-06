@@ -60,7 +60,7 @@ pub fn main() !void {
 }
 
 fn setupTest(t: *Test, info: TestInfo) void {
-    t.* = Test{ .name = undefined, .slice = undefined, .ft_face = undefined, .hb_font = undefined };
+    t.* = Test.init();
     info[1](t);
     t.name = info[0];
     t.slice = t.element_tree.slice();
@@ -75,10 +75,10 @@ fn setupTest(t: *Test, info: TestInfo) void {
             break :blk hb_font;
         };
 
-        var cv_slice = t.element_tree.cascadedValuesSlice(allocator);
-        const cv = cv_slice.get(t.root);
-        cv_slice.add(cv, .font, .{ .font = .{ .font = t.hb_font.? } }) catch |err| fail(err);
-        cv_slice.add(cv, .color, .{ .color = .{ .rgba = t.font_color } }) catch |err| fail(err);
+        const slice = t.element_tree.slice();
+        const cv = slice.ptr(.cascaded_values, t.root);
+        cv.add(slice.arena, .font, .{ .font = .{ .font = t.hb_font.? } }) catch |err| fail(err);
+        cv.add(slice.arena, .color, .{ .color = .{ .rgba = t.font_color } }) catch |err| fail(err);
     } else {
         t.ft_face = undefined;
         t.hb_font = null;

@@ -142,7 +142,7 @@ pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: Element)
 
     self.this_element = .{
         .element = child,
-        .cascaded_values = self.element_tree_slice.cascadedValues(child),
+        .cascaded_values = self.element_tree_slice.get(.cascaded_values, child),
     };
 
     const current_stage = &@field(self.stage, @tagName(stage));

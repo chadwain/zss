@@ -109,7 +109,7 @@ pub const ComplexSelector = struct {
     }
 
     fn matchElement(sel: ComplexSelector, slice: ElementTree.Slice, element: Element) bool {
-        assert(slice.get(.category, element) == .normal);
+        assert(slice.category(element) == .normal);
         if (!sel.compounds[sel.compounds.len - 1].matchElement(slice, element)) return false;
         var current_element = element;
         for (0..sel.compounds.len - 1) |i| {
@@ -132,7 +132,7 @@ pub const ComplexSelector = struct {
                 .subsequent_sibling => {
                     current_element = slice.previousSibling(current_element);
                     while (!current_element.eqlNull()) {
-                        if (slice.get(.category, current_element) == .normal) {
+                        if (slice.category(current_element) == .normal) {
                             if (sel.compounds[index].matchElement(slice, current_element)) {
                                 break;
                             }
@@ -145,7 +145,7 @@ pub const ComplexSelector = struct {
                 .next_sibling => {
                     current_element = slice.previousSibling(current_element);
                     while (!current_element.eqlNull()) {
-                        if (slice.get(.category, current_element) == .normal) {
+                        if (slice.category(current_element) == .normal) {
                             if (sel.compounds[index].matchElement(slice, current_element)) {
                                 break;
                             } else {
@@ -466,24 +466,24 @@ test "complex selector matching" {
         try env.addTypeOrAttributeNameString("third"),
     };
 
-    var tree = ElementTree{};
+    var tree = ElementTree.init(allocator);
     defer tree.deinit(allocator);
     var elements: [6]ElementTree.Element = undefined;
     try tree.allocateElements(allocator, &elements);
     const slice = tree.slice();
-    slice.initElement(elements[0], .{ .fq_type = .{ .namespace = .none, .name = type_names[0] } });
-    slice.initElement(elements[1], .{ .fq_type = .{ .namespace = .none, .name = type_names[1] } });
-    slice.initElement(elements[2], .{ .fq_type = .{ .namespace = .none, .name = type_names[2] } });
-    slice.initElement(elements[3], .{ .fq_type = .{ .namespace = .none, .name = type_names[3] } });
-    slice.initElement(elements[4], .{ .category = .text });
-    slice.initElement(elements[5], .{ .fq_type = .{ .namespace = .none, .name = type_names[4] } });
 
-    slice.placeElement(elements[0], .root, {});
-    slice.placeElement(elements[1], .last_child_of, elements[0]);
-    slice.placeElement(elements[2], .last_child_of, elements[0]);
-    slice.placeElement(elements[3], .first_child_of, elements[2]);
-    slice.placeElement(elements[4], .last_child_of, elements[0]);
-    slice.placeElement(elements[5], .last_child_of, elements[0]);
+    slice.initElement(elements[0], .normal, .orphan, {});
+    slice.initElement(elements[1], .normal, .last_child_of, elements[0]);
+    slice.initElement(elements[2], .normal, .last_child_of, elements[0]);
+    slice.initElement(elements[3], .normal, .first_child_of, elements[2]);
+    slice.initElement(elements[4], .text, .last_child_of, elements[0]);
+    slice.initElement(elements[5], .normal, .last_child_of, elements[0]);
+
+    slice.set(.fq_type, elements[0], .{ .namespace = .none, .name = type_names[0] });
+    slice.set(.fq_type, elements[1], .{ .namespace = .none, .name = type_names[1] });
+    slice.set(.fq_type, elements[2], .{ .namespace = .none, .name = type_names[2] });
+    slice.set(.fq_type, elements[3], .{ .namespace = .none, .name = type_names[3] });
+    slice.set(.fq_type, elements[5], .{ .namespace = .none, .name = type_names[4] });
 
     const doTest = struct {
         fn f(selector_string: []const u8, en: *Environment, ar: *ArenaAllocator, s: ElementTree.Slice, e: ElementTree.Element) !bool {

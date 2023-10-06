@@ -178,7 +178,7 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     const zig_png = sdl.IMG_LoadTexture(renderer, "demo/zig.png") orelse return error.ResourceLoadFail;
     defer sdl.SDL_DestroyTexture(zig_png);
 
-    var element_tree = zss.ElementTree{};
+    var element_tree = zss.ElementTree.init(allocator);
     defer element_tree.deinit(allocator);
     var elements: [8]Element = undefined;
     try element_tree.allocateElements(allocator, &elements);
@@ -192,60 +192,49 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     const body_text = elements[6];
     const footer = elements[7];
 
-    {
-        const slice = element_tree.slice();
+    const slice = element_tree.slice();
 
-        slice.initElement(root, .{});
-        slice.initElement(removed_block, .{});
-        slice.initElement(title_block, .{});
-        slice.initElement(title_inline_box, .{});
-        slice.initElement(title_text, .{ .category = .text });
-        slice.initElement(body_block, .{});
-        slice.initElement(body_text, .{ .category = .text });
-        slice.initElement(footer, .{});
-
-        slice.placeElement(root, .root, {});
-        slice.placeElement(removed_block, .first_child_of, root);
-        slice.placeElement(title_block, .last_child_of, root);
-        slice.placeElement(title_inline_box, .first_child_of, title_block);
-        slice.placeElement(title_text, .first_child_of, title_inline_box);
-        slice.placeElement(body_block, .last_child_of, root);
-        slice.placeElement(body_text, .first_child_of, body_block);
-        slice.placeElement(footer, .last_child_of, root);
-    }
+    slice.initElement(root, .normal, .orphan, {});
+    slice.initElement(removed_block, .normal, .first_child_of, root);
+    slice.initElement(title_block, .normal, .last_child_of, root);
+    slice.initElement(title_inline_box, .normal, .first_child_of, title_block);
+    slice.initElement(title_text, .text, .first_child_of, title_inline_box);
+    slice.initElement(body_block, .normal, .last_child_of, root);
+    slice.initElement(body_text, .text, .first_child_of, body_block);
+    slice.initElement(footer, .normal, .last_child_of, root);
 
     {
-        var cv_slice = element_tree.cascadedValuesSlice(allocator);
+        const arena = slice.arena;
         var cv: *CascadedValues = undefined;
 
         // Root element
-        cv = cv_slice.get(root);
+        cv = slice.ptr(.cascaded_values, root);
         const root_border = zss.values.BorderWidth{ .px = 10 };
         const root_padding = zss.values.Padding{ .px = 30 };
         const root_border_color = zss.values.Color{ .rgba = 0xaf2233ff };
-        try cv_slice.add(cv, .box_style, .{ .display = .block });
-        try cv_slice.add(cv, .content_width, .{ .min_width = .{ .px = 200 } });
-        try cv_slice.add(cv, .horizontal_edges, .{
+        try cv.add(arena, .box_style, .{ .display = .block });
+        try cv.add(arena, .content_width, .{ .min_width = .{ .px = 200 } });
+        try cv.add(arena, .horizontal_edges, .{
             .padding_left = root_padding,
             .padding_right = root_padding,
             .border_left = root_border,
             .border_right = root_border,
         });
-        try cv_slice.add(cv, .vertical_edges, .{
+        try cv.add(arena, .vertical_edges, .{
             .padding_top = root_padding,
             .padding_bottom = root_padding,
             .border_top = root_border,
             .border_bottom = root_border,
         });
-        try cv_slice.add(cv, .border_colors, .{
+        try cv.add(arena, .border_colors, .{
             .top = root_border_color,
             .right = root_border_color,
             .bottom = root_border_color,
             .left = root_border_color,
         });
-        try cv_slice.add(cv, .border_styles, .{ .top = .solid, .right = .solid, .bottom = .solid, .left = .solid });
-        try cv_slice.add(cv, .background1, .{ .color = .{ .rgba = args.bg_color } });
-        try cv_slice.add(cv, .background2, .{
+        try cv.add(arena, .border_styles, .{ .top = .solid, .right = .solid, .bottom = .solid, .left = .solid });
+        try cv.add(arena, .background1, .{ .color = .{ .rgba = args.bg_color } });
+        try cv.add(arena, .background2, .{
             .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(smile) },
             .position = .{ .position = .{
                 .x = .{ .side = .right, .offset = .{ .percentage = 0 } },
@@ -253,55 +242,55 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
             } },
             .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
         });
-        try cv_slice.add(cv, .color, .{ .color = .{ .rgba = args.text_color } });
-        try cv_slice.add(cv, .font, .{ .font = .{ .font = font } });
+        try cv.add(arena, .color, .{ .color = .{ .rgba = args.text_color } });
+        try cv.add(arena, .font, .{ .font = .{ .font = font } });
 
         // Large element with display: none
-        cv = cv_slice.get(removed_block);
-        try cv_slice.add(cv, .box_style, .{ .display = .none });
-        try cv_slice.add(cv, .content_width, .{ .width = .{ .px = 10000 } });
-        try cv_slice.add(cv, .content_height, .{ .height = .{ .px = 10000 } });
-        try cv_slice.add(cv, .background1, .{ .color = .{ .rgba = 0xff00ffff } });
+        cv = slice.ptr(.cascaded_values, removed_block);
+        try cv.add(arena, .box_style, .{ .display = .none });
+        try cv.add(arena, .content_width, .{ .width = .{ .px = 10000 } });
+        try cv.add(arena, .content_height, .{ .height = .{ .px = 10000 } });
+        try cv.add(arena, .background1, .{ .color = .{ .rgba = 0xff00ffff } });
 
         // Title block box
-        cv = cv_slice.get(title_block);
-        try cv_slice.add(cv, .box_style, .{ .display = .block, .position = .relative });
-        try cv_slice.add(cv, .vertical_edges, .{ .border_bottom = .{ .px = 2 }, .margin_bottom = .{ .px = 24 } });
-        try cv_slice.add(cv, .z_index, .{ .z_index = .{ .integer = -1 } });
-        try cv_slice.add(cv, .border_colors, .{ .bottom = .{ .rgba = 0x202020ff } });
-        try cv_slice.add(cv, .border_styles, .{ .bottom = .solid });
+        cv = slice.ptr(.cascaded_values, title_block);
+        try cv.add(arena, .box_style, .{ .display = .block, .position = .relative });
+        try cv.add(arena, .vertical_edges, .{ .border_bottom = .{ .px = 2 }, .margin_bottom = .{ .px = 24 } });
+        try cv.add(arena, .z_index, .{ .z_index = .{ .integer = -1 } });
+        try cv.add(arena, .border_colors, .{ .bottom = .{ .rgba = 0x202020ff } });
+        try cv.add(arena, .border_styles, .{ .bottom = .solid });
 
         // Title inline box
-        cv = cv_slice.get(title_inline_box);
-        try cv_slice.add(cv, .box_style, .{ .display = .inline_ });
-        try cv_slice.add(cv, .horizontal_edges, .{ .padding_left = .{ .px = 10 }, .padding_right = .{ .px = 10 } });
-        try cv_slice.add(cv, .vertical_edges, .{ .padding_bottom = .{ .px = 5 } });
-        try cv_slice.add(cv, .background1, .{ .color = .{ .rgba = 0xfa58007f } });
+        cv = slice.ptr(.cascaded_values, title_inline_box);
+        try cv.add(arena, .box_style, .{ .display = .inline_ });
+        try cv.add(arena, .horizontal_edges, .{ .padding_left = .{ .px = 10 }, .padding_right = .{ .px = 10 } });
+        try cv.add(arena, .vertical_edges, .{ .padding_bottom = .{ .px = 5 } });
+        try cv.add(arena, .background1, .{ .color = .{ .rgba = 0xfa58007f } });
 
         // Title text
-        cv = cv_slice.get(title_text);
-        try cv_slice.add(cv, .box_style, .{ .display = .text });
-        cv_slice.setText(title_text, args.filename);
+        cv = slice.ptr(.cascaded_values, title_text);
+        try cv.add(arena, .box_style, .{ .display = .text });
+        slice.set(.text, title_text, args.filename);
 
         // Body block box
-        cv = cv_slice.get(body_block);
-        try cv_slice.add(cv, .box_style, .{ .display = .block, .position = .relative });
+        cv = slice.ptr(.cascaded_values, body_block);
+        try cv.add(arena, .box_style, .{ .display = .block, .position = .relative });
 
         // Body text
-        cv = cv_slice.get(body_text);
-        try cv_slice.add(cv, .box_style, .{ .display = .text });
-        cv_slice.setText(body_text, bytes);
+        cv = slice.ptr(.cascaded_values, body_text);
+        try cv.add(arena, .box_style, .{ .display = .text });
+        slice.set(.text, body_text, bytes);
 
         // Footer block
-        cv = cv_slice.get(footer);
-        try cv_slice.add(cv, .box_style, .{ .display = .block });
-        // try cv_slice.add(cv, .content_width, .{ .width = .{ .px = 50 } });
-        try cv_slice.add(cv, .content_height, .{ .height = .{ .px = 50 } });
-        try cv_slice.add(cv, .horizontal_edges, .{ .border_left = .inherit, .border_right = .inherit });
-        try cv_slice.add(cv, .vertical_edges, .{ .margin_top = .{ .px = 10 }, .border_top = .inherit, .border_bottom = .inherit });
-        try cv_slice.add(cv, .border_colors, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
-        try cv_slice.add(cv, .border_styles, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
-        try cv_slice.add(cv, .background2, .{
+        cv = slice.ptr(.cascaded_values, footer);
+        try cv.add(arena, .box_style, .{ .display = .block });
+        // try cv.add(arena, .content_width, .{ .width = .{ .px = 50 } });
+        try cv.add(arena, .content_height, .{ .height = .{ .px = 50 } });
+        try cv.add(arena, .horizontal_edges, .{ .border_left = .inherit, .border_right = .inherit });
+        try cv.add(arena, .vertical_edges, .{ .margin_top = .{ .px = 10 }, .border_top = .inherit, .border_bottom = .inherit });
+        try cv.add(arena, .border_colors, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
+        try cv.add(arena, .border_styles, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
+        try cv.add(arena, .background2, .{
             .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(zig_png) },
             .position = .{ .position = .{
                 .x = .{ .side = .left, .offset = .{ .percentage = 0.5 } },
