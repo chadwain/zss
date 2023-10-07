@@ -354,7 +354,7 @@ pub const Slice = struct {
     ) !void {
         self.validateElement(element);
 
-        if (env.stylesheets.items.len == 0) return .{};
+        if (env.stylesheets.items.len == 0) return;
         if (env.stylesheets.items.len > 1) panic("TODO: runCascade: Can only handle one stylesheet", .{});
 
         var sources = ArrayListUnmanaged(*const CascadedValues){};
@@ -379,13 +379,13 @@ pub const Slice = struct {
                 .important = undefined,
             };
 
-            if (declarations.important.size() > 0) {
+            if (!declarations.important.isEmpty()) {
                 precendence.important = true;
                 try sources.append(allocator, &declarations.important);
                 try precedences.append(allocator, precendence);
             }
 
-            if (declarations.normal.size() > 0) {
+            if (!declarations.normal.isEmpty()) {
                 precendence.important = false;
                 try sources.append(allocator, &declarations.normal);
                 try precedences.append(allocator, precendence);
@@ -426,22 +426,19 @@ pub const Slice = struct {
         };
 
         // Must be a stable sort.
-        std.sort.insertionContext(0, sources.len, SortContext{ .sources = sources.items, .precedences = precedences.slice() });
+        std.sort.insertionContext(0, sources.items.len, SortContext{ .sources = sources.items, .precedences = precedences.slice() });
 
-        var arena = self.cascaded_values_arena.promote(allocator);
-        defer self.cascaded_values_arena.* = arena.state;
-        const arena_allocator = arena.allocator();
-
-        const cascaded_values = &self.items(.cascaded_values)[element.index];
-        for (sources) |source| {
+        const cascaded_values = &self.ptrs.cascaded_values[element.index];
+        for (sources.items) |source| {
             // TODO: CascadedValues should have a higher level API
-            cascaded_values.addAll(source.all);
-            for (source.indeces.keys()) |tag| {
+            if (source.all) |all| cascaded_values.addAll(all);
+            for (source.map.keys(), 0..) |tag, index| {
                 switch (tag) {
-                    inline else => {
-                        const source_value = source.get(tag).?;
-                        try cascaded_values.add(arena_allocator, tag, source_value);
+                    inline else => |tag_comptime| {
+                        const source_value = source.getByIndex(tag_comptime, index);
+                        try cascaded_values.add(self.arena, tag_comptime, source_value);
                     },
+                    .direction, .unicode_bidi, .custom => std.debug.panic("TODO", .{}),
                 }
             }
         }

@@ -29,7 +29,7 @@ pub fn build(b: *Build) void {
 
     addTests(b, optimize, target, mods);
     addDemo(b, optimize, target, mods);
-    addParse(b, optimize, target);
+    addExamples(b, optimize, target, mods);
 }
 
 fn addTests(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, mods: Modules) void {
@@ -120,23 +120,40 @@ fn addDemo(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, m
     demo_step.dependOn(&demo_cmd.step);
 }
 
-fn addParse(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget) void {
-    var parse_exe = b.addExecutable(.{
-        .name = "parse",
-        .root_source_file = .{ .path = "examples/parse.zig" },
+fn addExamples(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, mods: Modules) void {
+    addExample(b, optimize, target, mods, "parse", "examples/parse.zig", "Run a parser program");
+    addExample(b, optimize, target, mods, "usage", "examples/usage.zig", "Run an example-usage program");
+}
+
+fn addExample(
+    b: *Build,
+    optimize: std.builtin.Mode,
+    target: std.zig.CrossTarget,
+    mods: Modules,
+    name: []const u8,
+    path: []const u8,
+    description: []const u8,
+) void {
+    var exe = b.addExecutable(.{
+        .name = name,
+        .root_source_file = .{ .path = path },
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
-    parse_exe.addAnonymousModule("zss", .{
+    exe.addAnonymousModule("zss", .{
         .source_file = .{ .path = "zss.zig" },
+        .dependencies = &.{
+            .{ .name = "harfbuzz", .module = mods.harfbuzz },
+        },
     });
-    b.installArtifact(parse_exe);
+    exe.linkSystemLibrary("harfbuzz");
+    b.installArtifact(exe);
 
-    const parse_cmd = b.addRunArtifact(parse_exe);
-    if (b.args) |args| parse_cmd.addArgs(args);
-    parse_cmd.step.dependOn(&parse_exe.step);
+    const cmd = b.addRunArtifact(exe);
+    if (b.args) |args| cmd.addArgs(args);
+    cmd.step.dependOn(&exe.step);
 
-    const parse_step = b.step("parse", "Run a parser program");
-    parse_step.dependOn(&parse_cmd.step);
+    const step = b.step(name, description);
+    step.dependOn(&cmd.step);
 }

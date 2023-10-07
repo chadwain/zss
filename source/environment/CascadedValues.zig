@@ -4,6 +4,7 @@ const AggregateTag = aggregates.Tag;
 const CssWideKeyword = zss.values.CssWideKeyword;
 
 const std = @import("std");
+const assert = std.debug.assert;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
 
@@ -12,6 +13,10 @@ const CascadedValues = @This();
 // TODO: Use a map better suited for arena allocation
 map: AutoArrayHashMapUnmanaged(AggregateTag, usize) = .{},
 all: ?CssWideKeyword = null,
+
+pub fn isEmpty(cascaded: CascadedValues) bool {
+    return cascaded.map.count() == 0 and cascaded.all == null;
+}
 
 pub fn add(cascaded: *CascadedValues, arena: *ArenaAllocator, comptime tag: AggregateTag, value: tag.Value()) !void {
     if (cascaded.all != null) return;
@@ -41,6 +46,11 @@ pub fn addAll(cascaded: *CascadedValues, value: CssWideKeyword) void {
 pub fn get(cascaded: CascadedValues, comptime tag: AggregateTag) ?tag.Value() {
     const map_value_ptr = cascaded.map.getPtr(tag) orelse return null;
     return getAggregatePtr(tag, map_value_ptr).*;
+}
+
+pub fn getByIndex(cascaded: CascadedValues, comptime tag: AggregateTag, index: usize) tag.Value() {
+    assert(cascaded.map.keys()[index] == tag);
+    return getAggregatePtr(tag, &cascaded.map.values()[index]).*;
 }
 
 fn initAggregate(arena: *ArenaAllocator, comptime tag: AggregateTag, map_value_ptr: *usize) !*tag.Value() {

@@ -48,7 +48,7 @@ pub fn create(components: ComponentTree.Slice, source: Source, child_allocator: 
 
                 try rules.ensureUnusedCapacity(allocator, 1);
                 const selector_list = (try zss.selectors.parseSelectorList(env, &arena, source, components, index + 1, end_of_prelude)) orelse continue;
-                const decls = try zss.declaration.parse.parseStyleBlockDeclarations(&arena, components, source, end_of_prelude);
+                const decls = try zss.properties.declaration.parseStyleBlockDeclarations(&arena, components, source, end_of_prelude);
                 rules.appendAssumeCapacity(.{ .selector = selector_list, .declarations = decls });
             },
             else => unreachable,
