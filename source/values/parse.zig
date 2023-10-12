@@ -65,8 +65,8 @@ pub fn cssWideKeyword(
 }
 
 /// Spec: CSS 2.2
-// 	inline | block | list-item | inline-block | table | inline-table | table-row-group | table-header-group
-//  | table-footer-group | table-row | table-column-group | table-column | table-cell | table-caption | none
+// inline | block | list-item | inline-block | table | inline-table | table-row-group | table-header-group
+// | table-footer-group | table-row | table-column-group | table-column | table-cell | table-caption | none
 pub fn display(source: *Source) ?values.Display {
     return parseSingleKeyword(source, values.Display, &.{
         .{ "inline", .inline_ },

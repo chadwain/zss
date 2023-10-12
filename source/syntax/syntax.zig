@@ -16,6 +16,17 @@ comptime {
     }
 }
 
+pub const Integer = packed struct {
+    value: i32,
+
+    pub const positive_infinity = Integer{ .value = std.math.maxInt(i32) };
+    pub const negative_infinity = Integer{ .value = std.math.minInt(i32) };
+
+    pub fn init(value: i31) Integer {
+        return Integer{ .value = value };
+    }
+};
+
 /// Corresponds to what CSS calls a "component value".
 pub const Component = struct {
     next_sibling: ComponentTree.Size,
@@ -40,6 +51,10 @@ pub const Component = struct {
 
         pub fn codepoint(extra: Extra) u21 {
             return @intCast(@as(u32, @bitCast(extra)));
+        }
+
+        pub fn integer(extra: Extra) Integer {
+            return @bitCast(extra);
         }
     };
 
@@ -82,13 +97,17 @@ pub const Component = struct {
         /// location: The codepoint
         /// extra: Use `extra.codepoint()` to get the value of the codepoint.
         token_delim,
+        /// An optional '+' or '-' codepoint + a sequence of digits
+        /// location: The first codepoint of the number
+        /// extra: Use `extra.integer()` to get the integral value
+        token_integer,
         /// A numeric value (integral or floating point)
         /// location: The first codepoint of the number
         token_number,
-        /// A numeric value + a '%' codepoint
+        /// A numeric value (integral or floating point) + a '%' codepoint
         /// location: The first codepoint of the number
         token_percentage,
-        /// A numeric value + an identifier
+        /// A numeric value (integral or floating point) + an identifier
         /// location: The first codepoint of the number
         token_dimension,
         /// A series of one or more whitespace codepoints

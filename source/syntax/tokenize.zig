@@ -4,9 +4,11 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const zss = @import("../../zss.zig");
-const Tag = zss.syntax.Component.Tag;
-const toLowercase = zss.util.unicode.toLowercase;
 const hexDigitToNumber = zss.util.unicode.hexDigitToNumber;
+const toLowercase = zss.util.unicode.toLowercase;
+const CheckedInt = zss.util.CheckedInt;
+const Component = zss.syntax.Component;
+const Integer = zss.syntax.Integer;
 
 const u21_max = std.math.maxInt(u21);
 const replacement_character: u21 = 0xfffd;
@@ -43,13 +45,13 @@ pub const Source = struct {
     pub fn hashIdTokenIterator(source: Source, start: Location) IdentSequenceIterator {
         const hash = source.next(start);
         assert(hash.codepoint == '#');
-        return identTokenIterator(source, hash.location);
+        return identTokenIterator(source, hash.next_location);
     }
 
-    const Next = struct { location: Location, codepoint: u21 };
+    const Next = struct { next_location: Location, codepoint: u21 };
 
     fn next(source: Source, location: Location) Next {
-        if (location.value == source.data.len) return Next{ .location = location, .codepoint = eof_codepoint };
+        if (location.value == source.data.len) return Next{ .next_location = location, .codepoint = eof_codepoint };
 
         var next_value = location.value + 1;
         const input = source.data[location.value];
@@ -85,7 +87,7 @@ pub const Source = struct {
         //     else => |c| c,
         // };
 
-        return Next{ .location = .{ .value = next_value }, .codepoint = codepoint };
+        return Next{ .next_location = .{ .value = next_value }, .codepoint = codepoint };
     }
 
     fn read(source: Source, start: Location, buffer: []u21) Location {
@@ -93,7 +95,7 @@ pub const Source = struct {
         for (buffer) |*codepoint| {
             const next_ = source.next(location);
             codepoint.* = next_.codepoint;
-            location = next_.location;
+            location = next_.next_location;
         }
         return location;
     }
@@ -104,7 +106,7 @@ pub const IdentSequenceIterator = struct {
 
     pub fn next(it: *IdentSequenceIterator, source: Source) ?u21 {
         const next_ = consumeIdentSequenceCodepoint(source, it.location) orelse return null;
-        it.location = next_.location;
+        it.location = next_.next_location;
         return next_.codepoint;
     }
 };
@@ -119,43 +121,91 @@ pub fn stringIsIdentSequence(string: []const u8) !bool {
     return source.next(location).codepoint == eof_codepoint;
 }
 
-pub const NextToken = struct { tag: Tag, next_location: Source.Location };
+pub const Token = union(Component.Tag) {
+    token_eof,
+    token_comments,
+
+    token_ident,
+    token_function,
+    token_at_keyword,
+    token_hash_unrestricted,
+    token_hash_id,
+    token_string,
+    token_bad_string,
+    token_url,
+    token_bad_url,
+    token_delim: u21,
+    token_integer: Integer,
+    token_number,
+    token_percentage,
+    token_dimension,
+    token_whitespace,
+    token_cdo,
+    token_cdc,
+    token_colon,
+    token_semicolon,
+    token_comma,
+    token_left_square,
+    token_right_square,
+    token_left_paren,
+    token_right_paren,
+    token_left_curly,
+    token_right_curly,
+
+    at_rule,
+    qualified_rule,
+    style_block,
+    declaration_normal,
+    declaration_important,
+    function,
+    simple_block_square,
+    simple_block_curly,
+    simple_block_paren,
+
+    rule_list,
+    component_list,
+};
+
+pub const NextToken = struct {
+    token: Token,
+    next_location: Source.Location,
+};
 
 pub fn nextToken(source: Source, location: Source.Location) NextToken {
     const next = source.next(location);
     switch (next.codepoint) {
         '/' => {
-            const asterisk = source.next(next.location);
+            const asterisk = source.next(next.next_location);
             if (asterisk.codepoint == '*') {
                 return consumeComments(source, location);
             } else {
-                return NextToken{ .tag = .token_delim, .next_location = next.location };
+                return NextToken{ .token = .{ .token_delim = next.codepoint }, .next_location = next.next_location };
             }
         },
         '\n', '\t', ' ' => {
-            const after_whitespace = consumeWhitespace(source, next.location);
-            return NextToken{ .tag = .token_whitespace, .next_location = after_whitespace };
+            const after_whitespace = consumeWhitespace(source, next.next_location);
+            return NextToken{ .token = .token_whitespace, .next_location = after_whitespace };
         },
-        '"' => return consumeStringToken(source, next.location, '"'),
-        '#' => return numberSign(source, next.location),
-        '\'' => return consumeStringToken(source, next.location, '\''),
-        '(' => return NextToken{ .tag = .token_left_paren, .next_location = next.location },
-        ')' => return NextToken{ .tag = .token_right_paren, .next_location = next.location },
+        '"' => return consumeStringToken(source, next.next_location, '"'),
+        '#' => return numberSign(source, next.next_location),
+        '\'' => return consumeStringToken(source, next.next_location, '\''),
+        '(' => return NextToken{ .token = .token_left_paren, .next_location = next.next_location },
+        ')' => return NextToken{ .token = .token_right_paren, .next_location = next.next_location },
         '+', '.' => {
             var next_3 = [3]u21{ next.codepoint, undefined, undefined };
-            _ = source.read(next.location, next_3[1..3]);
+            _ = source.read(next.next_location, next_3[1..3]);
             if (codepointsStartANumber(next_3)) {
                 return consumeNumericToken(source, location);
             } else {
-                return NextToken{ .tag = .token_delim, .next_location = next.location };
+                return NextToken{ .token = .{ .token_delim = next.codepoint }, .next_location = next.next_location };
             }
         },
-        ',' => return NextToken{ .tag = .token_comma, .next_location = next.location },
+        ',' => return NextToken{ .token = .token_comma, .next_location = next.next_location },
         '-' => {
             var next_3 = [3]u21{ '-', undefined, undefined };
-            const after_cdc = source.read(next.location, next_3[1..3]);
+            const after_cdc = source.read(next.next_location, next_3[1..3]);
             if (next_3[1] == '-' and next_3[2] == '>') {
-                return NextToken{ .tag = .token_cdc, .next_location = after_cdc };
+                return NextToken{ .token = .token_cdc, .next_location = after_cdc };
             }
 
             if (codepointsStartANumber(next_3)) {
@@ -163,52 +213,52 @@ pub fn nextToken(source: Source, location: Source.Location) NextToken {
             } else if (codepointsStartAnIdentSequence(next_3)) {
                 return consumeIdentLikeToken(source, location);
             } else {
-                return NextToken{ .tag = .token_delim, .next_location = next.location };
+                return NextToken{ .token = .{ .token_delim = next.codepoint }, .next_location = next.next_location };
             }
         },
-        ':' => return NextToken{ .tag = .token_colon, .next_location = next.location },
-        ';' => return NextToken{ .tag = .token_semicolon, .next_location = next.location },
+        ':' => return NextToken{ .token = .token_colon, .next_location = next.next_location },
+        ';' => return NextToken{ .token = .token_semicolon, .next_location = next.next_location },
         '<' => {
             var next_3: [3]u21 = undefined;
-            const after_cdo = source.read(next.location, &next_3);
+            const after_cdo = source.read(next.next_location, &next_3);
             if (next_3[0] == '!' and next_3[1] == '-' and next_3[2] == '-') {
-                return NextToken{ .tag = .token_cdo, .next_location = after_cdo };
+                return NextToken{ .token = .token_cdo, .next_location = after_cdo };
             } else {
-                return NextToken{ .tag = .token_delim, .next_location = next.location };
+                return NextToken{ .token = .{ .token_delim = next.codepoint }, .next_location = next.next_location };
             }
         },
         '@' => {
             var next_3: [3]u21 = undefined;
-            _ = source.read(next.location, &next_3);
+            _ = source.read(next.next_location, &next_3);
 
             if (codepointsStartAnIdentSequence(next_3)) {
-                const after_ident = consumeIdentSequence(source, next.location);
-                return NextToken{ .tag = .token_at_keyword, .next_location = after_ident };
+                const after_ident = consumeIdentSequence(source, next.next_location);
+                return NextToken{ .token = .token_at_keyword, .next_location = after_ident };
             } else {
-                return NextToken{ .tag = .token_delim, .next_location = next.location };
+                return NextToken{ .token = .{ .token_delim = next.codepoint }, .next_location = next.next_location };
             }
         },
-        '[' => return NextToken{ .tag = .token_left_square, .next_location = next.location },
+        '[' => return NextToken{ .token = .token_left_square, .next_location = next.next_location },
         '\\' => {
-            const first_escaped = source.next(next.location);
+            const first_escaped = source.next(next.next_location);
             if (isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
                 return consumeIdentLikeToken(source, location);
             } else {
                 // NOTE: Parse error
-                return NextToken{ .tag = .token_delim, .next_location = next.location };
+                return NextToken{ .token = .{ .token_delim = next.codepoint }, .next_location = next.next_location };
             }
         },
-        ']' => return NextToken{ .tag = .token_right_square, .next_location = next.location },
-        '{' => return NextToken{ .tag = .token_left_curly, .next_location = next.location },
-        '}' => return NextToken{ .tag = .token_right_curly, .next_location = next.location },
+        ']' => return NextToken{ .token = .token_right_square, .next_location = next.next_location },
+        '{' => return NextToken{ .token = .token_left_curly, .next_location = next.next_location },
+        '}' => return NextToken{ .token = .token_right_curly, .next_location = next.next_location },
         '0'...'9' => return consumeNumericToken(source, location),
         'A'...'Z',
         'a'...'z',
         '_',
         0x80...0x10FFFF,
         => return consumeIdentLikeToken(source, location),
-        eof_codepoint => return NextToken{ .tag = .token_eof, .next_location = next.location },
-        else => return NextToken{ .tag = .token_delim, .next_location = next.location },
+        eof_codepoint => return NextToken{ .token = .token_eof, .next_location = next.next_location },
+        else => return NextToken{ .token = .{ .token_delim = next.codepoint }, .next_location = next.next_location },
     }
 }
 
@@ -275,9 +325,9 @@ fn consumeComments(source: Source, start: Source.Location) NextToken {
                 const next = source.next(location);
                 switch (next.codepoint) {
                     '*' => {
-                        const comment_end = source.next(next.location);
+                        const comment_end = source.next(next.next_location);
                         if (comment_end.codepoint == '/') {
-                            location = comment_end.location;
+                            location = comment_end.next_location;
                             break;
                         }
                     },
@@ -287,13 +337,13 @@ fn consumeComments(source: Source, start: Source.Location) NextToken {
                     },
                     else => {},
                 }
-                location = next.location;
+                location = next.next_location;
             }
         } else {
             break;
         }
     }
-    return NextToken{ .tag = .token_comments, .next_location = location };
+    return NextToken{ .token = .token_comments, .next_location = location };
 }
 
 fn consumeWhitespace(source: Source, start: Source.Location) Source.Location {
@@ -301,7 +351,7 @@ fn consumeWhitespace(source: Source, start: Source.Location) Source.Location {
     while (true) {
         const next = source.next(location);
         switch (next.codepoint) {
-            '\n', '\t', ' ' => location = next.location,
+            '\n', '\t', ' ' => location = next.next_location,
             else => return location,
         }
     }
@@ -314,16 +364,16 @@ fn consumeStringToken(source: Source, after_quote: Source.Location, ending_codep
         switch (next.codepoint) {
             '\n' => {
                 // NOTE: Parse error
-                return NextToken{ .tag = .token_bad_string, .next_location = location };
+                return NextToken{ .token = .token_bad_string, .next_location = location };
             },
             '\\' => {
-                const first_escaped = source.next(next.location);
+                const first_escaped = source.next(next.next_location);
                 if (first_escaped.codepoint == '\n') {
-                    location = first_escaped.location;
+                    location = first_escaped.next_location;
                 } else if (first_escaped.codepoint == eof_codepoint) {
-                    location = next.location;
+                    location = next.next_location;
                 } else {
-                    location = consumeEscapedCodepoint(source, first_escaped).location;
+                    location = consumeEscapedCodepoint(source, first_escaped).next_location;
                 }
             },
             eof_codepoint => {
@@ -331,7 +381,7 @@ fn consumeStringToken(source: Source, after_quote: Source.Location, ending_codep
                 break;
             },
             else => {
-                location = next.location;
+                location = next.next_location;
                 if (next.codepoint == ending_codepoint) {
                     break;
                 }
@@ -339,11 +389,11 @@ fn consumeStringToken(source: Source, after_quote: Source.Location, ending_codep
         }
     }
 
-    return NextToken{ .tag = .token_string, .next_location = location };
+    return NextToken{ .token = .token_string, .next_location = location };
 }
 
 fn consumeEscapedCodepoint(source: Source, first_escaped: Source.Next) Source.Next {
-    var location = first_escaped.location;
+    var location = first_escaped.next_location;
     const codepoint = switch (first_escaped.codepoint) {
         '0'...'9', 'A'...'F', 'a'...'f' => blk: {
             var result: u21 = hexDigitToNumber(first_escaped.codepoint);
@@ -353,7 +403,7 @@ fn consumeEscapedCodepoint(source: Source, first_escaped: Source.Next) Source.Ne
                 switch (next.codepoint) {
                     '0'...'9', 'A'...'F', 'a'...'f' => {
                         result = result *| 16 +| hexDigitToNumber(next.codepoint);
-                        location = next.location;
+                        location = next.next_location;
                     },
                     else => break,
                 }
@@ -361,7 +411,7 @@ fn consumeEscapedCodepoint(source: Source, first_escaped: Source.Next) Source.Ne
 
             const whitespace = source.next(location);
             switch (whitespace.codepoint) {
-                '\n', '\t', ' ' => location = whitespace.location,
+                '\n', '\t', ' ' => location = whitespace.next_location,
                 else => {},
             }
 
@@ -379,7 +429,7 @@ fn consumeEscapedCodepoint(source: Source, first_escaped: Source.Next) Source.Ne
         else => first_escaped.codepoint,
     };
 
-    return Source.Next{ .codepoint = codepoint, .location = location };
+    return Source.Next{ .codepoint = codepoint, .next_location = location };
 }
 
 fn consumeNumericToken(source: Source, start: Source.Location) NextToken {
@@ -390,21 +440,28 @@ fn consumeNumericToken(source: Source, start: Source.Location) NextToken {
 
     if (codepointsStartAnIdentSequence(next_3)) {
         const after_ident = consumeIdentSequence(source, result.after_number);
-        return NextToken{ .tag = .token_dimension, .next_location = after_ident };
+        return NextToken{ .token = .token_dimension, .next_location = after_ident };
     }
 
     const percent_sign = source.next(result.after_number);
     if (percent_sign.codepoint == '%') {
-        return NextToken{ .tag = .token_percentage, .next_location = percent_sign.location };
+        return NextToken{ .token = .token_percentage, .next_location = percent_sign.next_location };
     }
 
-    return NextToken{ .tag = .token_number, .next_location = result.after_number };
+    const token: Token = switch (result.value) {
+        .integer => |integer| .{ .token_integer = integer },
+        .number => .token_number,
+    };
+    return NextToken{ .token = token, .next_location = result.after_number };
 }
 
 const ConsumeNumber = struct {
     const Type = enum { integer, number };
 
-    type: Type,
+    value: union(Type) {
+        integer: Integer,
+        number,
+    },
     after_number: Source.Location,
 };
 
@@ -412,20 +469,29 @@ fn consumeNumber(source: Source, start: Source.Location) ConsumeNumber {
     var number_type = ConsumeNumber.Type.integer;
     var location = start;
 
+    var is_positive: bool = undefined;
     const leading_sign = source.next(location);
-    if (leading_sign.codepoint == '+' or leading_sign.codepoint == '-') {
-        location = leading_sign.location;
+    if (leading_sign.codepoint == '+') {
+        is_positive = true;
+        location = leading_sign.next_location;
+    } else if (leading_sign.codepoint == '-') {
+        is_positive = false;
+        location = leading_sign.next_location;
+    } else {
+        is_positive = true;
     }
 
-    location = consumeDigits(source, location);
+    const integral_part = consumeDigits(source, location);
+    location = integral_part.next_location;
 
-    var next_2: [2]u21 = undefined;
-    const after_first_decimal = source.read(location, &next_2);
-    if (next_2[0] == '.') {
-        switch (next_2[1]) {
+    const dot = source.next(location);
+    if (dot.codepoint == '.') {
+        const first_fractional_digit = source.next(dot.next_location);
+        switch (first_fractional_digit.codepoint) {
             '0'...'9' => {
                 number_type = .number;
-                location = consumeDigits(source, after_first_decimal);
+                const fractional_part = consumeDigits(source, dot.next_location);
+                location = fractional_part.next_location;
             },
             else => {},
         }
@@ -433,32 +499,63 @@ fn consumeNumber(source: Source, start: Source.Location) ConsumeNumber {
 
     const e = source.next(location);
     if (e.codepoint == 'e' or e.codepoint == 'E') {
-        var location2 = e.location;
+        var location2 = e.next_location;
         const exponent_sign = source.next(location2);
         if (exponent_sign.codepoint == '+' or exponent_sign.codepoint == '-') {
-            location2 = exponent_sign.location;
+            location2 = exponent_sign.next_location;
         }
 
         const first_exponent_digit = source.next(location2);
         switch (first_exponent_digit.codepoint) {
             '0'...'9' => {
                 number_type = .number;
-                location = consumeDigits(source, first_exponent_digit.location);
+                const exponent_part = consumeDigits(source, location2);
+                location = exponent_part.next_location;
             },
             else => {},
         }
     }
 
-    return ConsumeNumber{ .type = number_type, .after_number = location };
+    switch (number_type) {
+        .integer => {
+            const integer = convertToInteger(is_positive, integral_part.value);
+            return ConsumeNumber{ .value = .{ .integer = integer }, .after_number = location };
+        },
+        .number => return ConsumeNumber{ .value = .number, .after_number = location },
+    }
 }
 
-fn consumeDigits(source: Source, start: Source.Location) Source.Location {
+const ConsumeDigits = struct {
+    value: CheckedInt(u30),
+    next_location: Source.Location,
+};
+
+fn consumeDigits(source: Source, start: Source.Location) ConsumeDigits {
+    var value = CheckedInt(u30).init(0);
     var location = start;
     while (true) {
         const next = source.next(location);
         switch (next.codepoint) {
-            '0'...'9' => location = next.location,
-            else => return location,
+            '0'...'9' => {
+                value.multiply(10);
+                value.add(next.codepoint - '0');
+                location = next.next_location;
+            },
+            else => return ConsumeDigits{ .value = value, .next_location = location },
+        }
+    }
+}
+
+fn convertToInteger(is_positive: bool, integral_part: CheckedInt(u30)) Integer {
+    if (integral_part.unwrap()) |int| {
+        var signed = @as(i31, int);
+        if (!is_positive) signed = -signed;
+        return Integer.init(signed);
+    } else |_| {
+        if (is_positive) {
+            return Integer.positive_infinity;
+        } else {
+            return Integer.negative_infinity;
         }
     }
 }
@@ -467,7 +564,7 @@ fn consumeIdentSequenceCodepoint(source: Source, location: Source.Location) ?Sou
     const next = source.next(location);
     switch (next.codepoint) {
         '\\' => {
-            const first_escaped = source.next(next.location);
+            const first_escaped = source.next(next.next_location);
             if (!isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
                 return null;
             }
@@ -487,7 +584,7 @@ fn consumeIdentSequenceCodepoint(source: Source, location: Source.Location) ?Sou
 fn consumeIdentSequence(source: Source, start: Source.Location) Source.Location {
     var location = start;
     while (consumeIdentSequenceCodepoint(source, location)) |next| {
-        location = next.location;
+        location = next.next_location;
     }
     return location;
 }
@@ -528,7 +625,7 @@ fn consumeIdentSequenceMatch(
 
     var location = start;
     while (consumeIdentSequenceCodepoint(source, location)) |next| {
-        location = next.location;
+        location = next.next_location;
         string_matcher.nextCodepoint(string, next.codepoint);
         if (keep_going) continue;
         if (string_matcher.matches == false) {
@@ -546,7 +643,7 @@ fn consumeIdentLikeToken(source: Source, start: Source.Location) NextToken {
     if (left_paren.codepoint == '(') {
         if (result.matches) {
             var previous_location: Source.Location = undefined;
-            var location = left_paren.location;
+            var location = left_paren.next_location;
             var has_preceding_whitespace = false;
             while (true) {
                 const next = source.next(location);
@@ -554,23 +651,23 @@ fn consumeIdentLikeToken(source: Source, start: Source.Location) NextToken {
                     '\n', '\t', ' ' => {
                         has_preceding_whitespace = true;
                         previous_location = location;
-                        location = next.location;
+                        location = next.next_location;
                     },
                     '\'', '"' => {
                         if (has_preceding_whitespace) {
                             location = previous_location;
                         }
-                        return NextToken{ .tag = .token_function, .next_location = location };
+                        return NextToken{ .token = .token_function, .next_location = location };
                     },
                     else => return consumeUrlToken(source, location),
                 }
             }
         }
 
-        return NextToken{ .tag = .token_function, .next_location = left_paren.location };
+        return NextToken{ .token = .token_function, .next_location = left_paren.next_location };
     }
 
-    return NextToken{ .tag = .token_ident, .next_location = result.after_ident };
+    return NextToken{ .token = .token_ident, .next_location = result.after_ident };
 }
 
 fn consumeUrlToken(source: Source, start: Source.Location) NextToken {
@@ -580,7 +677,7 @@ fn consumeUrlToken(source: Source, start: Source.Location) NextToken {
         switch (next.codepoint) {
             ')' => break,
             '\n', '\t', ' ' => {
-                location = consumeWhitespace(source, next.location);
+                location = consumeWhitespace(source, next.next_location);
                 const right_paren = source.next(location);
                 if (right_paren.codepoint == eof_codepoint) {
                     // NOTE: Parse error
@@ -588,31 +685,31 @@ fn consumeUrlToken(source: Source, start: Source.Location) NextToken {
                 } else if (right_paren.codepoint == ')') {
                     break;
                 } else {
-                    return consumeBadUrl(source, next.location);
+                    return consumeBadUrl(source, next.next_location);
                 }
             },
             '"', '\'', '(', 0x00...0x08, 0x0B, 0x0E...0x1F, 0x7F => {
                 // NOTE: Parse error
-                return consumeBadUrl(source, next.location);
+                return consumeBadUrl(source, next.next_location);
             },
             '\\' => {
                 const first_escaped = source.next(location);
                 if (isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
-                    location = consumeEscapedCodepoint(source, first_escaped).location;
+                    location = consumeEscapedCodepoint(source, first_escaped).next_location;
                 } else {
                     // NOTE: Parse error
-                    return consumeBadUrl(source, next.location);
+                    return consumeBadUrl(source, next.next_location);
                 }
             },
             eof_codepoint => {
                 // NOTE: Parse error
                 break;
             },
-            else => location = next.location,
+            else => location = next.next_location,
         }
     }
 
-    return NextToken{ .tag = .token_url, .next_location = location };
+    return NextToken{ .token = .token_url, .next_location = location };
 }
 
 fn consumeBadUrl(source: Source, start: Source.Location) NextToken {
@@ -621,21 +718,21 @@ fn consumeBadUrl(source: Source, start: Source.Location) NextToken {
         const next = source.next(location);
         switch (next.codepoint) {
             ')', eof_codepoint => {
-                location = next.location;
+                location = next.next_location;
                 break;
             },
             '\\' => {
                 const first_escaped = source.next(location);
                 if (isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
-                    location = consumeEscapedCodepoint(source, first_escaped).location;
+                    location = consumeEscapedCodepoint(source, first_escaped).next_location;
                 } else {
-                    location = next.location;
+                    location = next.next_location;
                 }
             },
-            else => location = next.location,
+            else => location = next.next_location,
         }
     }
-    return NextToken{ .tag = .token_bad_url, .next_location = location };
+    return NextToken{ .token = .token_bad_url, .next_location = location };
 }
 
 fn codepointsStartAHash(codepoints: [2]u21) bool {
@@ -656,13 +753,13 @@ fn numberSign(source: Source, after_number_sign: Source.Location) NextToken {
     var next_3: [3]u21 = undefined;
     const after_first_two = source.read(after_number_sign, next_3[0..2]);
     if (!codepointsStartAHash(next_3[0..2].*)) {
-        return NextToken{ .tag = .token_delim, .next_location = after_number_sign };
+        return NextToken{ .token = .{ .token_delim = '#' }, .next_location = after_number_sign };
     }
 
     next_3[2] = source.next(after_first_two).codepoint;
-    const tag: Tag = if (codepointsStartAnIdentSequence(next_3)) .token_hash_id else .token_hash_unrestricted;
+    const token: Token = if (codepointsStartAnIdentSequence(next_3)) .token_hash_id else .token_hash_unrestricted;
     const after_ident = consumeIdentSequence(source, after_number_sign);
-    return NextToken{ .tag = tag, .next_location = after_ident };
+    return NextToken{ .token = token, .next_location = after_ident };
 }
 
 test "tokenization" {
@@ -679,7 +776,7 @@ test "tokenization" {
         \\end
     ;
     const source = try Source.init(input);
-    const expected = [_]Tag{
+    const expected = [_]Component.Tag{
         .token_at_keyword,
         .token_whitespace,
         .token_string,
@@ -719,9 +816,9 @@ test "tokenization" {
     while (true) {
         if (i >= expected.len) return error.TestFailure;
         const next = nextToken(source, location);
-        const tag = next.tag;
-        try std.testing.expectEqual(expected[i], tag);
-        if (tag == .token_eof) break;
+        const token = next.token;
+        try std.testing.expectEqual(expected[i], token);
+        if (token == .token_eof) break;
         location = next.next_location;
         i += 1;
     }

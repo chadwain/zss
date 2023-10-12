@@ -33,8 +33,8 @@ pub fn main() !u8 {
             const next = zss.syntax.tokenize.nextToken(source, location);
             location = next.next_location;
             i += 1;
-            try stdout.print("{}: {s}\n", .{ i, @tagName(next.tag) });
-            if (next.tag == .token_eof) break;
+            try stdout.print("{}: {s}\n", .{ i, @tagName(next.token) });
+            if (next.token == .token_eof) break;
         }
     } else {
         return 1;

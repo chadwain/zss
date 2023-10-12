@@ -12,8 +12,9 @@ const Component = syntax.Component;
 const Extra = Component.Extra;
 const ComponentTree = syntax.ComponentTree;
 const tokenize = @import("./tokenize.zig");
+const Token = tokenize.Token;
 
-/// A source of `Component.Tag`.
+/// A source of `Token`.
 pub const Source = struct {
     inner: tokenize.Source,
 
@@ -24,21 +25,16 @@ pub const Source = struct {
     }
 
     /// Returns the next component tag, ignoring comments.
-    pub fn next(source: Source, location: *Location) Component.Tag {
+    pub fn next(source: Source, location: *Location) Token {
         var next_location = location.*;
         while (true) {
-            const result = tokenize.nextToken(source.inner, next_location);
-            if (result.tag != .token_comments) {
-                location.* = result.next_location;
-                return result.tag;
+            const next_token = tokenize.nextToken(source.inner, next_location);
+            if (next_token.token != .token_comments) {
+                location.* = next_token.next_location;
+                return next_token.token;
             }
-            next_location = result.next_location;
+            next_location = next_token.next_location;
         }
-    }
-
-    // TODO: Make `next` also return a delimeter's codepoint, eliminating the need for this function.
-    fn getDelimeter(source: Source, location: Location) u21 {
-        return source.inner.delimTokenCodepoint(location);
     }
 
     pub fn identTokenIterator(source: Source, start: Location) IdentSequenceIterator {
@@ -501,7 +497,7 @@ fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location, data: 
                 }
             },
             else => {
-                if (tag == .token_delim and parser.source.getDelimeter(saved_location) == '&') {
+                if (tag == .token_delim and tag.token_delim == '&') {
                     location.* = saved_location;
                     try parser.pushQualifiedRule(saved_location, false);
                     return;
@@ -591,7 +587,7 @@ fn consumeDeclarationValue(parser: *Parser, location: *Source.Location, data: *P
 }
 
 /// Returns true if the component is "complex" (it may contain children).
-fn consumeComponentValue(parser: *Parser, tag: Component.Tag, location: Source.Location) !bool {
+fn consumeComponentValue(parser: *Parser, tag: Token, location: Source.Location) !bool {
     switch (tag) {
         .token_left_curly, .token_left_square, .token_left_paren => {
             try parser.pushSimpleBlock(tag, location);
@@ -601,9 +597,12 @@ fn consumeComponentValue(parser: *Parser, tag: Component.Tag, location: Source.L
             try parser.pushFunction(location);
             return true;
         },
-        .token_delim => {
-            const codepoint = parser.source.getDelimeter(location);
+        .token_delim => |codepoint| {
             try parser.appendBasicComponent(.token_delim, location, Extra.make(codepoint));
+            return false;
+        },
+        .token_integer => |integer| {
+            try parser.appendBasicComponent(.token_integer, location, Extra.make(@bitCast(integer)));
             return false;
         },
         else => {

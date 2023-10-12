@@ -178,6 +178,12 @@ pub fn CheckedInt(comptime Int: type) type {
             checked.overflow = checked.overflow or @bitCast(add_result[1]);
         }
 
+        pub fn multiply(checked: *Self, int: Int) void {
+            const mul_result = @mulWithOverflow(checked.value, int);
+            checked.value = mul_result[0];
+            checked.overflow = checked.overflow or @bitCast(mul_result[1]);
+        }
+
         pub fn alignForward(checked: *Self, comptime alignment: Int) void {
             comptime assert(std.mem.isValidAlign(alignment));
             const lower_addr_bits = checked.value & (alignment - 1);
