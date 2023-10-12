@@ -179,9 +179,9 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
     defer sdl.SDL_DestroyTexture(zig_png);
 
     var element_tree = zss.ElementTree.init(allocator);
-    defer element_tree.deinit(allocator);
+    defer element_tree.deinit();
     var elements: [8]Element = undefined;
-    try element_tree.allocateElements(allocator, &elements);
+    try element_tree.allocateElements(&elements);
 
     const root = elements[0];
     const removed_block = elements[1];

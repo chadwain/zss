@@ -91,7 +91,7 @@ fn fail(err: anyerror) noreturn {
 }
 
 fn deinitTest(t: *Test) void {
-    t.element_tree.deinit(allocator);
+    t.element_tree.deinit();
     if (t.hb_font) |font| {
         hb.hb_font_destroy(font);
         _ = hb.FT_Done_Face(t.ft_face);

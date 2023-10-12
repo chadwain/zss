@@ -19,9 +19,9 @@ pub fn main() !void {
     try env.addStylesheet(stylesheet_source);
 
     var tree = zss.ElementTree.init(allocator);
-    defer tree.deinit(allocator);
+    defer tree.deinit();
 
-    const root = try tree.allocateElement(allocator);
+    const root = try tree.allocateElement();
     const slice = tree.slice();
     slice.initElement(root, .normal, .orphan, {});
     try slice.runCascade(root, allocator, &env);

@@ -467,9 +467,9 @@ test "complex selector matching" {
     };
 
     var tree = ElementTree.init(allocator);
-    defer tree.deinit(allocator);
+    defer tree.deinit();
     var elements: [6]ElementTree.Element = undefined;
-    try tree.allocateElements(allocator, &elements);
+    try tree.allocateElements(&elements);
     const slice = tree.slice();
 
     slice.initElement(elements[0], .normal, .orphan, {});

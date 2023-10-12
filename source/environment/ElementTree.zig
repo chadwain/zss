@@ -84,27 +84,29 @@ pub fn init(allocator: Allocator) ElementTree {
     return ElementTree{ .arena = ArenaAllocator.init(allocator) };
 }
 
-pub fn deinit(tree: *ElementTree, allocator: Allocator) void {
-    tree.arena.deinit();
+pub fn deinit(tree: *ElementTree) void {
+    const allocator = tree.arena.child_allocator;
     tree.nodes.deinit(allocator);
+    tree.arena.deinit();
 }
 
 /// Creates a new element.
 /// The element has undefined data and must be initialized.
 /// Invalidates slices.
-pub fn allocateElement(tree: *ElementTree, allocator: Allocator) !Element {
+pub fn allocateElement(tree: *ElementTree) !Element {
     var result: [1]Element = undefined;
-    try tree.allocateElements(allocator, &result);
+    try tree.allocateElements(&result);
     return result[0];
 }
 
 /// Populates `buffer` with `buffer.len` newly-created elements.
 /// The elements have undefined data and must be initialized.
 /// Invalidates slices.
-pub fn allocateElements(tree: *ElementTree, allocator: Allocator, buffer: []Element) !void {
+pub fn allocateElements(tree: *ElementTree, buffer: []Element) !void {
     const num_extra_nodes = buffer.len -| tree.free_list_len;
     const old_nodes_len = tree.nodes.len;
     if (num_extra_nodes >= max_size - old_nodes_len) return error.ElementTreeMaxSizeExceeded;
+    const allocator = tree.arena.child_allocator;
     try tree.nodes.resize(allocator, old_nodes_len + num_extra_nodes);
     tree.free_list_len = @intCast(@as(usize, tree.free_list_len) -| buffer.len);
     const nodes = tree.nodes.slice();

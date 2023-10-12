@@ -32,7 +32,7 @@ pub fn init() Test {
 }
 
 pub fn createRoot(self: *Test) Element {
-    const element = self.element_tree.allocateElement(allocator) catch |err| fail(err);
+    const element = self.element_tree.allocateElement() catch |err| fail(err);
     self.root = element;
     const slice = self.element_tree.slice();
     slice.initElement(element, .normal, .orphan, {});
@@ -40,7 +40,7 @@ pub fn createRoot(self: *Test) Element {
 }
 
 pub fn appendChild(self: *Test, parent: Element, category: ElementTree.Category) Element {
-    const element = self.element_tree.allocateElement(allocator) catch |err| fail(err);
+    const element = self.element_tree.allocateElement() catch |err| fail(err);
     const slice = self.element_tree.slice();
     slice.initElement(element, category, .last_child_of, parent);
     return element;
