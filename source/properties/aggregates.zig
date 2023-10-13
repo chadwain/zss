@@ -80,11 +80,6 @@ pub const Tag = enum {
     }
 };
 
-/// all -> all
-pub const All = struct {
-    all: values.All = .undeclared,
-};
-
 /// text -> Does not correspond to any CSS property. Instead it represents the text of a text element.
 pub const Text = struct {
     text: values.Text,

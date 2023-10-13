@@ -3,6 +3,7 @@ const values = zss.values;
 
 const aggregates = zss.properties.aggregates;
 const BoxStyle = aggregates.BoxStyle;
+const ZIndex = aggregates.ZIndex;
 
 pub const ParserFnInput = union(enum) {
     source: *values.parse.Source,
@@ -46,4 +47,17 @@ pub fn float(input: ParserFnInput) ?BoxStyle {
         },
     }
     return box_style;
+}
+
+pub fn zIndex(input: ParserFnInput) ?ZIndex {
+    var z_index = ZIndex{};
+    switch (input) {
+        .css_wide_keyword => |cwk| {
+            cwk.apply(.{&z_index.z_index});
+        },
+        .source => |source| {
+            z_index.z_index = values.parse.zIndex(source) orelse return null;
+        },
+    }
+    return z_index;
 }

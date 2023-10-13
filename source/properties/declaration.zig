@@ -79,11 +79,13 @@ fn parseDeclaration(
 
     switch (declaration_name) {
         .all => unreachable,
-        inline .display, .position, .float => |comptime_tag| {
-            const parserFn = comptime_tag.parserFn();
-            const box_style = parserFn(input) orelse return;
+        inline else => |comptime_decl_name| {
+            const aggregate_tag = comptime comptime_decl_name.aggregateTag();
+            const parseFn = comptime_decl_name.parseFn();
+            // TODO: If parsing fails, "reset" the arena
+            const aggregate = parseFn(input) orelse return;
             if (input == .source and (input.source.position != input.source.end)) return;
-            try cascaded.add(arena, .box_style, box_style);
+            try cascaded.add(arena, aggregate_tag, aggregate);
         },
     }
 }
@@ -104,20 +106,23 @@ const DeclarationName = enum {
     display,
     position,
     float,
+    z_index,
 
-    fn ParserFnReturnType(comptime name: DeclarationName) type {
+    fn aggregateTag(comptime name: DeclarationName) aggregates.Tag {
         return switch (name) {
-            .all => @compileError("'parserFnReturnType' not valid with argument 'all'"),
-            .display, .position, .float => aggregates.BoxStyle,
+            .all => @compileError("'aggregateTag' not valid with argument 'all'"),
+            .display, .position, .float => .box_style,
+            .z_index => .z_index,
         };
     }
 
-    fn parserFn(comptime name: DeclarationName) fn (parsers.ParserFnInput) ?ParserFnReturnType(name) {
+    fn parseFn(comptime name: DeclarationName) fn (parsers.ParserFnInput) ?aggregateTag(name).Value() {
         return switch (name) {
-            .all => @compileError("'parserFn' not valid with argument 'all'"),
+            .all => @compileError("'parseFn' not valid with argument 'all'"),
             .display => parsers.display,
             .position => parsers.position,
             .float => parsers.float,
+            .z_index => parsers.zIndex,
         };
     }
 };
@@ -133,6 +138,7 @@ fn parseDeclarationName(
         .{ "display", .display },
         .{ "position", .position },
         .{ "float", .float },
+        .{ "z-index", .z_index },
     });
 }
 

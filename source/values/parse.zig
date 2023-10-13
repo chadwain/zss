@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const zss = @import("../../zss.zig");
 const values = zss.values;
 const ComponentTree = zss.syntax.ComponentTree;
@@ -10,8 +12,9 @@ pub const Source = struct {
     end: ComponentTree.Size,
     position: ComponentTree.Size,
 
-    pub const PrimitiveType = enum {
+    pub const PrimitiveType = union(enum) {
         keyword,
+        integer: zss.syntax.Integer,
         invalid,
     };
 
@@ -26,6 +29,7 @@ pub const Source = struct {
 
         const @"type": PrimitiveType = switch (source.components.tag(source.position)) {
             .token_ident => .keyword,
+            .token_integer => .{ .integer = source.components.extra(source.position).integer() },
             else => .invalid,
         };
         return Item{ .position = source.position, .type = @"type" };
@@ -38,6 +42,37 @@ pub const Source = struct {
         return source.parser_source.mapIdentifier(location, Type, kvs);
     }
 };
+
+fn testParsing(parseFn: anytype, input: []const u8, expected: @typeInfo(@TypeOf(parseFn)).Fn.return_type.?) !void {
+    const allocator = std.testing.allocator;
+
+    const parser_source = ParserSource.init(try zss.syntax.tokenize.Source.init(input));
+    var tree = try zss.syntax.parse.parseListOfComponentValues(parser_source, allocator);
+    defer tree.deinit(allocator);
+    const slice = tree.slice();
+
+    var source = Source{ .components = slice, .parser_source = parser_source, .end = slice.nextSibling(0), .position = 1 };
+    const actual = parseFn(&source);
+    try std.testing.expectEqual(source.end, source.position);
+    try std.testing.expectEqual(actual, expected);
+}
+
+test "css value parsing" {
+    try testParsing(display, "block", .block);
+    try testParsing(display, "inline", .inline_);
+
+    try testParsing(position, "static", .static);
+
+    try testParsing(float, "left", .left);
+    try testParsing(float, "right", .right);
+    try testParsing(float, "none", .none);
+
+    try testParsing(zIndex, "42", .{ .integer = 42 });
+    try testParsing(zIndex, "-42", .{ .integer = -42 });
+    try testParsing(zIndex, "auto", .auto);
+    try testParsing(zIndex, "9999999999999999", .{ .integer = std.math.maxInt(i32) });
+    try testParsing(zIndex, "-9999999999999999", .{ .integer = std.math.minInt(i32) });
+}
 
 pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const ParserSource.KV(Type)) ?Type {
     const keyword = source.next() orelse return null;
@@ -64,7 +99,7 @@ pub fn cssWideKeyword(
     return null;
 }
 
-/// Spec: CSS 2.2
+// Spec: CSS 2.2
 // inline | block | list-item | inline-block | table | inline-table | table-row-group | table-header-group
 // | table-footer-group | table-row | table-column-group | table-column | table-cell | table-caption | none
 pub fn display(source: *Source) ?values.Display {
@@ -87,7 +122,7 @@ pub fn display(source: *Source) ?values.Display {
     });
 }
 
-/// Spec: CSS 2.2
+// Spec: CSS 2.2
 // static | relative | absolute | fixed
 pub fn position(source: *Source) ?values.Position {
     return parseSingleKeyword(source, values.Position, &.{
@@ -98,7 +133,7 @@ pub fn position(source: *Source) ?values.Position {
     });
 }
 
-/// Spec: CSS 2.2
+// Spec: CSS 2.2
 // left | right | none
 pub fn float(source: *Source) ?values.Float {
     return parseSingleKeyword(source, values.Float, &.{
@@ -106,4 +141,17 @@ pub fn float(source: *Source) ?values.Float {
         .{ "right", .right },
         .{ "none", .none },
     });
+}
+
+// Spec: CSS 2.2
+// auto | <integer>
+pub fn zIndex(source: *Source) ?values.ZIndex {
+    const auto_or_int = source.next() orelse return null;
+    switch (auto_or_int.type) {
+        .integer => |integer| return values.ZIndex{ .integer = integer.getClamped() },
+        .keyword => return source.mapKeyword(auto_or_int.position, values.ZIndex, &.{
+            .{ "auto", .auto },
+        }),
+        else => return null,
+    }
 }

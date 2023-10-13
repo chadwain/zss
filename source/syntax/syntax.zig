@@ -16,6 +16,8 @@ comptime {
     }
 }
 
+/// An integral value parsed from CSS source code.
+/// For integers that can't be represented in 32 bits, `positive_infinity` and `negative_infinity` are used.
 pub const Integer = packed struct {
     value: i32,
 
@@ -24,6 +26,10 @@ pub const Integer = packed struct {
 
     pub fn init(value: i31) Integer {
         return Integer{ .value = value };
+    }
+
+    pub fn getClamped(int: Integer) i32 {
+        return int.value;
     }
 };
 
@@ -98,7 +104,7 @@ pub const Component = struct {
         /// extra: Use `extra.codepoint()` to get the value of the codepoint.
         token_delim,
         /// An optional '+' or '-' codepoint + a sequence of digits
-        /// location: The first codepoint of the number
+        /// location: The +/- sign or the first digit
         /// extra: Use `extra.integer()` to get the integral value
         token_integer,
         /// A numeric value (integral or floating point)

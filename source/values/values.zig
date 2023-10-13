@@ -1,5 +1,11 @@
 pub const parse = @import("./parse.zig");
 
+comptime {
+    if (@import("builtin").is_test) {
+        _ = parse;
+    }
+}
+
 pub const CssWideKeyword = enum {
     initial,
     inherit,
@@ -23,13 +29,6 @@ pub const CssWideKeyword = enum {
             .unset => .unset,
         };
     }
-};
-
-pub const All = enum {
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
 pub const Text = []const u8;
