@@ -176,7 +176,6 @@ const Parser = struct {
         return index;
     }
 
-    /// Creates a "basic" Component (one that has no children).
     fn appendBasicComponent(parser: *Parser, tag: Component.Tag, location: Source.Location, extra: Component.Extra) !void {
         const index = @as(ComponentTree.Size, @intCast(parser.tree.components.len));
         _ = try parser.allocateComponent(.{
@@ -184,6 +183,23 @@ const Parser = struct {
             .tag = tag,
             .location = location,
             .extra = extra,
+        });
+    }
+
+    fn appendDimension(parser: *Parser, location: Source.Location, dimension: Token.Dimension) !void {
+        // TODO: Using two components for a dimension is overkill. Find a way to make it just one.
+        const index = @as(ComponentTree.Size, @intCast(parser.tree.components.len));
+        _ = try parser.allocateComponent(.{
+            .next_sibling = index + 2,
+            .tag = .token_dimension,
+            .location = location,
+            .extra = Extra.make(@bitCast(dimension.value)),
+        });
+        _ = try parser.allocateComponent(.{
+            .next_sibling = index + 2,
+            .tag = .token_ident,
+            .location = dimension.unit_location,
+            .extra = Extra.make(0),
         });
     }
 
@@ -586,7 +602,8 @@ fn consumeDeclarationValue(parser: *Parser, location: *Source.Location, data: *P
     }
 }
 
-/// Returns true if the component is "complex" (it may contain children).
+/// Returns true if the component is "complex".
+/// A component is complex if it pushes a new frame onto the parser's stack.
 fn consumeComponentValue(parser: *Parser, tag: Token, location: Source.Location) !bool {
     switch (tag) {
         .token_left_curly, .token_left_square, .token_left_paren => {
@@ -607,6 +624,14 @@ fn consumeComponentValue(parser: *Parser, tag: Token, location: Source.Location)
         },
         .token_number => |number| {
             try parser.appendBasicComponent(.token_number, location, Extra.make(@bitCast(number)));
+            return false;
+        },
+        .token_percentage => |number| {
+            try parser.appendBasicComponent(.token_percentage, location, Extra.make(@bitCast(number)));
+            return false;
+        },
+        .token_dimension => |dimension| {
+            try parser.appendDimension(location, dimension);
             return false;
         },
         else => {

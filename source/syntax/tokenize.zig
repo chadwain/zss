@@ -140,8 +140,8 @@ pub const Token = union(Component.Tag) {
     token_delim: u21,
     token_integer: i32,
     token_number: f32,
-    token_percentage,
-    token_dimension,
+    token_percentage: f32,
+    token_dimension: Dimension,
     token_whitespace,
     token_cdo,
     token_cdc,
@@ -167,6 +167,8 @@ pub const Token = union(Component.Tag) {
 
     rule_list,
     component_list,
+
+    pub const Dimension = struct { value: f32, unit_location: Source.Location };
 };
 
 pub const NextToken = struct {
@@ -442,13 +444,24 @@ fn consumeNumericToken(source: Source, start: Source.Location) NextToken {
     _ = source.read(result.after_number, &next_3);
 
     if (codepointsStartAnIdentSequence(next_3)) {
-        const after_ident = consumeIdentSequence(source, result.after_number);
-        return NextToken{ .token = .token_dimension, .next_location = after_ident };
+        const after_unit = consumeIdentSequence(source, result.after_number);
+        const numeric_value: f32 = switch (result.value) {
+            .integer => |integer| @floatFromInt(integer),
+            .number => |number| number,
+        };
+        return NextToken{
+            .token = .{ .token_dimension = .{ .value = numeric_value, .unit_location = result.after_number } },
+            .next_location = after_unit,
+        };
     }
 
     const percent_sign = source.next(result.after_number);
     if (percent_sign.codepoint == '%') {
-        return NextToken{ .token = .token_percentage, .next_location = percent_sign.next_location };
+        const token: Token = switch (result.value) {
+            .integer => |integer| .{ .token_percentage = @floatFromInt(integer) },
+            .number => |number| .{ .token_percentage = number },
+        };
+        return NextToken{ .token = token, .next_location = percent_sign.next_location };
     }
 
     const token: Token = switch (result.value) {
@@ -548,13 +561,17 @@ fn consumeNumber(source: Source, start: Source.Location) ConsumeNumber {
 
     switch (number_type) {
         .integer => {
-            var integer: i32 = integral_part.value.unwrap() catch 0;
+            // NOTE: Should the default value be 0, or some really big number?
+            const unwrapped = integral_part.value.unwrap() catch 0;
+            comptime assert(@TypeOf(unwrapped) == u31);
+            var integer: i32 = unwrapped;
             if (is_negative) integer = -integer;
             return ConsumeNumber{ .value = .{ .integer = integer }, .after_number = location };
         },
         .number => {
             var float: f32 = undefined;
             if (buffer.overflow()) {
+                // NOTE: Should the default value be 0, or some really big number/infinity/NaN?
                 float = 0.0;
             } else {
                 float = std.fmt.parseFloat(f32, buffer.slice()) catch |err| switch (err) {

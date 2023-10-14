@@ -100,9 +100,12 @@ pub const Component = struct {
         token_number,
         /// A numeric value (integral or floating point) + a '%' codepoint
         /// location: The first codepoint of the number
+        /// extra: Use `extra.number()` to get the number as an `f32`
         token_percentage,
         /// A numeric value (integral or floating point) + an identifier
+        /// children: The unit (a `token_ident`)
         /// location: The first codepoint of the number
+        /// extra: Use `extra.number()` to get the number as an `f32`
         token_dimension,
         /// A series of one or more whitespace codepoints
         /// location: The first whitespace codepoint
@@ -294,7 +297,7 @@ pub const ComponentTree = struct {
     pub const debug = struct {
         pub fn print(tree: ComponentTree, allocator: Allocator, writer: anytype) !void {
             const c = tree.components;
-            try writer.print("ComponentTree:\narray len {}\n", .{c.len});
+            try writer.print("ComponentTree (index, component, location, extra)\narray len {}\n", .{c.len});
             if (c.len == 0) return;
             try writer.print("tree size {}\n", .{c.items(.next_sibling)[0]});
 
@@ -331,7 +334,8 @@ pub const ComponentTree = struct {
             switch (tag) {
                 .token_delim => try writer.print("U+{X}", .{extra.codepoint()}),
                 .token_integer => try writer.print("{}", .{extra.integer()}),
-                .token_number => try writer.print("{d}", .{extra.number()}),
+                .token_number, .token_dimension => try writer.print("{d}", .{extra.number()}),
+                .token_percentage => try writer.print("{d}%", .{extra.number()}),
                 else => try writer.print("{}", .{@as(u32, @bitCast(extra))}),
             }
         }
