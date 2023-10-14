@@ -605,6 +605,10 @@ fn consumeComponentValue(parser: *Parser, tag: Token, location: Source.Location)
             try parser.appendBasicComponent(.token_integer, location, Extra.make(@bitCast(integer)));
             return false;
         },
+        .token_number => |number| {
+            try parser.appendBasicComponent(.token_number, location, Extra.make(@bitCast(number)));
+            return false;
+        },
         else => {
             try parser.appendBasicComponent(tag, location, Extra.make(0));
             return false;

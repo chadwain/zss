@@ -8,7 +8,6 @@ const hexDigitToNumber = zss.util.unicode.hexDigitToNumber;
 const toLowercase = zss.util.unicode.toLowercase;
 const CheckedInt = zss.util.CheckedInt;
 const Component = zss.syntax.Component;
-const Integer = zss.syntax.Integer;
 
 const u21_max = std.math.maxInt(u21);
 const replacement_character: u21 = 0xfffd;
@@ -21,6 +20,10 @@ pub const Source = struct {
         value: Value = 0,
 
         const Value = u32;
+
+        fn eql(lhs: Location, rhs: Location) bool {
+            return lhs.value == rhs.value;
+        }
     };
 
     /// `data` is expected to be an 8-bit ASCII string.
@@ -135,8 +138,8 @@ pub const Token = union(Component.Tag) {
     token_url,
     token_bad_url,
     token_delim: u21,
-    token_integer: Integer,
-    token_number,
+    token_integer: i32,
+    token_number: f32,
     token_percentage,
     token_dimension,
     token_whitespace,
@@ -450,7 +453,7 @@ fn consumeNumericToken(source: Source, start: Source.Location) NextToken {
 
     const token: Token = switch (result.value) {
         .integer => |integer| .{ .token_integer = integer },
-        .number => .token_number,
+        .number => |number| .{ .token_number = number },
     };
     return NextToken{ .token = token, .next_location = result.after_number };
 }
@@ -459,38 +462,61 @@ const ConsumeNumber = struct {
     const Type = enum { integer, number };
 
     value: union(Type) {
-        integer: Integer,
-        number,
+        integer: i32,
+        number: f32,
     },
     after_number: Source.Location,
 };
 
-fn consumeNumber(source: Source, start: Source.Location) ConsumeNumber {
-    var number_type = ConsumeNumber.Type.integer;
-    var location = start;
+const NumberBuffer = struct {
+    data: [63]u8 = undefined,
+    len: u8 = 0,
 
-    var is_positive: bool = undefined;
-    const leading_sign = source.next(location);
-    if (leading_sign.codepoint == '+') {
-        is_positive = true;
-        location = leading_sign.next_location;
-    } else if (leading_sign.codepoint == '-') {
-        is_positive = false;
-        location = leading_sign.next_location;
-    } else {
-        is_positive = true;
+    fn append(buffer: *NumberBuffer, char: u8) void {
+        defer buffer.len +|= 1;
+        if (buffer.len >= buffer.data.len) return;
+        buffer.data[buffer.len] = char;
     }
 
-    const integral_part = consumeDigits(source, location);
+    fn overflow(buffer: NumberBuffer) bool {
+        return buffer.len > buffer.data.len;
+    }
+
+    fn slice(buffer: NumberBuffer) []const u8 {
+        assert(!buffer.overflow());
+        return buffer.data[0..buffer.len];
+    }
+};
+
+fn consumeNumber(source: Source, start: Source.Location) ConsumeNumber {
+    var number_type = ConsumeNumber.Type.integer;
+    var buffer = NumberBuffer{};
+    var location = start;
+
+    var is_negative: bool = undefined;
+    const leading_sign = source.next(location);
+    if (leading_sign.codepoint == '+') {
+        is_negative = false;
+        buffer.append('+');
+        location = leading_sign.next_location;
+    } else if (leading_sign.codepoint == '-') {
+        is_negative = true;
+        buffer.append('-');
+        location = leading_sign.next_location;
+    } else {
+        is_negative = false;
+    }
+
+    const integral_part = consumeDigits(source, location, &buffer);
     location = integral_part.next_location;
 
     const dot = source.next(location);
     if (dot.codepoint == '.') {
-        const first_fractional_digit = source.next(dot.next_location);
-        switch (first_fractional_digit.codepoint) {
+        switch (source.next(dot.next_location).codepoint) {
             '0'...'9' => {
                 number_type = .number;
-                const fractional_part = consumeDigits(source, dot.next_location);
+                buffer.append('.');
+                const fractional_part = consumeDigits(source, dot.next_location, &buffer);
                 location = fractional_part.next_location;
             },
             else => {},
@@ -505,11 +531,15 @@ fn consumeNumber(source: Source, start: Source.Location) ConsumeNumber {
             location2 = exponent_sign.next_location;
         }
 
-        const first_exponent_digit = source.next(location2);
-        switch (first_exponent_digit.codepoint) {
+        switch (source.next(location2).codepoint) {
             '0'...'9' => {
                 number_type = .number;
-                const exponent_part = consumeDigits(source, location2);
+                buffer.append('e');
+                if (!location2.eql(e.next_location)) {
+                    // There was an exponent sign
+                    buffer.append(@intCast(exponent_sign.codepoint));
+                }
+                const exponent_part = consumeDigits(source, location2, &buffer);
                 location = exponent_part.next_location;
             },
             else => {},
@@ -518,20 +548,37 @@ fn consumeNumber(source: Source, start: Source.Location) ConsumeNumber {
 
     switch (number_type) {
         .integer => {
-            const integer = convertToInteger(is_positive, integral_part.value);
+            var integer: i32 = integral_part.value.unwrap() catch 0;
+            if (is_negative) integer = -integer;
             return ConsumeNumber{ .value = .{ .integer = integer }, .after_number = location };
         },
-        .number => return ConsumeNumber{ .value = .number, .after_number = location },
+        .number => {
+            var float: f32 = undefined;
+            if (buffer.overflow()) {
+                float = 0.0;
+            } else {
+                float = std.fmt.parseFloat(f32, buffer.slice()) catch |err| switch (err) {
+                    error.InvalidCharacter => unreachable,
+                };
+                assert(!std.math.isNan(float));
+                assert(!std.math.isInf(float));
+                if (!std.math.isNormal(float) and float != 0.0) {
+                    // It's either a denormal/subnormal or negative zero
+                    float = 0.0;
+                }
+            }
+            return ConsumeNumber{ .value = .{ .number = float }, .after_number = location };
+        },
     }
 }
 
 const ConsumeDigits = struct {
-    value: CheckedInt(u30),
+    value: CheckedInt(u31),
     next_location: Source.Location,
 };
 
-fn consumeDigits(source: Source, start: Source.Location) ConsumeDigits {
-    var value = CheckedInt(u30).init(0);
+fn consumeDigits(source: Source, start: Source.Location, buffer: *NumberBuffer) ConsumeDigits {
+    var value = CheckedInt(u31).init(0);
     var location = start;
     while (true) {
         const next = source.next(location);
@@ -539,23 +586,10 @@ fn consumeDigits(source: Source, start: Source.Location) ConsumeDigits {
             '0'...'9' => {
                 value.multiply(10);
                 value.add(next.codepoint - '0');
+                buffer.append(@intCast(next.codepoint));
                 location = next.next_location;
             },
             else => return ConsumeDigits{ .value = value, .next_location = location },
-        }
-    }
-}
-
-fn convertToInteger(is_positive: bool, integral_part: CheckedInt(u30)) Integer {
-    if (integral_part.unwrap()) |int| {
-        var signed = @as(i31, int);
-        if (!is_positive) signed = -signed;
-        return Integer.init(signed);
-    } else |_| {
-        if (is_positive) {
-            return Integer.positive_infinity;
-        } else {
-            return Integer.negative_infinity;
         }
     }
 }

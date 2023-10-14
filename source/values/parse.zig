@@ -14,7 +14,7 @@ pub const Source = struct {
 
     pub const PrimitiveType = union(enum) {
         keyword,
-        integer: zss.syntax.Integer,
+        integer: i32,
         invalid,
     };
 
@@ -70,8 +70,8 @@ test "css value parsing" {
     try testParsing(zIndex, "42", .{ .integer = 42 });
     try testParsing(zIndex, "-42", .{ .integer = -42 });
     try testParsing(zIndex, "auto", .auto);
-    try testParsing(zIndex, "9999999999999999", .{ .integer = std.math.maxInt(i32) });
-    try testParsing(zIndex, "-9999999999999999", .{ .integer = std.math.minInt(i32) });
+    try testParsing(zIndex, "9999999999999999", .{ .integer = 0 });
+    try testParsing(zIndex, "-9999999999999999", .{ .integer = 0 });
 }
 
 pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const ParserSource.KV(Type)) ?Type {
@@ -148,7 +148,7 @@ pub fn float(source: *Source) ?values.Float {
 pub fn zIndex(source: *Source) ?values.ZIndex {
     const auto_or_int = source.next() orelse return null;
     switch (auto_or_int.type) {
-        .integer => |integer| return values.ZIndex{ .integer = integer.getClamped() },
+        .integer => |integer| return values.ZIndex{ .integer = integer },
         .keyword => return source.mapKeyword(auto_or_int.position, values.ZIndex, &.{
             .{ "auto", .auto },
         }),

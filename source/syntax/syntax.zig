@@ -16,23 +16,6 @@ comptime {
     }
 }
 
-/// An integral value parsed from CSS source code.
-/// For integers that can't be represented in 32 bits, `positive_infinity` and `negative_infinity` are used.
-pub const Integer = packed struct {
-    value: i32,
-
-    pub const positive_infinity = Integer{ .value = std.math.maxInt(i32) };
-    pub const negative_infinity = Integer{ .value = std.math.minInt(i32) };
-
-    pub fn init(value: i31) Integer {
-        return Integer{ .value = value };
-    }
-
-    pub fn getClamped(int: Integer) i32 {
-        return int.value;
-    }
-};
-
 /// Corresponds to what CSS calls a "component value".
 pub const Component = struct {
     next_sibling: ComponentTree.Size,
@@ -59,7 +42,11 @@ pub const Component = struct {
             return @intCast(@as(u32, @bitCast(extra)));
         }
 
-        pub fn integer(extra: Extra) Integer {
+        pub fn integer(extra: Extra) i32 {
+            return @bitCast(extra);
+        }
+
+        pub fn number(extra: Extra) f32 {
             return @bitCast(extra);
         }
     };
@@ -105,10 +92,11 @@ pub const Component = struct {
         token_delim,
         /// An optional '+' or '-' codepoint + a sequence of digits
         /// location: The +/- sign or the first digit
-        /// extra: Use `extra.integer()` to get the integral value
+        /// extra: Use `extra.integer()` to get the integer as an `i32`
         token_integer,
         /// A numeric value (integral or floating point)
         /// location: The first codepoint of the number
+        /// extra: Use `extra.number()` to get the number as an `f32`
         token_number,
         /// A numeric value (integral or floating point) + a '%' codepoint
         /// location: The first codepoint of the number
@@ -325,7 +313,9 @@ pub const ComponentTree = struct {
                     const component = c.get(index);
                     const indent = (stack.items.len - 1) * 4;
                     try writer.writeByteNTimes(' ', indent);
-                    try writer.print("{} {s} {} {}\n", .{ index, @tagName(component.tag), component.location.value, @as(u32, @bitCast(component.extra)) });
+                    try writer.print("{} {s} {} ", .{ index, @tagName(component.tag), component.location.value });
+                    try printExtra(writer, component.tag, component.extra);
+                    try writer.writeAll("\n");
 
                     last.current = component.next_sibling;
                     if (index + 1 != component.next_sibling) {
@@ -334,6 +324,15 @@ pub const ComponentTree = struct {
                 } else {
                     _ = stack.pop();
                 }
+            }
+        }
+
+        fn printExtra(writer: anytype, tag: Component.Tag, extra: Component.Extra) !void {
+            switch (tag) {
+                .token_delim => try writer.print("U+{X}", .{extra.codepoint()}),
+                .token_integer => try writer.print("{}", .{extra.integer()}),
+                .token_number => try writer.print("{d}", .{extra.number()}),
+                else => try writer.print("{}", .{@as(u32, @bitCast(extra))}),
             }
         }
     };
