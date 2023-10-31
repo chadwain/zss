@@ -156,7 +156,7 @@ pub const Clear = enum {
     undeclared,
 };
 
-pub const Size = union(enum) {
+pub const LengthPercentageAuto = union(enum) {
     px: f32,
     percentage: f32,
     auto,
@@ -166,7 +166,11 @@ pub const Size = union(enum) {
     undeclared,
 };
 
-pub const MinSize = union(enum) {
+pub const Size = LengthPercentageAuto;
+pub const Margin = LengthPercentageAuto;
+pub const Inset = LengthPercentageAuto;
+
+pub const LengthPercentage = union(enum) {
     px: f32,
     percentage: f32,
     initial,
@@ -174,6 +178,9 @@ pub const MinSize = union(enum) {
     unset,
     undeclared,
 };
+
+pub const MinSize = LengthPercentage;
+pub const Padding = LengthPercentage;
 
 pub const MaxSize = union(enum) {
     px: f32,
@@ -207,35 +214,6 @@ pub const BorderStyle = enum {
     ridge,
     inset,
     outset,
-    initial,
-    inherit,
-    unset,
-    undeclared,
-};
-
-pub const Padding = union(enum) {
-    px: f32,
-    percentage: f32,
-    initial,
-    inherit,
-    unset,
-    undeclared,
-};
-
-pub const Margin = union(enum) {
-    px: f32,
-    percentage: f32,
-    auto,
-    initial,
-    inherit,
-    unset,
-    undeclared,
-};
-
-pub const Inset = union(enum) {
-    px: f32,
-    percentage: f32,
-    auto,
     initial,
     inherit,
     unset,

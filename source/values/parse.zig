@@ -12,34 +12,60 @@ pub const Source = struct {
     end: ComponentTree.Size,
     position: ComponentTree.Size,
 
-    pub const PrimitiveType = union(enum) {
-        keyword,
+    pub const Value = union(enum) {
+        unknown,
+        keyword: noreturn,
         integer: i32,
-        invalid,
+        percentage: f32,
+        dimension: Dimension,
+
+        pub const Dimension = struct { number: f32, unit_position: ComponentTree.Size };
     };
+
+    pub const Type = std.meta.Tag(Value);
 
     pub const Item = struct {
         position: ComponentTree.Size,
-        type: PrimitiveType,
+        type: Type,
     };
+
+    fn getType(source: *const Source, pos: ComponentTree.Size) Type {
+        return switch (source.components.tag(pos)) {
+            .token_ident => .keyword,
+            .token_integer => .integer,
+            .token_percentage => .percentage,
+            .token_dimension => .dimension,
+            else => .unknown,
+        };
+    }
 
     pub fn next(source: *Source) ?Item {
         if (source.position == source.end) return null;
         defer source.position = source.components.nextSibling(source.position);
+        return Item{ .position = source.position, .type = source.getType(source.position) };
+    }
 
-        const @"type": PrimitiveType = switch (source.components.tag(source.position)) {
-            .token_ident => .keyword,
-            .token_integer => .{ .integer = source.components.extra(source.position).integer() },
-            else => .invalid,
-        };
-        return Item{ .position = source.position, .type = @"type" };
+    pub fn value(source: *const Source, comptime @"type": Type, pos: ComponentTree.Size) std.meta.fieldInfo(Value, @"type").type {
+        std.debug.assert(source.getType(pos) == @"type");
+        switch (comptime @"type") {
+            .keyword => @compileError("use source.mapKeyword() instead"),
+            .integer => return source.components.extra(pos).integer(),
+            .percentage => return source.components.extra(pos).number(),
+            .dimension => {
+                const number = source.components.extra(pos).number();
+                const unit_position = pos + 1;
+                return Value.Dimension{ .number = number, .unit_position = unit_position };
+            },
+            .unknown => return {},
+        }
     }
 
     /// Given that `position` belongs to a keyword value, map that keyword to the value given in `kvs`,
     /// using case-insensitive matching. If there was no match, null is returned.
-    pub fn mapKeyword(source: Source, pos: ComponentTree.Size, comptime Type: type, kvs: []const ParserSource.KV(Type)) ?Type {
+    pub fn mapKeyword(source: Source, pos: ComponentTree.Size, comptime ResultType: type, kvs: []const ParserSource.KV(ResultType)) ?ResultType {
+        std.debug.assert(source.getType(pos) == .keyword);
         const location = source.components.location(pos);
-        return source.parser_source.mapIdentifier(location, Type, kvs);
+        return source.parser_source.mapIdentifier(location, ResultType, kvs);
     }
 };
 
@@ -72,12 +98,25 @@ test "css value parsing" {
     try testParsing(zIndex, "auto", .auto);
     try testParsing(zIndex, "9999999999999999", .{ .integer = 0 });
     try testParsing(zIndex, "-9999999999999999", .{ .integer = 0 });
+
+    try testParsing(lengthPercentage, "5px", .{ .px = 5 });
+    try testParsing(lengthPercentage, "5%", .{ .percentage = 5 });
+    try testParsing(lengthPercentage, "5", null);
 }
 
 pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const ParserSource.KV(Type)) ?Type {
     const keyword = source.next() orelse return null;
     if (keyword.type != .keyword) return null;
     return source.mapKeyword(keyword.position, Type, kvs);
+}
+
+pub fn length(source: *Source, dimension: Source.Value.Dimension, comptime Type: type) ?Type {
+    const number = dimension.number;
+    // TODO: consider using @unionInit()
+    // TODO: Source.Value.Dimension should store its unit as an enum rather than a source location
+    return source.mapKeyword(dimension.unit_position, Type, &.{
+        .{ "px", .{ .px = number } },
+    });
 }
 
 pub fn cssWideKeyword(
@@ -148,9 +187,48 @@ pub fn float(source: *Source) ?values.Float {
 pub fn zIndex(source: *Source) ?values.ZIndex {
     const auto_or_int = source.next() orelse return null;
     switch (auto_or_int.type) {
-        .integer => |integer| return values.ZIndex{ .integer = integer },
+        .integer => return values.ZIndex{ .integer = source.value(.integer, auto_or_int.position) },
         .keyword => return source.mapKeyword(auto_or_int.position, values.ZIndex, &.{
             .{ "auto", .auto },
+        }),
+        else => return null,
+    }
+}
+
+// Spec: CSS 2.2
+// <length> | <percentage>
+pub fn lengthPercentage(source: *Source) ?values.LengthPercentage {
+    const item = source.next() orelse return null;
+    switch (item.type) {
+        .dimension => return length(source, source.value(.dimension, item.position), values.LengthPercentage),
+        .percentage => return .{ .percentage = source.value(.percentage, item.position) },
+        else => return null,
+    }
+}
+
+// Spec: CSS 2.2
+// <length> | <percentage> | auto
+pub fn lengthPercentageAuto(source: *Source) ?values.LengthPercentageAuto {
+    const item = source.next() orelse return null;
+    switch (item.type) {
+        .dimension => return length(source, source.value(.dimension, item.position), values.LengthPercentageAuto),
+        .percentage => return .{ .percentage = source.value(.percentage, item.position) },
+        .keyword => return source.mapKeyword(item.position, values.LengthPercentageAuto, &.{
+            .{ "auto", .auto },
+        }),
+        else => return null,
+    }
+}
+
+// Spec: CSS 2.2
+// <length> | <percentage> | none
+pub fn maxSize(source: *Source) ?values.MaxSize {
+    const item = source.next() orelse return null;
+    switch (item.type) {
+        .dimension => return length(source, source.value(.dimension, item.position), values.MaxSize),
+        .percentage => return .{ .percentage = source.value(.percentage, item.position) },
+        .keyword => return source.mapKeyword(item.position, values.MaxSize, &.{
+            .{ "none", .none },
         }),
         else => return null,
     }

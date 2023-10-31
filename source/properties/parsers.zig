@@ -3,6 +3,7 @@ const values = zss.values;
 
 const aggregates = zss.properties.aggregates;
 const BoxStyle = aggregates.BoxStyle;
+const ContentWidth = aggregates.ContentWidth;
 const ZIndex = aggregates.ZIndex;
 
 pub const ParserFnInput = union(enum) {
@@ -60,4 +61,17 @@ pub fn zIndex(input: ParserFnInput) ?ZIndex {
         },
     }
     return z_index;
+}
+
+pub fn width(input: ParserFnInput) ?ContentWidth {
+    var content_width = ContentWidth{};
+    switch (input) {
+        .css_wide_keyword => |cwk| {
+            cwk.apply(.{&content_width.width});
+        },
+        .source => |source| {
+            content_width.width = values.parse.lengthPercentageAuto(source) orelse return null;
+        },
+    }
+    return content_width;
 }

@@ -108,12 +108,14 @@ const DeclarationName = enum {
     position,
     float,
     z_index,
+    width,
 
     fn aggregateTag(comptime name: DeclarationName) aggregates.Tag {
         return switch (name) {
             .all => @compileError("'aggregateTag' not valid with argument 'all'"),
             .display, .position, .float => .box_style,
             .z_index => .z_index,
+            .width => .content_width,
         };
     }
 
@@ -124,6 +126,7 @@ const DeclarationName = enum {
             .position => parsers.position,
             .float => parsers.float,
             .z_index => parsers.zIndex,
+            .width => parsers.width,
         };
     }
 };
@@ -140,6 +143,7 @@ fn parseDeclarationName(
         .{ "position", .position },
         .{ "float", .float },
         .{ "z-index", .z_index },
+        .{ "width", .width },
     });
 }
 
