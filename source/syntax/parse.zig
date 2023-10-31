@@ -15,6 +15,9 @@ const tokenize = @import("./tokenize.zig");
 const Token = tokenize.Token;
 
 /// A source of `Token`.
+
+// TODO: After parsing, this struct "lingers around" because it is used to get information that isn't stored in `ComponentTree`.
+//       A possibly better approach is to store said information into `ComponentTree` (by copying it), eliminating the need for this object.
 pub const Source = struct {
     inner: tokenize.Source,
 
@@ -37,10 +40,12 @@ pub const Source = struct {
         }
     }
 
+    /// `start` must be the location of a `.token_ident` component
     pub fn identTokenIterator(source: Source, start: Location) IdentSequenceIterator {
         return .{ .inner = source.inner.identTokenIterator(start) };
     }
 
+    /// `start` must be the location of a `.token_hash_id` component
     pub fn hashIdTokenIterator(source: Source, start: Location) IdentSequenceIterator {
         return .{ .inner = source.inner.hashIdTokenIterator(start) };
     }
@@ -73,6 +78,7 @@ pub const IdentSequenceIterator = struct {
     }
 };
 
+/// Implements CSS Syntax Level 3 Section 9 "Parse a CSS stylesheet"
 pub fn parseCssStylesheet(source: Source, allocator: Allocator) !ComponentTree {
     var parser = try Parser.init(source, allocator);
     defer parser.deinit();
@@ -84,6 +90,7 @@ pub fn parseCssStylesheet(source: Source, allocator: Allocator) !ComponentTree {
     return parser.finish();
 }
 
+/// Implements CSS Syntax Level 3 Section 5.3.10 "Parse a list of component values"
 pub fn parseListOfComponentValues(source: Source, allocator: Allocator) !ComponentTree {
     var parser = try Parser.init(source, allocator);
     defer parser.deinit();
@@ -169,16 +176,18 @@ const Parser = struct {
         return tree;
     }
 
-    fn allocateComponent(parser: *Parser, component: Component) !ComponentTree.Size {
+    /// Returns the index of the new component
+    fn appendComponent(parser: *Parser, component: Component) !ComponentTree.Size {
         if (parser.tree.components.len == std.math.maxInt(ComponentTree.Size)) return error.Overflow;
         const index = @as(ComponentTree.Size, @intCast(parser.tree.components.len));
         try parser.tree.components.append(parser.allocator, component);
         return index;
     }
 
+    /// Appends any object that can be represented with a single component
     fn appendBasicComponent(parser: *Parser, tag: Component.Tag, location: Source.Location, extra: Component.Extra) !void {
         const index = @as(ComponentTree.Size, @intCast(parser.tree.components.len));
-        _ = try parser.allocateComponent(.{
+        _ = try parser.appendComponent(.{
             .next_sibling = index + 1,
             .tag = tag,
             .location = location,
@@ -189,13 +198,13 @@ const Parser = struct {
     fn appendDimension(parser: *Parser, location: Source.Location, dimension: Token.Dimension) !void {
         // TODO: Using two components for a dimension is overkill. Find a way to make it just one.
         const index = @as(ComponentTree.Size, @intCast(parser.tree.components.len));
-        _ = try parser.allocateComponent(.{
+        _ = try parser.appendComponent(.{
             .next_sibling = index + 2,
             .tag = .token_dimension,
             .location = location,
             .extra = Extra.make(@bitCast(dimension.value)),
         });
-        _ = try parser.allocateComponent(.{
+        _ = try parser.appendComponent(.{
             .next_sibling = index + 2,
             .tag = .token_ident,
             .location = dimension.unit_location,
@@ -204,7 +213,7 @@ const Parser = struct {
     }
 
     fn pushListOfRules(parser: *Parser, location: Source.Location, top_level: bool) !void {
-        const index = try parser.allocateComponent(.{
+        const index = try parser.appendComponent(.{
             .next_sibling = undefined,
             .tag = .rule_list,
             .location = location,
@@ -217,7 +226,7 @@ const Parser = struct {
     }
 
     fn pushListOfComponentValues(parser: *Parser, location: Source.Location) !void {
-        const index = try parser.allocateComponent(.{
+        const index = try parser.appendComponent(.{
             .next_sibling = undefined,
             .tag = .component_list,
             .location = location,
@@ -228,7 +237,7 @@ const Parser = struct {
 
     /// `location` must be the location of a <function-token>.
     fn pushFunction(parser: *Parser, location: Source.Location) !void {
-        const index = try parser.allocateComponent(.{
+        const index = try parser.appendComponent(.{
             .next_sibling = undefined,
             .tag = .function,
             .location = location,
@@ -245,7 +254,7 @@ const Parser = struct {
             .token_left_paren => .simple_block_paren,
             else => unreachable,
         };
-        const index = try parser.allocateComponent(.{
+        const index = try parser.appendComponent(.{
             .next_sibling = undefined,
             .tag = component_tag,
             .location = location,
@@ -272,7 +281,7 @@ const Parser = struct {
     /// `location` must be the location of the first token of the at-rule (i.e. the <at-keyword-token>).
     /// To finish this component, use `popAtRule`.
     fn pushAtRule(parser: *Parser, location: Source.Location) !void {
-        const index = try parser.allocateComponent(.{
+        const index = try parser.appendComponent(.{
             .next_sibling = undefined,
             .tag = .at_rule,
             .location = location,
@@ -290,7 +299,7 @@ const Parser = struct {
     /// `location` must be the location of the first token of the qualified rule.
     /// To finish this component, use either `popQualifiedRule` or `discardQualifiedRule`.
     fn pushQualifiedRule(parser: *Parser, location: Source.Location, is_style_rule: bool) !void {
-        const index = try parser.allocateComponent(.{
+        const index = try parser.appendComponent(.{
             .next_sibling = undefined,
             .tag = .qualified_rule,
             .location = location,
@@ -314,7 +323,7 @@ const Parser = struct {
     /// `location` must be the location of a <{-token>.
     /// To finish this component, use `popStyleBlock`.
     fn pushStyleBlock(parser: *Parser, location: Source.Location) !void {
-        const index = try parser.allocateComponent(.{
+        const index = try parser.appendComponent(.{
             .next_sibling = undefined,
             .tag = .style_block,
             .location = location,
@@ -330,20 +339,26 @@ const Parser = struct {
     }
 
     /// To finish this component, use `popDeclarationValue`.
-    fn pushDeclarationValue(parser: *Parser, location: Source.Location, previous_declaration: ComponentTree.Size) !void {
-        const index = try parser.allocateComponent(.{
+    fn pushDeclarationValue(
+        parser: *Parser,
+        location: Source.Location,
+        style_block: *Frame.StyleBlock,
+        previous_declaration: ComponentTree.Size,
+    ) !void {
+        const index = try parser.appendComponent(.{
             .next_sibling = undefined,
             .tag = undefined,
             .location = location,
             .extra = Extra.make(previous_declaration),
         });
         try parser.stack.append(parser.allocator, .{ .index = index, .data = .{ .declaration_value = .{} } });
+        style_block.index_of_last_declaration = index;
     }
 
     fn popDeclarationValue(parser: *Parser) void {
         const frame = parser.stack.pop();
-        var data = frame.data.declaration_value;
         const slice = parser.tree.slice();
+        var data = frame.data.declaration_value;
 
         const is_important = blk: {
             if (data.num_non_whitespace_components < 2) break :blk false;
@@ -505,10 +520,7 @@ fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location, data: 
                 return;
             },
             .token_ident => {
-                const last_declaration: ComponentTree.Size = @intCast(parser.tree.components.len);
-                const must_suspend = try consumeDeclaration(parser, location, saved_location, data.index_of_last_declaration);
-                if (must_suspend) {
-                    data.index_of_last_declaration = last_declaration;
+                if (try consumeDeclarationStart(parser, location, data, saved_location, data.index_of_last_declaration)) {
                     return;
                 }
             },
@@ -520,14 +532,14 @@ fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location, data: 
                 } else {
                     // NOTE: Parse error
                     location.* = saved_location;
-                    try discardDeclaration(parser, location);
+                    try seekToEndOfDeclaration(parser, location);
                 }
             },
         }
     }
 }
 
-fn discardDeclaration(parser: *Parser, location: *Source.Location) !void {
+fn seekToEndOfDeclaration(parser: *Parser, location: *Source.Location) !void {
     while (true) {
         const saved_location = location.*;
         const tag = parser.source.next(location);
@@ -542,8 +554,14 @@ fn discardDeclaration(parser: *Parser, location: *Source.Location) !void {
     }
 }
 
-/// Returns true if there is a valid declaration.
-fn consumeDeclaration(parser: *Parser, location: *Source.Location, name_location: Source.Location, previous_declaration: ComponentTree.Size) !bool {
+/// If a declaration's start can be successfully parsed, this pushes a new frame onto the parser's stack and returns `true`.
+fn consumeDeclarationStart(
+    parser: *Parser,
+    location: *Source.Location,
+    style_block: *Parser.Frame.StyleBlock,
+    name_location: Source.Location,
+    previous_declaration: ComponentTree.Size,
+) !bool {
     while (true) {
         const saved_location = location.*;
         const tag = parser.source.next(location);
@@ -565,7 +583,7 @@ fn consumeDeclaration(parser: *Parser, location: *Source.Location, name_location
             .token_whitespace => {},
             else => {
                 location.* = saved_location;
-                try parser.pushDeclarationValue(name_location, previous_declaration);
+                try parser.pushDeclarationValue(name_location, style_block, previous_declaration);
                 return true;
             },
         }

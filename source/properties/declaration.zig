@@ -60,6 +60,7 @@ fn parseDeclaration(
 ) !void {
     if (cascaded.all != null) return;
 
+    // TODO: If this property has already been declared, skip parsing a value entirely.
     const declaration_name = parseDeclarationName(components, parser_source, declaration_index) orelse return;
     if (declaration_name == .all) {
         return parseAllDeclaration(cascaded, components, parser_source, declaration_index);
