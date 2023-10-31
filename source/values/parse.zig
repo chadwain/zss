@@ -102,6 +102,18 @@ test "css value parsing" {
     try testParsing(lengthPercentage, "5px", .{ .px = 5 });
     try testParsing(lengthPercentage, "5%", .{ .percentage = 5 });
     try testParsing(lengthPercentage, "5", null);
+    try testParsing(lengthPercentage, "auto", null);
+
+    try testParsing(lengthPercentageAuto, "5px", .{ .px = 5 });
+    try testParsing(lengthPercentageAuto, "5%", .{ .percentage = 5 });
+    try testParsing(lengthPercentageAuto, "5", null);
+    try testParsing(lengthPercentageAuto, "auto", .auto);
+
+    try testParsing(maxSize, "5px", .{ .px = 5 });
+    try testParsing(maxSize, "5%", .{ .percentage = 5 });
+    try testParsing(maxSize, "5", null);
+    try testParsing(maxSize, "auto", null);
+    try testParsing(maxSize, "none", .none);
 }
 
 pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const ParserSource.KV(Type)) ?Type {

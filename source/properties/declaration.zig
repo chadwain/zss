@@ -109,13 +109,15 @@ const DeclarationName = enum {
     float,
     z_index,
     width,
+    min_width,
+    max_width,
 
     fn aggregateTag(comptime name: DeclarationName) aggregates.Tag {
         return switch (name) {
             .all => @compileError("'aggregateTag' not valid with argument 'all'"),
             .display, .position, .float => .box_style,
             .z_index => .z_index,
-            .width => .content_width,
+            .width, .min_width, .max_width => .content_width,
         };
     }
 
@@ -127,6 +129,8 @@ const DeclarationName = enum {
             .float => parsers.float,
             .z_index => parsers.zIndex,
             .width => parsers.width,
+            .min_width => parsers.minWidth,
+            .max_width => parsers.maxWidth,
         };
     }
 };
@@ -136,6 +140,7 @@ fn parseDeclarationName(
     parser_source: zss.syntax.parse.Source,
     declaration_index: ComponentTree.Size,
 ) ?DeclarationName {
+    // NOTE: This is the "official" place where property names get mapped to an internal representation.
     const location = components.location(declaration_index);
     return parser_source.mapIdentifier(location, DeclarationName, &.{
         .{ "all", .all },
@@ -144,6 +149,8 @@ fn parseDeclarationName(
         .{ "float", .float },
         .{ "z-index", .z_index },
         .{ "width", .width },
+        .{ "min-width", .min_width },
+        .{ "max-width", .max_width },
     });
 }
 

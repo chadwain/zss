@@ -11,67 +11,46 @@ pub const ParserFnInput = union(enum) {
     css_wide_keyword: values.CssWideKeyword,
 };
 
-pub fn display(input: ParserFnInput) ?BoxStyle {
-    var box_style = BoxStyle{};
+/// Can be used to parse most CSS properties:
+///     It cannot parse the 'all' property.
+///     It cannot parse shorthand properties.
+fn genericParser(input: ParserFnInput, comptime Aggregate: type, comptime field_name: []const u8, comptime parseFn: anytype) ?Aggregate {
+    var aggregate = Aggregate{};
     switch (input) {
         .css_wide_keyword => |cwk| {
-            cwk.apply(.{&box_style.display});
+            cwk.apply(.{&@field(aggregate, field_name)});
         },
         .source => |source| {
-            box_style.display = values.parse.display(source) orelse return null;
+            @field(aggregate, field_name) = parseFn(source) orelse return null;
         },
     }
-    return box_style;
+    return aggregate;
+}
+
+pub fn display(input: ParserFnInput) ?BoxStyle {
+    return genericParser(input, BoxStyle, "display", values.parse.display);
 }
 
 pub fn position(input: ParserFnInput) ?BoxStyle {
-    var box_style = BoxStyle{};
-    switch (input) {
-        .css_wide_keyword => |cwk| {
-            cwk.apply(.{&box_style.position});
-        },
-        .source => |source| {
-            box_style.position = values.parse.position(source) orelse return null;
-        },
-    }
-    return box_style;
+    return genericParser(input, BoxStyle, "position", values.parse.position);
 }
 
 pub fn float(input: ParserFnInput) ?BoxStyle {
-    var box_style = BoxStyle{};
-    switch (input) {
-        .css_wide_keyword => |cwk| {
-            cwk.apply(.{&box_style.float});
-        },
-        .source => |source| {
-            box_style.float = values.parse.float(source) orelse return null;
-        },
-    }
-    return box_style;
+    return genericParser(input, BoxStyle, "float", values.parse.float);
 }
 
 pub fn zIndex(input: ParserFnInput) ?ZIndex {
-    var z_index = ZIndex{};
-    switch (input) {
-        .css_wide_keyword => |cwk| {
-            cwk.apply(.{&z_index.z_index});
-        },
-        .source => |source| {
-            z_index.z_index = values.parse.zIndex(source) orelse return null;
-        },
-    }
-    return z_index;
+    return genericParser(input, ZIndex, "z_index", values.parse.zIndex);
 }
 
 pub fn width(input: ParserFnInput) ?ContentWidth {
-    var content_width = ContentWidth{};
-    switch (input) {
-        .css_wide_keyword => |cwk| {
-            cwk.apply(.{&content_width.width});
-        },
-        .source => |source| {
-            content_width.width = values.parse.lengthPercentageAuto(source) orelse return null;
-        },
-    }
-    return content_width;
+    return genericParser(input, ContentWidth, "width", values.parse.lengthPercentageAuto);
+}
+
+pub fn minWidth(input: ParserFnInput) ?ContentWidth {
+    return genericParser(input, ContentWidth, "min_width", values.parse.lengthPercentage);
+}
+
+pub fn maxWidth(input: ParserFnInput) ?ContentWidth {
+    return genericParser(input, ContentWidth, "max_width", values.parse.maxSize);
 }
