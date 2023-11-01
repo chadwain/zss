@@ -114,6 +114,11 @@ test "css value parsing" {
     try testParsing(maxSize, "5", null);
     try testParsing(maxSize, "auto", null);
     try testParsing(maxSize, "none", .none);
+
+    try testParsing(borderWidth, "5px", .{ .px = 5 });
+    try testParsing(borderWidth, "thin", .thin);
+    try testParsing(borderWidth, "medium", .medium);
+    try testParsing(borderWidth, "thick", .thick);
 }
 
 pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const ParserSource.KV(Type)) ?Type {
@@ -241,6 +246,21 @@ pub fn maxSize(source: *Source) ?values.MaxSize {
         .percentage => return .{ .percentage = source.value(.percentage, item.position) },
         .keyword => return source.mapKeyword(item.position, values.MaxSize, &.{
             .{ "none", .none },
+        }),
+        else => return null,
+    }
+}
+
+// Spec: CSS 2.2
+// Syntax: <length> | thin | medium | thick
+pub fn borderWidth(source: *Source) ?values.BorderWidth {
+    const item = source.next() orelse return null;
+    switch (item.type) {
+        .dimension => return length(source, source.value(.dimension, item.position), values.BorderWidth),
+        .keyword => return source.mapKeyword(item.position, values.BorderWidth, &.{
+            .{ "thin", .thin },
+            .{ "medium", .medium },
+            .{ "thick", .thick },
         }),
         else => return null,
     }

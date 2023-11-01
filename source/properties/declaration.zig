@@ -111,6 +111,25 @@ const DeclarationName = enum {
     width,
     min_width,
     max_width,
+    height,
+    min_height,
+    max_height,
+    padding_left,
+    padding_right,
+    padding_top,
+    padding_bottom,
+    border_left_width,
+    border_right_width,
+    border_top_width,
+    border_bottom_width,
+    margin_left,
+    margin_right,
+    margin_top,
+    margin_bottom,
+    left,
+    right,
+    top,
+    bottom,
 
     fn aggregateTag(comptime name: DeclarationName) aggregates.Tag {
         return switch (name) {
@@ -118,6 +137,10 @@ const DeclarationName = enum {
             .display, .position, .float => .box_style,
             .z_index => .z_index,
             .width, .min_width, .max_width => .content_width,
+            .height, .min_height, .max_height => .content_height,
+            .padding_left, .padding_right, .border_left_width, .border_right_width, .margin_left, .margin_right => .horizontal_edges,
+            .padding_top, .padding_bottom, .border_top_width, .border_bottom_width, .margin_top, .margin_bottom => .vertical_edges,
+            .left, .right, .top, .bottom => .insets,
         };
     }
 
@@ -131,6 +154,25 @@ const DeclarationName = enum {
             .width => parsers.width,
             .min_width => parsers.minWidth,
             .max_width => parsers.maxWidth,
+            .height => parsers.height,
+            .min_height => parsers.minHeight,
+            .max_height => parsers.maxHeight,
+            .padding_left => parsers.paddingLeft,
+            .padding_right => parsers.paddingRight,
+            .padding_top => parsers.paddingTop,
+            .padding_bottom => parsers.paddingBottom,
+            .border_left_width => parsers.borderLeftWidth,
+            .border_right_width => parsers.borderRightWidth,
+            .border_top_width => parsers.borderTopWidth,
+            .border_bottom_width => parsers.borderBottomWidth,
+            .margin_left => parsers.marginLeft,
+            .margin_right => parsers.marginRight,
+            .margin_top => parsers.marginTop,
+            .margin_bottom => parsers.marginBottom,
+            .left => parsers.left,
+            .right => parsers.right,
+            .top => parsers.top,
+            .bottom => parsers.bottom,
         };
     }
 };
@@ -151,6 +193,25 @@ fn parseDeclarationName(
         .{ "width", .width },
         .{ "min-width", .min_width },
         .{ "max-width", .max_width },
+        .{ "height", .height },
+        .{ "min-height", .min_height },
+        .{ "max-height", .max_height },
+        .{ "padding-left", .padding_left },
+        .{ "padding-right", .padding_right },
+        .{ "padding-top", .padding_top },
+        .{ "padding-bottom", .padding_bottom },
+        .{ "border-left-width", .border_left_width },
+        .{ "border-right-width", .border_right_width },
+        .{ "border-top-width", .border_top_width },
+        .{ "border-bottom-width", .border_bottom_width },
+        .{ "margin-left", .margin_left },
+        .{ "margin-right", .margin_right },
+        .{ "margin-top", .margin_top },
+        .{ "margin-bottom", .margin_bottom },
+        .{ "left", .left },
+        .{ "right", .right },
+        .{ "top", .top },
+        .{ "bottom", .bottom },
     });
 }
 
@@ -158,16 +219,48 @@ test {
     const allocator = std.testing.allocator;
     const input =
         \\test {
-        \\  display: block;
         \\  all: unset;
+        \\
+        \\  unknown: inherit;
+        \\  unknown: invalid;
+        \\
+        \\  display: block;
         \\  display: inherit;
         \\  display: inline;
         \\  display: invalid;
-        \\  unknown: inherit;
-        \\  unknown: invalid;
         \\  position: relative;
         \\  position: neutral;
         \\  float: none;
+        \\
+        \\  width: 100px;
+        \\  width: auto;
+        \\  min-width: 7%;
+        \\  max-width: none;
+        \\  max-width: never;
+        \\
+        \\  height: 10%;
+        \\  min-height: auto;
+        \\  max-height: none;
+        \\
+        \\  padding-left: 0;
+        \\  padding-right: 0px;
+        \\  padding-top: -7;
+        \\  padding-bottom: -7px;
+        \\
+        \\  border-left-width: 100px;
+        \\  border-right-width: thin;
+        \\  border-top-width: medium;
+        \\  border-bottom-width: thick;
+        \\
+        \\  margin-left: auto;
+        \\  margin-right: 100yards;
+        \\  margin-top: 0px;
+        \\  margin-bottom: 0px;
+        \\
+        \\  left: auto;
+        \\  right: auto;
+        \\  top: 100px;
+        \\  bottom: unset;
         \\}
     ;
     const source = ParserSource.init(try zss.syntax.tokenize.Source.init(input));
@@ -185,10 +278,56 @@ test {
 
     const expectEqual = std.testing.expectEqual;
     const values = zss.values;
+
     const all = decls.normal.all orelse return error.TestFailure;
     try expectEqual(values.CssWideKeyword.unset, all);
-    const box_style_declared_values = decls.normal.get(.box_style) orelse return error.TestFailure;
-    try expectEqual(values.Display.inline_, box_style_declared_values.display);
-    try expectEqual(values.Position.relative, box_style_declared_values.position);
-    try expectEqual(values.Float.none, box_style_declared_values.float);
+
+    const box_style = decls.normal.get(.box_style) orelse return error.TestFailure;
+    try expectEqual(aggregates.BoxStyle{
+        .display = .inline_,
+        .position = .relative,
+        .float = .none,
+    }, box_style);
+
+    const content_width = decls.normal.get(.content_width) orelse return error.TestFailure;
+    try expectEqual(aggregates.ContentWidth{
+        .width = .auto,
+        .min_width = .{ .percentage = 7 },
+        .max_width = .none,
+    }, content_width);
+
+    const content_height = decls.normal.get(.content_height) orelse return error.TestFailure;
+    try expectEqual(aggregates.ContentHeight{
+        .height = .{ .percentage = 10 },
+        .min_height = .undeclared,
+        .max_height = .none,
+    }, content_height);
+
+    const horizontal_edges = decls.normal.get(.horizontal_edges) orelse return error.TestFailure;
+    try expectEqual(aggregates.HorizontalEdges{
+        .padding_left = .undeclared,
+        .padding_right = .{ .px = 0 },
+        .border_left = .{ .px = 100 },
+        .border_right = .thin,
+        .margin_left = .auto,
+        .margin_right = .undeclared,
+    }, horizontal_edges);
+
+    const vertical_edges = decls.normal.get(.vertical_edges) orelse return error.TestFailure;
+    try expectEqual(aggregates.VerticalEdges{
+        .padding_top = .undeclared,
+        .padding_bottom = .{ .px = -7 },
+        .border_top = .medium,
+        .border_bottom = .thick,
+        .margin_top = .{ .px = 0 },
+        .margin_bottom = .{ .px = 0 },
+    }, vertical_edges);
+
+    const insets = decls.normal.get(.insets) orelse return error.TestFailure;
+    try expectEqual(aggregates.Insets{
+        .left = .auto,
+        .right = .auto,
+        .top = .{ .px = 100 },
+        .bottom = .unset,
+    }, insets);
 }
