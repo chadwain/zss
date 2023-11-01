@@ -69,6 +69,21 @@ pub const Source = struct {
     }
 };
 
+/// Maps a value type to the function that will be used to parse it.
+pub fn typeToParseFn(comptime Type: type) fn (*Source) ?Type {
+    return switch (Type) {
+        values.Display => display,
+        values.Position => position,
+        values.Float => float,
+        values.ZIndex => zIndex,
+        values.LengthPercentage => lengthPercentage,
+        values.LengthPercentageAuto => lengthPercentageAuto,
+        values.BorderWidth => borderWidth,
+        values.MaxSize => maxSize,
+        else => @compileError("Unknown CSS value type: " ++ @typeName(Type)),
+    };
+}
+
 fn testParsing(parseFn: anytype, input: []const u8, expected: @typeInfo(@TypeOf(parseFn)).Fn.return_type.?) !void {
     const allocator = std.testing.allocator;
 

@@ -25,16 +25,41 @@ pub fn add(cascaded: *CascadedValues, arena: *ArenaAllocator, comptime tag: Aggr
     errdefer cascaded.map.swapRemoveAt(gop_result.index);
 
     const Aggregate = tag.Value();
-    const aggregate_ptr = if (gop_result.found_existing)
-        getAggregatePtr(tag, gop_result.value_ptr)
-    else
-        try initAggregate(arena, tag, gop_result.value_ptr);
-
-    inline for (std.meta.fields(Aggregate)) |field_info| {
-        const aggregate_field_ptr = &@field(aggregate_ptr, field_info.name);
-        if (aggregate_field_ptr.* == .undeclared) {
-            aggregate_field_ptr.* = @field(value, field_info.name);
+    if (gop_result.found_existing) {
+        const aggregate_ptr = getAggregatePtr(tag, gop_result.value_ptr);
+        inline for (std.meta.fields(Aggregate)) |field_info| {
+            const aggregate_field_ptr = &@field(aggregate_ptr, field_info.name);
+            if (aggregate_field_ptr.* == .undeclared) {
+                aggregate_field_ptr.* = @field(value, field_info.name);
+            }
         }
+    } else {
+        try initAggregate(arena, tag, gop_result.value_ptr, value);
+    }
+}
+
+pub fn addValue(
+    cascaded: *CascadedValues,
+    arena: *ArenaAllocator,
+    comptime tag: AggregateTag,
+    comptime field: std.meta.FieldEnum(tag.Value()),
+    value: std.meta.FieldType(tag.Value(), field),
+) !void {
+    if (cascaded.all != null) return;
+
+    const gop_result = try cascaded.map.getOrPut(arena.allocator(), tag);
+    errdefer cascaded.map.swapRemoveAt(gop_result.index);
+
+    if (gop_result.found_existing) {
+        const aggregate_ptr = getAggregatePtr(tag, gop_result.value_ptr);
+        const aggregate_field_ptr = &@field(aggregate_ptr, @tagName(field));
+        if (aggregate_field_ptr.* == .undeclared) {
+            aggregate_field_ptr.* = value;
+        }
+    } else {
+        var aggregate = tag.Value(){};
+        @field(aggregate, @tagName(field)) = value;
+        try initAggregate(arena, tag, gop_result.value_ptr, aggregate);
     }
 }
 
@@ -53,15 +78,14 @@ pub fn getByIndex(cascaded: CascadedValues, comptime tag: AggregateTag, index: u
     return getAggregatePtr(tag, &cascaded.map.values()[index]).*;
 }
 
-fn initAggregate(arena: *ArenaAllocator, comptime tag: AggregateTag, map_value_ptr: *usize) !*tag.Value() {
+fn initAggregate(arena: *ArenaAllocator, comptime tag: AggregateTag, map_value_ptr: *usize, initial_value: tag.Value()) !void {
     const Aggregate = tag.Value();
     if (!canFitWithinUsize(Aggregate)) {
         const aggregate_ptr = try arena.allocator().create(Aggregate);
         map_value_ptr.* = @intFromPtr(aggregate_ptr);
     }
     const aggregate_ptr = getAggregatePtr(tag, map_value_ptr);
-    aggregate_ptr.* = .{};
-    return aggregate_ptr;
+    aggregate_ptr.* = initial_value;
 }
 
 fn getAggregatePtr(comptime tag: AggregateTag, map_value_ptr: *usize) *tag.Value() {
