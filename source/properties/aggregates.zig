@@ -8,7 +8,7 @@
 //! /// <field-name> -> <CSS-property-name>
 
 const zss = @import("../../zss.zig");
-const values = zss.values;
+const types = zss.values.types;
 
 pub const Tag = enum {
     box_style,
@@ -82,12 +82,12 @@ pub const Tag = enum {
 
 /// text -> Does not correspond to any CSS property. Instead it represents the text of a text element.
 pub const Text = struct {
-    text: values.Text,
+    text: types.Text,
 };
 
 /// font -> Does not correspond to any CSS property. Instead it represents a font object.
 pub const Font = struct {
-    font: values.Font = .undeclared,
+    font: types.Font = .undeclared,
 
     pub const initial_values = Font{
         .font = .zss_default,
@@ -98,9 +98,9 @@ pub const Font = struct {
 /// position -> position
 /// float    -> float
 pub const BoxStyle = struct {
-    display: values.Display = .undeclared,
-    position: values.Position = .undeclared,
-    float: values.Float = .undeclared,
+    display: types.Display = .undeclared,
+    position: types.Position = .undeclared,
+    float: types.Float = .undeclared,
 
     pub const initial_values = BoxStyle{
         .display = .inline_,
@@ -113,9 +113,9 @@ pub const BoxStyle = struct {
 /// min_width -> min-width
 /// max_width -> max-width
 pub const ContentWidth = struct {
-    width: values.Size = .undeclared,
-    min_width: values.MinSize = .undeclared,
-    max_width: values.MaxSize = .undeclared,
+    width: types.Size = .undeclared,
+    min_width: types.MinSize = .undeclared,
+    max_width: types.MaxSize = .undeclared,
 
     pub const initial_values = ContentWidth{
         .width = .auto,
@@ -128,9 +128,9 @@ pub const ContentWidth = struct {
 /// min_height -> min-height
 /// max_height -> max-height
 pub const ContentHeight = struct {
-    height: values.Size = .undeclared,
-    min_height: values.MinSize = .undeclared,
-    max_height: values.MaxSize = .undeclared,
+    height: types.Size = .undeclared,
+    min_height: types.MinSize = .undeclared,
+    max_height: types.MaxSize = .undeclared,
 
     pub const initial_values = ContentHeight{
         .height = .auto,
@@ -146,12 +146,12 @@ pub const ContentHeight = struct {
 /// margin_left   -> margin-left
 /// margin_right  -> margin-right
 pub const HorizontalEdges = struct {
-    padding_left: values.Padding = .undeclared,
-    padding_right: values.Padding = .undeclared,
-    border_left: values.BorderWidth = .undeclared,
-    border_right: values.BorderWidth = .undeclared,
-    margin_left: values.Margin = .undeclared,
-    margin_right: values.Margin = .undeclared,
+    padding_left: types.Padding = .undeclared,
+    padding_right: types.Padding = .undeclared,
+    border_left: types.BorderWidth = .undeclared,
+    border_right: types.BorderWidth = .undeclared,
+    margin_left: types.Margin = .undeclared,
+    margin_right: types.Margin = .undeclared,
 
     pub const initial_values = HorizontalEdges{
         .padding_left = .{ .px = 0 },
@@ -170,12 +170,12 @@ pub const HorizontalEdges = struct {
 /// margin_top     -> margin-top
 /// margin_bottom  -> margin-bottom
 pub const VerticalEdges = struct {
-    padding_top: values.Padding = .undeclared,
-    padding_bottom: values.Padding = .undeclared,
-    border_top: values.BorderWidth = .undeclared,
-    border_bottom: values.BorderWidth = .undeclared,
-    margin_top: values.Margin = .undeclared,
-    margin_bottom: values.Margin = .undeclared,
+    padding_top: types.Padding = .undeclared,
+    padding_bottom: types.Padding = .undeclared,
+    border_top: types.BorderWidth = .undeclared,
+    border_bottom: types.BorderWidth = .undeclared,
+    margin_top: types.Margin = .undeclared,
+    margin_bottom: types.Margin = .undeclared,
 
     pub const initial_values = VerticalEdges{
         .padding_top = .{ .px = 0 },
@@ -189,7 +189,7 @@ pub const VerticalEdges = struct {
 
 /// z_index -> z-index
 pub const ZIndex = struct {
-    z_index: values.ZIndex = .undeclared,
+    z_index: types.ZIndex = .undeclared,
 
     pub const initial_values = ZIndex{
         .z_index = .auto,
@@ -201,10 +201,10 @@ pub const ZIndex = struct {
 /// top    -> top
 /// bottom -> bottom
 pub const Insets = struct {
-    left: values.Inset = .undeclared,
-    right: values.Inset = .undeclared,
-    top: values.Inset = .undeclared,
-    bottom: values.Inset = .undeclared,
+    left: types.Inset = .undeclared,
+    right: types.Inset = .undeclared,
+    top: types.Inset = .undeclared,
+    bottom: types.Inset = .undeclared,
 
     pub const initial_values = Insets{
         .left = .auto,
@@ -216,10 +216,10 @@ pub const Insets = struct {
 
 /// color -> color
 pub const Color = struct {
-    color: values.Color = .undeclared,
+    color: types.Color = .undeclared,
 
     pub const initial_values = Color{
-        .color = values.Color.black,
+        .color = types.Color.black,
     };
 };
 
@@ -228,10 +228,10 @@ pub const Color = struct {
 /// top    -> border-top-color
 /// bottom -> border-bottom-color
 pub const BorderColors = struct {
-    left: values.Color = .undeclared,
-    right: values.Color = .undeclared,
-    top: values.Color = .undeclared,
-    bottom: values.Color = .undeclared,
+    left: types.Color = .undeclared,
+    right: types.Color = .undeclared,
+    top: types.Color = .undeclared,
+    bottom: types.Color = .undeclared,
 
     pub const initial_values = BorderColors{
         .left = .current_color,
@@ -246,10 +246,10 @@ pub const BorderColors = struct {
 /// top    -> border-top-style
 /// bottom -> border-bottom-style
 pub const BorderStyles = struct {
-    left: values.BorderStyle = .undeclared,
-    right: values.BorderStyle = .undeclared,
-    top: values.BorderStyle = .undeclared,
-    bottom: values.BorderStyle = .undeclared,
+    left: types.BorderStyle = .undeclared,
+    right: types.BorderStyle = .undeclared,
+    top: types.BorderStyle = .undeclared,
+    bottom: types.BorderStyle = .undeclared,
 
     pub const initial_values = BorderStyles{
         .left = .none,
@@ -262,11 +262,11 @@ pub const BorderStyles = struct {
 /// color -> background-color
 /// clip  -> background-clip
 pub const Background1 = struct {
-    color: values.Color = .undeclared,
-    clip: values.BackgroundClip = .undeclared,
+    color: types.Color = .undeclared,
+    clip: types.BackgroundClip = .undeclared,
 
     pub const initial_values = Background1{
-        .color = values.Color.transparent,
+        .color = types.Color.transparent,
         .clip = .border_box,
     };
 };
@@ -277,11 +277,11 @@ pub const Background1 = struct {
 /// origin   -> background-origin
 /// size     -> background-size
 pub const Background2 = struct {
-    image: values.BackgroundImage = .undeclared,
-    repeat: values.BackgroundRepeat = .undeclared,
-    position: values.BackgroundPosition = .undeclared,
-    origin: values.BackgroundOrigin = .undeclared,
-    size: values.BackgroundSize = .undeclared,
+    image: types.BackgroundImage = .undeclared,
+    repeat: types.BackgroundRepeat = .undeclared,
+    position: types.BackgroundPosition = .undeclared,
+    origin: types.BackgroundOrigin = .undeclared,
+    size: types.BackgroundSize = .undeclared,
 
     pub const initial_values = Background2{
         .image = .none,

@@ -279,7 +279,7 @@ pub fn zssRectToSdlRect(rect: ZssRect) sdl.SDL_Rect {
 }
 
 const bg_image_fns = struct {
-    fn getNaturalSize(data: *zss.values.BackgroundImage.Object.Data) zss.values.BackgroundImage.Object.Dimensions {
+    fn getNaturalSize(data: *zss.values.types.BackgroundImage.Object.Data) zss.values.types.BackgroundImage.Object.Dimensions {
         const texture = @as(*sdl.SDL_Texture, @ptrCast(data));
         var width: c_int = undefined;
         var height: c_int = undefined;
@@ -288,9 +288,9 @@ const bg_image_fns = struct {
     }
 };
 
-pub fn textureAsBackgroundImageObject(texture: *sdl.SDL_Texture) zss.values.BackgroundImage.Object {
+pub fn textureAsBackgroundImageObject(texture: *sdl.SDL_Texture) zss.values.types.BackgroundImage.Object {
     return .{
-        .data = @as(*zss.values.BackgroundImage.Object.Data, @ptrCast(texture)),
+        .data = @as(*zss.values.types.BackgroundImage.Object.Data, @ptrCast(texture)),
         .getNaturalSizeFn = bg_image_fns.getNaturalSize,
     };
 }

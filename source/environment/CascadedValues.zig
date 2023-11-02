@@ -1,7 +1,7 @@
 const zss = @import("../../zss.zig");
 const aggregates = zss.properties.aggregates;
 const AggregateTag = aggregates.Tag;
-const CssWideKeyword = zss.values.CssWideKeyword;
+const CssWideKeyword = zss.values.types.CssWideKeyword;
 
 const std = @import("std");
 const assert = std.debug.assert;

@@ -1,7 +1,7 @@
 //! Assigns unique indeces to CSS identifiers.
 
 const IdentifierSet = @This();
-const syntax = @import("./syntax.zig");
+const syntax = @import("../syntax.zig");
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

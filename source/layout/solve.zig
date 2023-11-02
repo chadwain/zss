@@ -1,8 +1,9 @@
 const std = @import("std");
+
 const zss = @import("../../zss.zig");
 const aggregates = zss.properties.aggregates;
-const used_values = @import("./used_values.zig");
 const units_per_pixel = used_values.units_per_pixel;
+const used_values = zss.used_values;
 const ZssUnit = used_values.ZssUnit;
 
 pub const LengthUnit = enum { px };
@@ -42,7 +43,7 @@ pub fn borderWidth(comptime thickness: BorderThickness) f32 {
     };
 }
 
-pub fn borderWidthMultiplier(border_style: zss.values.BorderStyle) f32 {
+pub fn borderWidthMultiplier(border_style: zss.values.types.BorderStyle) f32 {
     return switch (border_style) {
         .none, .hidden => 0,
         .initial, .inherit, .unset, .undeclared => unreachable,
@@ -50,7 +51,7 @@ pub fn borderWidthMultiplier(border_style: zss.values.BorderStyle) f32 {
     };
 }
 
-pub fn color(col: zss.values.Color, current_color: used_values.Color) used_values.Color {
+pub fn color(col: zss.values.types.Color, current_color: used_values.Color) used_values.Color {
     return switch (col) {
         .rgba => |rgba| rgba,
         .current_color => current_color,
@@ -58,7 +59,7 @@ pub fn color(col: zss.values.Color, current_color: used_values.Color) used_value
     };
 }
 
-pub fn currentColor(col: zss.values.Color) used_values.Color {
+pub fn currentColor(col: zss.values.types.Color) used_values.Color {
     return switch (col) {
         .rgba => |rgba| rgba,
         .current_color => unreachable,
@@ -94,7 +95,7 @@ pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: IsRoot) aggreg
 }
 
 /// Given a specified value for 'display', returns the computed value according to the table found in section 9.7 of CSS2.2.
-fn @"CSS2.2Section9.7Table"(display: zss.values.Display) zss.values.Display {
+fn @"CSS2.2Section9.7Table"(display: zss.values.types.Display) zss.values.types.Display {
     // TODO: This is incomplete, fill in the rest when more values of the 'display' property are supported.
     // TODO: There should be a slightly different version of this switch table for the root element. (See rule 4 of secion 9.7)
     return switch (display) {
@@ -115,7 +116,7 @@ pub fn borderColors(border_colors: aggregates.BorderColors, current_color: used_
 
 pub fn borderStyles(border_styles: aggregates.BorderStyles) void {
     const solveOne = struct {
-        fn f(border_style: zss.values.BorderStyle) void {
+        fn f(border_style: zss.values.types.BorderStyle) void {
             switch (border_style) {
                 .none, .hidden, .solid => {},
                 .initial, .inherit, .unset, .undeclared => unreachable,
@@ -170,7 +171,7 @@ pub fn background2(
         height: ZssUnit,
         has_aspect_ratio: bool,
 
-        fn init(obj: *zss.values.BackgroundImage.Object) !@This() {
+        fn init(obj: *zss.values.types.BackgroundImage.Object) !@This() {
             const n = obj.getNaturalSize();
             const width = try positiveLength(.px, n.width);
             const height = try positiveLength(.px, n.height);

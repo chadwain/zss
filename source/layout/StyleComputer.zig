@@ -222,7 +222,7 @@ pub fn popElement(self: *Self, comptime stage: Stage) void {
     }
 }
 
-pub fn getText(self: Self) zss.values.Text {
+pub fn getText(self: Self) zss.values.types.Text {
     return self.element_tree_slice.get(.text, self.this_element.element) orelse "";
 }
 

@@ -3,7 +3,7 @@ const expect = std.testing.expect;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const ReferencedSkipTree = zss.ReferencedSkipTree;
 const ElementHashMap = zss.util.ElementHashMap;
 
@@ -131,7 +131,7 @@ pub const Background2 = struct {
         y: Style = .None,
     };
 
-    image: ?*zss.values.BackgroundImage.Object.Data = null,
+    image: ?*zss.values.types.BackgroundImage.Object.Data = null,
     position: Position = .{},
     size: Size = .{},
     repeat: Repeat = .{},

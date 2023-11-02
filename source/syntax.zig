@@ -1,13 +1,11 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
-pub const tokenize = @import("./tokenize.zig");
-pub const parse = @import("./parse.zig");
-pub const IdentifierSet = @import("./IdentifierSet.zig");
+pub const tokenize = @import("syntax/tokenize.zig");
+pub const parse = @import("syntax/parse.zig");
+pub const IdentifierSet = @import("syntax/IdentifierSet.zig");
 
 comptime {
     if (@import("builtin").is_test) {
@@ -305,7 +303,7 @@ pub const ComponentTree = struct {
                 current: ComponentTree.Size,
                 end: ComponentTree.Size,
             };
-            var stack = ArrayListUnmanaged(Item){};
+            var stack = std.ArrayListUnmanaged(Item){};
             defer stack.deinit(allocator);
             try stack.append(allocator, .{ .current = 0, .end = c.items(.next_sibling)[0] });
 

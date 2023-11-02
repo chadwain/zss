@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const panic = std.debug.panic;
 const sdl = @import("SDL2");
-const util = @import("../../util/util.zig");
+const util = @import("../../../zss.zig").util;
 const Ratio = util.Ratio;
 
 pub fn rgbaMap(pixel_format: *sdl.SDL_PixelFormat, color: u32) [4]u8 {

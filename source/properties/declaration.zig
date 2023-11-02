@@ -1,22 +1,12 @@
 const zss = @import("../../zss.zig");
-const aggregates = zss.properties.aggregates;
 const CascadedValues = zss.ElementTree.CascadedValues;
 const ComponentTree = zss.syntax.ComponentTree;
-const CssWideKeyword = zss.values.CssWideKeyword;
-const ElementTree = Environment.ElementTree;
-const Environment = zss.Environment;
 const ParserSource = zss.syntax.parse.Source;
 const PropertyName = zss.properties.definitions.PropertyName;
-const Specificity = zss.selectors.Specificity;
 
 const std = @import("std");
 const assert = std.debug.assert;
-const panic = std.debug.panic;
-const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
-const MultiArrayList = std.MultiArrayList;
 
 pub const ParsedDeclarations = struct {
     normal: CascadedValues,
@@ -36,6 +26,8 @@ pub fn parseStyleBlockDeclarations(
     var important = CascadedValues{};
     // errdefer important.deinit(allocator);
 
+    // We parse declarations in the reverse order in which they appear.
+    // This is because later declarations will overwrite previous ones.
     var index = components.extra(style_block).index();
     while (index != 0) {
         defer index = components.extra(index).index();
@@ -101,8 +93,8 @@ fn parseDeclaration(
 }
 
 fn parsePropertyName(
-    components: zss.syntax.ComponentTree.Slice,
-    parser_source: zss.syntax.parse.Source,
+    components: ComponentTree.Slice,
+    parser_source: ParserSource,
     declaration_index: ComponentTree.Size,
 ) ?PropertyName {
     const map = comptime blk: {
@@ -180,10 +172,10 @@ test {
     const decls = try parseStyleBlockDeclarations(&arena, slice, source, style_block);
 
     const expectEqual = std.testing.expectEqual;
-    const values = zss.values;
+    const aggregates = zss.properties.aggregates;
 
     const all = decls.normal.all orelse return error.TestFailure;
-    try expectEqual(values.CssWideKeyword.unset, all);
+    try expectEqual(zss.values.types.CssWideKeyword.unset, all);
 
     const box_style = decls.normal.get(.box_style) orelse return error.TestFailure;
     try expectEqual(aggregates.BoxStyle{

@@ -1,4 +1,4 @@
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const Environment = zss.Environment;
 const NamespaceId = Environment.NamespaceId;
 const NameId = Environment.NameId;
@@ -9,7 +9,7 @@ const Element = ElementTree.Element;
 const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;
 
-const parse = @import("./parse.zig");
+const parse = @import("selectors/parse.zig");
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -208,7 +208,7 @@ pub const TypeSelector = struct {
 
         switch (selector.name) {
             .any => {},
-            .unspecified => return false,
+            .anonymous => return false,
             _ => if (selector.name != element_type.name) return false,
         }
 
@@ -220,9 +220,9 @@ test "matching type selectors" {
     const some_namespace = @as(NamespaceId, @enumFromInt(24));
     const some_name = @as(NameId, @enumFromInt(42));
 
-    const e1 = ElementTree.FqType{ .namespace = .none, .name = .unspecified };
+    const e1 = ElementTree.FqType{ .namespace = .none, .name = .anonymous };
     const e2 = ElementTree.FqType{ .namespace = .none, .name = some_name };
-    const e3 = ElementTree.FqType{ .namespace = some_namespace, .name = .unspecified };
+    const e3 = ElementTree.FqType{ .namespace = some_namespace, .name = .anonymous };
     const e4 = ElementTree.FqType{ .namespace = some_namespace, .name = some_name };
 
     const expect = std.testing.expect;
@@ -233,10 +233,10 @@ test "matching type selectors" {
     try expect(matches(.{ .namespace = .any, .name = .any }, e3));
     try expect(matches(.{ .namespace = .any, .name = .any }, e4));
 
-    try expect(!matches(.{ .namespace = .any, .name = .unspecified }, e1));
-    try expect(!matches(.{ .namespace = .any, .name = .unspecified }, e2));
-    try expect(!matches(.{ .namespace = .any, .name = .unspecified }, e3));
-    try expect(!matches(.{ .namespace = .any, .name = .unspecified }, e4));
+    try expect(!matches(.{ .namespace = .any, .name = .anonymous }, e1));
+    try expect(!matches(.{ .namespace = .any, .name = .anonymous }, e2));
+    try expect(!matches(.{ .namespace = .any, .name = .anonymous }, e3));
+    try expect(!matches(.{ .namespace = .any, .name = .anonymous }, e4));
 
     try expect(!matches(.{ .namespace = some_namespace, .name = .any }, e1));
     try expect(!matches(.{ .namespace = some_namespace, .name = .any }, e2));
@@ -248,10 +248,10 @@ test "matching type selectors" {
     try expect(!matches(.{ .namespace = .any, .name = some_name }, e3));
     try expect(matches(.{ .namespace = .any, .name = some_name }, e4));
 
-    try expect(!matches(.{ .namespace = some_namespace, .name = .unspecified }, e1));
-    try expect(!matches(.{ .namespace = some_namespace, .name = .unspecified }, e2));
-    try expect(!matches(.{ .namespace = some_namespace, .name = .unspecified }, e3));
-    try expect(!matches(.{ .namespace = some_namespace, .name = .unspecified }, e4));
+    try expect(!matches(.{ .namespace = some_namespace, .name = .anonymous }, e1));
+    try expect(!matches(.{ .namespace = some_namespace, .name = .anonymous }, e2));
+    try expect(!matches(.{ .namespace = some_namespace, .name = .anonymous }, e3));
+    try expect(!matches(.{ .namespace = some_namespace, .name = .anonymous }, e4));
 
     try expect(!matches(.{ .namespace = some_namespace, .name = some_name }, e1));
     try expect(!matches(.{ .namespace = some_namespace, .name = some_name }, e2));

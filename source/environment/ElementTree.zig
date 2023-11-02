@@ -254,7 +254,7 @@ pub const Slice = struct {
 
         pub fn default(comptime field: Field) field.Type() {
             return switch (field) {
-                .fq_type => FqType{ .namespace = .none, .name = .unspecified },
+                .fq_type => FqType{ .namespace = .none, .name = .anonymous },
                 .text => @as(Text, null),
                 .cascaded_values => CascadedValues{},
             };

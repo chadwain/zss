@@ -5,12 +5,13 @@ const assert = std.debug.assert;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Allocator = std.mem.Allocator;
 
-const used_values = @import("./used_values.zig");
+const zss = @import("../../zss.zig");
+const used_values = zss.used_values;
+const BlockBox = used_values.BlockBox;
+const BoxTree = used_values.BoxTree;
 const StackingContextIndex = used_values.StackingContextIndex;
 const StackingContextRef = used_values.StackingContextRef;
 const ZIndex = used_values.ZIndex;
-const BlockBox = used_values.BlockBox;
-const BoxTree = used_values.BoxTree;
 
 tag: ArrayListUnmanaged(Tag) = .{},
 index: ArrayListUnmanaged(StackingContextIndex) = .{},

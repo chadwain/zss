@@ -1,17 +1,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../../zss.zig");
-const toLowercase = zss.util.unicode.toLowercase;
-const syntax = @import("./syntax.zig");
+const syntax = zss.syntax;
+const tokenize = syntax.tokenize;
 const Component = syntax.Component;
-const Extra = Component.Extra;
 const ComponentTree = syntax.ComponentTree;
-const tokenize = @import("./tokenize.zig");
+const Extra = Component.Extra;
 const Token = tokenize.Token;
 
 /// A source of `Token`.
@@ -58,6 +55,7 @@ pub const Source = struct {
     /// to the value given in `kvs`, using case-insensitive matching. If there was no match, null is returned.
     pub fn mapIdentifier(source: Source, location: Location, comptime Type: type, kvs: []const KV(Type)) ?Type {
         // TODO: Use a hash map/trie or something
+        const toLowercase = zss.util.unicode.toLowercase;
         for (kvs) |kv| {
             var it = source.inner.identTokenIterator(location);
             for (kv[0]) |kw_codepoint| {

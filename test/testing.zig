@@ -148,7 +148,7 @@ pub const fonts = [_][:0]const u8{
     "demo/NotoSans-Regular.ttf",
 };
 
-pub const colors = [_]zss.values.Color{
+pub const colors = [_]zss.values.types.Color{
     .{ .rgba = 0x8795c7ff },
     .{ .rgba = 0x46bb4fff },
     .{ .rgba = 0xe0e0acff },

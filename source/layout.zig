@@ -1,16 +1,16 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 
-const normal = @import("./normal.zig");
-const cosmetic = @import("./cosmetic.zig");
-const StyleComputer = @import("./StyleComputer.zig");
-const StackingContexts = @import("./StackingContexts.zig");
+const normal = @import("layout/normal.zig");
+const cosmetic = @import("layout/cosmetic.zig");
+const StyleComputer = @import("layout/StyleComputer.zig");
+const StackingContexts = @import("layout/StackingContexts.zig");
 
-const used_values = @import("./used_values.zig");
+const used_values = zss.used_values;
 const BoxTree = used_values.BoxTree;
 const GeneratedBox = used_values.GeneratedBox;
 

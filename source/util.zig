@@ -3,12 +3,10 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const Element = zss.ElementTree.Element;
-const used_values = zss.used_values;
-const ZssRect = used_values.ZssRect;
 
-pub const unicode = @import("./unicode.zig");
+pub const unicode = @import("util/unicode.zig");
 
 fn expectSuccess(error_union: anytype, expected: @typeInfo(@TypeOf(error_union)).ErrorUnion.payload) !void {
     if (error_union) |success| {

@@ -209,9 +209,9 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
 
         // Root element
         cv = slice.ptr(.cascaded_values, root);
-        const root_border = zss.values.BorderWidth{ .px = 10 };
-        const root_padding = zss.values.Padding{ .px = 30 };
-        const root_border_color = zss.values.Color{ .rgba = 0xaf2233ff };
+        const root_border = zss.values.types.BorderWidth{ .px = 10 };
+        const root_padding = zss.values.types.Padding{ .px = 30 };
+        const root_border_color = zss.values.types.Color{ .rgba = 0xaf2233ff };
         try cv.add(arena, .box_style, .{ .display = .block });
         try cv.add(arena, .content_width, .{ .min_width = .{ .px = 200 } });
         try cv.add(arena, .horizontal_edges, .{

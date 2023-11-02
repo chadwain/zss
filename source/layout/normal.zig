@@ -15,7 +15,7 @@ const inline_layout = @import("./inline.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 const StackingContexts = @import("./StackingContexts.zig");
 
-const used_values = @import("./used_values.zig");
+const used_values = zss.used_values;
 const ZssUnit = used_values.ZssUnit;
 const ZssSize = used_values.ZssSize;
 const ZssVector = used_values.ZssVector;

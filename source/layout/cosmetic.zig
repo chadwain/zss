@@ -10,15 +10,15 @@ const aggregates = zss.properties.aggregates;
 const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 
-const used_values = @import("./used_values.zig");
-const ZssUnit = used_values.ZssUnit;
-const ZssSize = used_values.ZssSize;
+const used_values = zss.used_values;
 const initial_containing_block = @as(used_values.BlockBoxIndex, 0);
 const initial_subtree = @as(used_values.SubtreeIndex, 0);
 const BlockBox = used_values.BlockBox;
+const BoxTree = used_values.BoxTree;
 const InlineBoxIndex = used_values.InlineBoxIndex;
 const InlineFormattingContext = used_values.InlineFormattingContext;
-const BoxTree = used_values.BoxTree;
+const ZssSize = used_values.ZssSize;
+const ZssUnit = used_values.ZssUnit;
 
 const Mode = enum {
     InitialContainingBlock,

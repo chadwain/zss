@@ -1,11 +1,3 @@
-pub const parse = @import("./parse.zig");
-
-comptime {
-    if (@import("builtin").is_test) {
-        _ = parse;
-    }
-}
-
 pub const CssWideKeyword = enum {
     initial,
     inherit,

@@ -22,7 +22,7 @@ const solve = @import("./solve.zig");
 const StackingContexts = @import("./StackingContexts.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 
-const used_values = @import("./used_values.zig");
+const used_values = zss.used_values;
 const ZssUnit = used_values.ZssUnit;
 const units_per_pixel = used_values.units_per_pixel;
 const BlockBoxIndex = used_values.BlockBoxIndex;

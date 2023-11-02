@@ -19,7 +19,7 @@ const stf = @import("./shrink_to_fit.zig");
 const solve = @import("./solve.zig");
 const StackingContexts = @import("./StackingContexts.zig");
 
-const used_values = @import("./used_values.zig");
+const used_values = zss.used_values;
 const ZssUnit = used_values.ZssUnit;
 const ZssVector = used_values.ZssVector;
 const units_per_pixel = used_values.units_per_pixel;
@@ -384,7 +384,7 @@ fn ifcAddLineBreak(box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     try ifc.glyph_indeces.appendSlice(box_tree.allocator, &glyphs);
 }
 
-fn ifcAddText(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.values.Text, font: *hb.hb_font_t) !void {
+fn ifcAddText(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.values.types.Text, font: *hb.hb_font_t) !void {
     const buffer = hb.hb_buffer_create() orelse unreachable;
     defer hb.hb_buffer_destroy(buffer);
     _ = hb.hb_buffer_pre_allocate(buffer, @intCast(text.len));
@@ -426,7 +426,7 @@ fn ifcAddText(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.value
     try ifcEndTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
 }
 
-fn ifcEndTextRun(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.values.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
+fn ifcEndTextRun(box_tree: *BoxTree, ifc: *InlineFormattingContext, text: zss.values.types.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
     if (run_end > run_begin) {
         hb.hb_buffer_add_latin1(buffer, text.ptr, @intCast(text.len), @intCast(run_begin), @intCast(run_end - run_begin));
         if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;

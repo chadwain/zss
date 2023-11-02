@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const zss = @import("../../zss.zig");
-const values = zss.values;
+const types = zss.values.types;
 const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;
 
@@ -72,14 +72,14 @@ pub const Source = struct {
 /// Maps a value type to the function that will be used to parse it.
 pub fn typeToParseFn(comptime Type: type) fn (*Source) ?Type {
     return switch (Type) {
-        values.Display => display,
-        values.Position => position,
-        values.Float => float,
-        values.ZIndex => zIndex,
-        values.LengthPercentage => lengthPercentage,
-        values.LengthPercentageAuto => lengthPercentageAuto,
-        values.BorderWidth => borderWidth,
-        values.MaxSize => maxSize,
+        types.Display => display,
+        types.Position => position,
+        types.Float => float,
+        types.ZIndex => zIndex,
+        types.LengthPercentage => lengthPercentage,
+        types.LengthPercentageAuto => lengthPercentageAuto,
+        types.BorderWidth => borderWidth,
+        types.MaxSize => maxSize,
         else => @compileError("Unknown CSS value type: " ++ @typeName(Type)),
     };
 }
@@ -156,11 +156,11 @@ pub fn cssWideKeyword(
     parser_source: zss.syntax.parse.Source,
     declaration_index: ComponentTree.Size,
     declaration_end: ComponentTree.Size,
-) ?values.CssWideKeyword {
+) ?types.CssWideKeyword {
     if (declaration_end - declaration_index == 2) {
         if (components.tag(declaration_index + 1) == .token_ident) {
             const location = components.location(declaration_index + 1);
-            return parser_source.mapIdentifier(location, values.CssWideKeyword, &.{
+            return parser_source.mapIdentifier(location, types.CssWideKeyword, &.{
                 .{ "initial", .initial },
                 .{ "inherit", .inherit },
                 .{ "unset", .unset },
@@ -173,8 +173,8 @@ pub fn cssWideKeyword(
 // Spec: CSS 2.2
 // inline | block | list-item | inline-block | table | inline-table | table-row-group | table-header-group
 // | table-footer-group | table-row | table-column-group | table-column | table-cell | table-caption | none
-pub fn display(source: *Source) ?values.Display {
-    return parseSingleKeyword(source, values.Display, &.{
+pub fn display(source: *Source) ?types.Display {
+    return parseSingleKeyword(source, types.Display, &.{
         .{ "inline", .inline_ },
         .{ "block", .block },
         // .{ "list-item", .list_item },
@@ -195,8 +195,8 @@ pub fn display(source: *Source) ?values.Display {
 
 // Spec: CSS 2.2
 // static | relative | absolute | fixed
-pub fn position(source: *Source) ?values.Position {
-    return parseSingleKeyword(source, values.Position, &.{
+pub fn position(source: *Source) ?types.Position {
+    return parseSingleKeyword(source, types.Position, &.{
         .{ "static", .static },
         .{ "relative", .relative },
         .{ "absolute", .absolute },
@@ -206,8 +206,8 @@ pub fn position(source: *Source) ?values.Position {
 
 // Spec: CSS 2.2
 // left | right | none
-pub fn float(source: *Source) ?values.Float {
-    return parseSingleKeyword(source, values.Float, &.{
+pub fn float(source: *Source) ?types.Float {
+    return parseSingleKeyword(source, types.Float, &.{
         .{ "left", .left },
         .{ "right", .right },
         .{ "none", .none },
@@ -216,11 +216,11 @@ pub fn float(source: *Source) ?values.Float {
 
 // Spec: CSS 2.2
 // auto | <integer>
-pub fn zIndex(source: *Source) ?values.ZIndex {
+pub fn zIndex(source: *Source) ?types.ZIndex {
     const auto_or_int = source.next() orelse return null;
     switch (auto_or_int.type) {
-        .integer => return values.ZIndex{ .integer = source.value(.integer, auto_or_int.position) },
-        .keyword => return source.mapKeyword(auto_or_int.position, values.ZIndex, &.{
+        .integer => return types.ZIndex{ .integer = source.value(.integer, auto_or_int.position) },
+        .keyword => return source.mapKeyword(auto_or_int.position, types.ZIndex, &.{
             .{ "auto", .auto },
         }),
         else => return null,
@@ -229,10 +229,10 @@ pub fn zIndex(source: *Source) ?values.ZIndex {
 
 // Spec: CSS 2.2
 // <length> | <percentage>
-pub fn lengthPercentage(source: *Source) ?values.LengthPercentage {
+pub fn lengthPercentage(source: *Source) ?types.LengthPercentage {
     const item = source.next() orelse return null;
     switch (item.type) {
-        .dimension => return length(source, source.value(.dimension, item.position), values.LengthPercentage),
+        .dimension => return length(source, source.value(.dimension, item.position), types.LengthPercentage),
         .percentage => return .{ .percentage = source.value(.percentage, item.position) },
         else => return null,
     }
@@ -240,12 +240,12 @@ pub fn lengthPercentage(source: *Source) ?values.LengthPercentage {
 
 // Spec: CSS 2.2
 // <length> | <percentage> | auto
-pub fn lengthPercentageAuto(source: *Source) ?values.LengthPercentageAuto {
+pub fn lengthPercentageAuto(source: *Source) ?types.LengthPercentageAuto {
     const item = source.next() orelse return null;
     switch (item.type) {
-        .dimension => return length(source, source.value(.dimension, item.position), values.LengthPercentageAuto),
+        .dimension => return length(source, source.value(.dimension, item.position), types.LengthPercentageAuto),
         .percentage => return .{ .percentage = source.value(.percentage, item.position) },
-        .keyword => return source.mapKeyword(item.position, values.LengthPercentageAuto, &.{
+        .keyword => return source.mapKeyword(item.position, types.LengthPercentageAuto, &.{
             .{ "auto", .auto },
         }),
         else => return null,
@@ -254,12 +254,12 @@ pub fn lengthPercentageAuto(source: *Source) ?values.LengthPercentageAuto {
 
 // Spec: CSS 2.2
 // <length> | <percentage> | none
-pub fn maxSize(source: *Source) ?values.MaxSize {
+pub fn maxSize(source: *Source) ?types.MaxSize {
     const item = source.next() orelse return null;
     switch (item.type) {
-        .dimension => return length(source, source.value(.dimension, item.position), values.MaxSize),
+        .dimension => return length(source, source.value(.dimension, item.position), types.MaxSize),
         .percentage => return .{ .percentage = source.value(.percentage, item.position) },
-        .keyword => return source.mapKeyword(item.position, values.MaxSize, &.{
+        .keyword => return source.mapKeyword(item.position, types.MaxSize, &.{
             .{ "none", .none },
         }),
         else => return null,
@@ -268,11 +268,11 @@ pub fn maxSize(source: *Source) ?values.MaxSize {
 
 // Spec: CSS 2.2
 // Syntax: <length> | thin | medium | thick
-pub fn borderWidth(source: *Source) ?values.BorderWidth {
+pub fn borderWidth(source: *Source) ?types.BorderWidth {
     const item = source.next() orelse return null;
     switch (item.type) {
-        .dimension => return length(source, source.value(.dimension, item.position), values.BorderWidth),
-        .keyword => return source.mapKeyword(item.position, values.BorderWidth, &.{
+        .dimension => return length(source, source.value(.dimension, item.position), types.BorderWidth),
+        .keyword => return source.mapKeyword(item.position, types.BorderWidth, &.{
             .{ "thin", .thin },
             .{ "medium", .medium },
             .{ "thick", .thick },

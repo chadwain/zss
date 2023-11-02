@@ -4,7 +4,6 @@ const zss = @import("../../zss.zig");
 const syntax = zss.syntax;
 const ParserSource = syntax.parse.Source;
 const IdentifierSet = syntax.IdentifierSet;
-const namespace = @import("./namespace.zig");
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -42,13 +41,19 @@ pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
     env.stylesheets.appendAssumeCapacity(stylesheet);
 }
 
-pub const NamespaceId = namespace.NamespaceId;
+pub const NamespaceId = enum(u8) {
+    pub const Value = u8;
+
+    none = 0,
+    any = 255,
+    _,
+};
 
 pub const NameId = enum(u24) {
     pub const Value = u24;
     const max_value = std.math.maxInt(Value) - 1;
 
-    unspecified = max_value,
+    anonymous = max_value,
     any = max_value + 1,
     _,
 };
