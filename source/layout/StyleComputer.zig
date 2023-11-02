@@ -233,7 +233,7 @@ pub fn getSpecifiedValue(
 ) tag.Value() {
     var cascaded_value = self.this_element.cascaded_values.get(tag);
 
-    // CSS-COLOR-3§4.4: If the ‘currentColor’ keyword is set on the ‘color’ property itself, it is treated as ‘color: inherit’.
+    // CSS-COLOR-3§4.4: If the 'currentColor' keyword is set on the 'color' property itself, it is treated as 'color: inherit'.
     if (tag == .color) {
         if (cascaded_value) |*value| {
             if (value.color == .current_color) {

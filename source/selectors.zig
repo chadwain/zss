@@ -71,7 +71,7 @@ pub const ComplexSelectorList = struct {
     /// Determines if the element matches the complex selector list, and if so, returns the specificity of the list.
     /// Note that the specificity of a selector list depends on the object that it's being matched on:
     /// it is that of the most specific selector in the list that matches the element.
-    /// See CSS Selectors Level 4 section 17 "Calculating a selector’s specificity".
+    /// See CSS Selectors Level 4 section 17 "Calculating a selector's specificity".
     pub fn matchElement(sel: ComplexSelectorList, slice: ElementTree.Slice, element: Element) ?Specificity {
         // TODO: If selectors in the list were already sorted by specificity (highest to lowest), we could return on the first match.
         var result: ?Specificity = null;

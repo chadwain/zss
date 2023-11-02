@@ -159,7 +159,7 @@ pub const Component = struct {
         /// children: A sequence of `declaration_normal`, `declaration_important`, `qualified_rule`, and `at_rule`
         ///           (Note: This sequence will match the order that each component appeared in the stylesheet.
         ///           However, logically, it must be treated as if all of the declarations appear first, followed by the rules.
-        ///           See CSS Syntax Level 3 section 5.4.4 "Consume a style block’s contents".)
+        ///           See CSS Syntax Level 3 section 5.4.4 "Consume a style block's contents".)
         /// location: The location of the <{-token> that opens this block
         /// extra: Use `extra.index()` to get a component tree index.
         ///        Then, if the value is 0, the style block does not contain any declarations.
