@@ -726,7 +726,10 @@ fn consumeUrlToken(source: Source, start: Source.Location) NextToken {
     while (true) {
         const next = source.next(location);
         switch (next.codepoint) {
-            ')' => break,
+            ')' => {
+                location = next.next_location;
+                break;
+            },
             '\n', '\t', ' ' => {
                 location = consumeWhitespace(source, next.next_location);
                 const right_paren = source.next(location);
@@ -734,6 +737,7 @@ fn consumeUrlToken(source: Source, start: Source.Location) NextToken {
                     // NOTE: Parse error
                     break;
                 } else if (right_paren.codepoint == ')') {
+                    location = right_paren.next_location;
                     break;
                 } else {
                     return consumeBadUrl(source, next.next_location);
@@ -847,7 +851,6 @@ test "tokenization" {
         .token_ident,
         .token_whitespace,
         .token_url,
-        .token_right_paren,
         .token_whitespace,
         .token_function,
         .token_ident,
