@@ -3,9 +3,11 @@ const CascadedValues = zss.ElementTree.CascadedValues;
 const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;
 const PropertyName = zss.properties.definitions.PropertyName;
+const ValueSource = zss.values.parse.Source;
 
 const std = @import("std");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
 pub const ParsedDeclarations = struct {
@@ -18,13 +20,21 @@ pub fn parseStyleBlockDeclarations(
     components: ComponentTree.Slice,
     parser_source: ParserSource,
     style_block: ComponentTree.Size,
-) !ParsedDeclarations {
+) Allocator.Error!ParsedDeclarations {
     assert(components.tag(style_block) == .style_block);
 
     var normal = CascadedValues{};
     // errdefer normal.deinit(allocator);
     var important = CascadedValues{};
     // errdefer important.deinit(allocator);
+
+    var value_source = ValueSource{
+        .components = components,
+        .parser_source = parser_source,
+        .arena = arena.allocator(),
+        .position = undefined,
+        .end = undefined,
+    };
 
     // We parse declarations in the reverse order in which they appear.
     // This is because later declarations will overwrite previous ones.
@@ -36,7 +46,7 @@ pub fn parseStyleBlockDeclarations(
             .declaration_normal => &normal,
             else => unreachable,
         };
-        try parseDeclaration(destination, arena, components, parser_source, index);
+        try parseDeclaration(destination, arena, components, parser_source, &value_source, index);
     }
 
     return ParsedDeclarations{ .normal = normal, .important = important };
@@ -47,6 +57,7 @@ fn parseDeclaration(
     arena: *ArenaAllocator,
     components: ComponentTree.Slice,
     parser_source: ParserSource,
+    value_source: *ValueSource,
     declaration_index: ComponentTree.Size,
 ) !void {
     if (cascaded.all != null) return;
@@ -75,15 +86,11 @@ fn parseDeclaration(
                         try cascaded.addValue(arena, simple.aggregate_tag, simple.field, value);
                     } else {
                         const parseFn = zss.values.parse.typeToParseFn(field_info.type);
-                        var source = zss.values.parse.Source{
-                            .components = components,
-                            .parser_source = parser_source,
-                            .position = declaration_index + 1,
-                            .end = declaration_end,
-                        };
+                        value_source.position = declaration_index + 1;
+                        value_source.end = declaration_end;
                         // TODO: If parsing fails, "reset" the arena
-                        const value = parseFn(&source) orelse return;
-                        if (source.position != source.end) return;
+                        const value = (try parseFn(value_source)) orelse return;
+                        if (value_source.position != value_source.end) return;
                         try cascaded.addValue(arena, simple.aggregate_tag, simple.field, value);
                     }
                 },
@@ -156,6 +163,9 @@ test {
         \\  right: auto;
         \\  top: 100px;
         \\  bottom: unset;
+        \\
+        \\  background-image: url();
+        \\  background-image: none;
         \\}
     ;
     const source = ParserSource.init(try zss.syntax.tokenize.Source.init(input));
@@ -225,4 +235,9 @@ test {
         .top = .{ .px = 100 },
         .bottom = .unset,
     }, insets);
+
+    const background2 = decls.normal.get(.background2) orelse return error.TestFailure;
+    try expectEqual(aggregates.Background2{
+        .image = .none,
+    }, background2);
 }

@@ -1,14 +1,17 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
 const zss = @import("../../zss.zig");
 const types = zss.values.types;
 const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;
+const Utf8String = zss.util.Utf8String;
 
 /// A source of primitive CSS values.
 pub const Source = struct {
     components: ComponentTree.Slice,
     parser_source: ParserSource,
+    arena: Allocator,
     end: ComponentTree.Size,
     position: ComponentTree.Size,
 
@@ -18,6 +21,7 @@ pub const Source = struct {
         integer: i32,
         percentage: f32,
         dimension: Dimension,
+        url: Allocator.Error!Utf8String,
 
         pub const Dimension = struct { number: f32, unit_position: ComponentTree.Size };
     };
@@ -35,6 +39,12 @@ pub const Source = struct {
             .token_integer => .integer,
             .token_percentage => .percentage,
             .token_dimension => .dimension,
+            .token_url => .url,
+            .function => blk: {
+                // TODO: Functions with the name 'url' must resolve to `Type.url`
+                break :blk .unknown;
+            },
+
             else => .unknown,
         };
     }
@@ -56,11 +66,23 @@ pub const Source = struct {
                 const unit_position = pos + 1;
                 return Value.Dimension{ .number = number, .unit_position = unit_position };
             },
+            .url => {
+                const location = source.components.location(pos);
+                var it = source.parser_source.urlTokenIterator(location);
+                var list = std.ArrayListUnmanaged(u8){};
+                var buffer: [4]u8 = undefined;
+                while (it.next(source.parser_source)) |codepoint| {
+                    const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
+                    try list.appendSlice(source.arena, buffer[0..len]);
+                }
+                const bytes = try list.toOwnedSlice(source.arena);
+                return Utf8String{ .data = bytes };
+            },
             .unknown => return {},
         }
     }
 
-    /// Given that `position` belongs to a keyword value, map that keyword to the value given in `kvs`,
+    /// Given that `pos` belongs to a keyword value, map that keyword to the value given in `kvs`,
     /// using case-insensitive matching. If there was no match, null is returned.
     pub fn mapKeyword(source: Source, pos: ComponentTree.Size, comptime ResultType: type, kvs: []const ParserSource.KV(ResultType)) ?ResultType {
         std.debug.assert(source.getType(pos) == .keyword);
@@ -70,7 +92,18 @@ pub const Source = struct {
 };
 
 /// Maps a value type to the function that will be used to parse it.
-pub fn typeToParseFn(comptime Type: type) fn (*Source) ?Type {
+pub fn typeToParseFn(comptime Type: type) switch (Type) {
+    types.Display => @TypeOf(display),
+    types.Position => @TypeOf(position),
+    types.Float => @TypeOf(float),
+    types.ZIndex => @TypeOf(zIndex),
+    types.LengthPercentage => @TypeOf(lengthPercentage),
+    types.LengthPercentageAuto => @TypeOf(lengthPercentageAuto),
+    types.BorderWidth => @TypeOf(borderWidth),
+    types.MaxSize => @TypeOf(maxSize),
+    types.BackgroundImage => @TypeOf(backgroundImage),
+    else => @compileError("Unknown CSS value type: " ++ @typeName(Type)),
+} {
     return switch (Type) {
         types.Display => display,
         types.Position => position,
@@ -80,6 +113,7 @@ pub fn typeToParseFn(comptime Type: type) fn (*Source) ?Type {
         types.LengthPercentageAuto => lengthPercentageAuto,
         types.BorderWidth => borderWidth,
         types.MaxSize => maxSize,
+        types.BackgroundImage => backgroundImage,
         else => @compileError("Unknown CSS value type: " ++ @typeName(Type)),
     };
 }
@@ -92,7 +126,15 @@ fn testParsing(parseFn: anytype, input: []const u8, expected: @typeInfo(@TypeOf(
     defer tree.deinit(allocator);
     const slice = tree.slice();
 
-    var source = Source{ .components = slice, .parser_source = parser_source, .end = slice.nextSibling(0), .position = 1 };
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    var source = Source{
+        .components = slice,
+        .parser_source = parser_source,
+        .arena = arena.allocator(),
+        .end = slice.nextSibling(0),
+        .position = 1,
+    };
     const actual = parseFn(&source);
     try std.testing.expectEqual(source.end, source.position);
     try std.testing.expectEqual(actual, expected);
@@ -134,6 +176,10 @@ test "css value parsing" {
     try testParsing(borderWidth, "thin", .thin);
     try testParsing(borderWidth, "medium", .medium);
     try testParsing(borderWidth, "thick", .thick);
+
+    try testParsing(backgroundImage, "none", .none);
+    // try testParsing(backgroundImage, "url(abcd)", .{ .url = .{ .data = "abcd" } });
+    try testParsing(backgroundImage, "invalid", null);
 }
 
 pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const ParserSource.KV(Type)) ?Type {
@@ -173,7 +219,7 @@ pub fn cssWideKeyword(
 // Spec: CSS 2.2
 // inline | block | list-item | inline-block | table | inline-table | table-row-group | table-header-group
 // | table-footer-group | table-row | table-column-group | table-column | table-cell | table-caption | none
-pub fn display(source: *Source) ?types.Display {
+pub fn display(source: *Source) !?types.Display {
     return parseSingleKeyword(source, types.Display, &.{
         .{ "inline", .inline_ },
         .{ "block", .block },
@@ -195,7 +241,7 @@ pub fn display(source: *Source) ?types.Display {
 
 // Spec: CSS 2.2
 // static | relative | absolute | fixed
-pub fn position(source: *Source) ?types.Position {
+pub fn position(source: *Source) !?types.Position {
     return parseSingleKeyword(source, types.Position, &.{
         .{ "static", .static },
         .{ "relative", .relative },
@@ -206,7 +252,7 @@ pub fn position(source: *Source) ?types.Position {
 
 // Spec: CSS 2.2
 // left | right | none
-pub fn float(source: *Source) ?types.Float {
+pub fn float(source: *Source) !?types.Float {
     return parseSingleKeyword(source, types.Float, &.{
         .{ "left", .left },
         .{ "right", .right },
@@ -216,7 +262,7 @@ pub fn float(source: *Source) ?types.Float {
 
 // Spec: CSS 2.2
 // auto | <integer>
-pub fn zIndex(source: *Source) ?types.ZIndex {
+pub fn zIndex(source: *Source) !?types.ZIndex {
     const auto_or_int = source.next() orelse return null;
     switch (auto_or_int.type) {
         .integer => return types.ZIndex{ .integer = source.value(.integer, auto_or_int.position) },
@@ -229,7 +275,7 @@ pub fn zIndex(source: *Source) ?types.ZIndex {
 
 // Spec: CSS 2.2
 // <length> | <percentage>
-pub fn lengthPercentage(source: *Source) ?types.LengthPercentage {
+pub fn lengthPercentage(source: *Source) !?types.LengthPercentage {
     const item = source.next() orelse return null;
     switch (item.type) {
         .dimension => return length(source, source.value(.dimension, item.position), types.LengthPercentage),
@@ -240,7 +286,7 @@ pub fn lengthPercentage(source: *Source) ?types.LengthPercentage {
 
 // Spec: CSS 2.2
 // <length> | <percentage> | auto
-pub fn lengthPercentageAuto(source: *Source) ?types.LengthPercentageAuto {
+pub fn lengthPercentageAuto(source: *Source) !?types.LengthPercentageAuto {
     const item = source.next() orelse return null;
     switch (item.type) {
         .dimension => return length(source, source.value(.dimension, item.position), types.LengthPercentageAuto),
@@ -254,7 +300,7 @@ pub fn lengthPercentageAuto(source: *Source) ?types.LengthPercentageAuto {
 
 // Spec: CSS 2.2
 // <length> | <percentage> | none
-pub fn maxSize(source: *Source) ?types.MaxSize {
+pub fn maxSize(source: *Source) !?types.MaxSize {
     const item = source.next() orelse return null;
     switch (item.type) {
         .dimension => return length(source, source.value(.dimension, item.position), types.MaxSize),
@@ -268,7 +314,7 @@ pub fn maxSize(source: *Source) ?types.MaxSize {
 
 // Spec: CSS 2.2
 // Syntax: <length> | thin | medium | thick
-pub fn borderWidth(source: *Source) ?types.BorderWidth {
+pub fn borderWidth(source: *Source) !?types.BorderWidth {
     const item = source.next() orelse return null;
     switch (item.type) {
         .dimension => return length(source, source.value(.dimension, item.position), types.BorderWidth),
@@ -276,6 +322,19 @@ pub fn borderWidth(source: *Source) ?types.BorderWidth {
             .{ "thin", .thin },
             .{ "medium", .medium },
             .{ "thick", .thick },
+        }),
+        else => return null,
+    }
+}
+
+// Spec: CSS 2.2
+// Syntax: <uri> | none
+pub fn backgroundImage(source: *Source) !?types.BackgroundImage {
+    const item = source.next() orelse return null;
+    switch (item.type) {
+        .url => return .{ .url = try source.value(.url, item.position) },
+        .keyword => return source.mapKeyword(item.position, types.BackgroundImage, &.{
+            .{ "none", .none },
         }),
         else => return null,
     }

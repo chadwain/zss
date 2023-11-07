@@ -42,6 +42,7 @@ pub const PropertyName = enum {
     right,
     top,
     bottom,
+    @"background-image",
 
     pub fn definition(comptime property_name: PropertyName) Property {
         return comptime switch (property_name) {
@@ -72,6 +73,7 @@ pub const PropertyName = enum {
             .right => .{ .simple = right },
             .top => .{ .simple = top },
             .bottom => .{ .simple = bottom },
+            .@"background-image" => .{ .simple = background_image },
         };
     }
 };
@@ -103,3 +105,4 @@ pub const left =                simpleProperty(.insets          , .left         
 pub const right =               simpleProperty(.insets          , .right         );
 pub const top =                 simpleProperty(.insets          , .top           );
 pub const bottom =              simpleProperty(.insets          , .bottom        );
+pub const background_image =    simpleProperty(.background2     , .image         );

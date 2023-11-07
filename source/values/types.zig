@@ -1,3 +1,6 @@
+const zss = @import("../../zss.zig");
+const Utf8String = zss.util.Utf8String;
+
 pub const CssWideKeyword = enum {
     initial,
     inherit,
@@ -242,6 +245,7 @@ pub const BackgroundImage = union(enum) {
     };
 
     object: Object,
+    url: Utf8String,
     none,
     initial,
     inherit,

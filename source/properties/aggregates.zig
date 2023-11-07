@@ -272,7 +272,7 @@ pub const Background1 = struct {
 };
 
 /// image    -> background-image
-/// repeat   -> background-image
+/// repeat   -> background-repeat
 /// position -> background-position
 /// origin   -> background-origin
 /// size     -> background-size

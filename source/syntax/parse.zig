@@ -47,6 +47,12 @@ pub const Source = struct {
         return .{ .inner = source.inner.hashIdTokenIterator(start) };
     }
 
+    /// `start` must be the location of a `.token_url` component
+    /// It CANNOT be the location of a `token_bad_url` component
+    pub fn urlTokenIterator(source: Source, start: Location) UrlTokenIterator {
+        return UrlTokenIterator{ .inner = source.inner.urlTokenIterator(start) };
+    }
+
     pub fn KV(comptime Type: type) type {
         return struct { []const u8, Type };
     }
@@ -72,6 +78,14 @@ pub const IdentSequenceIterator = struct {
     inner: tokenize.IdentSequenceIterator,
 
     pub fn next(it: *IdentSequenceIterator, source: Source) ?u21 {
+        return it.inner.next(source.inner);
+    }
+};
+
+pub const UrlTokenIterator = struct {
+    inner: tokenize.UrlTokenIterator,
+
+    pub fn next(it: *UrlTokenIterator, source: Source) ?u21 {
         return it.inner.next(source.inner);
     }
 };

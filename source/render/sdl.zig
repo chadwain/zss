@@ -1,7 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
 
@@ -314,8 +313,8 @@ pub const GlyphAtlas = struct {
     const Self = @This();
 
     pub fn init(face: hb.FT_Face, renderer: *sdl.SDL_Renderer, pixel_format: *sdl.SDL_PixelFormat, allocator: Allocator) !Self {
-        const max_glyph_width = @as(u16, @intCast(zss.util.roundUp(zss.util.divCeil((face.*.bbox.xMax - face.*.bbox.xMin) * face.*.size.*.metrics.x_ppem, face.*.units_per_EM), 4)));
-        const max_glyph_height = @as(u16, @intCast(zss.util.roundUp(zss.util.divCeil((face.*.bbox.yMax - face.*.bbox.yMin) * face.*.size.*.metrics.y_ppem, face.*.units_per_EM), 4)));
+        const max_glyph_width: u16 = @intCast(zss.util.roundUp(zss.util.divCeil((face.*.bbox.xMax - face.*.bbox.xMin) * face.*.size.*.metrics.x_ppem, face.*.units_per_EM), 4));
+        const max_glyph_height: u16 = @intCast(zss.util.roundUp(zss.util.divCeil((face.*.bbox.yMax - face.*.bbox.yMin) * face.*.size.*.metrics.y_ppem, face.*.units_per_EM), 4));
 
         const surface = sdl.SDL_CreateRGBSurfaceWithFormat(
             0,

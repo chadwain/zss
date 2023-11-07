@@ -51,6 +51,15 @@ pub const Source = struct {
         return identTokenIterator(source, hash.next_location);
     }
 
+    /// `start` must be the location of a `token_url`.
+    pub fn urlTokenIterator(source: Source, start: Location) UrlTokenIterator {
+        var next_4: [4]u21 = undefined;
+        var location = source.read(start, &next_4);
+        assert(std.meta.eql(next_4, [4]u21{ 'u', 'r', 'l', '(' }));
+        location = consumeWhitespace(source, location);
+        return UrlTokenIterator{ .location = location };
+    }
+
     const Next = struct { next_location: Location, codepoint: u21 };
 
     fn next(source: Source, location: Location) Next {
@@ -111,6 +120,38 @@ pub const IdentSequenceIterator = struct {
         const next_ = consumeIdentSequenceCodepoint(source, it.location) orelse return null;
         it.location = next_.next_location;
         return next_.codepoint;
+    }
+};
+
+/// Used to iterate over <url-token>s (and NOT <bad-url-token>s)
+pub const UrlTokenIterator = struct {
+    location: Source.Location,
+
+    pub fn next(it: *UrlTokenIterator, source: Source) ?u21 {
+        const next_ = source.next(it.location);
+        switch (next_.codepoint) {
+            ')', eof_codepoint => return null,
+            '\n', '\t', ' ' => {
+                it.location = consumeWhitespace(source, next_.next_location);
+                const right_paren_or_eof = source.next(it.location);
+                switch (right_paren_or_eof.codepoint) {
+                    ')', eof_codepoint => return null,
+                    else => unreachable,
+                }
+            },
+            '"', '\'', '(', 0x00...0x08, 0x0B, 0x0E...0x1F, 0x7F => unreachable,
+            '\\' => {
+                const first_escaped = source.next(next_.next_location);
+                assert(isValidFirstEscapedCodepoint(first_escaped.codepoint));
+                const escaped = consumeEscapedCodepoint(source, first_escaped);
+                it.location = escaped.next_location;
+                return escaped.codepoint;
+            },
+            else => {
+                it.location = next_.next_location;
+                return next_.codepoint;
+            },
+        }
     }
 };
 

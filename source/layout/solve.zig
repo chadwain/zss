@@ -149,6 +149,7 @@ pub fn background2(
 ) !used_values.Background2 {
     var object = switch (bg.image) {
         .object => |object| object,
+        .url => std.debug.panic("TODO: background-image: <url-token>", .{}),
         .none => return used_values.Background2{},
         .initial, .inherit, .unset, .undeclared => unreachable,
     };

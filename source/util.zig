@@ -8,6 +8,10 @@ const Element = zss.ElementTree.Element;
 
 pub const unicode = @import("util/unicode.zig");
 
+pub const Utf8String = struct {
+    data: []const u8,
+};
+
 fn expectSuccess(error_union: anytype, expected: @typeInfo(@TypeOf(error_union)).ErrorUnion.payload) !void {
     if (error_union) |success| {
         return std.testing.expectEqual(expected, success);
