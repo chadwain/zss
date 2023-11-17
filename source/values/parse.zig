@@ -21,7 +21,7 @@ pub const Source = struct {
         integer: i32,
         percentage: f32,
         dimension: Dimension,
-        url: Allocator.Error!Utf8String,
+        url: Allocator.Error!?Utf8String,
 
         pub const Dimension = struct { number: f32, unit_position: ComponentTree.Size };
     };
@@ -41,8 +41,11 @@ pub const Source = struct {
             .token_dimension => .dimension,
             .token_url => .url,
             .function => blk: {
-                // TODO: Functions with the name 'url' must resolve to `Type.url`
-                break :blk .unknown;
+                const location = source.components.location(pos);
+                if (source.parser_source.identifierEqlIgnoreCase(location, "url"))
+                    break :blk .url
+                else
+                    break :blk .unknown;
             },
 
             else => .unknown,
@@ -67,16 +70,43 @@ pub const Source = struct {
                 return Value.Dimension{ .number = number, .unit_position = unit_position };
             },
             .url => {
-                const location = source.components.location(pos);
-                var it = source.parser_source.urlTokenIterator(location);
-                var list = std.ArrayListUnmanaged(u8){};
-                var buffer: [4]u8 = undefined;
-                while (it.next(source.parser_source)) |codepoint| {
-                    const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
-                    try list.appendSlice(source.arena, buffer[0..len]);
+                const tag = source.components.tag(pos);
+                switch (tag) {
+                    .token_url => {
+                        const location = source.components.location(pos);
+                        var it = source.parser_source.urlTokenIterator(location);
+                        var list = std.ArrayListUnmanaged(u8){};
+                        // TODO: Don't bother with decoding UTF-8
+                        var buffer: [4]u8 = undefined;
+                        while (it.next(source.parser_source)) |codepoint| {
+                            const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
+                            try list.appendSlice(source.arena, buffer[0..len]);
+                        }
+                        const bytes = try list.toOwnedSlice(source.arena);
+                        return Utf8String{ .data = bytes };
+                    },
+                    .function => {
+                        const end = source.components.nextSibling(pos);
+                        // TODO: Need to allow for whitespace
+                        // TODO: parsing url() functions with more than one parameter
+                        if (end - pos > 2) return null;
+                        const string = pos + 1;
+                        if (source.components.tag(string) != .token_string) return null;
+
+                        const location = source.components.location(string);
+                        var it = source.parser_source.stringTokenIterator(location);
+                        var list = std.ArrayListUnmanaged(u8){};
+                        // TODO: Don't bother with decoding UTF-8
+                        var buffer: [4]u8 = undefined;
+                        while (it.next(source.parser_source)) |codepoint| {
+                            const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
+                            try list.appendSlice(source.arena, buffer[0..len]);
+                        }
+                        const bytes = try list.toOwnedSlice(source.arena);
+                        return Utf8String{ .data = bytes };
+                    },
+                    else => unreachable,
                 }
-                const bytes = try list.toOwnedSlice(source.arena);
-                return Utf8String{ .data = bytes };
             },
             .unknown => return {},
         }
@@ -118,7 +148,7 @@ pub fn typeToParseFn(comptime Type: type) switch (Type) {
     };
 }
 
-fn testParsing(parseFn: anytype, input: []const u8, expected: @typeInfo(@TypeOf(parseFn)).Fn.return_type.?) !void {
+fn testParsing(comptime T: type, input: []const u8, expected: ?T) !void {
     const allocator = std.testing.allocator;
 
     const parser_source = ParserSource.init(try zss.syntax.tokenize.Source.init(input));
@@ -135,51 +165,64 @@ fn testParsing(parseFn: anytype, input: []const u8, expected: @typeInfo(@TypeOf(
         .end = slice.nextSibling(0),
         .position = 1,
     };
-    const actual = parseFn(&source);
-    try std.testing.expectEqual(source.end, source.position);
-    try std.testing.expectEqual(actual, expected);
+    const parseFn = typeToParseFn(T);
+    const actual = try parseFn(&source);
+    if (actual) |actual_payload| {
+        if (expected) |expected_payload| {
+            try std.testing.expectEqual(source.end, source.position);
+            return switch (T) {
+                types.BackgroundImage => actual_payload.expectEqualBackgroundImages(expected_payload),
+                else => std.testing.expectEqual(actual_payload, expected_payload),
+            };
+        } else {
+            return std.testing.expect(expected != null);
+        }
+    } else {
+        return std.testing.expect(expected == null);
+    }
 }
 
 test "css value parsing" {
-    try testParsing(display, "block", .block);
-    try testParsing(display, "inline", .inline_);
+    try testParsing(types.Display, "block", .block);
+    try testParsing(types.Display, "inline", .inline_);
 
-    try testParsing(position, "static", .static);
+    try testParsing(types.Position, "static", .static);
 
-    try testParsing(float, "left", .left);
-    try testParsing(float, "right", .right);
-    try testParsing(float, "none", .none);
+    try testParsing(types.Float, "left", .left);
+    try testParsing(types.Float, "right", .right);
+    try testParsing(types.Float, "none", .none);
 
-    try testParsing(zIndex, "42", .{ .integer = 42 });
-    try testParsing(zIndex, "-42", .{ .integer = -42 });
-    try testParsing(zIndex, "auto", .auto);
-    try testParsing(zIndex, "9999999999999999", .{ .integer = 0 });
-    try testParsing(zIndex, "-9999999999999999", .{ .integer = 0 });
+    try testParsing(types.ZIndex, "42", .{ .integer = 42 });
+    try testParsing(types.ZIndex, "-42", .{ .integer = -42 });
+    try testParsing(types.ZIndex, "auto", .auto);
+    try testParsing(types.ZIndex, "9999999999999999", .{ .integer = 0 });
+    try testParsing(types.ZIndex, "-9999999999999999", .{ .integer = 0 });
 
-    try testParsing(lengthPercentage, "5px", .{ .px = 5 });
-    try testParsing(lengthPercentage, "5%", .{ .percentage = 5 });
-    try testParsing(lengthPercentage, "5", null);
-    try testParsing(lengthPercentage, "auto", null);
+    try testParsing(types.LengthPercentage, "5px", .{ .px = 5 });
+    try testParsing(types.LengthPercentage, "5%", .{ .percentage = 5 });
+    try testParsing(types.LengthPercentage, "5", null);
+    try testParsing(types.LengthPercentage, "auto", null);
 
-    try testParsing(lengthPercentageAuto, "5px", .{ .px = 5 });
-    try testParsing(lengthPercentageAuto, "5%", .{ .percentage = 5 });
-    try testParsing(lengthPercentageAuto, "5", null);
-    try testParsing(lengthPercentageAuto, "auto", .auto);
+    try testParsing(types.LengthPercentageAuto, "5px", .{ .px = 5 });
+    try testParsing(types.LengthPercentageAuto, "5%", .{ .percentage = 5 });
+    try testParsing(types.LengthPercentageAuto, "5", null);
+    try testParsing(types.LengthPercentageAuto, "auto", .auto);
 
-    try testParsing(maxSize, "5px", .{ .px = 5 });
-    try testParsing(maxSize, "5%", .{ .percentage = 5 });
-    try testParsing(maxSize, "5", null);
-    try testParsing(maxSize, "auto", null);
-    try testParsing(maxSize, "none", .none);
+    try testParsing(types.MaxSize, "5px", .{ .px = 5 });
+    try testParsing(types.MaxSize, "5%", .{ .percentage = 5 });
+    try testParsing(types.MaxSize, "5", null);
+    try testParsing(types.MaxSize, "auto", null);
+    try testParsing(types.MaxSize, "none", .none);
 
-    try testParsing(borderWidth, "5px", .{ .px = 5 });
-    try testParsing(borderWidth, "thin", .thin);
-    try testParsing(borderWidth, "medium", .medium);
-    try testParsing(borderWidth, "thick", .thick);
+    try testParsing(types.BorderWidth, "5px", .{ .px = 5 });
+    try testParsing(types.BorderWidth, "thin", .thin);
+    try testParsing(types.BorderWidth, "medium", .medium);
+    try testParsing(types.BorderWidth, "thick", .thick);
 
-    try testParsing(backgroundImage, "none", .none);
-    // try testParsing(backgroundImage, "url(abcd)", .{ .url = .{ .data = "abcd" } });
-    try testParsing(backgroundImage, "invalid", null);
+    try testParsing(types.BackgroundImage, "none", .none);
+    try testParsing(types.BackgroundImage, "url(abcd)", .{ .url = .{ .data = "abcd" } });
+    try testParsing(types.BackgroundImage, "url(\"abcd\")", .{ .url = .{ .data = "abcd" } });
+    try testParsing(types.BackgroundImage, "invalid", null);
 }
 
 pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const ParserSource.KV(Type)) ?Type {
@@ -332,7 +375,10 @@ pub fn borderWidth(source: *Source) !?types.BorderWidth {
 pub fn backgroundImage(source: *Source) !?types.BackgroundImage {
     const item = source.next() orelse return null;
     switch (item.type) {
-        .url => return .{ .url = try source.value(.url, item.position) },
+        .url => {
+            const url = (try source.value(.url, item.position)) orelse return null;
+            return .{ .url = url };
+        },
         .keyword => return source.mapKeyword(item.position, types.BackgroundImage, &.{
             .{ "none", .none },
         }),

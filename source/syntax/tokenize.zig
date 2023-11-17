@@ -51,6 +51,13 @@ pub const Source = struct {
         return identTokenIterator(source, hash.next_location);
     }
 
+    /// Asserts that `start` is the location of the start of a string token.
+    pub fn stringTokenIterator(source: Source, start: Location) StringTokenIterator {
+        const quote = source.next(start);
+        assert(quote.codepoint == '"' or quote.codepoint == '\'');
+        return StringTokenIterator{ .location = quote.next_location, .ending_codepoint = quote.codepoint };
+    }
+
     /// `start` must be the location of a `token_url`.
     pub fn urlTokenIterator(source: Source, start: Location) UrlTokenIterator {
         var next_4: [4]u21 = undefined;
@@ -120,6 +127,41 @@ pub const IdentSequenceIterator = struct {
         const next_ = consumeIdentSequenceCodepoint(source, it.location) orelse return null;
         it.location = next_.next_location;
         return next_.codepoint;
+    }
+};
+
+pub const StringTokenIterator = struct {
+    location: Source.Location,
+    ending_codepoint: u21,
+
+    pub fn next(it: *StringTokenIterator, source: Source) ?u21 {
+        const next_ = source.next(it.location);
+        switch (next_.codepoint) {
+            '\n' => unreachable,
+            '\\' => {
+                const first_escaped = source.next(next_.next_location);
+                if (first_escaped.codepoint == '\n') {
+                    it.location = first_escaped.next_location;
+                    return '\n';
+                } else if (first_escaped.codepoint == eof_codepoint) {
+                    it.location = next_.next_location;
+                    return null;
+                } else {
+                    const escaped = consumeEscapedCodepoint(source, first_escaped);
+                    it.location = escaped.next_location;
+                    return escaped.codepoint;
+                }
+            },
+            eof_codepoint => return null,
+            else => {
+                if (next_.codepoint == it.ending_codepoint) {
+                    return null;
+                } else {
+                    it.location = next_.next_location;
+                    return next_.codepoint;
+                }
+            },
+        }
     }
 };
 

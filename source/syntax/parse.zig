@@ -47,28 +47,44 @@ pub const Source = struct {
         return .{ .inner = source.inner.hashIdTokenIterator(start) };
     }
 
+    /// `start` must be the location of a `.token_string` component
+    pub fn stringTokenIterator(source: Source, start: Location) StringTokenIterator {
+        return .{ .inner = source.inner.stringTokenIterator(start) };
+    }
+
     /// `start` must be the location of a `.token_url` component
     /// It CANNOT be the location of a `token_bad_url` component
     pub fn urlTokenIterator(source: Source, start: Location) UrlTokenIterator {
         return UrlTokenIterator{ .inner = source.inner.urlTokenIterator(start) };
     }
 
+    /// Given that `location` is the location of an <ident-token>, check if the identifier is equal to `ascii_string`
+    /// using case-insensitive matching.
+    pub fn identifierEqlIgnoreCase(source: Source, location: Location, ascii_string: []const u8) bool {
+        const toLowercase = zss.util.unicode.toLowercase;
+        var it = identTokenIterator(source, location);
+        for (ascii_string) |string_codepoint| {
+            assert(string_codepoint <= 0x7F);
+            const it_codepoint = it.next(source) orelse break;
+            if (toLowercase(string_codepoint) != toLowercase(it_codepoint)) break;
+        }
+        return it.next(source) == null;
+    }
+
     pub fn KV(comptime Type: type) type {
-        return struct { []const u8, Type };
+        return struct {
+            /// This must be an ASCII string.
+            []const u8,
+            Type,
+        };
     }
 
     /// Given that `location` is the location of an <ident-token>, map the identifier at that location
     /// to the value given in `kvs`, using case-insensitive matching. If there was no match, null is returned.
     pub fn mapIdentifier(source: Source, location: Location, comptime Type: type, kvs: []const KV(Type)) ?Type {
         // TODO: Use a hash map/trie or something
-        const toLowercase = zss.util.unicode.toLowercase;
         for (kvs) |kv| {
-            var it = source.inner.identTokenIterator(location);
-            for (kv[0]) |kw_codepoint| {
-                const it_codepoint = it.next(source.inner) orelse break;
-                if (toLowercase(kw_codepoint) != toLowercase(it_codepoint)) break;
-            }
-            if (it.next(source.inner) == null) return kv[1];
+            if (identifierEqlIgnoreCase(source, location, kv[0])) return kv[1];
         }
         return null;
     }
@@ -78,6 +94,14 @@ pub const IdentSequenceIterator = struct {
     inner: tokenize.IdentSequenceIterator,
 
     pub fn next(it: *IdentSequenceIterator, source: Source) ?u21 {
+        return it.inner.next(source.inner);
+    }
+};
+
+pub const StringTokenIterator = struct {
+    inner: tokenize.StringTokenIterator,
+
+    pub fn next(it: *StringTokenIterator, source: Source) ?u21 {
         return it.inner.next(source.inner);
     }
 };

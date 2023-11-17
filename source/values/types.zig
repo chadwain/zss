@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const zss = @import("../../zss.zig");
 const Utf8String = zss.util.Utf8String;
 
@@ -251,6 +253,24 @@ pub const BackgroundImage = union(enum) {
     inherit,
     unset,
     undeclared,
+
+    pub fn expectEqualBackgroundImages(lhs: BackgroundImage, rhs: BackgroundImage) !void {
+        const expectEqual = std.testing.expectEqual;
+        const expectEqualSlices = std.testing.expectEqualSlices;
+
+        const Tag = std.meta.Tag(BackgroundImage);
+        try expectEqual(@as(Tag, lhs), @as(Tag, rhs));
+        switch (lhs) {
+            .object => try expectEqual(lhs.object, rhs.object),
+            .url => try expectEqualSlices(u8, lhs.url.data, rhs.url.data),
+            .none,
+            .initial,
+            .inherit,
+            .unset,
+            .undeclared,
+            => {},
+        }
+    }
 };
 
 pub const BackgroundRepeat = union(enum) {
