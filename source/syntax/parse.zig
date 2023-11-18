@@ -65,8 +65,8 @@ pub const Source = struct {
         var it = identTokenIterator(source, location);
         for (ascii_string) |string_codepoint| {
             assert(string_codepoint <= 0x7F);
-            const it_codepoint = it.next(source) orelse break;
-            if (toLowercase(string_codepoint) != toLowercase(it_codepoint)) break;
+            const it_codepoint = it.next(source) orelse return false;
+            if (toLowercase(string_codepoint) != toLowercase(it_codepoint)) return false;
         }
         return it.next(source) == null;
     }

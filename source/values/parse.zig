@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("../../zss.zig");
 const types = zss.values.types;
+const Component = zss.syntax.Component;
 const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;
 const Utf8String = zss.util.Utf8String;
@@ -17,10 +18,11 @@ pub const Source = struct {
 
     pub const Value = union(enum) {
         unknown,
-        keyword: noreturn,
+        keyword,
         integer: i32,
         percentage: f32,
         dimension: Dimension,
+        function,
         url: Allocator.Error!?Utf8String,
 
         pub const Dimension = struct { number: f32, unit_position: ComponentTree.Size };
@@ -33,8 +35,8 @@ pub const Source = struct {
         type: Type,
     };
 
-    fn getType(source: *const Source, pos: ComponentTree.Size) Type {
-        return switch (source.components.tag(pos)) {
+    fn getType(source: *const Source, pos: ComponentTree.Size, tag: Component.Tag) Type {
+        return switch (tag) {
             .token_ident => .keyword,
             .token_integer => .integer,
             .token_percentage => .percentage,
@@ -45,21 +47,40 @@ pub const Source = struct {
                 if (source.parser_source.identifierEqlIgnoreCase(location, "url"))
                     break :blk .url
                 else
-                    break :blk .unknown;
+                    break :blk .function;
             },
-
             else => .unknown,
         };
     }
 
     pub fn next(source: *Source) ?Item {
-        if (source.position == source.end) return null;
-        defer source.position = source.components.nextSibling(source.position);
-        return Item{ .position = source.position, .type = source.getType(source.position) };
+        while (source.position < source.end) {
+            defer source.position = source.components.nextSibling(source.position);
+            const tag = source.components.tag(source.position);
+            switch (tag) {
+                .token_whitespace, .token_comments => {},
+                else => {
+                    const @"type" = source.getType(source.position, tag);
+                    return Item{ .position = source.position, .type = @"type" };
+                },
+            }
+        } else return null;
+    }
+
+    pub fn expect(source: *Source, @"type": Type) ?Item {
+        const reset = source.position;
+        const item = source.next();
+        if (item != null and item.?.type == @"type") {
+            return item;
+        } else {
+            source.position = reset;
+            return null;
+        }
     }
 
     pub fn value(source: *const Source, comptime @"type": Type, pos: ComponentTree.Size) std.meta.fieldInfo(Value, @"type").type {
-        std.debug.assert(source.getType(pos) == @"type");
+        const tag = source.components.tag(pos);
+        std.debug.assert(source.getType(pos, tag) == @"type");
         switch (comptime @"type") {
             .keyword => @compileError("use source.mapKeyword() instead"),
             .integer => return source.components.extra(pos).integer(),
@@ -69,8 +90,8 @@ pub const Source = struct {
                 const unit_position = pos + 1;
                 return Value.Dimension{ .number = number, .unit_position = unit_position };
             },
+            .function => @compileError("TODO: Function values"),
             .url => {
-                const tag = source.components.tag(pos);
                 switch (tag) {
                     .token_url => {
                         const location = source.components.location(pos);
@@ -115,7 +136,8 @@ pub const Source = struct {
     /// Given that `pos` belongs to a keyword value, map that keyword to the value given in `kvs`,
     /// using case-insensitive matching. If there was no match, null is returned.
     pub fn mapKeyword(source: Source, pos: ComponentTree.Size, comptime ResultType: type, kvs: []const ParserSource.KV(ResultType)) ?ResultType {
-        std.debug.assert(source.getType(pos) == .keyword);
+        const tag = source.components.tag(pos);
+        std.debug.assert(source.getType(pos, tag) == .keyword);
         const location = source.components.location(pos);
         return source.parser_source.mapIdentifier(location, ResultType, kvs);
     }
@@ -132,6 +154,8 @@ pub fn typeToParseFn(comptime Type: type) switch (Type) {
     types.BorderWidth => @TypeOf(borderWidth),
     types.MaxSize => @TypeOf(maxSize),
     types.BackgroundImage => @TypeOf(backgroundImage),
+    types.BackgroundRepeat => @TypeOf(backgroundRepeat),
+    types.BackgroundAttachment => @TypeOf(backgroundAttachment),
     else => @compileError("Unknown CSS value type: " ++ @typeName(Type)),
 } {
     return switch (Type) {
@@ -144,11 +168,13 @@ pub fn typeToParseFn(comptime Type: type) switch (Type) {
         types.BorderWidth => borderWidth,
         types.MaxSize => maxSize,
         types.BackgroundImage => backgroundImage,
+        types.BackgroundRepeat => backgroundRepeat,
+        types.BackgroundAttachment => backgroundAttachment,
         else => @compileError("Unknown CSS value type: " ++ @typeName(Type)),
     };
 }
 
-fn testParsing(comptime T: type, input: []const u8, expected: ?T) !void {
+fn testParsing(comptime T: type, input: []const u8, expected: ?T, is_complete: bool) !void {
     const allocator = std.testing.allocator;
 
     const parser_source = ParserSource.init(try zss.syntax.tokenize.Source.init(input));
@@ -167,68 +193,97 @@ fn testParsing(comptime T: type, input: []const u8, expected: ?T) !void {
     };
     const parseFn = typeToParseFn(T);
     const actual = try parseFn(&source);
-    if (actual) |actual_payload| {
-        if (expected) |expected_payload| {
-            try std.testing.expectEqual(source.end, source.position);
+    if (expected) |expected_payload| {
+        if (actual) |actual_payload| {
+            if (is_complete) {
+                try std.testing.expectEqual(source.end, source.position);
+            } else {
+                try std.testing.expect(source.end != source.position);
+            }
             return switch (T) {
-                types.BackgroundImage => actual_payload.expectEqualBackgroundImages(expected_payload),
-                else => std.testing.expectEqual(actual_payload, expected_payload),
+                types.BackgroundImage => expected_payload.expectEqualBackgroundImages(actual_payload),
+                else => std.testing.expectEqual(expected_payload, actual_payload),
             };
         } else {
-            return std.testing.expect(expected != null);
+            return error.TestExpectedEqual;
         }
     } else {
-        return std.testing.expect(expected == null);
+        return std.testing.expect(actual == null);
     }
 }
 
 test "css value parsing" {
-    try testParsing(types.Display, "block", .block);
-    try testParsing(types.Display, "inline", .inline_);
+    try testParsing(types.Display, "block", .block, true);
+    try testParsing(types.Display, "inline", .inline_, true);
 
-    try testParsing(types.Position, "static", .static);
+    try testParsing(types.Position, "static", .static, true);
 
-    try testParsing(types.Float, "left", .left);
-    try testParsing(types.Float, "right", .right);
-    try testParsing(types.Float, "none", .none);
+    try testParsing(types.Float, "left", .left, true);
+    try testParsing(types.Float, "right", .right, true);
+    try testParsing(types.Float, "none", .none, true);
 
-    try testParsing(types.ZIndex, "42", .{ .integer = 42 });
-    try testParsing(types.ZIndex, "-42", .{ .integer = -42 });
-    try testParsing(types.ZIndex, "auto", .auto);
-    try testParsing(types.ZIndex, "9999999999999999", .{ .integer = 0 });
-    try testParsing(types.ZIndex, "-9999999999999999", .{ .integer = 0 });
+    try testParsing(types.ZIndex, "42", .{ .integer = 42 }, true);
+    try testParsing(types.ZIndex, "-42", .{ .integer = -42 }, true);
+    try testParsing(types.ZIndex, "auto", .auto, true);
+    try testParsing(types.ZIndex, "9999999999999999", .{ .integer = 0 }, true);
+    try testParsing(types.ZIndex, "-9999999999999999", .{ .integer = 0 }, true);
 
-    try testParsing(types.LengthPercentage, "5px", .{ .px = 5 });
-    try testParsing(types.LengthPercentage, "5%", .{ .percentage = 5 });
-    try testParsing(types.LengthPercentage, "5", null);
-    try testParsing(types.LengthPercentage, "auto", null);
+    try testParsing(types.LengthPercentage, "5px", .{ .px = 5 }, true);
+    try testParsing(types.LengthPercentage, "5%", .{ .percentage = 5 }, true);
+    try testParsing(types.LengthPercentage, "5", null, true);
+    try testParsing(types.LengthPercentage, "auto", null, true);
 
-    try testParsing(types.LengthPercentageAuto, "5px", .{ .px = 5 });
-    try testParsing(types.LengthPercentageAuto, "5%", .{ .percentage = 5 });
-    try testParsing(types.LengthPercentageAuto, "5", null);
-    try testParsing(types.LengthPercentageAuto, "auto", .auto);
+    try testParsing(types.LengthPercentageAuto, "5px", .{ .px = 5 }, true);
+    try testParsing(types.LengthPercentageAuto, "5%", .{ .percentage = 5 }, true);
+    try testParsing(types.LengthPercentageAuto, "5", null, true);
+    try testParsing(types.LengthPercentageAuto, "auto", .auto, true);
 
-    try testParsing(types.MaxSize, "5px", .{ .px = 5 });
-    try testParsing(types.MaxSize, "5%", .{ .percentage = 5 });
-    try testParsing(types.MaxSize, "5", null);
-    try testParsing(types.MaxSize, "auto", null);
-    try testParsing(types.MaxSize, "none", .none);
+    try testParsing(types.MaxSize, "5px", .{ .px = 5 }, true);
+    try testParsing(types.MaxSize, "5%", .{ .percentage = 5 }, true);
+    try testParsing(types.MaxSize, "5", null, true);
+    try testParsing(types.MaxSize, "auto", null, true);
+    try testParsing(types.MaxSize, "none", .none, true);
 
-    try testParsing(types.BorderWidth, "5px", .{ .px = 5 });
-    try testParsing(types.BorderWidth, "thin", .thin);
-    try testParsing(types.BorderWidth, "medium", .medium);
-    try testParsing(types.BorderWidth, "thick", .thick);
+    try testParsing(types.BorderWidth, "5px", .{ .px = 5 }, true);
+    try testParsing(types.BorderWidth, "thin", .thin, true);
+    try testParsing(types.BorderWidth, "medium", .medium, true);
+    try testParsing(types.BorderWidth, "thick", .thick, true);
 
-    try testParsing(types.BackgroundImage, "none", .none);
-    try testParsing(types.BackgroundImage, "url(abcd)", .{ .url = .{ .data = "abcd" } });
-    try testParsing(types.BackgroundImage, "url(\"abcd\")", .{ .url = .{ .data = "abcd" } });
-    try testParsing(types.BackgroundImage, "invalid", null);
+    try testParsing(types.BackgroundImage, "none", .none, true);
+    try testParsing(types.BackgroundImage, "url(abcd)", .{ .url = .{ .data = "abcd" } }, true);
+    try testParsing(types.BackgroundImage, "url(\"abcd\")", .{ .url = .{ .data = "abcd" } }, true);
+    try testParsing(types.BackgroundImage, "invalid", null, true);
+
+    try testParsing(types.BackgroundRepeat, "repeat-x", .{ .repeat = .{ .x = .repeat, .y = .no_repeat } }, true);
+    try testParsing(types.BackgroundRepeat, "repeat-y", .{ .repeat = .{ .x = .no_repeat, .y = .repeat } }, true);
+    try testParsing(types.BackgroundRepeat, "repeat", .{ .repeat = .{ .x = .repeat, .y = .repeat } }, true);
+    try testParsing(types.BackgroundRepeat, "space", .{ .repeat = .{ .x = .space, .y = .space } }, true);
+    try testParsing(types.BackgroundRepeat, "round", .{ .repeat = .{ .x = .round, .y = .round } }, true);
+    try testParsing(types.BackgroundRepeat, "no-repeat", .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } }, true);
+    try testParsing(types.BackgroundRepeat, "invalid", null, true);
+    try testParsing(types.BackgroundRepeat, "repeat space", .{ .repeat = .{ .x = .repeat, .y = .space } }, true);
+    try testParsing(types.BackgroundRepeat, "round no-repeat", .{ .repeat = .{ .x = .round, .y = .no_repeat } }, true);
+    try testParsing(types.BackgroundRepeat, "invalid space", null, true);
+    try testParsing(types.BackgroundRepeat, "space invalid", .{ .repeat = .{ .x = .space, .y = .space } }, false);
+    try testParsing(types.BackgroundRepeat, "repeat-x invalid", .{ .repeat = .{ .x = .repeat, .y = .no_repeat } }, false);
+
+    try testParsing(types.BackgroundAttachment, "scroll", .scroll, true);
+    try testParsing(types.BackgroundAttachment, "fixed", .fixed, true);
+    try testParsing(types.BackgroundAttachment, "local", .local, true);
 }
 
 pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const ParserSource.KV(Type)) ?Type {
-    const keyword = source.next() orelse return null;
-    if (keyword.type != .keyword) return null;
-    return source.mapKeyword(keyword.position, Type, kvs);
+    const reset = source.position;
+    if (source.next()) |keyword| {
+        if (keyword.type == .keyword) {
+            if (source.mapKeyword(keyword.position, Type, kvs)) |value| {
+                return value;
+            }
+        }
+    }
+
+    source.position = reset;
+    return null;
 }
 
 pub fn length(source: *Source, dimension: Source.Value.Dimension, comptime Type: type) ?Type {
@@ -370,8 +425,10 @@ pub fn borderWidth(source: *Source) !?types.BorderWidth {
     }
 }
 
-// Spec: CSS 2.2
-// Syntax: <uri> | none
+// Spec: CSS Backgrounds and Borders Level 3
+// Syntax: <image> | none
+//         <image> = <url> | <gradient>
+//         <gradient> = <linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()> | <repeating-radial-gradient()>
 pub fn backgroundImage(source: *Source) !?types.BackgroundImage {
     const item = source.next() orelse return null;
     switch (item.type) {
@@ -379,9 +436,46 @@ pub fn backgroundImage(source: *Source) !?types.BackgroundImage {
             const url = (try source.value(.url, item.position)) orelse return null;
             return .{ .url = url };
         },
+        .function => {
+            // TODO: parse an <image>
+            return null;
+        },
         .keyword => return source.mapKeyword(item.position, types.BackgroundImage, &.{
             .{ "none", .none },
         }),
         else => return null,
     }
+}
+
+// Spec: CSS Backgrounds and Borders Level 3
+// Syntax: <repeat-style> = repeat-x | repeat-y | [repeat | space | round | no-repeat]{1,2}
+pub fn backgroundRepeat(source: *Source) !?types.BackgroundRepeat {
+    const keyword1 = source.expect(.keyword) orelse return null;
+    if (source.mapKeyword(keyword1.position, types.BackgroundRepeat.Repeat, &.{
+        .{ "repeat-x", .{ .x = .repeat, .y = .no_repeat } },
+        .{ "repeat-y", .{ .x = .no_repeat, .y = .repeat } },
+    })) |value| {
+        return .{ .repeat = value };
+    }
+
+    const Style = types.BackgroundRepeat.Style;
+    const map = comptime &[_]ParserSource.KV(Style){
+        .{ "repeat", .repeat },
+        .{ "space", .space },
+        .{ "round", .round },
+        .{ "no-repeat", .no_repeat },
+    };
+    const x = source.mapKeyword(keyword1.position, Style, map) orelse return null;
+    const y = parseSingleKeyword(source, Style, map) orelse x;
+    return .{ .repeat = .{ .x = x, .y = y } };
+}
+
+// Spec: CSS Backgrounds and Borders Level 3
+// Syntax: <attachment> = scroll | fixed | local
+pub fn backgroundAttachment(source: *Source) !?types.BackgroundAttachment {
+    return parseSingleKeyword(source, types.BackgroundAttachment, &.{
+        .{ "scroll", .scroll },
+        .{ "fixed", .fixed },
+        .{ "local", .local },
+    });
 }

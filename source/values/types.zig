@@ -276,10 +276,22 @@ pub const BackgroundImage = union(enum) {
 pub const BackgroundRepeat = union(enum) {
     pub const Style = enum { repeat, no_repeat, space, round };
 
-    repeat: struct {
+    pub const Repeat = struct {
         x: Style = .repeat,
         y: Style = .repeat,
-    },
+    };
+
+    repeat: Repeat,
+    initial,
+    inherit,
+    unset,
+    undeclared,
+};
+
+pub const BackgroundAttachment = union(enum) {
+    scroll,
+    fixed,
+    local,
     initial,
     inherit,
     unset,
