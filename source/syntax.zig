@@ -3,16 +3,24 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
+const comptime_identifier_map = @import("syntax/comptime_identifier_map.zig");
 pub const tokenize = @import("syntax/tokenize.zig");
 pub const parse = @import("syntax/parse.zig");
+pub const ComptimeIdentifierMap = comptime_identifier_map.ComptimeIdentifierMap;
 pub const IdentifierSet = @import("syntax/IdentifierSet.zig");
 
 comptime {
     if (@import("builtin").is_test) {
+        _ = comptime_identifier_map;
         _ = tokenize;
         _ = parse;
     }
 }
+
+pub const Unit = enum {
+    unrecognized,
+    px,
+};
 
 /// Corresponds to what CSS calls a "component value".
 pub const Component = struct {
@@ -46,6 +54,10 @@ pub const Component = struct {
 
         pub fn number(extra: Extra) f32 {
             return @bitCast(extra);
+        }
+
+        pub fn unit(extra: Extra) Unit {
+            return @enumFromInt(@as(u32, @bitCast(extra)));
         }
     };
 

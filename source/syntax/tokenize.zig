@@ -8,6 +8,7 @@ const hexDigitToNumber = zss.util.unicode.hexDigitToNumber;
 const toLowercase = zss.util.unicode.toLowercase;
 const CheckedInt = zss.util.CheckedInt;
 const Component = zss.syntax.Component;
+const Unit = zss.syntax.Unit;
 
 const u21_max = std.math.maxInt(u21);
 const replacement_character: u21 = 0xfffd;
@@ -251,7 +252,11 @@ pub const Token = union(Component.Tag) {
     rule_list,
     component_list,
 
-    pub const Dimension = struct { value: f32, unit_location: Source.Location };
+    pub const Dimension = struct {
+        number: f32,
+        unit: Unit,
+        unit_location: Source.Location,
+    };
 };
 
 pub const NextToken = struct {
@@ -527,14 +532,18 @@ fn consumeNumericToken(source: Source, start: Source.Location) NextToken {
     _ = source.read(result.after_number, &next_3);
 
     if (codepointsStartAnIdentSequence(next_3)) {
-        const after_unit = consumeIdentSequence(source, result.after_number);
+        const consume_unit = consumeUnit(source, result.after_number);
         const numeric_value: f32 = switch (result.value) {
             .integer => |integer| @floatFromInt(integer),
             .number => |number| number,
         };
         return NextToken{
-            .token = .{ .token_dimension = .{ .value = numeric_value, .unit_location = result.after_number } },
-            .next_location = after_unit,
+            .token = .{ .token_dimension = .{
+                .number = numeric_value,
+                .unit = consume_unit.unit,
+                .unit_location = result.after_number,
+            } },
+            .next_location = consume_unit.after_unit,
         };
     }
 
@@ -692,6 +701,59 @@ fn consumeDigits(source: Source, start: Source.Location, buffer: *NumberBuffer) 
             else => return ConsumeDigits{ .value = value, .next_location = location },
         }
     }
+}
+
+const ConsumeUnit = struct {
+    unit: Unit,
+    after_unit: Source.Location,
+};
+
+fn consumeUnit(source: Source, start: Source.Location) ConsumeUnit {
+    const units = comptime std.meta.fields(Unit);
+    const max_unit_len = comptime blk: {
+        var result: comptime_int = 0;
+        for (units) |field_info| {
+            if (@as(Unit, @enumFromInt(field_info.value)) == .unrecognized) continue;
+            result = @max(result, field_info.name.len);
+        }
+        break :blk result;
+    };
+    const Count = comptime std.math.IntFittingRange(0, max_unit_len + 1);
+    const map = comptime blk: {
+        const KV = struct { []const u8, Unit };
+        var kvs: [units.len - 1]KV = undefined;
+        var i = 0;
+        for (units) |field_info| {
+            const unit: Unit = @enumFromInt(field_info.value);
+            const name = switch (unit) {
+                .unrecognized => continue,
+                .px => "px",
+            };
+            kvs[i] = .{ name, unit };
+            i += 1;
+        }
+        break :blk zss.syntax.ComptimeIdentifierMap(Unit, kvs);
+    };
+
+    var location = start;
+    var unit_buffer: [max_unit_len]u8 = undefined;
+    var count: Count = 0;
+    while (consumeIdentSequenceCodepoint(source, location)) |next| {
+        if (count < max_unit_len and next.codepoint <= 0xFF) {
+            unit_buffer[count] = @intCast(next.codepoint);
+            count += 1;
+        } else {
+            count = std.math.maxInt(Count);
+        }
+        location = next.next_location;
+    }
+
+    const unit = if (count <= max_unit_len)
+        map.get(unit_buffer[0..count]) orelse .unrecognized
+    else
+        .unrecognized;
+
+    return ConsumeUnit{ .unit = unit, .after_unit = location };
 }
 
 fn consumeIdentSequenceCodepoint(source: Source, location: Source.Location) ?Source.Next {

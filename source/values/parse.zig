@@ -6,6 +6,7 @@ const types = zss.values.types;
 const Component = zss.syntax.Component;
 const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;
+const Unit = zss.syntax.Unit;
 const Utf8String = zss.util.Utf8String;
 
 /// A source of primitive CSS values.
@@ -29,7 +30,10 @@ pub const Source = struct {
         function,
         url: Allocator.Error!?Utf8String,
 
-        pub const Dimension = struct { number: f32, unit_index: ComponentTree.Size };
+        pub const Dimension = struct {
+            number: f32,
+            unit: Unit,
+        };
     };
 
     pub const Type = std.meta.Tag(Value);
@@ -96,8 +100,8 @@ pub const Source = struct {
             .percentage => return source.components.extra(index).number(),
             .dimension => {
                 const number = source.components.extra(index).number();
-                const unit_index = index + 1;
-                return Value.Dimension{ .number = number, .unit_index = unit_index };
+                const unit = source.components.extra(index + 1).unit();
+                return Value.Dimension{ .number = number, .unit = unit };
             },
             .function => @compileError("TODO: Function values"),
             .url => {
@@ -200,6 +204,7 @@ fn testParsing(comptime T: type, input: []const u8, expected: ?T, is_complete: b
             } else {
                 try std.testing.expect(source.range.index != source.range.end);
             }
+            errdefer std.debug.print("Expected: {}\nActual: {}\n", .{ expected_payload, actual_payload });
             return switch (T) {
                 types.BackgroundImage => expected_payload.expectEqualBackgroundImages(actual_payload),
                 else => std.testing.expectEqual(expected_payload, actual_payload),
@@ -208,6 +213,7 @@ fn testParsing(comptime T: type, input: []const u8, expected: ?T, is_complete: b
             return error.TestExpectedEqual;
         }
     } else {
+        errdefer std.debug.print("Expected: null, found: {}\n", .{actual catch unreachable});
         return std.testing.expect(std.meta.isError(actual));
     }
 }
@@ -286,13 +292,12 @@ pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const Par
     return error.ParseError;
 }
 
-pub fn length(source: *Source, dimension: Source.Value.Dimension, comptime Type: type) !Type {
+pub fn length(comptime Type: type, dimension: Source.Value.Dimension) !Type {
     const number = dimension.number;
-    // TODO: consider using @unionInit()
-    // TODO: Source.Value.Dimension should store its unit as an enum rather than a source location
-    return source.mapKeyword(dimension.unit_index, Type, &.{
-        .{ "px", .{ .px = number } },
-    }) orelse error.ParseError;
+    return switch (dimension.unit) {
+        .unrecognized => error.ParseError,
+        .px => .{ .px = number },
+    };
 }
 
 pub fn cssWideKeyword(
@@ -382,7 +387,7 @@ pub fn lengthPercentage(source: *Source) !types.LengthPercentage {
 
     const item = source.next() orelse return error.ParseError;
     switch (item.type) {
-        .dimension => return length(source, source.value(.dimension, item.index), types.LengthPercentage),
+        .dimension => return length(types.LengthPercentage, source.value(.dimension, item.index)),
         .percentage => return .{ .percentage = source.value(.percentage, item.index) },
         else => return error.ParseError,
     }
@@ -396,7 +401,7 @@ pub fn lengthPercentageAuto(source: *Source) !types.LengthPercentageAuto {
 
     const item = source.next() orelse return error.ParseError;
     switch (item.type) {
-        .dimension => return length(source, source.value(.dimension, item.index), types.LengthPercentageAuto),
+        .dimension => return length(types.LengthPercentageAuto, source.value(.dimension, item.index)),
         .percentage => return .{ .percentage = source.value(.percentage, item.index) },
         .keyword => return source.mapKeyword(item.index, types.LengthPercentageAuto, &.{
             .{ "auto", .auto },
@@ -413,7 +418,7 @@ pub fn maxSize(source: *Source) !types.MaxSize {
 
     const item = source.next() orelse return error.ParseError;
     switch (item.type) {
-        .dimension => return length(source, source.value(.dimension, item.index), types.MaxSize),
+        .dimension => return length(types.MaxSize, source.value(.dimension, item.index)),
         .percentage => return .{ .percentage = source.value(.percentage, item.index) },
         .keyword => return source.mapKeyword(item.index, types.MaxSize, &.{
             .{ "none", .none },
@@ -430,7 +435,7 @@ pub fn borderWidth(source: *Source) !types.BorderWidth {
 
     const item = source.next() orelse return error.ParseError;
     switch (item.type) {
-        .dimension => return length(source, source.value(.dimension, item.index), types.BorderWidth),
+        .dimension => return length(types.BorderWidth, source.value(.dimension, item.index)),
         .keyword => return source.mapKeyword(item.index, types.BorderWidth, &.{
             .{ "thin", .thin },
             .{ "medium", .medium },

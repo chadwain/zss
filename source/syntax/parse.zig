@@ -266,13 +266,13 @@ const Parser = struct {
             .next_sibling = index + 2,
             .tag = .token_dimension,
             .location = location,
-            .extra = Extra.make(@bitCast(dimension.value)),
+            .extra = Extra.make(@bitCast(dimension.number)),
         });
         _ = try parser.appendComponent(.{
             .next_sibling = index + 2,
             .tag = .token_ident,
             .location = dimension.unit_location,
-            .extra = Extra.make(0),
+            .extra = Extra.make(@intFromEnum(dimension.unit)),
         });
     }
 
