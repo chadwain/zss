@@ -32,8 +32,10 @@ pub fn parseStyleBlockDeclarations(
         .components = components,
         .parser_source = parser_source,
         .arena = arena.allocator(),
-        .index = undefined,
-        .end = undefined,
+        .range = .{
+            .index = undefined,
+            .end = undefined,
+        },
     };
 
     // We parse declarations in the reverse order in which they appear.
@@ -86,14 +88,16 @@ fn parseDeclaration(
                         try cascaded.addValue(arena, simple.aggregate_tag, simple.field, value);
                     } else {
                         const parseFn = zss.values.parse.typeToParseFn(field_info.type);
-                        value_source.index = declaration_index + 1;
-                        value_source.end = declaration_end;
+                        value_source.range = .{
+                            .index = declaration_index + 1,
+                            .end = declaration_end,
+                        };
                         // TODO: If parsing fails, "reset" the arena
                         const value = parseFn(value_source) catch |err| switch (err) {
                             error.ParseError => return,
                             else => |e| return e,
                         };
-                        if (value_source.index != value_source.end) return;
+                        if (value_source.range.index != value_source.range.end) return;
                         try cascaded.addValue(arena, simple.aggregate_tag, simple.field, value);
                     }
                 },

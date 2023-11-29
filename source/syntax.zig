@@ -186,7 +186,7 @@ pub const Component = struct {
         ///        (with tag = `declaration_normal` or `declaration_important`).
         declaration_important,
         /// A function
-        /// children: An arbitrary sequence of components
+        /// children: The function's arguments (an arbitrary sequence of components)
         /// location: The location of the <function-token> that created this component
         function,
         /// A '[]-block'

@@ -10,6 +10,7 @@ const Component = syntax.Component;
 const ComponentTree = syntax.ComponentTree;
 const Extra = Component.Extra;
 const Token = tokenize.Token;
+const Utf8String = zss.util.Utf8String;
 
 /// A source of `Token`.
 
@@ -69,6 +70,33 @@ pub const Source = struct {
             if (toLowercase(string_codepoint) != toLowercase(it_codepoint)) return false;
         }
         return it.next(source) == null;
+    }
+
+    /// Given that `location` is the location of a <string-token>, copy that string
+    pub fn copyString(source: Source, location: Location, allocator: Allocator) !Utf8String {
+        var iterator = stringTokenIterator(source, location);
+        return copyTokenGeneric(source, &iterator, allocator);
+    }
+
+    /// Given that `location` is the location of a <url-token>, copy that URL
+    pub fn copyUrl(source: Source, location: Location, allocator: Allocator) !Utf8String {
+        var iterator = urlTokenIterator(source, location);
+        return copyTokenGeneric(source, &iterator, allocator);
+    }
+
+    fn copyTokenGeneric(source: Source, iterator: anytype, allocator: Allocator) !Utf8String {
+        var list = std.ArrayListUnmanaged(u8){};
+        defer list.deinit(allocator);
+
+        var buffer: [4]u8 = undefined;
+        while (iterator.next(source)) |codepoint| {
+            // TODO: Get a UTF-8 encoded buffer directly from the tokenizer
+            const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
+            try list.appendSlice(allocator, buffer[0..len]);
+        }
+
+        const bytes = try list.toOwnedSlice(allocator);
+        return Utf8String{ .data = bytes };
     }
 
     pub fn KV(comptime Type: type) type {

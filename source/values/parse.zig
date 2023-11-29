@@ -13,8 +13,12 @@ pub const Source = struct {
     components: ComponentTree.Slice,
     parser_source: ParserSource,
     arena: Allocator,
-    end: ComponentTree.Size,
-    index: ComponentTree.Size,
+    range: ComponentRange,
+
+    pub const ComponentRange = struct {
+        index: ComponentTree.Size,
+        end: ComponentTree.Size,
+    };
 
     pub const Value = union(enum) {
         unknown,
@@ -35,7 +39,7 @@ pub const Source = struct {
         type: Type,
     };
 
-    fn getType(source: *const Source, index: ComponentTree.Size, tag: Component.Tag) Type {
+    fn getType(source: Source, tag: Component.Tag, index: ComponentTree.Size) Type {
         return switch (tag) {
             .token_ident => .keyword,
             .token_integer => .integer,
@@ -53,34 +57,39 @@ pub const Source = struct {
         };
     }
 
-    pub fn next(source: *Source) ?Item {
-        while (source.index < source.end) {
-            defer source.index = source.components.nextSibling(source.index);
-            const tag = source.components.tag(source.index);
+    fn nextComponent(source: *Source) ?struct { tag: Component.Tag, index: ComponentTree.Size } {
+        const index = &source.range.index;
+        while (index.* < source.range.end) {
+            defer index.* = source.components.nextSibling(index.*);
+            const tag = source.components.tag(index.*);
             switch (tag) {
                 .token_whitespace, .token_comments => {},
-                else => {
-                    const @"type" = source.getType(source.index, tag);
-                    return Item{ .index = source.index, .type = @"type" };
-                },
+                .token_eof => return null,
+                else => return .{ .tag = tag, .index = index.* },
             }
         } else return null;
     }
 
+    pub fn next(source: *Source) ?Item {
+        const component = source.nextComponent() orelse return null;
+        const @"type" = source.getType(component.tag, component.index);
+        return Item{ .index = component.index, .type = @"type" };
+    }
+
     pub fn expect(source: *Source, @"type": Type) ?Item {
-        const reset = source.index;
+        const reset = source.range.index;
         const item = source.next();
         if (item != null and item.?.type == @"type") {
             return item;
         } else {
-            source.index = reset;
+            source.range.index = reset;
             return null;
         }
     }
 
-    pub fn value(source: *const Source, comptime @"type": Type, index: ComponentTree.Size) std.meta.fieldInfo(Value, @"type").type {
+    pub fn value(source: *Source, comptime @"type": Type, index: ComponentTree.Size) std.meta.fieldInfo(Value, @"type").type {
         const tag = source.components.tag(index);
-        std.debug.assert(source.getType(index, tag) == @"type");
+        std.debug.assert(source.getType(tag, index) == @"type");
         switch (comptime @"type") {
             .keyword => @compileError("use source.mapKeyword() instead"),
             .integer => return source.components.extra(index).integer(),
@@ -95,36 +104,22 @@ pub const Source = struct {
                 switch (tag) {
                     .token_url => {
                         const location = source.components.location(index);
-                        var it = source.parser_source.urlTokenIterator(location);
-                        var list = std.ArrayListUnmanaged(u8){};
-                        // TODO: Don't bother with decoding UTF-8
-                        var buffer: [4]u8 = undefined;
-                        while (it.next(source.parser_source)) |codepoint| {
-                            const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
-                            try list.appendSlice(source.arena, buffer[0..len]);
-                        }
-                        const bytes = try list.toOwnedSlice(source.arena);
-                        return Utf8String{ .data = bytes };
+                        return try source.parser_source.copyUrl(location, source.arena);
                     },
                     .function => {
-                        const end = source.components.nextSibling(index);
-                        // TODO: Need to allow for whitespace
-                        // TODO: parsing url() functions with more than one parameter
-                        if (end - index > 2) return null;
-                        const string = index + 1;
-                        if (source.components.tag(string) != .token_string) return null;
+                        const saved_range = source.range;
+                        defer source.range = saved_range;
+                        const function_end = source.components.nextSibling(index);
+                        source.range = ComponentRange{ .index = index + 1, .end = function_end };
 
-                        const location = source.components.location(string);
-                        var it = source.parser_source.stringTokenIterator(location);
-                        var list = std.ArrayListUnmanaged(u8){};
-                        // TODO: Don't bother with decoding UTF-8
-                        var buffer: [4]u8 = undefined;
-                        while (it.next(source.parser_source)) |codepoint| {
-                            const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
-                            try list.appendSlice(source.arena, buffer[0..len]);
+                        const string = source.nextComponent() orelse return null;
+                        if (string.tag != .token_string) return null;
+                        if (source.nextComponent() != null) {
+                            return null; // NOTE: URL modifiers, or other extra values within a url() function are not supported
                         }
-                        const bytes = try list.toOwnedSlice(source.arena);
-                        return Utf8String{ .data = bytes };
+
+                        const location = source.components.location(string.index);
+                        return try source.parser_source.copyString(location, source.arena);
                     },
                     else => unreachable,
                 }
@@ -137,7 +132,7 @@ pub const Source = struct {
     /// using case-insensitive matching. If there was no match, null is returned.
     pub fn mapKeyword(source: Source, index: ComponentTree.Size, comptime ResultType: type, kvs: []const ParserSource.KV(ResultType)) ?ResultType {
         const tag = source.components.tag(index);
-        std.debug.assert(source.getType(index, tag) == .keyword);
+        std.debug.assert(source.getType(tag, index) == .keyword);
         const location = source.components.location(index);
         return source.parser_source.mapIdentifier(location, ResultType, kvs);
     }
@@ -188,8 +183,10 @@ fn testParsing(comptime T: type, input: []const u8, expected: ?T, is_complete: b
         .components = slice,
         .parser_source = parser_source,
         .arena = arena.allocator(),
-        .end = slice.nextSibling(0),
-        .index = 1,
+        .range = .{
+            .index = 1,
+            .end = slice.nextSibling(0),
+        },
     };
     const parseFn = typeToParseFn(T);
     const actual = parseFn(&source) catch |err| switch (err) {
@@ -199,9 +196,9 @@ fn testParsing(comptime T: type, input: []const u8, expected: ?T, is_complete: b
     if (expected) |expected_payload| {
         if (actual) |actual_payload| {
             if (is_complete) {
-                try std.testing.expectEqual(source.end, source.index);
+                try std.testing.expectEqual(source.range.end, source.range.index);
             } else {
-                try std.testing.expect(source.end != source.index);
+                try std.testing.expect(source.range.index != source.range.end);
             }
             return switch (T) {
                 types.BackgroundImage => expected_payload.expectEqualBackgroundImages(actual_payload),
@@ -254,7 +251,7 @@ test "css value parsing" {
 
     try testParsing(types.BackgroundImage, "none", .none, true);
     try testParsing(types.BackgroundImage, "url(abcd)", .{ .url = .{ .data = "abcd" } }, true);
-    try testParsing(types.BackgroundImage, "url(\"abcd\")", .{ .url = .{ .data = "abcd" } }, true);
+    try testParsing(types.BackgroundImage, "url( \"abcd\" )", .{ .url = .{ .data = "abcd" } }, true);
     try testParsing(types.BackgroundImage, "invalid", null, true);
 
     try testParsing(types.BackgroundRepeat, "repeat-x", .{ .repeat = .{ .x = .repeat, .y = .no_repeat } }, true);
@@ -276,7 +273,7 @@ test "css value parsing" {
 }
 
 pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const ParserSource.KV(Type)) !Type {
-    const reset = source.index;
+    const reset = source.range.index;
     if (source.next()) |keyword| {
         if (keyword.type == .keyword) {
             if (source.mapKeyword(keyword.index, Type, kvs)) |value| {
@@ -285,11 +282,11 @@ pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const Par
         }
     }
 
-    source.index = reset;
+    source.range.index = reset;
     return error.ParseError;
 }
 
-pub fn length(source: *const Source, dimension: Source.Value.Dimension, comptime Type: type) !Type {
+pub fn length(source: *Source, dimension: Source.Value.Dimension, comptime Type: type) !Type {
     const number = dimension.number;
     // TODO: consider using @unionInit()
     // TODO: Source.Value.Dimension should store its unit as an enum rather than a source location
@@ -364,8 +361,8 @@ pub fn float(source: *Source) !types.Float {
 // Spec: CSS 2.2
 // auto | <integer>
 pub fn zIndex(source: *Source) !types.ZIndex {
-    const reset = source.index;
-    errdefer source.index = reset;
+    const reset = source.range.index;
+    errdefer source.range.index = reset;
 
     const auto_or_int = source.next() orelse return error.ParseError;
     switch (auto_or_int.type) {
@@ -380,8 +377,8 @@ pub fn zIndex(source: *Source) !types.ZIndex {
 // Spec: CSS 2.2
 // <length> | <percentage>
 pub fn lengthPercentage(source: *Source) !types.LengthPercentage {
-    const reset = source.index;
-    errdefer source.index = reset;
+    const reset = source.range.index;
+    errdefer source.range.index = reset;
 
     const item = source.next() orelse return error.ParseError;
     switch (item.type) {
@@ -394,8 +391,8 @@ pub fn lengthPercentage(source: *Source) !types.LengthPercentage {
 // Spec: CSS 2.2
 // <length> | <percentage> | auto
 pub fn lengthPercentageAuto(source: *Source) !types.LengthPercentageAuto {
-    const reset = source.index;
-    errdefer source.index = reset;
+    const reset = source.range.index;
+    errdefer source.range.index = reset;
 
     const item = source.next() orelse return error.ParseError;
     switch (item.type) {
@@ -411,8 +408,8 @@ pub fn lengthPercentageAuto(source: *Source) !types.LengthPercentageAuto {
 // Spec: CSS 2.2
 // <length> | <percentage> | none
 pub fn maxSize(source: *Source) !types.MaxSize {
-    const reset = source.index;
-    errdefer source.index = reset;
+    const reset = source.range.index;
+    errdefer source.range.index = reset;
 
     const item = source.next() orelse return error.ParseError;
     switch (item.type) {
@@ -428,8 +425,8 @@ pub fn maxSize(source: *Source) !types.MaxSize {
 // Spec: CSS 2.2
 // Syntax: <length> | thin | medium | thick
 pub fn borderWidth(source: *Source) !types.BorderWidth {
-    const reset = source.index;
-    errdefer source.index = reset;
+    const reset = source.range.index;
+    errdefer source.range.index = reset;
 
     const item = source.next() orelse return error.ParseError;
     switch (item.type) {
@@ -448,8 +445,8 @@ pub fn borderWidth(source: *Source) !types.BorderWidth {
 //         <image> = <url> | <gradient>
 //         <gradient> = <linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()> | <repeating-radial-gradient()>
 pub fn backgroundImage(source: *Source) !types.BackgroundImage {
-    const reset = source.index;
-    errdefer source.index = reset;
+    const reset = source.range.index;
+    errdefer source.range.index = reset;
 
     const item = source.next() orelse return error.ParseError;
     switch (item.type) {
@@ -471,8 +468,8 @@ pub fn backgroundImage(source: *Source) !types.BackgroundImage {
 // Spec: CSS Backgrounds and Borders Level 3
 // Syntax: <repeat-style> = repeat-x | repeat-y | [repeat | space | round | no-repeat]{1,2}
 pub fn backgroundRepeat(source: *Source) !types.BackgroundRepeat {
-    const reset = source.index;
-    errdefer source.index = reset;
+    const reset = source.range.index;
+    errdefer source.range.index = reset;
 
     const keyword1 = source.expect(.keyword) orelse return error.ParseError;
     if (source.mapKeyword(keyword1.index, types.BackgroundRepeat.Repeat, &.{
