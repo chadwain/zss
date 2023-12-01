@@ -303,16 +303,17 @@ pub const BackgroundPosition = union(enum) {
         px: f32,
         percentage: f32,
     };
-    pub const SideX = enum { left, right };
-    pub const SideY = enum { top, bottom };
+    pub const SideX = enum { left, right, center };
+    pub const SideY = enum { top, bottom, center };
 
-    // TODO: This is not the full range of possible values.
     position: struct {
         x: struct {
+            /// A value of `.center` will cause `offset` to be ignored during layout
             side: SideX,
             offset: Offset,
         },
         y: struct {
+            /// A value of `.center` will cause `offset` to be ignored during layout
             side: SideY,
             offset: Offset,
         },

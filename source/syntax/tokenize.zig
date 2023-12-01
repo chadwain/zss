@@ -734,6 +734,7 @@ fn consumeUnit(source: Source, start: Source.Location) ConsumeUnit {
         }
         break :blk zss.syntax.ComptimeIdentifierMap(Unit, kvs);
     };
+    comptime assert(map.get("unrecognized") == null);
 
     var location = start;
     var unit_buffer: [max_unit_len]u8 = undefined;

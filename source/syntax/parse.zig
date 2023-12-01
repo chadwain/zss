@@ -142,6 +142,7 @@ pub const UrlTokenIterator = struct {
     }
 };
 
+/// Creates a ComponentTree with a root node with tag `rule_list`
 /// Implements CSS Syntax Level 3 Section 9 "Parse a CSS stylesheet"
 pub fn parseCssStylesheet(source: Source, allocator: Allocator) !ComponentTree {
     var parser = try Parser.init(source, allocator);
@@ -154,6 +155,7 @@ pub fn parseCssStylesheet(source: Source, allocator: Allocator) !ComponentTree {
     return parser.finish();
 }
 
+/// Creates a ComponentTree with a root node with tag `component_list`
 /// Implements CSS Syntax Level 3 Section 5.3.10 "Parse a list of component values"
 pub fn parseListOfComponentValues(source: Source, allocator: Allocator) !ComponentTree {
     var parser = try Parser.init(source, allocator);

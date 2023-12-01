@@ -274,25 +274,43 @@ pub fn background2(
 
     const position: used_values.Background2.Position = switch (bg.position) {
         .position => |position| .{
-            .x = switch (position.x.offset) {
-                .px => |val| length(.px, val),
-                .percentage => |p| blk: {
-                    const actual_p = switch (position.x.side) {
-                        .left => p,
-                        .right => 1 - p,
-                    };
-                    break :blk percentage(actual_p, positioning_area.width - size.width);
-                },
+            .x = blk: {
+                const available_space = positioning_area.width - size.width;
+                switch (position.x.side) {
+                    .left, .right => {
+                        switch (position.x.offset) {
+                            .px => |val| {
+                                const offset = length(.px, val);
+                                const offset_adjusted = if (position.x.side == .left) offset else available_space - offset;
+                                break :blk offset_adjusted;
+                            },
+                            .percentage => |p| {
+                                const percentage_adjusted = if (position.x.side == .left) p else 1 - p;
+                                break :blk percentage(percentage_adjusted, available_space);
+                            },
+                        }
+                    },
+                    .center => break :blk percentage(0.5, available_space),
+                }
             },
-            .y = switch (position.y.offset) {
-                .px => |val| length(.px, val),
-                .percentage => |p| blk: {
-                    const actual_p = switch (position.y.side) {
-                        .top => p,
-                        .bottom => 1 - p,
-                    };
-                    break :blk percentage(actual_p, positioning_area.height - size.height);
-                },
+            .y = blk: {
+                const available_space = positioning_area.height - size.height;
+                switch (position.y.side) {
+                    .top, .bottom => {
+                        switch (position.y.offset) {
+                            .px => |val| {
+                                const offset = length(.px, val);
+                                const offset_adjusted = if (position.y.side == .top) offset else available_space - offset;
+                                break :blk offset_adjusted;
+                            },
+                            .percentage => |p| {
+                                const percentage_adjusted = if (position.y.side == .top) p else 1 - p;
+                                break :blk percentage(percentage_adjusted, available_space);
+                            },
+                        }
+                    },
+                    .center => break :blk percentage(0.5, available_space),
+                }
             },
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
