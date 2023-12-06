@@ -299,24 +299,23 @@ pub const BackgroundAttachment = union(enum) {
 };
 
 pub const BackgroundPosition = union(enum) {
+    pub const Side = enum { start, end, center };
     pub const Offset = union(enum) {
         px: f32,
         percentage: f32,
     };
-    pub const SideX = enum { left, right, center };
-    pub const SideY = enum { top, bottom, center };
+
+    pub const SideOffset = struct {
+        /// `.start` corresponds to left (x-axis) and top (y-axis)
+        /// `.end` corresponds to right (x-axis) and bottom (y-axis)
+        /// `.center` corresponds to center (either axis), and will cause `offset` to be ignored during layout
+        side: Side,
+        offset: Offset,
+    };
 
     position: struct {
-        x: struct {
-            /// A value of `.center` will cause `offset` to be ignored during layout
-            side: SideX,
-            offset: Offset,
-        },
-        y: struct {
-            /// A value of `.center` will cause `offset` to be ignored during layout
-            side: SideY,
-            offset: Offset,
-        },
+        x: SideOffset,
+        y: SideOffset,
     },
     initial,
     inherit,

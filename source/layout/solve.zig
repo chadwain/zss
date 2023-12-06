@@ -277,15 +277,15 @@ pub fn background2(
             .x = blk: {
                 const available_space = positioning_area.width - size.width;
                 switch (position.x.side) {
-                    .left, .right => {
+                    .start, .end => {
                         switch (position.x.offset) {
                             .px => |val| {
                                 const offset = length(.px, val);
-                                const offset_adjusted = if (position.x.side == .left) offset else available_space - offset;
+                                const offset_adjusted = if (position.x.side == .start) offset else available_space - offset;
                                 break :blk offset_adjusted;
                             },
                             .percentage => |p| {
-                                const percentage_adjusted = if (position.x.side == .left) p else 1 - p;
+                                const percentage_adjusted = if (position.x.side == .start) p else 1 - p;
                                 break :blk percentage(percentage_adjusted, available_space);
                             },
                         }
@@ -296,15 +296,15 @@ pub fn background2(
             .y = blk: {
                 const available_space = positioning_area.height - size.height;
                 switch (position.y.side) {
-                    .top, .bottom => {
+                    .start, .end => {
                         switch (position.y.offset) {
                             .px => |val| {
                                 const offset = length(.px, val);
-                                const offset_adjusted = if (position.y.side == .top) offset else available_space - offset;
+                                const offset_adjusted = if (position.y.side == .start) offset else available_space - offset;
                                 break :blk offset_adjusted;
                             },
                             .percentage => |p| {
-                                const percentage_adjusted = if (position.y.side == .top) p else 1 - p;
+                                const percentage_adjusted = if (position.y.side == .start) p else 1 - p;
                                 break :blk percentage(percentage_adjusted, available_space);
                             },
                         }

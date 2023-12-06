@@ -237,8 +237,8 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         try cv.add(arena, .background2, .{
             .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(smile) },
             .position = .{ .position = .{
-                .x = .{ .side = .right, .offset = .{ .percentage = 0 } },
-                .y = .{ .side = .top, .offset = .{ .px = 10 } },
+                .x = .{ .side = .end, .offset = .{ .percentage = 0 } },
+                .y = .{ .side = .start, .offset = .{ .px = 10 } },
             } },
             .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
         });
@@ -293,8 +293,8 @@ fn createBoxTree(args: *const ProgramArguments, window: *sdl.SDL_Window, rendere
         try cv.add(arena, .background2, .{
             .image = .{ .object = zss.render.sdl.textureAsBackgroundImageObject(zig_png) },
             .position = .{ .position = .{
-                .x = .{ .side = .left, .offset = .{ .percentage = 0.5 } },
-                .y = .{ .side = .top, .offset = .{ .percentage = 0.5 } },
+                .x = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
+                .y = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
             } },
             .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
             .size = .contain,

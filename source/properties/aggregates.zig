@@ -287,8 +287,8 @@ pub const Background2 = struct {
         .image = .none,
         .repeat = .{ .repeat = .{ .x = .repeat, .y = .repeat } },
         .position = .{ .position = .{
-            .x = .{ .side = .left, .offset = .{ .percentage = 0 } },
-            .y = .{ .side = .top, .offset = .{ .percentage = 0 } },
+            .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
+            .y = .{ .side = .start, .offset = .{ .percentage = 0 } },
         } },
         .origin = .padding_box,
         .size = .{ .size = .{ .width = .auto, .height = .auto } },

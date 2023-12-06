@@ -732,9 +732,10 @@ fn consumeUnit(source: Source, start: Source.Location) ConsumeUnit {
             kvs[i] = .{ name, unit };
             i += 1;
         }
-        break :blk zss.syntax.ComptimeIdentifierMap(Unit, kvs);
+        const map = zss.syntax.ComptimeIdentifierMap(Unit, kvs);
+        assert(map.get("unrecognized") == null);
+        break :blk map;
     };
-    comptime assert(map.get("unrecognized") == null);
 
     var location = start;
     var unit_buffer: [max_unit_len]u8 = undefined;
