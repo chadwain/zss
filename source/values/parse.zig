@@ -178,7 +178,7 @@ pub fn typeToParseFn(comptime Type: type) switch (Type) {
 fn testParsing(comptime T: type, input: []const u8, expected: ?T, is_complete: bool) !void {
     const allocator = std.testing.allocator;
 
-    const parser_source = ParserSource.init(try zss.syntax.tokenize.Source.init(input));
+    const parser_source = try ParserSource.init(Utf8String{ .data = input });
     var tree = try zss.syntax.parse.parseListOfComponentValues(parser_source, allocator);
     defer tree.deinit(allocator);
     const slice = tree.slice();

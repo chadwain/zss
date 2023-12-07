@@ -1,7 +1,10 @@
 //! Assigns unique indeces to CSS identifiers.
 
 const IdentifierSet = @This();
+
+const zss = @import("../../zss.zig");
 const syntax = @import("../syntax.zig");
+const Utf8String = zss.util.Utf8String;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -160,7 +163,7 @@ pub fn getOrPutFromString(
         }
     };
 
-    std.debug.assert(try syntax.tokenize.stringIsIdentSequence(string));
+    std.debug.assert(syntax.tokenize.stringIsIdentSequence(Utf8String{ .data = string }) catch false);
     const key = Key{ .string = string };
     return set.getOrPutGeneric(allocator, key);
 }

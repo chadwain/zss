@@ -3,6 +3,7 @@ const CascadedValues = zss.ElementTree.CascadedValues;
 const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;
 const PropertyName = zss.properties.definitions.PropertyName;
+const Utf8String = zss.util.Utf8String;
 const ValueSource = zss.values.parse.Source;
 
 const std = @import("std");
@@ -175,7 +176,7 @@ test {
         \\  background-image: none;
         \\}
     ;
-    const source = ParserSource.init(try zss.syntax.tokenize.Source.init(input));
+    const source = try ParserSource.init(Utf8String{ .data = input });
     var components = try zss.syntax.parse.parseCssStylesheet(source, allocator);
     defer components.deinit(allocator);
     const slice = components.slice();

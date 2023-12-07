@@ -21,15 +21,16 @@ pub const Source = struct {
 
     pub const Location = tokenize.Source.Location;
 
-    pub fn init(inner: tokenize.Source) Source {
+    pub fn init(string: Utf8String) !Source {
+        const inner = try tokenize.Source.init(string);
         return Source{ .inner = inner };
     }
 
     /// Returns the next component tag, ignoring comments.
-    pub fn next(source: Source, location: *Location) Token {
+    pub fn next(source: Source, location: *Location) !Token {
         var next_location = location.*;
         while (true) {
-            const next_token = tokenize.nextToken(source.inner, next_location);
+            const next_token = try tokenize.nextToken(source.inner, next_location);
             if (next_token.token != .token_comments) {
                 location.* = next_token.next_location;
                 return next_token.token;
@@ -473,7 +474,7 @@ fn loop(parser: *Parser, location: *Source.Location) !void {
 fn consumeListOfRules(parser: *Parser, location: *Source.Location, data: *const Parser.Frame.ListOfRules) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = parser.source.next(location);
+        const tag = try parser.source.next(location);
         switch (tag) {
             .token_whitespace => {},
             .token_eof => return parser.popComponent(),
@@ -500,7 +501,7 @@ fn consumeListOfRules(parser: *Parser, location: *Source.Location, data: *const 
 fn consumeListOfComponentValues(parser: *Parser, location: *Source.Location) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = parser.source.next(location);
+        const tag = try parser.source.next(location);
         switch (tag) {
             .token_eof => return parser.popComponent(),
             else => {
@@ -519,7 +520,7 @@ fn consumeAtRule(parser: *Parser, location: *Source.Location, data: *Parser.Fram
 
     while (true) {
         const saved_location = location.*;
-        const tag = parser.source.next(location);
+        const tag = try parser.source.next(location);
         switch (tag) {
             .token_semicolon => return parser.popAtRule(),
             .token_eof => {
@@ -547,7 +548,7 @@ fn consumeQualifiedRule(parser: *Parser, location: *Source.Location, data: *Pars
 
     while (true) {
         const saved_location = location.*;
-        const tag = parser.source.next(location);
+        const tag = try parser.source.next(location);
         switch (tag) {
             .token_eof => {
                 // NOTE: Parse error
@@ -572,7 +573,7 @@ fn consumeQualifiedRule(parser: *Parser, location: *Source.Location, data: *Pars
 fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location, data: *Parser.Frame.StyleBlock) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = parser.source.next(location);
+        const tag = try parser.source.next(location);
         switch (tag) {
             .token_right_curly, .token_eof => {
                 // NOTE: This prong replicates the behavior of consumeSimpleBlock (because style blocks are simple blocks)
@@ -608,7 +609,7 @@ fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location, data: 
 fn seekToEndOfDeclaration(parser: *Parser, location: *Source.Location) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = parser.source.next(location);
+        const tag = try parser.source.next(location);
         switch (tag) {
             .token_semicolon, .token_eof => break,
             .token_right_curly => {
@@ -630,7 +631,7 @@ fn consumeDeclarationStart(
 ) !bool {
     while (true) {
         const saved_location = location.*;
-        const tag = parser.source.next(location);
+        const tag = try parser.source.next(location);
         switch (tag) {
             .token_whitespace => {},
             .token_colon => break,
@@ -644,7 +645,7 @@ fn consumeDeclarationStart(
 
     while (true) {
         const saved_location = location.*;
-        const tag = parser.source.next(location);
+        const tag = try parser.source.next(location);
         switch (tag) {
             .token_whitespace => {},
             else => {
@@ -659,7 +660,7 @@ fn consumeDeclarationStart(
 fn consumeDeclarationValue(parser: *Parser, location: *Source.Location, data: *Parser.Frame.DeclarationValue) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = parser.source.next(location);
+        const tag = try parser.source.next(location);
         switch (tag) {
             .token_semicolon, .token_eof => {
                 parser.popDeclarationValue();
@@ -753,14 +754,14 @@ fn ignoreComponentValue(parser: *Parser, first_tag: Component.Tag, location: *So
             },
             else => {},
         }
-        tag = parser.source.next(location);
+        tag = try parser.source.next(location);
     }
 }
 
 fn consumeSimpleBlock(parser: *Parser, location: *Source.Location, data: *const Parser.Frame.SimpleBlock) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = parser.source.next(location);
+        const tag = try parser.source.next(location);
         if (tag == data.ending_token) {
             return parser.popComponent();
         } else if (tag == .token_eof) {
@@ -776,7 +777,7 @@ fn consumeSimpleBlock(parser: *Parser, location: *Source.Location, data: *const 
 fn consumeFunction(parser: *Parser, location: *Source.Location) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = parser.source.next(location);
+        const tag = try parser.source.next(location);
         switch (tag) {
             .token_right_paren => return parser.popComponent(),
             .token_eof => {
@@ -816,7 +817,7 @@ test "parse a stylesheet" {
         \\
         \\broken_rule
     ;
-    const token_source = Source.init(try tokenize.Source.init(input));
+    const token_source = try Source.init(Utf8String{ .data = input });
 
     var tree = try parseCssStylesheet(token_source, allocator);
     defer tree.deinit(allocator);

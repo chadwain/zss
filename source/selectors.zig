@@ -1,13 +1,14 @@
 const zss = @import("../zss.zig");
+const ClassId = Environment.ClassId;
+const ComponentTree = zss.syntax.ComponentTree;
+const Element = ElementTree.Element;
+const ElementTree = zss.ElementTree;
 const Environment = zss.Environment;
+const IdId = Environment.IdId;
 const NamespaceId = Environment.NamespaceId;
 const NameId = Environment.NameId;
-const IdId = Environment.IdId;
-const ClassId = Environment.ClassId;
-const ElementTree = zss.ElementTree;
-const Element = ElementTree.Element;
-const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;
+const Utf8String = zss.util.Utf8String;
 
 const parse = @import("selectors/parse.zig");
 
@@ -371,7 +372,7 @@ fn expectEqualComplexSelectorLists(a: TestParseSelectorListExpected, b: []const 
 }
 
 fn stringToSelectorList(input: []const u8, env: *Environment, arena: *ArenaAllocator) !?ComplexSelectorList {
-    const source = ParserSource.init(try zss.syntax.tokenize.Source.init(input));
+    const source = try ParserSource.init(Utf8String{ .data = input });
     var tree = try zss.syntax.parse.parseListOfComponentValues(source, env.allocator);
     defer tree.deinit(env.allocator);
     const slice = tree.slice();

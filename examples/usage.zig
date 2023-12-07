@@ -14,7 +14,7 @@ pub fn main() !void {
         \\  display: none;
         \\}
     ;
-    const stylesheet_source = zss.syntax.parse.Source.init(try zss.syntax.tokenize.Source.init(stylesheet_text));
+    const stylesheet_source = try zss.syntax.parse.Source.init(zss.util.Utf8String{ .data = stylesheet_text });
 
     try env.addStylesheet(stylesheet_source);
 

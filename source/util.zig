@@ -8,6 +8,9 @@ const Element = zss.ElementTree.Element;
 
 pub const unicode = @import("util/unicode.zig");
 
+/// This type serves as documentation only.
+/// It shows that the data contained within is acknowledged to be a UTF-8 encoded string,
+/// even if said data is invalid UTF-8.
 pub const Utf8String = struct {
     data: []const u8,
 };
