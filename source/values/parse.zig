@@ -155,6 +155,7 @@ pub fn typeToParseFn(comptime Type: type) switch (Type) {
     types.BackgroundImage => @TypeOf(backgroundImage),
     types.BackgroundRepeat => @TypeOf(backgroundRepeat),
     types.BackgroundAttachment => @TypeOf(backgroundAttachment),
+    types.BackgroundPosition => @TypeOf(backgroundPosition),
     else => @compileError("Unknown CSS value type: " ++ @typeName(Type)),
 } {
     return switch (Type) {
@@ -169,6 +170,7 @@ pub fn typeToParseFn(comptime Type: type) switch (Type) {
         types.BackgroundImage => backgroundImage,
         types.BackgroundRepeat => backgroundRepeat,
         types.BackgroundAttachment => backgroundAttachment,
+        types.BackgroundPosition => backgroundPosition,
         else => @compileError("Unknown CSS value type: " ++ @typeName(Type)),
     };
 }
@@ -276,6 +278,71 @@ test "css value parsing" {
     try testParsing(types.BackgroundAttachment, "scroll", .scroll, true);
     try testParsing(types.BackgroundAttachment, "fixed", .fixed, true);
     try testParsing(types.BackgroundAttachment, "local", .local, true);
+
+    try testParsing(types.BackgroundPosition, "center", .{ .position = .{
+        .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
+        .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
+    } }, true);
+    try testParsing(types.BackgroundPosition, "left", .{ .position = .{
+        .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
+        .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
+    } }, true);
+    try testParsing(types.BackgroundPosition, "top", .{ .position = .{
+        .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
+        .y = .{ .side = .start, .offset = .{ .percentage = 0 } },
+    } }, true);
+    try testParsing(types.BackgroundPosition, "50%", .{ .position = .{
+        .x = .{ .side = .start, .offset = .{ .percentage = 50 } },
+        .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
+    } }, true);
+    try testParsing(types.BackgroundPosition, "50px", .{ .position = .{
+        .x = .{ .side = .start, .offset = .{ .px = 50 } },
+        .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
+    } }, true);
+    try testParsing(types.BackgroundPosition, "left top", .{ .position = .{
+        .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
+        .y = .{ .side = .start, .offset = .{ .percentage = 0 } },
+    } }, true);
+    try testParsing(types.BackgroundPosition, "left center", .{ .position = .{
+        .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
+        .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
+    } }, true);
+    try testParsing(types.BackgroundPosition, "center right", .{ .position = .{
+        .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
+        .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
+    } }, false);
+    try testParsing(types.BackgroundPosition, "50px right", .{ .position = .{
+        .x = .{ .side = .start, .offset = .{ .px = 50 } },
+        .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
+    } }, false);
+    try testParsing(types.BackgroundPosition, "right center", .{ .position = .{
+        .x = .{ .side = .end, .offset = .{ .percentage = 0 } },
+        .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
+    } }, true);
+    try testParsing(types.BackgroundPosition, "center center 50%", .{ .position = .{
+        .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
+        .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
+    } }, false);
+    try testParsing(types.BackgroundPosition, "left center 20px", .{ .position = .{
+        .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
+        .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
+    } }, false);
+    try testParsing(types.BackgroundPosition, "left 20px bottom 50%", .{ .position = .{
+        .x = .{ .side = .start, .offset = .{ .px = 20 } },
+        .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
+    } }, true);
+    try testParsing(types.BackgroundPosition, "center bottom 50%", .{ .position = .{
+        .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
+        .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
+    } }, true);
+    try testParsing(types.BackgroundPosition, "bottom 50% center", .{ .position = .{
+        .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
+        .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
+    } }, true);
+    try testParsing(types.BackgroundPosition, "bottom 50% left 20px", .{ .position = .{
+        .x = .{ .side = .start, .offset = .{ .px = 20 } },
+        .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
+    } }, true);
 }
 
 pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const ParserSource.KV(Type)) !Type {
@@ -292,11 +359,19 @@ pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const Par
     return error.ParseError;
 }
 
-pub fn length(comptime Type: type, dimension: Source.Value.Dimension) !Type {
+pub fn genericLength(comptime Type: type, dimension: Source.Value.Dimension) !Type {
     const number = dimension.number;
     return switch (dimension.unit) {
         .unrecognized => error.ParseError,
         .px => .{ .px = number },
+    };
+}
+
+pub fn genericLengthPercentage(comptime Type: type, value: anytype) !Type {
+    return switch (@TypeOf(value)) {
+        f32 => .{ .percentage = value },
+        Source.Value.Dimension => genericLength(Type, value),
+        else => unreachable,
     };
 }
 
@@ -387,7 +462,7 @@ pub fn lengthPercentage(source: *Source) !types.LengthPercentage {
 
     const item = source.next() orelse return error.ParseError;
     switch (item.type) {
-        .dimension => return length(types.LengthPercentage, source.value(.dimension, item.index)),
+        .dimension => return genericLength(types.LengthPercentage, source.value(.dimension, item.index)),
         .percentage => return .{ .percentage = source.value(.percentage, item.index) },
         else => return error.ParseError,
     }
@@ -401,7 +476,7 @@ pub fn lengthPercentageAuto(source: *Source) !types.LengthPercentageAuto {
 
     const item = source.next() orelse return error.ParseError;
     switch (item.type) {
-        .dimension => return length(types.LengthPercentageAuto, source.value(.dimension, item.index)),
+        .dimension => return genericLength(types.LengthPercentageAuto, source.value(.dimension, item.index)),
         .percentage => return .{ .percentage = source.value(.percentage, item.index) },
         .keyword => return source.mapKeyword(item.index, types.LengthPercentageAuto, &.{
             .{ "auto", .auto },
@@ -418,7 +493,7 @@ pub fn maxSize(source: *Source) !types.MaxSize {
 
     const item = source.next() orelse return error.ParseError;
     switch (item.type) {
-        .dimension => return length(types.MaxSize, source.value(.dimension, item.index)),
+        .dimension => return genericLength(types.MaxSize, source.value(.dimension, item.index)),
         .percentage => return .{ .percentage = source.value(.percentage, item.index) },
         .keyword => return source.mapKeyword(item.index, types.MaxSize, &.{
             .{ "none", .none },
@@ -435,7 +510,7 @@ pub fn borderWidth(source: *Source) !types.BorderWidth {
 
     const item = source.next() orelse return error.ParseError;
     switch (item.type) {
-        .dimension => return length(types.BorderWidth, source.value(.dimension, item.index)),
+        .dimension => return genericLength(types.BorderWidth, source.value(.dimension, item.index)),
         .keyword => return source.mapKeyword(item.index, types.BorderWidth, &.{
             .{ "thin", .thin },
             .{ "medium", .medium },
@@ -504,4 +579,209 @@ pub fn backgroundAttachment(source: *Source) !types.BackgroundAttachment {
         .{ "fixed", .fixed },
         .{ "local", .local },
     });
+}
+
+const bg_position = struct {
+    const Side = types.BackgroundPosition.Side;
+    const Offset = types.BackgroundPosition.Offset;
+    const Axis = enum { x, y, either };
+
+    const KeywordMapValue = struct { axis: Axis, side: Side };
+    const keyword_map = &[_]ParserSource.KV(KeywordMapValue){
+        // zig fmt: off
+        .{ "center", .{ .axis = .either, .side = .center } },
+        .{ "left",   .{ .axis = .x,      .side = .start  } },
+        .{ "right",  .{ .axis = .x,      .side = .end    } },
+        .{ "top",    .{ .axis = .y,      .side = .start  } },
+        .{ "bottom", .{ .axis = .y,      .side = .end    } },
+    };
+    // zig fmt: on
+
+    const Info = struct {
+        axis: Axis,
+        side: Side,
+        offset: Offset,
+    };
+
+    const ResultTuple = struct {
+        bg_position: types.BackgroundPosition,
+        num_items_used: u3,
+    };
+};
+
+/// Spec: CSS Backgrounds and Borders Level 3
+/// Syntax: <bg-position> = [ left | center | right | top | bottom | <length-percentage> ]
+///                       |
+///                         [ left | center | right | <length-percentage> ]
+///                         [ top | center | bottom | <length-percentage> ]
+///                       |
+///                         [ center | [ left | right ] <length-percentage>? ] &&
+///                         [ center | [ top | bottom ] <length-percentage>? ]
+pub fn backgroundPosition(source: *Source) !types.BackgroundPosition {
+    const reset = source.range.index;
+    errdefer source.range.index = reset;
+
+    var items: [4]Source.Item = undefined;
+    var resets: [4]ComponentTree.Size = undefined;
+    for (&items, &resets) |*item, *r| {
+        item.* = source.next() orelse .{ .type = .unknown, .index = undefined };
+        r.* = source.range.index;
+    }
+
+    const result =
+        backgroundPosition3Or4Values(items, source) catch
+        backgroundPosition1Or2Values(items, source) catch
+        return error.ParseError;
+
+    source.range.index = resets[result.num_items_used - 1];
+    return result.bg_position;
+}
+
+/// Spec: CSS Backgrounds and Borders Level 3
+/// Syntax: [ center | [ left | right ] <length-percentage>? ] &&
+///         [ center | [ top | bottom ] <length-percentage>? ]
+fn backgroundPosition3Or4Values(items: [4]Source.Item, source: *Source) !bg_position.ResultTuple {
+    var num_items_used: u3 = 0;
+    const first = try backgroundPosition3Or4ValuesInfo(items, &num_items_used, source);
+    const second = try backgroundPosition3Or4ValuesInfo(items, &num_items_used, source);
+    if (num_items_used < 3) return error.ParseError;
+
+    var x_axis: *const bg_position.Info = undefined;
+    var y_axis: *const bg_position.Info = undefined;
+
+    switch (first.axis) {
+        .x => {
+            x_axis = &first;
+            y_axis = switch (second.axis) {
+                .x => return error.ParseError,
+                .y => &second,
+                .either => &second,
+            };
+        },
+        .y => {
+            x_axis = switch (second.axis) {
+                .x => &second,
+                .y => return error.ParseError,
+                .either => &second,
+            };
+            y_axis = &first;
+        },
+        .either => switch (second.axis) {
+            .x => {
+                x_axis = &second;
+                y_axis = &first;
+            },
+            .y, .either => {
+                x_axis = &first;
+                y_axis = &second;
+            },
+        },
+    }
+
+    const result = types.BackgroundPosition{
+        .position = .{
+            .x = .{
+                .side = x_axis.side,
+                .offset = x_axis.offset,
+            },
+            .y = .{
+                .side = y_axis.side,
+                .offset = y_axis.offset,
+            },
+        },
+    };
+    return .{ .bg_position = result, .num_items_used = num_items_used };
+}
+
+fn backgroundPosition3Or4ValuesInfo(items: [4]Source.Item, num_items_used: *u3, source: *Source) !bg_position.Info {
+    const side_item = items[num_items_used.*];
+    if (side_item.type != .keyword) return error.ParseError;
+    const map_value = source.mapKeyword(side_item.index, bg_position.KeywordMapValue, bg_position.keyword_map) orelse return error.ParseError;
+
+    var offset: bg_position.Offset = undefined;
+    switch (map_value.side) {
+        .center => {
+            num_items_used.* += 1;
+            offset = .{ .percentage = 0 };
+        },
+        else => {
+            const offset_item = items[num_items_used.* + 1];
+            switch (offset_item.type) {
+                inline .dimension, .percentage => |@"type"| {
+                    if (genericLengthPercentage(bg_position.Offset, source.value(@"type", offset_item.index))) |value| {
+                        num_items_used.* += 2;
+                        offset = value;
+                    } else |_| {
+                        num_items_used.* += 1;
+                        offset = .{ .percentage = 0 };
+                    }
+                },
+                else => {
+                    num_items_used.* += 1;
+                    offset = .{ .percentage = 0 };
+                },
+            }
+        },
+    }
+
+    return .{ .axis = map_value.axis, .side = map_value.side, .offset = offset };
+}
+
+/// Spec: CSS Backgrounds and Borders Level 3
+/// Syntax: [ left | center | right | top | bottom | <length-percentage> ]
+///       |
+///         [ left | center | right | <length-percentage> ]
+///         [ top | center | bottom | <length-percentage> ]
+fn backgroundPosition1Or2Values(items: [4]Source.Item, source: *Source) !bg_position.ResultTuple {
+    const first = try backgroundPosition1Or2ValuesInfo(items[0], source);
+    twoValues: {
+        if (first.axis == .y) break :twoValues;
+        const second = backgroundPosition1Or2ValuesInfo(items[1], source) catch break :twoValues;
+        if (second.axis == .x) break :twoValues;
+
+        const result = types.BackgroundPosition{
+            .position = .{
+                .x = .{
+                    .side = first.side,
+                    .offset = first.offset,
+                },
+                .y = .{
+                    .side = second.side,
+                    .offset = second.offset,
+                },
+            },
+        };
+        return .{ .bg_position = result, .num_items_used = 2 };
+    }
+
+    var result = types.BackgroundPosition{
+        .position = .{
+            .x = .{
+                .side = first.side,
+                .offset = first.offset,
+            },
+            .y = .{
+                .side = .center,
+                .offset = .{ .percentage = 0 },
+            },
+        },
+    };
+    if (first.axis == .y) {
+        std.mem.swap(types.BackgroundPosition.SideOffset, &result.position.x, &result.position.y);
+    }
+    return .{ .bg_position = result, .num_items_used = 1 };
+}
+
+fn backgroundPosition1Or2ValuesInfo(item: Source.Item, source: *Source) !bg_position.Info {
+    switch (item.type) {
+        .keyword => {
+            const map_value = source.mapKeyword(item.index, bg_position.KeywordMapValue, bg_position.keyword_map) orelse return error.ParseError;
+            return .{ .axis = map_value.axis, .side = map_value.side, .offset = .{ .percentage = 0 } };
+        },
+        inline .dimension, .percentage => |@"type"| {
+            const offset = try genericLengthPercentage(bg_position.Offset, source.value(@"type", item.index));
+            return .{ .axis = .either, .side = .start, .offset = offset };
+        },
+        else => return error.ParseError,
+    }
 }

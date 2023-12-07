@@ -288,7 +288,7 @@ pub const BackgroundRepeat = union(enum) {
     undeclared,
 };
 
-pub const BackgroundAttachment = union(enum) {
+pub const BackgroundAttachment = enum {
     scroll,
     fixed,
     local,
