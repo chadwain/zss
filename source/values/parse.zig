@@ -156,6 +156,9 @@ pub fn typeToParseFn(comptime Type: type) switch (Type) {
     types.BackgroundRepeat => @TypeOf(backgroundRepeat),
     types.BackgroundAttachment => @TypeOf(backgroundAttachment),
     types.BackgroundPosition => @TypeOf(backgroundPosition),
+    types.BackgroundClip => @TypeOf(backgroundClip),
+    types.BackgroundOrigin => @TypeOf(backgroundOrigin),
+    types.BackgroundSize => @TypeOf(backgroundSize),
     else => @compileError("Unknown CSS value type: " ++ @typeName(Type)),
 } {
     return switch (Type) {
@@ -171,6 +174,9 @@ pub fn typeToParseFn(comptime Type: type) switch (Type) {
         types.BackgroundRepeat => backgroundRepeat,
         types.BackgroundAttachment => backgroundAttachment,
         types.BackgroundPosition => backgroundPosition,
+        types.BackgroundClip => backgroundClip,
+        types.BackgroundOrigin => backgroundOrigin,
+        types.BackgroundSize => backgroundSize,
         else => @compileError("Unknown CSS value type: " ++ @typeName(Type)),
     };
 }
@@ -343,6 +349,21 @@ test "css value parsing" {
         .x = .{ .side = .start, .offset = .{ .px = 20 } },
         .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
     } }, true);
+
+    try testParsing(types.BackgroundClip, "border-box", .border_box, true);
+    try testParsing(types.BackgroundClip, "padding-box", .padding_box, true);
+    try testParsing(types.BackgroundClip, "content-box", .content_box, true);
+
+    try testParsing(types.BackgroundOrigin, "border-box", .border_box, true);
+    try testParsing(types.BackgroundOrigin, "padding-box", .padding_box, true);
+    try testParsing(types.BackgroundOrigin, "content-box", .content_box, true);
+
+    try testParsing(types.BackgroundSize, "contain", .contain, true);
+    try testParsing(types.BackgroundSize, "cover", .cover, true);
+    try testParsing(types.BackgroundSize, "auto", .{ .size = .{ .width = .auto, .height = .auto } }, true);
+    try testParsing(types.BackgroundSize, "auto auto", .{ .size = .{ .width = .auto, .height = .auto } }, true);
+    try testParsing(types.BackgroundSize, "5px", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .px = 5 } } }, true);
+    try testParsing(types.BackgroundSize, "5px 5%", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .percentage = 5 } } }, true);
 }
 
 pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const ParserSource.KV(Type)) !Type {
@@ -548,6 +569,7 @@ pub fn backgroundImage(source: *Source) !types.BackgroundImage {
 // Spec: CSS Backgrounds and Borders Level 3
 // Syntax: <repeat-style> = repeat-x | repeat-y | [repeat | space | round | no-repeat]{1,2}
 pub fn backgroundRepeat(source: *Source) !types.BackgroundRepeat {
+    // TODO: reset point incorrect
     const reset = source.range.index;
     errdefer source.range.index = reset;
 
@@ -782,6 +804,63 @@ fn backgroundPosition1Or2ValuesInfo(item: Source.Item, source: *Source) !bg_posi
             const offset = try genericLengthPercentage(bg_position.Offset, source.value(@"type", item.index));
             return .{ .axis = .either, .side = .start, .offset = offset };
         },
+        else => return error.ParseError,
+    }
+}
+
+/// Spec: CSS Backgrounds and Borders Level 3
+/// Syntax: <box> = border-box | padding-box | content-box
+pub fn backgroundClip(source: *Source) !types.BackgroundClip {
+    return parseSingleKeyword(source, types.BackgroundClip, &.{
+        .{ "border-box", .border_box },
+        .{ "padding-box", .padding_box },
+        .{ "content-box", .content_box },
+    });
+}
+
+/// Spec: CSS Backgrounds and Borders Level 3
+/// Syntax: <box> = border-box | padding-box | content-box
+pub fn backgroundOrigin(source: *Source) !types.BackgroundOrigin {
+    return parseSingleKeyword(source, types.BackgroundOrigin, &.{
+        .{ "border-box", .border_box },
+        .{ "padding-box", .padding_box },
+        .{ "content-box", .content_box },
+    });
+}
+
+/// Spec: CSS Backgrounds and Borders Level 3
+/// Syntax: <bg-size> = [ <length-percentage [0,infinity]> | auto ]{1,2} | cover | contain
+pub fn backgroundSize(source: *Source) !types.BackgroundSize {
+    // TODO: reset point incorrect
+    const first = source.next() orelse return error.ParseError;
+    switch (first.type) {
+        .keyword => {
+            if (source.mapKeyword(first.index, types.BackgroundSize, &.{
+                .{ "cover", .cover },
+                .{ "contain", .contain },
+            })) |value| return value;
+        },
+        else => {},
+    }
+
+    const width = try backgroundSizeOne(first, source);
+    const height = blk: {
+        const second = source.next() orelse break :blk width;
+        const result = backgroundSizeOne(second, source) catch break :blk width;
+        break :blk result;
+    };
+    return types.BackgroundSize{ .size = .{ .width = width, .height = height } };
+}
+
+fn backgroundSizeOne(item: Source.Item, source: *Source) !types.BackgroundSize.SizeType {
+    switch (item.type) {
+        inline .dimension, .percentage => |@"type"| {
+            // TODO: Range checking?
+            return genericLengthPercentage(types.BackgroundSize.SizeType, source.value(@"type", item.index));
+        },
+        .keyword => return source.mapKeyword(item.index, types.BackgroundSize.SizeType, &.{
+            .{ "auto", .auto },
+        }) orelse error.ParseError,
         else => return error.ParseError,
     }
 }
