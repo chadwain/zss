@@ -212,6 +212,7 @@ pub const Token = union(Component.Tag) {
     token_number: f32,
     token_percentage: f32,
     token_dimension: Dimension,
+    token_unit,
     token_whitespace,
     token_cdo,
     token_cdc,

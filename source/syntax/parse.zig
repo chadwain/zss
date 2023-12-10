@@ -273,7 +273,7 @@ const Parser = struct {
         });
         _ = try parser.appendComponent(.{
             .next_sibling = index + 2,
-            .tag = .token_ident,
+            .tag = .token_unit,
             .location = dimension.unit_location,
             .extra = Extra.make(@intFromEnum(dimension.unit)),
         });

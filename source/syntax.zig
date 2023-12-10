@@ -40,6 +40,9 @@ pub const Component = struct {
             return @bitCast(int);
         }
 
+        // The following functions cast an extra value to a different type.
+        // It is very important to use the right one, in the right context.
+
         pub fn index(extra: Extra) ComponentTree.Size {
             return @bitCast(extra);
         }
@@ -98,7 +101,7 @@ pub const Component = struct {
         token_bad_url,
         /// A single codepoint
         /// location: The codepoint
-        /// extra: Use `extra.codepoint()` to get the value of the codepoint.
+        /// extra: Use `extra.codepoint()` to get the value of the codepoint
         token_delim,
         /// An optional '+' or '-' codepoint + a sequence of digits
         /// location: The +/- sign or the first digit
@@ -113,10 +116,14 @@ pub const Component = struct {
         /// extra: Use `extra.number()` to get the number as an `f32`
         token_percentage,
         /// A numeric value (integral or floating point) + an identifier
-        /// children: The unit (a `token_ident`)
+        /// children: The unit (a `token_unit`)
         /// location: The first codepoint of the number
         /// extra: Use `extra.number()` to get the number as an `f32`
         token_dimension,
+        /// A dimension's unit (an identifier)
+        /// location: The first codepoint of the unit identifier
+        /// extra: Use `extra.unit()` to get the unit
+        token_unit,
         /// A series of one or more whitespace codepoints
         /// location: The first whitespace codepoint
         token_whitespace,
@@ -345,6 +352,7 @@ pub const ComponentTree = struct {
                 .token_delim => try writer.print("U+{X}", .{extra.codepoint()}),
                 .token_integer => try writer.print("{}", .{extra.integer()}),
                 .token_number, .token_dimension => try writer.print("{d}", .{extra.number()}),
+                .token_unit => try writer.print("{s}", .{@tagName(extra.unit())}),
                 .token_percentage => try writer.print("{d}%", .{extra.number()}),
                 else => try writer.print("{}", .{@as(u32, @bitCast(extra))}),
             }
