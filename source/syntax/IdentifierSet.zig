@@ -7,6 +7,7 @@ const syntax = @import("../syntax.zig");
 const Utf8String = zss.util.Utf8String;
 
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
 const SegmentedList = std.SegmentedList;
@@ -63,6 +64,7 @@ const AdapterGeneric = struct {
         var slice = adapter.set.map.values()[index];
         var string_it = adapter.set.string_data.constIterator(slice.begin);
         var buffer: [4]u8 = undefined;
+
         while (slice.len > 0) {
             const key_codepoint = key_it.next() orelse return false;
 
@@ -95,13 +97,14 @@ fn getOrPutGeneric(set: *IdentifierSet, allocator: Allocator, key: anytype) !usi
     };
 
     const adapter = Adapter{ .generic = .{ .set = set } };
-    const result = try set.map.getOrPutAdapted(allocator, key, adapter);
-    errdefer set.map.swapRemoveAt(result.index);
+    if (set.map.getIndexAdapted(key, adapter)) |index| return index;
+    if (set.map.count() == set.max_size) return error.Overflow;
 
-    if (!result.found_existing) {
-        if (result.index >= set.max_size) return error.Overflow;
+    const string_data_old_len: u32 = @intCast(set.string_data.len);
+    errdefer set.string_data.shrink(string_data_old_len);
 
-        var slice = Slice{ .begin = @intCast(set.string_data.len), .len = 0 };
+    const slice = slice: {
+        var slice = Slice{ .begin = string_data_old_len, .len = 0 };
         var it = key.iterator();
         var buffer: [4]u8 = undefined;
         while (it.next()) |codepoint| {
@@ -110,10 +113,14 @@ fn getOrPutGeneric(set: *IdentifierSet, allocator: Allocator, key: anytype) !usi
             _ = try std.math.add(u32, slice.begin, slice.len);
             try set.string_data.appendSlice(allocator, buffer[0..len]);
         }
-        result.value_ptr.* = slice;
-    }
+        break :slice slice;
+    };
 
-    return result.index;
+    const gop_result = try set.map.getOrPutAdapted(allocator, key, adapter);
+    assert(!gop_result.found_existing);
+    assert(gop_result.index == set.map.count() - 1);
+    gop_result.value_ptr.* = slice;
+    return set.map.count() - 1;
 }
 
 pub fn getOrPutFromSource(
