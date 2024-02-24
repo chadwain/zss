@@ -11,20 +11,9 @@ pub fn build(b: *Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
-    const zss_lib = b.addStaticLibrary(.{
-        .name = "zss",
-        .root_source_file = .{ .path = "zss.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-    b.installArtifact(zss_lib);
-
-    const zss_step = b.step("zss", "Build zss");
-    zss_step.dependOn(&zss_lib.step);
-
     const mods = Modules{
-        .harfbuzz = b.createModule(.{ .source_file = .{ .path = "dependencies/harfbuzz.zig" } }),
-        .sdl2 = b.createModule(.{ .source_file = .{ .path = "dependencies/SDL2.zig" } }),
+        .harfbuzz = b.createModule(.{ .root_source_file = .{ .path = "dependencies/harfbuzz.zig" } }),
+        .sdl2 = b.createModule(.{ .root_source_file = .{ .path = "dependencies/SDL2.zig" } }),
     };
 
     addTests(b, optimize, target, mods);
@@ -32,7 +21,7 @@ pub fn build(b: *Build) void {
     addExamples(b, optimize, target, mods);
 }
 
-fn addTests(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, mods: Modules) void {
+fn addTests(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.ResolvedTarget, mods: Modules) void {
     const all_tests_step = b.step("test", "Build all tests");
 
     const lib_tests = b.addTest(.{
@@ -42,7 +31,7 @@ fn addTests(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, 
         .optimize = optimize,
         .link_libc = true,
     });
-    lib_tests.addModule("harfbuzz", mods.harfbuzz);
+    lib_tests.root_module.addImport("harfbuzz", mods.harfbuzz);
     lib_tests.linkSystemLibrary("harfbuzz");
     lib_tests.linkSystemLibrary("freetype2");
     b.installArtifact(lib_tests);
@@ -63,11 +52,11 @@ fn addTests(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, 
     test_suite.linkSystemLibrary("harfbuzz");
     test_suite.linkSystemLibrary("freetype2");
     test_suite.linkSystemLibrary("SDL2");
-    test_suite.addModule("harfbuzz", mods.harfbuzz);
-    test_suite.addModule("SDL2", mods.sdl2);
-    test_suite.addAnonymousModule("zss", .{
-        .source_file = .{ .path = "zss.zig" },
-        .dependencies = &.{
+    test_suite.root_module.addImport("harfbuzz", mods.harfbuzz);
+    test_suite.root_module.addImport("SDL2", mods.sdl2);
+    test_suite.root_module.addAnonymousImport("zss", .{
+        .root_source_file = .{ .path = "zss.zig" },
+        .imports = &.{
             .{ .name = "harfbuzz", .module = mods.harfbuzz },
             .{ .name = "SDL2", .module = mods.sdl2 },
         },
@@ -76,7 +65,7 @@ fn addTests(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, 
 
     const test_category_filter = b.option([]const []const u8, "tests", "List of test categories to run");
     const test_suite_options = b.addOptions();
-    test_suite.addOptions("build_options", test_suite_options);
+    test_suite.root_module.addOptions("build_options", test_suite_options);
     test_suite_options.addOption([]const []const u8, "tests", test_category_filter orelse &[_][]const u8{ "validation", "memory" });
 
     const run_test_suite = b.addRunArtifact(test_suite);
@@ -89,7 +78,7 @@ fn addTests(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, 
     all_tests_step.dependOn(&run_test_suite.step);
 }
 
-fn addDemo(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, mods: Modules) void {
+fn addDemo(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.ResolvedTarget, mods: Modules) void {
     var demo_exe = b.addExecutable(.{
         .name = "demo",
         .root_source_file = .{ .path = "demo/demo.zig" },
@@ -97,11 +86,11 @@ fn addDemo(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, m
         .optimize = optimize,
         .link_libc = true,
     });
-    demo_exe.addModule("harfbuzz", mods.harfbuzz);
-    demo_exe.addModule("SDL2", mods.sdl2);
-    demo_exe.addAnonymousModule("zss", .{
-        .source_file = .{ .path = "zss.zig" },
-        .dependencies = &.{
+    demo_exe.root_module.addImport("harfbuzz", mods.harfbuzz);
+    demo_exe.root_module.addImport("SDL2", mods.sdl2);
+    demo_exe.root_module.addAnonymousImport("zss", .{
+        .root_source_file = .{ .path = "zss.zig" },
+        .imports = &.{
             .{ .name = "harfbuzz", .module = mods.harfbuzz },
             .{ .name = "SDL2", .module = mods.sdl2 },
         },
@@ -120,15 +109,15 @@ fn addDemo(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, m
     demo_step.dependOn(&demo_cmd.step);
 }
 
-fn addExamples(b: *Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, mods: Modules) void {
+fn addExamples(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.ResolvedTarget, mods: Modules) void {
     addExample(b, optimize, target, mods, "parse", "examples/parse.zig", "Run a parser program");
     addExample(b, optimize, target, mods, "usage", "examples/usage.zig", "Run an example-usage program");
 }
 
 fn addExample(
     b: *Build,
-    optimize: std.builtin.Mode,
-    target: std.zig.CrossTarget,
+    optimize: std.builtin.OptimizeMode,
+    target: Build.ResolvedTarget,
     mods: Modules,
     name: []const u8,
     path: []const u8,
@@ -141,9 +130,9 @@ fn addExample(
         .optimize = optimize,
         .link_libc = true,
     });
-    exe.addAnonymousModule("zss", .{
-        .source_file = .{ .path = "zss.zig" },
-        .dependencies = &.{
+    exe.root_module.addAnonymousImport("zss", .{
+        .root_source_file = .{ .path = "zss.zig" },
+        .imports = &.{
             .{ .name = "harfbuzz", .module = mods.harfbuzz },
         },
     });

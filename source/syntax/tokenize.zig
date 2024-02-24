@@ -71,7 +71,7 @@ pub const Source = struct {
 
         var next_location = location.value;
         const unprocessed_codepoint = blk: {
-            var len = try std.unicode.utf8ByteSequenceLength(source.data[next_location]);
+            const len = try std.unicode.utf8ByteSequenceLength(source.data[next_location]);
             if (source.data.len - next_location < len) return error.Utf8CodepointTruncated;
             defer next_location += len;
             break :blk try std.unicode.utf8Decode(source.data[next_location..][0..len]);
@@ -441,7 +441,7 @@ fn consumeWhitespace(source: Source, start: Source.Location) !Source.Location {
 fn consumeStringToken(source: Source, after_quote: Source.Location, ending_codepoint: u21) !NextToken {
     var location = after_quote;
     while (true) {
-        var next = try source.next(location);
+        const next = try source.next(location);
         switch (next.codepoint) {
             '\n' => {
                 // NOTE: Parse error
@@ -1006,7 +1006,7 @@ test "tokenization" {
         if (i >= expected.len) return error.TestFailure;
         const next = try nextToken(source, location);
         const token = next.token;
-        try std.testing.expectEqual(expected[i], token);
+        try std.testing.expectEqual(expected[i], @as(Component.Tag, token));
         if (token == .token_eof) break;
         location = next.next_location;
         i += 1;

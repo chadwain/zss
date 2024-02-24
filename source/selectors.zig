@@ -296,7 +296,7 @@ pub fn parseSelectorList(
 ) !?ComplexSelectorList {
     var parse_context = parse.Context.init(env, arena, source, slice, end);
     const iterator = parse.Iterator.init(start);
-    var selector_list = (try parse.complexSelectorList(&parse_context, iterator)) orelse return null;
+    const selector_list = (try parse.complexSelectorList(&parse_context, iterator)) orelse return null;
     if (parse_context.finishParsing(selector_list[1])) {
         return selector_list[0];
     } else {
@@ -389,7 +389,7 @@ fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpec
     defer env.deinit();
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
-    var selector_list = (try stringToSelectorList(input, &env, &arena)) orelse return error.TestFailure;
+    const selector_list = (try stringToSelectorList(input, &env, &arena)) orelse return error.TestFailure;
     // defer selector_list.deinit(allocator);
     try expectEqualComplexSelectorLists(expected, selector_list.list);
 }
