@@ -184,14 +184,15 @@ pub const UrlTokenIterator = struct {
     }
 };
 
-pub fn stringIsIdentSequence(string: Utf8String) !bool {
-    const source = try Source.init(string);
+pub fn stringIsIdentSequence(string: Utf8String) bool {
+    const source = Source.init(string) catch return false;
     var location = Source.Location{};
     var first_3: [3]u21 = undefined;
-    _ = try source.read(location, &first_3);
+    _ = source.read(location, &first_3) catch return false;
     if (!codepointsStartAnIdentSequence(first_3)) return false;
-    location = try consumeIdentSequence(source, location);
-    return (try source.next(location)).codepoint == eof_codepoint;
+    location = consumeIdentSequence(source, location) catch return false;
+    const final = source.next(location) catch return false;
+    return final.codepoint == eof_codepoint;
 }
 
 pub const Token = union(Component.Tag) {

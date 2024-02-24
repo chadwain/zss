@@ -27,7 +27,12 @@ pub fn main() !u8 {
         var tree = try parse.parseCssStylesheet(source, allocator);
         defer tree.deinit(allocator);
         try zss.syntax.ComponentTree.debug.print(tree, allocator, stdout);
-    } else if (std.mem.eql(u8, args[1], "tokenize")) {
+    } else if (std.mem.eql(u8, args[1], "components")) {
+        const source = try parse.Source.init(string);
+        var tree = try parse.parseListOfComponentValues(source, allocator);
+        defer tree.deinit(allocator);
+        try zss.syntax.ComponentTree.debug.print(tree, allocator, stdout);
+    } else if (std.mem.eql(u8, args[1], "tokens")) {
         const source = try tokenize.Source.init(string);
 
         var location = tokenize.Source.Location{};
@@ -35,8 +40,8 @@ pub fn main() !u8 {
         while (true) {
             const next = try zss.syntax.tokenize.nextToken(source, location);
             location = next.next_location;
-            i += 1;
             try stdout.print("{}: {s}\n", .{ i, @tagName(next.token) });
+            i += 1;
             if (next.token == .token_eof) break;
         }
     } else {

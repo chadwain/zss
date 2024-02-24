@@ -392,7 +392,7 @@ pub fn genericLengthPercentage(comptime Type: type, value: anytype) !Type {
     return switch (@TypeOf(value)) {
         f32 => .{ .percentage = value },
         Source.Value.Dimension => genericLength(Type, value),
-        else => unreachable,
+        else => @compileError("Invalid type"),
     };
 }
 

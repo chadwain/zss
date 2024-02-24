@@ -305,6 +305,7 @@ pub const BackgroundPosition = union(enum) {
         percentage: f32,
     };
 
+    // TODO: Make this a tagged union instead
     pub const SideOffset = struct {
         /// `.start` corresponds to left (x-axis) and top (y-axis)
         /// `.end` corresponds to right (x-axis) and bottom (y-axis)

@@ -149,6 +149,7 @@ pub fn getOrPutFromSource(
 pub fn getOrPutFromString(
     set: *IdentifierSet,
     allocator: Allocator,
+    // TODO: Ensure this is an ASCII string
     string: []const u8,
 ) !usize {
     const Key = struct {
@@ -170,7 +171,7 @@ pub fn getOrPutFromString(
         }
     };
 
-    std.debug.assert(syntax.tokenize.stringIsIdentSequence(Utf8String{ .data = string }) catch false);
+    assert(syntax.tokenize.stringIsIdentSequence(Utf8String{ .data = string }));
     const key = Key{ .string = string };
     return set.getOrPutGeneric(allocator, key);
 }
