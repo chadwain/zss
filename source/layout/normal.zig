@@ -32,7 +32,7 @@ const StackingContextIndex = used_values.StackingContextIndex;
 const GeneratedBox = used_values.GeneratedBox;
 const BoxTree = used_values.BoxTree;
 
-const hb = @import("harfbuzz");
+const hb = @import("mach-harfbuzz").c;
 
 const LayoutMode = enum {
     InitialContainingBlock,

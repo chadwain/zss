@@ -38,7 +38,7 @@ const GlyphIndex = InlineFormattingContext.GlyphIndex;
 const GeneratedBox = used_values.GeneratedBox;
 const BoxTree = used_values.BoxTree;
 
-const hb = @import("harfbuzz");
+const hb = @import("mach-harfbuzz").c;
 
 pub const InlineLayoutContext = struct {
     const Self = @This();

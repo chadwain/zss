@@ -10,13 +10,9 @@ zss is a [CSS](https://www.w3.org/Style/CSS/) layout engine and document rendere
   - Allows one to draw a document to graphical window via a rendering backend. At the moment, the only provided backend is [SDL2](https://libsdl.org/).
 
 # Building zss
-To build zss, use the latest version of zig.
+To build zss, use the latest version of zig, and simply run `zig build --help` to see your options.
 
-To do layout or run tests, you will need:
-- harfbuzz
-- freetype
-
-To use the SDL2 rendering backend or run the demo program, you must also have:
+To use the SDL2 rendering backend or run the demo program, you must have the following installed on your system:
 - sdl2
 - sdl2-image
 
@@ -27,7 +23,6 @@ sudo apt install libharfbuzz-dev libfreetype6-dev libsdl2-dev libsdl2-image-dev
 
 Windows users must provide their own builds of these libraries for now.
 
-After you've installed the dependencies, you can then run `zig build --help` to see your options.
 
 # How to use zss
 Assuming you've imported the library like this...

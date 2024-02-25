@@ -9,7 +9,7 @@ const Allocator = std.mem.Allocator;
 
 const Test = @import("./testing.zig").Test;
 
-const hb = @import("harfbuzz");
+const hb = @import("mach-harfbuzz").c;
 const sdl = @import("SDL2");
 
 pub fn run(tests: []const Test) !void {

@@ -259,7 +259,7 @@ pub const InlineFormattingContext = struct {
     margins: ArrayListUnmanaged(MarginsInline) = .{},
     insets: ArrayListUnmanaged(Insets) = .{},
 
-    const hb = @import("harfbuzz");
+    const hb = @import("mach-harfbuzz").c;
 
     const Self = @This();
 

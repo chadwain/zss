@@ -5,7 +5,7 @@ const Element = ElementTree.Element;
 const std = @import("std");
 const assert = std.debug.assert;
 
-const hb = @import("harfbuzz");
+const hb = @import("mach-harfbuzz").c;
 
 pub const Test = @import("./Test.zig");
 
@@ -22,7 +22,7 @@ const Category = enum {
 };
 
 const categories = blk: {
-    const build_options = @import("build_options");
+    const build_options = @import("build-options");
     const tests = build_options.tests;
 
     var result: [tests.len]Category = undefined;
@@ -114,7 +114,7 @@ const all_tests = blk: {
     var num_tests = 0;
     for (modules) |m| {
         if (@hasDecl(m, "tests")) {
-            if (!std.meta.trait.is(.Array)(@TypeOf(m.tests)) or std.meta.Child(@TypeOf(m.tests)) != TestInfo) {
+            if (@typeInfo(@TypeOf(m.tests)) != .Array or std.meta.Child(@TypeOf(m.tests)) != TestInfo) {
                 @compileError("field 'tests' of struct '" ++ @typeName(m) ++ "' must be of type [N]" ++ @typeName(TestInfo));
             }
             num_tests += m.tests.len;

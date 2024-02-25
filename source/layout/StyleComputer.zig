@@ -14,7 +14,7 @@ const ViewportSize = zss.layout.ViewportSize;
 const ElementIndex = undefined;
 const root_element = undefined;
 
-const hb = @import("harfbuzz");
+const hb = @import("mach-harfbuzz").c;
 
 const Self = @This();
 

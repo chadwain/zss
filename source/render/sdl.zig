@@ -23,7 +23,7 @@ const StackingContextTree = zss.used_values.StackingContextTree;
 const ZIndex = zss.used_values.ZIndex;
 const BoxTree = zss.used_values.BoxTree;
 
-const hb = @import("harfbuzz");
+const hb = @import("mach-harfbuzz").c;
 const sdl = @import("SDL2");
 
 pub const util = @import("util/sdl.zig");

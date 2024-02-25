@@ -22,7 +22,7 @@ const DrawOrderList = zss.render.DrawOrderList;
 const QuadTree = zss.render.QuadTree;
 
 const sdl = @import("SDL2");
-const hb = @import("harfbuzz");
+const hb = @import("mach-harfbuzz").c;
 const sdlMainLoop = @import("./show_document_sdl.zig").sdlMainLoop;
 
 const usage = "Usage: demo [--font <file>] [--font-size <integer>] [--color <hex color>] [--bg-color <hex color>] <file>";

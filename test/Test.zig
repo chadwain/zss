@@ -12,7 +12,7 @@ const allocator = testing.allocator;
 const std = @import("std");
 const assert = std.debug.assert;
 
-const hb = @import("harfbuzz");
+const hb = @import("mach-harfbuzz").c;
 
 name: []const u8 = undefined,
 slice: ElementTree.Slice = undefined,

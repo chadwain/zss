@@ -13,7 +13,7 @@ const DrawOrderList = zss.render.DrawOrderList;
 const QuadTree = zss.render.QuadTree;
 
 const sdl = @import("SDL2");
-const hb = @import("harfbuzz");
+const hb = @import("mach-harfbuzz").c;
 const ProgramState = struct {
     element_tree: ElementTree.Slice,
     root: Element,

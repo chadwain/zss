@@ -1,0 +1,11 @@
+.{
+    .name = "zss",
+    .version = "0.0.0",
+    .paths = .{"."},
+    .dependencies = .{
+        .mach_freetype = .{
+            .url = "https://pkg.machengine.org/mach-freetype/dc4a5d8ce14f8678f35bdaf197303091e22b1f27.tar.gz",
+            .hash = "122070070dd2c402d94c279d64d4a4d154691ad49f46fa2c24ed7c6e4e4f5c531477",
+        },
+    },
+}
