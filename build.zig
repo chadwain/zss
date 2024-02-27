@@ -18,6 +18,7 @@ const Modules = struct {
     zss: *Module,
     mach_harfbuzz: *Module,
     sdl2: *Module,
+    zgl: *Module,
 };
 
 fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules {
@@ -35,12 +36,17 @@ fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules
     });
     mods.sdl2.linkSystemLibrary("SDL2", .{});
 
+    const zgl_dep = b.dependency("zgl", .{});
+    mods.zgl = zgl_dep.module("zgl");
+
     mods.zss = b.addModule("zss", .{
         .root_source_file = .{ .path = "zss.zig" },
         .imports = &.{
             .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
             // TODO: Only import SDL2 if necessary
+            // TODO: Only import zgl if necessary
             .{ .name = "SDL2", .module = mods.sdl2 },
+            .{ .name = "zgl", .module = mods.zgl },
         },
         .target = target,
         .optimize = optimize,
@@ -111,6 +117,24 @@ fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modu
     const run_demo = b.addRunArtifact(demo);
     demo_step.dependOn(&run_demo.step);
     if (b.args) |args| run_demo.addArgs(args);
+
+    const demo_opengl = b.addExecutable(.{
+        .name = "demo-opengl",
+        .root_source_file = .{ .path = "demo/demo_opengl.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    demo_opengl.root_module.addImport("zss", mods.zss);
+    demo_opengl.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
+    demo_opengl.root_module.addImport("SDL2", mods.sdl2);
+    demo_opengl.root_module.addImport("zgl", mods.zgl);
+    demo_opengl.linkSystemLibrary("SDL2_image");
+    b.installArtifact(demo_opengl);
+
+    const demo_opengl_step = b.step("demo-opengl", "Run a graphical demo program");
+    const run_demo_opengl = b.addRunArtifact(demo_opengl);
+    demo_opengl_step.dependOn(&run_demo_opengl.step);
+    if (b.args) |args| run_demo_opengl.addArgs(args);
 }
 
 fn addExamples(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) void {
