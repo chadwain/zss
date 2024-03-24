@@ -59,5 +59,5 @@ pub fn setText(self: *Test, element: Element, value: ElementTree.Text) void {
 
 fn fail(err: anyerror) noreturn {
     std.debug.print("Error during a test: {s}\n", .{@errorName(err)});
-    std.os.abort();
+    std.process.abort();
 }

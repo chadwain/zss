@@ -87,7 +87,7 @@ fn setupTest(t: *Test, info: TestInfo) void {
 
 fn fail(err: anyerror) noreturn {
     std.debug.print("Error while setting up a test: {s}\n", .{@errorName(err)});
-    std.os.abort();
+    std.process.abort();
 }
 
 fn deinitTest(t: *Test) void {

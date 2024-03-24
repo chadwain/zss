@@ -125,7 +125,7 @@ fn parseArgs(args: []const [:0]const u8, stderr: std.fs.File.Writer) ProgramArgu
                 break;
             } else {
                 stderr.print("Argument syntax error\n{s}\n", .{usage}) catch {};
-                std.os.exit(1);
+                std.process.exit(1);
             }
         } else if (i + 1 < args.len) {
             defer i += 2;
@@ -141,7 +141,7 @@ fn parseArgs(args: []const [:0]const u8, stderr: std.fs.File.Writer) ProgramArgu
                 bg_color = std.fmt.parseUnsigned(u24, bg_color_str, 16);
             } else {
                 stderr.print("Unrecognized option: {s}\n{s}\n", .{ arg, usage }) catch {};
-                std.os.exit(1);
+                std.process.exit(1);
             }
         }
     }
@@ -149,20 +149,20 @@ fn parseArgs(args: []const [:0]const u8, stderr: std.fs.File.Writer) ProgramArgu
     return ProgramArguments{
         .filename = filename orelse {
             stderr.print("Input file not specified\n{s}\n", .{usage}) catch {};
-            std.os.exit(1);
+            std.process.exit(1);
         },
         .font_filename = font_filename orelse "demo/NotoSans-Regular.ttf",
         .font_size = font_size orelse @as(std.fmt.ParseIntError!u32, 14) catch |e| {
             stderr.print("Unable to parse font size: {s}", .{@errorName(e)}) catch {};
-            std.os.exit(1);
+            std.process.exit(1);
         },
         .text_color = @as(u32, text_color orelse @as(std.fmt.ParseIntError!u24, 0x101010) catch |e| {
             stderr.print("Unable to parse text color: {s}", .{@errorName(e)}) catch {};
-            std.os.exit(1);
+            std.process.exit(1);
         }) << 8 | 0xff,
         .bg_color = @as(u32, bg_color orelse @as(std.fmt.ParseIntError!u24, 0xefefef) catch |e| {
             stderr.print("Unable to parse background color: {s}", .{@errorName(e)}) catch {};
-            std.os.exit(1);
+            std.process.exit(1);
         }) << 8 | 0xff,
     };
 }
