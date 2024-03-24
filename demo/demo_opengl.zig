@@ -3,12 +3,15 @@ const assert = std.debug.assert;
 
 const sdl = @import("SDL2");
 const zgl = @import("zgl");
+const glfw = @import("glfw");
 
 fn sdlCall(code: c_int) !void {
     if (code != 0) return error.SdlError;
 }
 
 pub fn main() !u8 {
+    std.debug.print("{s}\n", .{glfw.glfwGetVersionString()});
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(gpa.deinit() == .ok);
     var allocator = gpa.allocator();
@@ -45,7 +48,8 @@ pub fn main() !u8 {
     const context = sdl.SDL_GL_CreateContext(window) orelse return error.SdlError;
     defer sdl.SDL_GL_DeleteContext(context);
 
-    try sdlCall(sdl.SDL_GL_SetSwapInterval(1));
+    // TODO: This didn't work running the program in WSL
+    sdlCall(sdl.SDL_GL_SetSwapInterval(1)) catch {};
 
     const getProcAddressWrapper = struct {
         fn f(_: void, symbol_name: [:0]const u8) ?*const anyopaque {

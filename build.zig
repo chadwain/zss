@@ -19,6 +19,7 @@ const Modules = struct {
     mach_harfbuzz: *Module,
     sdl2: *Module,
     zgl: *Module,
+    glfw: *Module,
 };
 
 fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules {
@@ -35,9 +36,26 @@ fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules
         .target = target,
     });
     mods.sdl2.linkSystemLibrary("SDL2", .{});
+    if (target.result.os.tag == .windows) {
+        mods.sdl2.linkSystemLibrary("gdi32", .{});
+        mods.sdl2.linkSystemLibrary("imm32", .{});
+        mods.sdl2.linkSystemLibrary("ole32", .{});
+        mods.sdl2.linkSystemLibrary("oleaut32", .{});
+        mods.sdl2.linkSystemLibrary("setupapi", .{});
+        mods.sdl2.linkSystemLibrary("version", .{});
+        mods.sdl2.linkSystemLibrary("winmm", .{});
+    }
 
     const zgl_dep = b.dependency("zgl", .{});
     mods.zgl = zgl_dep.module("zgl");
+
+    const glfw_dep = b.dependency("glfw", .{});
+    mods.glfw = b.createModule(.{
+        .root_source_file = .{ .path = "dependencies/glfw.zig" },
+        .target = target,
+    });
+    mods.glfw.linkLibrary(glfw_dep.artifact("glfw"));
+    @import("glfw").addPaths(mods.glfw);
 
     mods.zss = b.addModule("zss", .{
         .root_source_file = .{ .path = "zss.zig" },
@@ -128,6 +146,7 @@ fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modu
     demo_opengl.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
     demo_opengl.root_module.addImport("SDL2", mods.sdl2);
     demo_opengl.root_module.addImport("zgl", mods.zgl);
+    demo_opengl.root_module.addImport("glfw", mods.glfw);
     demo_opengl.linkSystemLibrary("SDL2_image");
     b.installArtifact(demo_opengl);
 
