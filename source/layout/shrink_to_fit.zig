@@ -6,7 +6,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const ArrayListAlignedUnmanaged = std.ArrayListAlignedUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;

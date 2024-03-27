@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const syntax = zss.syntax;
 const tokenize = syntax.tokenize;
 const Component = syntax.Component;

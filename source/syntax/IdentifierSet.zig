@@ -2,7 +2,7 @@
 
 const IdentifierSet = @This();
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const syntax = @import("../syntax.zig");
 const Utf8String = zss.util.Utf8String;
 

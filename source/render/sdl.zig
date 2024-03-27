@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const DrawOrderList = @import("./DrawOrderList.zig");
 const QuadTree = @import("./QuadTree.zig");
 const ZssUnit = zss.used_values.ZssUnit;

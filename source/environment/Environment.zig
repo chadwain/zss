@@ -1,6 +1,6 @@
 const Environment = @This();
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const syntax = zss.syntax;
 const ParserSource = syntax.parse.Source;
 const IdentifierSet = syntax.IdentifierSet;

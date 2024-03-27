@@ -4,7 +4,7 @@ const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;

@@ -3,7 +3,7 @@ const expect = std.testing.expect;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
-const zss = @import("../zss.zig");
+const zss = @import("zss.zig");
 const ReferencedSkipTree = zss.ReferencedSkipTree;
 const ElementHashMap = zss.util.ElementHashMap;
 

@@ -58,7 +58,7 @@ fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules
     @import("glfw").addPaths(mods.glfw);
 
     mods.zss = b.addModule("zss", .{
-        .root_source_file = .{ .path = "zss.zig" },
+        .root_source_file = .{ .path = "source/zss.zig" },
         .imports = &.{
             .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
             // TODO: Only import SDL2 if necessary
@@ -78,7 +78,7 @@ fn addTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Mod
 
     const unit_tests = b.addTest(.{
         .name = "zss-unit-tests",
-        .root_source_file = .{ .path = "zss.zig" },
+        .root_source_file = .{ .path = "source/zss.zig" },
         .target = target,
         .optimize = optimize,
     });

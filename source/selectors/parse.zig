@@ -1,4 +1,4 @@
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const selectors = zss.selectors;
 const Environment = zss.Environment;
 const NamespaceId = Environment.NamespaceId;

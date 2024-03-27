@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const Utf8String = zss.util.Utf8String;
 
 pub const CssWideKeyword = enum {

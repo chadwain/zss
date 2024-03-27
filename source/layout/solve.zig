@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
 const units_per_pixel = used_values.units_per_pixel;
 const used_values = zss.used_values;

@@ -1,4 +1,4 @@
-const zss = @import("../zss.zig");
+const zss = @import("zss.zig");
 const ClassId = Environment.ClassId;
 const ComponentTree = zss.syntax.ComponentTree;
 const Element = ElementTree.Element;

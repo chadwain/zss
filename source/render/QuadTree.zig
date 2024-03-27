@@ -1,6 +1,6 @@
 const QuadTree = @This();
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const ZssUnit = zss.used_values.ZssUnit;
 const ZssRect = zss.used_values.ZssRect;
 const ZssVector = zss.used_values.ZssVector;

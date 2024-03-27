@@ -7,7 +7,7 @@
 //! Each aggregate has comments which map each field to a CSS property, in this format:
 //! /// <field-name> -> <CSS-property-name>
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const types = zss.values.types;
 
 pub const Tag = enum {

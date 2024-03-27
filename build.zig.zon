@@ -1,15 +1,24 @@
 .{
     .name = "zss",
     .version = "0.0.0",
-    .paths = .{"."},
+    .paths = .{
+        "demo/",
+        "dependencies/",
+        "examples/",
+        "source/",
+        "test/",
+        "build.zig",
+        "build.zig.zon",
+        "README.md",
+    },
     .dependencies = .{
-        .mach_freetype = .{
-            .url = "https://pkg.machengine.org/mach-freetype/dc4a5d8ce14f8678f35bdaf197303091e22b1f27.tar.gz",
-            .hash = "1220ed18fc60cc34000cd3a854bde05ced92e7d3cca654ea020d5023117da1116a77",
-        },
         .glfw = .{
             .url = "git+https://github.com/hexops/glfw#8f7ca982913c0ab64df44d79d6ad2fb592e5ec39",
             .hash = "122085745c053e68fea3772c7239c7c87bcc7f042fa3189592b30e0e39cbb9603d79",
+        },
+        .mach_freetype = .{
+            .url = "https://pkg.machengine.org/mach-freetype/dc4a5d8ce14f8678f35bdaf197303091e22b1f27.tar.gz",
+            .hash = "122070070dd2c402d94c279d64d4a4d154691ad49f46fa2c24ed7c6e4e4f5c531477",
         },
         .zgl = .{
             .url = "git+https://github.com/ziglibs/zgl.git#0c7f680200aa3be87fb98a726c1fab480d02f8d9",

@@ -3,7 +3,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const hexDigitToNumber = zss.util.unicode.hexDigitToNumber;
 const toLowercase = zss.util.unicode.toLowercase;
 const CheckedInt = zss.util.CheckedInt;

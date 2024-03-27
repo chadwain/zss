@@ -7,7 +7,7 @@
 
 const DrawOrderList = @This();
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const used_values = zss.used_values;
 const ZssUnit = used_values.ZssUnit;
 const ZssVector = used_values.ZssVector;

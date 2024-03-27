@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-const zss = @import("../zss.zig");
+const zss = @import("zss.zig");
 const Element = zss.ElementTree.Element;
 
 pub const unicode = @import("util/unicode.zig");

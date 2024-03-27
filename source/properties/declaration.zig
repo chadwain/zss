@@ -1,4 +1,4 @@
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const CascadedValues = zss.ElementTree.CascadedValues;
 const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;

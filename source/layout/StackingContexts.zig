@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Allocator = std.mem.Allocator;
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const used_values = zss.used_values;
 const BlockBox = used_values.BlockBox;
 const BoxTree = used_values.BoxTree;

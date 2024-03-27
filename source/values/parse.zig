@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const zss = @import("../../zss.zig");
+const zss = @import("../zss.zig");
 const types = zss.values.types;
 const Component = zss.syntax.Component;
 const ComponentTree = zss.syntax.ComponentTree;
