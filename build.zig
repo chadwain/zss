@@ -142,12 +142,10 @@ fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modu
         .target = target,
         .optimize = optimize,
     });
-    demo_opengl.root_module.addImport("zss", mods.zss);
-    demo_opengl.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
-    demo_opengl.root_module.addImport("SDL2", mods.sdl2);
+    // demo_opengl.root_module.addImport("zss", mods.zss);
+    // demo_opengl.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
     demo_opengl.root_module.addImport("zgl", mods.zgl);
     demo_opengl.root_module.addImport("glfw", mods.glfw);
-    demo_opengl.linkSystemLibrary("SDL2_image");
     b.installArtifact(demo_opengl);
 
     const demo_opengl_step = b.step("demo-opengl", "Run a graphical demo program");

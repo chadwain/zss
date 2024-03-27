@@ -1,59 +1,44 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const sdl = @import("SDL2");
 const zgl = @import("zgl");
 const glfw = @import("glfw");
 
-fn sdlCall(code: c_int) !void {
-    if (code != 0) return error.SdlError;
+fn glfwCall(code: c_int) !void {
+    if (code != glfw.GLFW_TRUE) return error.GlfwError;
 }
 
 pub fn main() !u8 {
-    std.debug.print("{s}\n", .{glfw.glfwGetVersionString()});
+    std.debug.print("\n{s}\n", .{glfw.glfwGetVersionString()});
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer assert(gpa.deinit() == .ok);
-    var allocator = gpa.allocator();
-
-    errdefer |err| if (err == error.SdlError) {
-        std.debug.print("{s}\n", .{sdl.SDL_GetError()});
+    errdefer |err| if (err == error.GlfwError) {
+        var description: ?[*:0]const u8 = undefined;
+        const code = glfw.glfwGetError(&description);
+        std.debug.print("GLFWError(0x{X}): {?s}\n", .{ code, description });
     };
 
-    if (sdl.SDL_Init(sdl.SDL_INIT_VIDEO) != 0) return error.SdlError;
-    defer sdl.SDL_Quit();
+    try glfwCall(glfw.glfwInit());
+    defer glfw.glfwTerminate();
 
-    try sdlCall(sdl.SDL_GL_SetAttribute(sdl.SDL_GL_CONTEXT_MAJOR_VERSION, 3));
-    try sdlCall(sdl.SDL_GL_SetAttribute(sdl.SDL_GL_CONTEXT_MINOR_VERSION, 3));
-    try sdlCall(sdl.SDL_GL_SetAttribute(sdl.SDL_GL_CONTEXT_PROFILE_MASK, sdl.SDL_GL_CONTEXT_PROFILE_CORE));
-    try sdlCall(sdl.SDL_GL_SetAttribute(sdl.SDL_GL_DOUBLEBUFFER, 1));
-    try sdlCall(sdl.SDL_GL_SetAttribute(sdl.SDL_GL_RED_SIZE, 8));
-    try sdlCall(sdl.SDL_GL_SetAttribute(sdl.SDL_GL_GREEN_SIZE, 8));
-    try sdlCall(sdl.SDL_GL_SetAttribute(sdl.SDL_GL_BLUE_SIZE, 8));
-    try sdlCall(sdl.SDL_GL_SetAttribute(sdl.SDL_GL_ALPHA_SIZE, 8));
+    glfw.glfwWindowHint(glfw.GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfw.glfwWindowHint(glfw.GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfw.glfwWindowHint(glfw.GLFW_OPENGL_PROFILE, glfw.GLFW_OPENGL_CORE_PROFILE);
 
     const width = 800;
     const height = 600;
-    const window = sdl.SDL_CreateWindow(
-        "zss Demo.",
-        sdl.SDL_WINDOWPOS_CENTERED_MASK,
-        sdl.SDL_WINDOWPOS_CENTERED_MASK,
-        width,
-        height,
-        sdl.SDL_WINDOW_SHOWN | sdl.SDL_WINDOW_RESIZABLE | sdl.SDL_WINDOW_OPENGL,
-    ) orelse return error.SdlError;
-    defer sdl.SDL_DestroyWindow(window);
+    const window = glfw.glfwCreateWindow(width, height, "zss demo", null, null) orelse return error.GlfwError;
+    defer glfw.glfwDestroyWindow(window);
 
-    // This fails if the OpenGL version (set above) is not supported
-    const context = sdl.SDL_GL_CreateContext(window) orelse return error.SdlError;
-    defer sdl.SDL_GL_DeleteContext(context);
+    glfw.glfwMakeContextCurrent(window);
+    glfw.glfwSwapInterval(1);
 
-    // TODO: This didn't work running the program in WSL
-    sdlCall(sdl.SDL_GL_SetSwapInterval(1)) catch {};
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer assert(gpa.deinit() == .ok);
+    const allocator = gpa.allocator();
 
     const getProcAddressWrapper = struct {
         fn f(_: void, symbol_name: [:0]const u8) ?*const anyopaque {
-            return sdl.SDL_GL_GetProcAddress(symbol_name);
+            return glfw.glfwGetProcAddress(symbol_name);
         }
     }.f;
     // TODO: Use zgl bindings that match the OpenGL version that we use
@@ -110,23 +95,14 @@ pub fn main() !u8 {
     zgl.linkProgram(program);
     zgl.useProgram(program);
 
-    mainLoop: while (true) {
-        var event: sdl.SDL_Event = undefined;
-        while (sdl.SDL_PollEvent(&event) != 0) {
-            switch (event.type) {
-                sdl.SDL_QUIT => {
-                    break :mainLoop;
-                },
-                else => {},
-            }
-        }
-
+    while (glfw.glfwWindowShouldClose(window) == glfw.GLFW_FALSE) {
         zgl.clearColor(0, 0, 0, 0);
         zgl.clear(.{ .color = true });
         zgl.drawArrays(.triangles, 0, 3);
         zgl.flush();
 
-        sdl.SDL_GL_SwapWindow(window);
+        glfw.glfwSwapBuffers(window);
+        glfw.glfwWaitEvents();
     }
 
     return 0;
