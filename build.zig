@@ -16,16 +16,16 @@ pub fn build(b: *Build) void {
 
 const Modules = struct {
     zss: *Module,
+    mach_glfw: *Module,
     mach_harfbuzz: *Module,
     sdl2: *Module,
     zgl: *Module,
-    glfw: *Module,
 };
 
 fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules {
     var mods: Modules = undefined;
 
-    const mach_freetype_dep = b.dependency("mach_freetype", .{
+    const mach_freetype_dep = b.dependency("mach-freetype", .{
         .optimize = optimize,
         .target = target,
     });
@@ -49,18 +49,17 @@ fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules
     const zgl_dep = b.dependency("zgl", .{});
     mods.zgl = zgl_dep.module("zgl");
 
-    const glfw_dep = b.dependency("glfw", .{});
-    mods.glfw = b.createModule(.{
-        .root_source_file = .{ .path = "dependencies/glfw.zig" },
+    const mach_glfw_dep = b.dependency("mach-glfw", .{
+        .optimize = optimize,
         .target = target,
     });
-    mods.glfw.linkLibrary(glfw_dep.artifact("glfw"));
-    @import("glfw").addPaths(mods.glfw);
+    mods.mach_glfw = mach_glfw_dep.module("mach-glfw");
 
     mods.zss = b.addModule("zss", .{
         .root_source_file = .{ .path = "source/zss.zig" },
         .imports = &.{
             .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
+            .{ .name = "mach-glfw", .module = mods.mach_glfw },
             // TODO: Only import SDL2 if necessary
             // TODO: Only import zgl if necessary
             .{ .name = "SDL2", .module = mods.sdl2 },
@@ -145,7 +144,7 @@ fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modu
     // demo_opengl.root_module.addImport("zss", mods.zss);
     // demo_opengl.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
     demo_opengl.root_module.addImport("zgl", mods.zgl);
-    demo_opengl.root_module.addImport("glfw", mods.glfw);
+    demo_opengl.root_module.addImport("mach-glfw", mods.mach_glfw);
     b.installArtifact(demo_opengl);
 
     const demo_opengl_step = b.step("demo-opengl", "Run a graphical demo program");

@@ -2,47 +2,48 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const zgl = @import("zgl");
-const glfw = @import("glfw");
+const glfw = @import("mach-glfw");
 
 fn glfwCall(code: c_int) !void {
     if (code != glfw.GLFW_TRUE) return error.GlfwError;
 }
 
 pub fn main() !u8 {
-    std.debug.print("\n{s}\n", .{glfw.glfwGetVersionString()});
+    std.debug.print("\n{s}\n", .{glfw.getVersionString()});
 
     errdefer |err| if (err == error.GlfwError) {
-        var description: ?[*:0]const u8 = undefined;
-        const code = glfw.glfwGetError(&description);
-        std.debug.print("GLFWError(0x{X}): {?s}\n", .{ code, description });
+        const glfw_error = glfw.getError().?;
+        std.debug.print("GLFWError({s}): {?s}\n", .{ @errorName(glfw_error.error_code), glfw_error.description });
     };
 
-    try glfwCall(glfw.glfwInit());
-    defer glfw.glfwTerminate();
-
-    glfw.glfwWindowHint(glfw.GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfw.glfwWindowHint(glfw.GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfw.glfwWindowHint(glfw.GLFW_OPENGL_PROFILE, glfw.GLFW_OPENGL_CORE_PROFILE);
+    if (!glfw.init(.{})) return error.GlfwError;
+    defer glfw.terminate();
 
     const width = 800;
     const height = 600;
-    const window = glfw.glfwCreateWindow(width, height, "zss demo", null, null) orelse return error.GlfwError;
-    defer glfw.glfwDestroyWindow(window);
+    const window = glfw.Window.create(width, height, "zss demo", null, null, .{
+        .context_version_major = 3,
+        .context_version_minor = 3,
+        .opengl_profile = .opengl_core_profile,
+    }) orelse return error.GlfwError;
+    defer window.destroy();
 
-    glfw.glfwMakeContextCurrent(window);
-    glfw.glfwSwapInterval(1);
+    glfw.makeContextCurrent(window);
+    defer glfw.makeContextCurrent(null);
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer assert(gpa.deinit() == .ok);
-    const allocator = gpa.allocator();
+    glfw.swapInterval(1);
 
     const getProcAddressWrapper = struct {
         fn f(_: void, symbol_name: [:0]const u8) ?*const anyopaque {
-            return glfw.glfwGetProcAddress(symbol_name);
+            return glfw.getProcAddress(symbol_name);
         }
     }.f;
     // TODO: Use zgl bindings that match the OpenGL version that we use
     try zgl.loadExtensions({}, getProcAddressWrapper);
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer assert(gpa.deinit() == .ok);
+    const allocator = gpa.allocator();
 
     const vao = zgl.genVertexArray();
     zgl.bindVertexArray(vao);
@@ -95,14 +96,14 @@ pub fn main() !u8 {
     zgl.linkProgram(program);
     zgl.useProgram(program);
 
-    while (glfw.glfwWindowShouldClose(window) == glfw.GLFW_FALSE) {
+    while (!window.shouldClose()) {
         zgl.clearColor(0, 0, 0, 0);
         zgl.clear(.{ .color = true });
         zgl.drawArrays(.triangles, 0, 3);
         zgl.flush();
 
-        glfw.glfwSwapBuffers(window);
-        glfw.glfwWaitEvents();
+        window.swapBuffers();
+        glfw.waitEvents();
     }
 
     return 0;
