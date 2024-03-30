@@ -1,14 +1,43 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
+const zss = @import("zss");
+const hb = @import("mach-harfbuzz").c;
 const zgl = @import("zgl");
 const glfw = @import("mach-glfw");
 
-fn glfwCall(code: c_int) !void {
-    if (code != glfw.GLFW_TRUE) return error.GlfwError;
-}
-
 pub fn main() !u8 {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer assert(gpa.deinit() == .ok);
+    const allocator = gpa.allocator();
+
+    const program_args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, program_args);
+
+    const file_name = program_args[1];
+    var file_contents = try readFile(allocator, file_name);
+    defer file_contents.deinit(allocator);
+
+    var library: hb.FT_Library = undefined;
+    _ = hb.FT_Init_FreeType(&library);
+    defer _ = hb.FT_Done_FreeType(library);
+
+    const font_filename = "demo/NotoSans-Regular.ttf";
+    var face: hb.FT_Face = undefined;
+    _ = hb.FT_New_Face(library, font_filename, 0, &face);
+    defer _ = hb.FT_Done_Face(face);
+
+    const font_size = 14;
+    _ = hb.FT_Set_Char_Size(face, 0, font_size * 64, 96, 96);
+
+    const font = hb.hb_ft_font_create_referenced(face) orelse @panic("Couldn't create font!");
+    defer hb.hb_font_destroy(font);
+    hb.hb_ft_font_set_funcs(font);
+
+    var tree, const root = try createElements(allocator, file_name, file_contents.items, font);
+    defer tree.deinit();
+
     std.debug.print("\n{s}\n", .{glfw.getVersionString()});
 
     errdefer |err| if (err == error.GlfwError) {
@@ -41,65 +70,23 @@ pub fn main() !u8 {
     // TODO: Use zgl bindings that match the OpenGL version that we use
     try zgl.loadExtensions({}, getProcAddressWrapper);
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer assert(gpa.deinit() == .ok);
-    const allocator = gpa.allocator();
+    var box_tree = try zss.layout.doLayout(tree.slice(), root, allocator, .{ .width = width, .height = height });
+    defer box_tree.deinit();
 
-    const vao = zgl.genVertexArray();
-    zgl.bindVertexArray(vao);
+    var draw_list = try zss.render.DrawOrderList.create(box_tree, allocator);
+    defer draw_list.deinit(allocator);
 
-    const verteces = [6]f32{ 0.0, 0.5, -0.5, -0.5, 0.5, -0.5 };
-    const vbo = zgl.genBuffer();
-    zgl.bindBuffer(vbo, .array_buffer);
-    zgl.bufferData(.array_buffer, f32, &verteces, .static_draw);
-
-    zgl.enableVertexArrayAttrib(vao, 0);
-    zgl.vertexAttribPointer(0, 2, .float, false, 2 * @sizeOf(f32), 0);
-
-    const vertex_shader_source =
-        \\#version 330 core
-        \\
-        \\layout(location = 0) in vec4 position;
-        \\
-        \\void main()
-        \\{
-        \\    gl_Position = position;
-        \\}
-    ;
-    const vertex_shader = zgl.createShader(.vertex);
-    zgl.shaderSource(vertex_shader, 1, &[1][]const u8{vertex_shader_source});
-    zgl.compileShader(vertex_shader);
-    const vertex_shader_log = try zgl.getShaderInfoLog(vertex_shader, allocator);
-    defer allocator.free(vertex_shader_log);
-    std.debug.print("{s}\n", .{vertex_shader_log});
-
-    const fragment_shader_source =
-        \\#version 330 core
-        \\
-        \\layout(location = 0) out vec4 color;
-        \\
-        \\void main()
-        \\{
-        \\    color = vec4(0.0, 1.0, 0.0, 1.0);
-        \\}
-    ;
-    const fragment_shader = zgl.createShader(.fragment);
-    zgl.shaderSource(fragment_shader, 1, &[1][]const u8{fragment_shader_source});
-    zgl.compileShader(fragment_shader);
-    const fragment_shader_log = try zgl.getShaderInfoLog(fragment_shader, allocator);
-    defer allocator.free(fragment_shader_log);
-    std.debug.print("{s}\n", .{fragment_shader_log});
-
-    const program = zgl.createProgram();
-    zgl.attachShader(program, vertex_shader);
-    zgl.attachShader(program, fragment_shader);
-    zgl.linkProgram(program);
-    zgl.useProgram(program);
+    const renderer = zss.render.opengl.Renderer.init();
+    defer renderer.deinit();
 
     while (!window.shouldClose()) {
         zgl.clearColor(0, 0, 0, 0);
         zgl.clear(.{ .color = true });
-        zgl.drawArrays(.triangles, 0, 3);
+
+        const units_per_pixel = zss.used_values.units_per_pixel;
+        const viewport_rect = zss.used_values.ZssRect{ .x = 0, .y = 0, .w = width * units_per_pixel, .h = height * units_per_pixel };
+        try zss.render.opengl.drawBoxTree(renderer, box_tree, draw_list, allocator, viewport_rect);
+
         zgl.flush();
 
         window.swapBuffers();
@@ -107,4 +94,162 @@ pub fn main() !u8 {
     }
 
     return 0;
+}
+
+fn readFile(allocator: Allocator, file_name: []const u8) !std.ArrayListUnmanaged(u8) {
+    var list = std.ArrayList(u8).init(allocator);
+    errdefer list.deinit();
+
+    const file = try std.fs.cwd().openFile(file_name, .{});
+    defer file.close();
+    try file.reader().readAllArrayList(&list, 1_000_000);
+
+    // Exclude a trailing newline.
+    if (list.items.len > 0) {
+        switch (list.items[list.items.len - 1]) {
+            '\n' => if (list.items.len > 1 and list.items[list.items.len - 2] == '\r') {
+                list.items.len -= 2;
+            } else {
+                list.items.len -= 1;
+            },
+            '\r' => list.items.len -= 1,
+            else => {},
+        }
+    }
+
+    return list.moveToUnmanaged();
+}
+
+fn createElements(
+    allocator: Allocator,
+    file_name: []const u8,
+    file_contents: []const u8,
+    font: *hb.hb_font_t,
+) !struct { zss.ElementTree, zss.ElementTree.Element } {
+    var tree = zss.ElementTree.init(allocator);
+    errdefer tree.deinit();
+
+    var elements: [8]zss.ElementTree.Element = undefined;
+    try tree.allocateElements(&elements);
+
+    const root = elements[0];
+    const removed_block = elements[1];
+    const title_block = elements[2];
+    const title_inline_box = elements[3];
+    const title_text = elements[4];
+    const body_block = elements[5];
+    const body_text = elements[6];
+    const footer = elements[7];
+
+    const slice = tree.slice();
+
+    slice.initElement(root, .normal, .orphan, {});
+    slice.initElement(removed_block, .normal, .first_child_of, root);
+    slice.initElement(title_block, .normal, .last_child_of, root);
+    slice.initElement(title_inline_box, .normal, .first_child_of, title_block);
+    slice.initElement(title_text, .text, .first_child_of, title_inline_box);
+    slice.initElement(body_block, .normal, .last_child_of, root);
+    slice.initElement(body_text, .text, .first_child_of, body_block);
+    slice.initElement(footer, .normal, .last_child_of, root);
+
+    {
+        const arena = slice.arena;
+        var cv: *zss.ElementTree.CascadedValues = undefined;
+
+        const bg_color = 0xefefefff;
+        const text_color = 0x101010ff;
+
+        // Root element
+        cv = slice.ptr(.cascaded_values, root);
+        const root_border = zss.values.types.BorderWidth{ .px = 10 };
+        const root_padding = zss.values.types.Padding{ .px = 30 };
+        const root_border_color = zss.values.types.Color{ .rgba = 0xaf2233ff };
+        try cv.add(arena, .box_style, .{ .display = .block });
+        try cv.add(arena, .content_width, .{ .min_width = .{ .px = 200 } });
+        try cv.add(arena, .horizontal_edges, .{
+            .padding_left = root_padding,
+            .padding_right = root_padding,
+            .border_left = root_border,
+            .border_right = root_border,
+        });
+        try cv.add(arena, .vertical_edges, .{
+            .padding_top = root_padding,
+            .padding_bottom = root_padding,
+            .border_top = root_border,
+            .border_bottom = root_border,
+        });
+        try cv.add(arena, .border_colors, .{
+            .top = root_border_color,
+            .right = root_border_color,
+            .bottom = root_border_color,
+            .left = root_border_color,
+        });
+        try cv.add(arena, .border_styles, .{ .top = .solid, .right = .solid, .bottom = .solid, .left = .solid });
+        try cv.add(arena, .background1, .{ .color = .{ .rgba = bg_color } });
+        try cv.add(arena, .background2, .{
+            .position = .{ .position = .{
+                .x = .{ .side = .end, .offset = .{ .percentage = 0 } },
+                .y = .{ .side = .start, .offset = .{ .px = 10 } },
+            } },
+            .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
+        });
+        try cv.add(arena, .color, .{ .color = .{ .rgba = text_color } });
+        try cv.add(arena, .font, .{ .font = .{ .font = font } });
+
+        // Large element with display: none
+        cv = slice.ptr(.cascaded_values, removed_block);
+        try cv.add(arena, .box_style, .{ .display = .none });
+        try cv.add(arena, .content_width, .{ .width = .{ .px = 10000 } });
+        try cv.add(arena, .content_height, .{ .height = .{ .px = 10000 } });
+        try cv.add(arena, .background1, .{ .color = .{ .rgba = 0xff00ffff } });
+
+        // Title block box
+        cv = slice.ptr(.cascaded_values, title_block);
+        try cv.add(arena, .box_style, .{ .display = .block, .position = .relative });
+        try cv.add(arena, .vertical_edges, .{ .border_bottom = .{ .px = 2 }, .margin_bottom = .{ .px = 24 } });
+        try cv.add(arena, .z_index, .{ .z_index = .{ .integer = -1 } });
+        try cv.add(arena, .border_colors, .{ .bottom = .{ .rgba = 0x202020ff } });
+        try cv.add(arena, .border_styles, .{ .bottom = .solid });
+
+        // Title inline box
+        cv = slice.ptr(.cascaded_values, title_inline_box);
+        try cv.add(arena, .box_style, .{ .display = .inline_ });
+        try cv.add(arena, .horizontal_edges, .{ .padding_left = .{ .px = 10 }, .padding_right = .{ .px = 10 } });
+        try cv.add(arena, .vertical_edges, .{ .padding_bottom = .{ .px = 5 } });
+        try cv.add(arena, .background1, .{ .color = .{ .rgba = 0xfa58007f } });
+
+        // Title text
+        cv = slice.ptr(.cascaded_values, title_text);
+        try cv.add(arena, .box_style, .{ .display = .text });
+        slice.set(.text, title_text, file_name);
+
+        // Body block box
+        cv = slice.ptr(.cascaded_values, body_block);
+        try cv.add(arena, .box_style, .{ .display = .block, .position = .relative });
+
+        // Body text
+        cv = slice.ptr(.cascaded_values, body_text);
+        try cv.add(arena, .box_style, .{ .display = .text });
+        slice.set(.text, body_text, file_contents);
+
+        // Footer block
+        cv = slice.ptr(.cascaded_values, footer);
+        try cv.add(arena, .box_style, .{ .display = .block });
+        // try cv.add(arena, .content_width, .{ .width = .{ .px = 50 } });
+        try cv.add(arena, .content_height, .{ .height = .{ .px = 50 } });
+        try cv.add(arena, .horizontal_edges, .{ .border_left = .inherit, .border_right = .inherit });
+        try cv.add(arena, .vertical_edges, .{ .margin_top = .{ .px = 10 }, .border_top = .inherit, .border_bottom = .inherit });
+        try cv.add(arena, .border_colors, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
+        try cv.add(arena, .border_styles, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
+        try cv.add(arena, .background2, .{
+            .position = .{ .position = .{
+                .x = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
+                .y = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
+            } },
+            .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
+            .size = .contain,
+        });
+    }
+
+    return .{ tree, root };
 }

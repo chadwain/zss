@@ -141,8 +141,16 @@ fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modu
         .target = target,
         .optimize = optimize,
     });
-    // demo_opengl.root_module.addImport("zss", mods.zss);
-    // demo_opengl.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
+    demo_opengl.root_module.addAnonymousImport("zss", .{
+        .root_source_file = .{ .path = "source/zss.zig" },
+        .imports = &.{
+            .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
+            .{ .name = "zgl", .module = mods.zgl },
+        },
+        .target = target,
+        .optimize = optimize,
+    });
+    demo_opengl.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
     demo_opengl.root_module.addImport("zgl", mods.zgl);
     demo_opengl.root_module.addImport("mach-glfw", mods.mach_glfw);
     b.installArtifact(demo_opengl);
