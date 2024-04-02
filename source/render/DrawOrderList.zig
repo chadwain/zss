@@ -36,6 +36,8 @@ pub const DrawIndex = u32;
 
 /// Represents a drawable object.
 pub const Drawable = union(enum) {
+    // TODO: Instead of individual boxes, store entire ranges of boxes as a single Drawable
+
     /// The drawable is a block box.
     block_box: BlockBox,
     /// The drawable is a line box of an inline formatting context.

@@ -253,6 +253,8 @@ pub fn print(quad_tree: QuadTree, writer: anytype) !void {
 /// Creates an unordered list of objects which may intersect with the rectangle `rect`.
 /// Some objects may not actually intersect the rectangle.
 /// The memory is owned by the caller.
+
+// TODO: Return a list of patches, instead of a list of individual objects
 pub fn findObjectsInRect(quad_tree: QuadTree, rect: ZssRect, allocator: Allocator) ![]Object {
     var result = ArrayListUnmanaged(Object){};
     defer result.deinit(allocator);

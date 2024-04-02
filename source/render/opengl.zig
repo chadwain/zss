@@ -161,6 +161,9 @@ pub const Renderer = struct {
         zgl.bindBuffer(renderer.vb, .array_buffer);
         zgl.bindBuffer(renderer.ib, .element_array_buffer);
         zgl.useProgram(renderer.program);
+        zgl.enable(.blend);
+        zgl.binding.blendEquation(zgl.binding.FUNC_ADD);
+        zgl.blendFuncSeparate(.src_alpha, .one_minus_src_alpha, .one, .one_minus_src_alpha);
 
         const viewport_location = zgl.getUniformLocation(renderer.program, "viewport");
         zgl.uniform2i(viewport_location, viewport.w, viewport.h);
@@ -186,6 +189,7 @@ pub fn drawBoxTree(
     var vbo_data = try std.ArrayListUnmanaged(Renderer.Vertex).initCapacity(allocator, objects.len * 12);
     defer vbo_data.deinit(allocator);
 
+    // TODO: Bad approximation of initial capacity
     var ib_data = try std.ArrayListUnmanaged(u32).initCapacity(allocator, objects.len * 30);
     defer ib_data.deinit(allocator);
 
