@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
@@ -77,7 +78,37 @@ pub const ZssRect = struct {
     }
 };
 
-pub const Color = u32;
+pub const Color = extern struct {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+
+    pub fn toRgbaArray(color: Color) [4]u8 {
+        return @bitCast(color);
+    }
+
+    pub fn toRgbaInt(color: Color) u32 {
+        return std.mem.bigToNative(u32, @bitCast(color));
+    }
+
+    pub fn fromRgbaInt(value: u32) Color {
+        return @bitCast(std.mem.nativeToBig(u32, value));
+    }
+
+    comptime {
+        const eql = std.meta.eql;
+        assert(eql(toRgbaArray(.{ .r = 0, .g = 0, .b = 0, .a = 0 }), .{ 0x00, 0x00, 0x00, 0x00 }));
+        assert(eql(toRgbaArray(.{ .r = 255, .g = 0, .b = 0, .a = 128 }), .{ 0xff, 0x00, 0x00, 0x80 }));
+        assert(eql(toRgbaArray(.{ .r = 0, .g = 20, .b = 50, .a = 200 }), .{ 0x00, 0x14, 0x32, 0xC8 }));
+
+        assert(toRgbaInt(.{ .r = 0, .g = 0, .b = 0, .a = 0 }) == 0x00000000);
+        assert(toRgbaInt(.{ .r = 255, .g = 0, .b = 0, .a = 128 }) == 0xff000080);
+        assert(toRgbaInt(.{ .r = 0, .g = 20, .b = 50, .a = 200 }) == 0x001432C8);
+    }
+
+    pub const transparent = Color{ .r = 0, .g = 0, .b = 0, .a = 0 };
+};
 
 pub const BoxOffsets = struct {
     /// The offset of the top-left corner of the border box, relative to
@@ -101,10 +132,10 @@ pub const Borders = struct {
 };
 
 pub const BorderColor = struct {
-    left_rgba: Color = 0,
-    right_rgba: Color = 0,
-    top_rgba: Color = 0,
-    bottom_rgba: Color = 0,
+    left: Color = Color.transparent,
+    right: Color = Color.transparent,
+    top: Color = Color.transparent,
+    bottom: Color = Color.transparent,
 };
 
 pub const Margins = struct {
@@ -117,7 +148,7 @@ pub const Margins = struct {
 pub const Insets = ZssVector;
 
 pub const Background1 = struct {
-    color_rgba: Color = 0,
+    color: Color = Color.transparent,
     clip: enum { Border, Padding, Content } = .Border,
 };
 
@@ -246,7 +277,7 @@ pub const InlineFormattingContext = struct {
     // ascender and descender will be the same for all line boxes.
     // NOTE: The descender is a negative value.
     font: *hb.hb_font_t = undefined,
-    font_color_rgba: u32 = undefined,
+    font_color: Color = undefined,
     ascender: ZssUnit = undefined,
     descender: ZssUnit = undefined,
 
@@ -268,7 +299,7 @@ pub const InlineFormattingContext = struct {
     pub const BoxProperties = struct {
         border: ZssUnit = 0,
         padding: ZssUnit = 0,
-        border_color_rgba: u32 = 0,
+        border_color: Color = Color.transparent,
     };
 
     pub const Metrics = struct {

@@ -682,7 +682,7 @@ pub fn drawBlockContainer(
     });
 
     // draw background color
-    util.drawBackgroundColor(renderer, pixel_format, bg_clip_rect, background1.color_rgba);
+    util.drawBackgroundColor(renderer, pixel_format, bg_clip_rect, background1.color.toRgbaInt());
 
     // draw background image
     if (background2.image) |texture_ptr| {
@@ -741,10 +741,10 @@ pub fn drawBlockContainer(
             .left = zssUnitToPixel(borders.left),
         },
         util.Colors{
-            .top_rgba = border_colors.top_rgba,
-            .right_rgba = border_colors.right_rgba,
-            .bottom_rgba = border_colors.bottom_rgba,
-            .left_rgba = border_colors.left_rgba,
+            .top_rgba = border_colors.top.toRgbaInt(),
+            .right_rgba = border_colors.right.toRgbaInt(),
+            .bottom_rgba = border_colors.bottom.toRgbaInt(),
+            .left_rgba = border_colors.left.toRgbaInt(),
         },
     );
 }
@@ -757,7 +757,7 @@ pub fn drawInlineFormattingContext(
     pixel_format: *sdl.SDL_PixelFormat,
     maybe_atlas: ?*GlyphAtlas,
 ) !void {
-    const color = util.rgbaMap(pixel_format, ifc.font_color_rgba);
+    const color = util.rgbaMap(pixel_format, ifc.font_color);
     if (maybe_atlas) |atlas| {
         assert(sdl.SDL_SetTextureColorMod(atlas.texture, color[0], color[1], color[2]) == 0);
         assert(sdl.SDL_SetTextureAlphaMod(atlas.texture, color[3]) == 0);
@@ -777,7 +777,7 @@ fn drawLineBox(
     pixel_format: *sdl.SDL_PixelFormat,
     maybe_atlas: ?*GlyphAtlas,
 ) !void {
-    const color = util.rgbaMap(pixel_format, ifc.font_color_rgba);
+    const color = util.rgbaMap(pixel_format, ifc.font_color.toRgbaInt());
     if (maybe_atlas) |atlas| {
         assert(sdl.SDL_SetTextureColorMod(atlas.texture, color[0], color[1], color[2]) == 0);
         assert(sdl.SDL_SetTextureAlphaMod(atlas.texture, color[3]) == 0);
@@ -949,10 +949,10 @@ fn drawInlineBox(
     };
 
     const border_colors = util.Colors{
-        .top_rgba = block_start.border_color_rgba,
-        .right_rgba = inline_end.border_color_rgba,
-        .bottom_rgba = block_end.border_color_rgba,
-        .left_rgba = inline_start.border_color_rgba,
+        .top_rgba = block_start.border_color.toRgbaInt(),
+        .right_rgba = inline_end.border_color.toRgbaInt(),
+        .bottom_rgba = block_end.border_color.toRgbaInt(),
+        .left_rgba = inline_start.border_color.toRgbaInt(),
     };
 
     const background_clip: util.BackgroundClip = switch (background1.clip) {
@@ -970,7 +970,7 @@ fn drawInlineBox(
         border,
         padding,
         border_colors,
-        background1.color_rgba,
+        background1.color.toRgbaInt(),
         background_clip,
         zssUnitToPixel(middle_length),
         draw_start,

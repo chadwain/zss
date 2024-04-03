@@ -453,11 +453,11 @@ fn ifcAddTextRun(box_tree: *BoxTree, ifc: *InlineFormattingContext, buffer: *hb.
 }
 
 fn rootInlineBoxSetData(ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
-    ifc.inline_start.items[inline_box_index] = .{ .border = 0, .padding = 0, .border_color_rgba = 0 };
-    ifc.inline_end.items[inline_box_index] = .{ .border = 0, .padding = 0, .border_color_rgba = 0 };
-    ifc.block_start.items[inline_box_index] = .{ .border = 0, .padding = 0, .border_color_rgba = 0 };
-    ifc.block_end.items[inline_box_index] = .{ .border = 0, .padding = 0, .border_color_rgba = 0 };
-    ifc.margins.items[inline_box_index] = .{ .start = 0, .end = 0 };
+    ifc.inline_start.items[inline_box_index] = .{};
+    ifc.inline_end.items[inline_box_index] = .{};
+    ifc.block_start.items[inline_box_index] = .{};
+    ifc.block_end.items[inline_box_index] = .{};
+    ifc.margins.items[inline_box_index] = .{};
 }
 
 fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {

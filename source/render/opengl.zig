@@ -292,7 +292,7 @@ fn getThreeBoxes(
 }
 
 fn v(x: ZssUnit, y: ZssUnit, color: Color) Renderer.Vertex {
-    return .{ .pos = .{ x, y }, .color = @bitCast(std.mem.nativeToBig(u32, color)) };
+    return .{ .pos = .{ x, y }, .color = color.toRgbaArray() };
 }
 
 fn drawBlockContainer(
@@ -311,7 +311,7 @@ fn drawBlockContainer(
     vertices.*[8] = v(bg_clip_rect.x, bg_clip_rect.y, undefined);
     vertices.*[9] = v(bg_clip_rect.x + bg_clip_rect.w, bg_clip_rect.y, undefined);
     vertices.*[10] = v(bg_clip_rect.x + bg_clip_rect.w, bg_clip_rect.y + bg_clip_rect.h, undefined);
-    vertices.*[11] = v(bg_clip_rect.x, bg_clip_rect.y + bg_clip_rect.h, background1.color_rgba);
+    vertices.*[11] = v(bg_clip_rect.x, bg_clip_rect.y + bg_clip_rect.h, background1.color);
 
     // TODO: draw the background image
 
@@ -322,8 +322,8 @@ fn drawBlockContainer(
     vertices.*[2] = v(border.x + border.w, border.y + border.h, undefined);
     vertices.*[3] = v(border.x, border.y + border.h, undefined);
     const padding = boxes.padding;
-    vertices.*[4] = v(padding.x, padding.y, border_colors.top_rgba);
-    vertices.*[5] = v(padding.x + padding.w, padding.y, border_colors.right_rgba);
-    vertices.*[6] = v(padding.x + padding.w, padding.y + padding.h, border_colors.bottom_rgba);
-    vertices.*[7] = v(padding.x, padding.y + padding.h, border_colors.left_rgba);
+    vertices.*[4] = v(padding.x, padding.y, border_colors.top);
+    vertices.*[5] = v(padding.x + padding.w, padding.y, border_colors.right);
+    vertices.*[6] = v(padding.x + padding.w, padding.y + padding.h, border_colors.bottom);
+    vertices.*[7] = v(padding.x, padding.y + padding.h, border_colors.left);
 }

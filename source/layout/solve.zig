@@ -53,7 +53,7 @@ pub fn borderWidthMultiplier(border_style: zss.values.types.BorderStyle) f32 {
 
 pub fn color(col: zss.values.types.Color, current_color: used_values.Color) used_values.Color {
     return switch (col) {
-        .rgba => |rgba| rgba,
+        .rgba => |rgba| used_values.Color.fromRgbaInt(rgba),
         .current_color => current_color,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
@@ -61,7 +61,7 @@ pub fn color(col: zss.values.types.Color, current_color: used_values.Color) used
 
 pub fn currentColor(col: zss.values.types.Color) used_values.Color {
     return switch (col) {
-        .rgba => |rgba| rgba,
+        .rgba => |rgba| used_values.Color.fromRgbaInt(rgba),
         .current_color => unreachable,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
@@ -107,10 +107,10 @@ fn @"CSS2.2Section9.7Table"(display: zss.values.types.Display) zss.values.types.
 
 pub fn borderColors(border_colors: aggregates.BorderColors, current_color: used_values.Color) used_values.BorderColor {
     return used_values.BorderColor{
-        .left_rgba = color(border_colors.left, current_color),
-        .right_rgba = color(border_colors.right, current_color),
-        .top_rgba = color(border_colors.top, current_color),
-        .bottom_rgba = color(border_colors.bottom, current_color),
+        .left = color(border_colors.left, current_color),
+        .right = color(border_colors.right, current_color),
+        .top = color(border_colors.top, current_color),
+        .bottom = color(border_colors.bottom, current_color),
     };
 }
 
@@ -132,7 +132,7 @@ pub fn borderStyles(border_styles: aggregates.BorderStyles) void {
 
 pub fn background1(bg: aggregates.Background1, current_color: used_values.Color) used_values.Background1 {
     return used_values.Background1{
-        .color_rgba = color(bg.color, current_color),
+        .color = color(bg.color, current_color),
         .clip = switch (bg.clip) {
             .border_box => .Border,
             .padding_box => .Padding,

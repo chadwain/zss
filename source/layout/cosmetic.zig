@@ -88,7 +88,7 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
         const computed_color = computer.stage.cosmetic.current_values.color;
         const used_color = solve.currentColor(computed_color.color);
         for (box_tree.ifcs.items) |ifc| {
-            ifc.font_color_rgba = used_color;
+            ifc.font_color = used_color;
         }
     }
 
@@ -349,10 +349,10 @@ fn inlineBoxCosmeticLayout(context: Context, computer: *StyleComputer, ifc: *Inl
     const current_color = solve.currentColor(specified.color.color);
 
     const border_colors = solve.borderColors(specified.border_colors, current_color);
-    ifc.inline_start.items[inline_box_index].border_color_rgba = border_colors.left_rgba;
-    ifc.inline_end.items[inline_box_index].border_color_rgba = border_colors.right_rgba;
-    ifc.block_start.items[inline_box_index].border_color_rgba = border_colors.top_rgba;
-    ifc.block_end.items[inline_box_index].border_color_rgba = border_colors.bottom_rgba;
+    ifc.inline_start.items[inline_box_index].border_color = border_colors.left;
+    ifc.inline_end.items[inline_box_index].border_color = border_colors.right;
+    ifc.block_start.items[inline_box_index].border_color = border_colors.top;
+    ifc.block_end.items[inline_box_index].border_color = border_colors.bottom;
 
     solve.borderStyles(specified.border_styles);
 
@@ -370,10 +370,10 @@ fn inlineBoxCosmeticLayout(context: Context, computer: *StyleComputer, ifc: *Inl
 }
 
 fn rootInlineBoxCosmeticLayout(ifc: *InlineFormattingContext) void {
-    ifc.inline_start.items[0].border_color_rgba = 0;
-    ifc.inline_end.items[0].border_color_rgba = 0;
-    ifc.block_start.items[0].border_color_rgba = 0;
-    ifc.block_end.items[0].border_color_rgba = 0;
+    ifc.inline_start.items[0].border_color = used_values.Color.transparent;
+    ifc.inline_end.items[0].border_color = used_values.Color.transparent;
+    ifc.block_start.items[0].border_color = used_values.Color.transparent;
+    ifc.block_end.items[0].border_color = used_values.Color.transparent;
 
     ifc.background1.items[0] = .{};
     ifc.insets.items[0] = .{ .x = 0, .y = 0 };
