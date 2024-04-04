@@ -36,6 +36,10 @@ pub const Renderer = struct {
     vertex_shader: zgl.Shader,
     fragment_shader: zgl.Shader,
 
+    vertices: std.ArrayListUnmanaged(Vertex) = .{},
+    indeces: std.ArrayListUnmanaged(u32) = .{},
+    allocator: Allocator,
+
     const Vertex = extern struct {
         pos: [2]zgl.Int,
         color: [4]zgl.UByte,
@@ -78,7 +82,7 @@ pub const Renderer = struct {
         0, 4,  7,
     };
 
-    pub fn init() Renderer {
+    pub fn init(allocator: Allocator) Renderer {
         const vao = zgl.genVertexArray();
         zgl.bindVertexArray(vao);
 
@@ -131,6 +135,7 @@ pub const Renderer = struct {
             .program = program,
             .vertex_shader = vertex_shader,
             .fragment_shader = fragment_shader,
+            .allocator = allocator,
         };
     }
 
@@ -148,15 +153,18 @@ pub const Renderer = struct {
         return shader;
     }
 
-    pub fn deinit(renderer: Renderer) void {
+    pub fn deinit(renderer: *Renderer) void {
         zgl.deleteBuffers(&.{ renderer.ib, renderer.vb });
         zgl.deleteVertexArray(renderer.vao);
         zgl.deleteShader(renderer.vertex_shader);
         zgl.deleteShader(renderer.fragment_shader);
         zgl.deleteProgram(renderer.program);
+
+        renderer.vertices.deinit(renderer.allocator);
+        renderer.indeces.deinit(renderer.allocator);
     }
 
-    fn prepareToDraw(renderer: Renderer, viewport: ZssRect, translation: ZssVector) void {
+    fn beginDraw(renderer: *Renderer, viewport: ZssRect, translation: ZssVector, num_objects: usize) !void {
         zgl.bindVertexArray(renderer.vao);
         zgl.bindBuffer(renderer.vb, .array_buffer);
         zgl.bindBuffer(renderer.ib, .element_array_buffer);
@@ -169,31 +177,52 @@ pub const Renderer = struct {
         zgl.uniform2i(viewport_location, viewport.w, viewport.h);
         const translation_location = zgl.getUniformLocation(renderer.program, "translation");
         zgl.uniform2i(translation_location, translation.x, translation.y);
+
+        // TODO: Bad approximation of initial capacity
+        try renderer.vertices.ensureTotalCapacity(renderer.allocator, num_objects * 12);
+        try renderer.indeces.ensureTotalCapacity(renderer.allocator, num_objects * 30);
+    }
+
+    fn endDraw(renderer: *Renderer) void {
+        renderer.vertices.clearRetainingCapacity();
+        renderer.indeces.clearRetainingCapacity();
     }
 };
 
+fn addQuad(renderer: *Renderer, vertices: [4][2]ZssUnit, color: Color) !void {
+    const start_index: u32 = @intCast(renderer.vertices.items.len);
+    try renderer.vertices.appendSlice(renderer.allocator, &.{
+        .{ .pos = vertices[0], .color = undefined },
+        .{ .pos = vertices[1], .color = undefined },
+        .{ .pos = vertices[2], .color = undefined },
+        .{ .pos = vertices[3], .color = color.toRgbaArray() },
+    });
+    const indeces_template = [6]u32{
+        0, 1, 3,
+        1, 2, 3,
+    };
+    var indeces: [indeces_template.len]u32 = undefined;
+    for (indeces_template, &indeces) |in, *out| {
+        out.* = start_index + in;
+    }
+    try renderer.indeces.appendSlice(renderer.allocator, &indeces);
+}
+
 pub fn drawBoxTree(
-    renderer: Renderer,
+    renderer: *Renderer,
     box_tree: BoxTree,
     draw_order_list: DrawOrderList,
     allocator: Allocator,
     viewport: ZssRect,
 ) !void {
-    const translation = ZssVector{ .x = -viewport.x, .y = -viewport.y };
-    renderer.prepareToDraw(viewport, translation);
-
     const objects = try getObjectsOnScreenInDrawOrder(draw_order_list, allocator, viewport);
     defer allocator.free(objects);
 
-    // TODO: Bad approximation of initial capacity
-    var vbo_data = try std.ArrayListUnmanaged(Renderer.Vertex).initCapacity(allocator, objects.len * 12);
-    defer vbo_data.deinit(allocator);
+    const translation = ZssVector{ .x = -viewport.x, .y = -viewport.y };
 
-    // TODO: Bad approximation of initial capacity
-    var ib_data = try std.ArrayListUnmanaged(u32).initCapacity(allocator, objects.len * 30);
-    defer ib_data.deinit(allocator);
+    try renderer.beginDraw(viewport, translation, objects.len);
+    defer renderer.endDraw();
 
-    var block_count: u32 = 0;
     for (objects) |object| {
         const entry = draw_order_list.getEntry(object);
         switch (entry) {
@@ -210,25 +239,15 @@ pub fn drawBoxTree(
                 const border_colors = subtree.border_colors.items[index];
                 const boxes = getThreeBoxes(border_top_left, box_offsets, borders);
 
-                var vertices: Renderer.BlockVertices = undefined;
-                drawBlockContainer(&vertices, boxes, background1, border_colors);
-                try vbo_data.appendSlice(allocator, &vertices);
-
-                var indeces: [Renderer.index_buffer_data.len]u32 = undefined;
-                for (Renderer.index_buffer_data, &indeces) |in, *out| {
-                    out.* = in + 12 * block_count;
-                }
-                try ib_data.appendSlice(allocator, &indeces);
-
-                block_count += 1;
+                try drawBlockContainer(renderer, boxes, background1, border_colors);
             },
             .line_box => {}, // TODO
         }
     }
 
-    zgl.bufferData(.array_buffer, Renderer.Vertex, vbo_data.items, .dynamic_draw);
-    zgl.bufferData(.element_array_buffer, u32, ib_data.items, .dynamic_draw);
-    zgl.drawElements(.triangles, ib_data.items.len, .u32, 0);
+    zgl.bufferData(.array_buffer, Renderer.Vertex, renderer.vertices.items, .dynamic_draw);
+    zgl.bufferData(.element_array_buffer, u32, renderer.indeces.items, .dynamic_draw);
+    zgl.drawElements(.triangles, renderer.indeces.items.len, .u32, 0);
 }
 
 fn getObjectsOnScreenInDrawOrder(draw_order_list: DrawOrderList, allocator: Allocator, viewport: ZssRect) ![]QuadTree.Object {
@@ -291,39 +310,51 @@ fn getThreeBoxes(
     };
 }
 
-fn v(x: ZssUnit, y: ZssUnit, color: Color) Renderer.Vertex {
-    return .{ .pos = .{ x, y }, .color = color.toRgbaArray() };
-}
-
 fn drawBlockContainer(
-    vertices: *Renderer.BlockVertices,
+    renderer: *Renderer,
     boxes: ThreeBoxes,
     background1: zss.used_values.Background1,
     border_colors: zss.used_values.BorderColor,
-) void {
-    const bg_clip_rect = switch (background1.clip) {
-        .Border => boxes.border,
-        .Padding => boxes.padding,
-        .Content => boxes.content,
-    };
-
+) !void {
     // draw background color
-    vertices.*[8] = v(bg_clip_rect.x, bg_clip_rect.y, undefined);
-    vertices.*[9] = v(bg_clip_rect.x + bg_clip_rect.w, bg_clip_rect.y, undefined);
-    vertices.*[10] = v(bg_clip_rect.x + bg_clip_rect.w, bg_clip_rect.y + bg_clip_rect.h, undefined);
-    vertices.*[11] = v(bg_clip_rect.x, bg_clip_rect.y + bg_clip_rect.h, background1.color);
+    switch (background1.color.a) {
+        0 => {},
+        else => {
+            const bg_clip_rect = switch (background1.clip) {
+                .Border => boxes.border,
+                .Padding => boxes.padding,
+                .Content => boxes.content,
+            };
+
+            try addQuad(renderer, .{
+                .{ bg_clip_rect.x, bg_clip_rect.y },
+                .{ bg_clip_rect.x + bg_clip_rect.w, bg_clip_rect.y },
+                .{ bg_clip_rect.x + bg_clip_rect.w, bg_clip_rect.y + bg_clip_rect.h },
+                .{ bg_clip_rect.x, bg_clip_rect.y + bg_clip_rect.h },
+            }, background1.color);
+        },
+    }
 
     // TODO: draw the background image
 
     // draw borders
     const border = boxes.border;
-    vertices.*[0] = v(border.x, border.y, undefined);
-    vertices.*[1] = v(border.x + border.w, border.y, undefined);
-    vertices.*[2] = v(border.x + border.w, border.y + border.h, undefined);
-    vertices.*[3] = v(border.x, border.y + border.h, undefined);
+    const border_vertices = [4][2]ZssUnit{
+        .{ border.x, border.y },
+        .{ border.x + border.w, border.y },
+        .{ border.x + border.w, border.y + border.h },
+        .{ border.x, border.y + border.h },
+    };
     const padding = boxes.padding;
-    vertices.*[4] = v(padding.x, padding.y, border_colors.top);
-    vertices.*[5] = v(padding.x + padding.w, padding.y, border_colors.right);
-    vertices.*[6] = v(padding.x + padding.w, padding.y + padding.h, border_colors.bottom);
-    vertices.*[7] = v(padding.x, padding.y + padding.h, border_colors.left);
+    const padding_vertices = [4][2]ZssUnit{
+        .{ padding.x, padding.y },
+        .{ padding.x + padding.w, padding.y },
+        .{ padding.x + padding.w, padding.y + padding.h },
+        .{ padding.x, padding.y + padding.h },
+    };
+
+    try addQuad(renderer, .{ border_vertices[0], border_vertices[1], padding_vertices[1], padding_vertices[0] }, border_colors.top);
+    try addQuad(renderer, .{ border_vertices[1], border_vertices[2], padding_vertices[2], padding_vertices[1] }, border_colors.right);
+    try addQuad(renderer, .{ border_vertices[2], border_vertices[3], padding_vertices[3], padding_vertices[2] }, border_colors.bottom);
+    try addQuad(renderer, .{ border_vertices[3], border_vertices[0], padding_vertices[0], padding_vertices[3] }, border_colors.left);
 }

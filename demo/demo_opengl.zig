@@ -76,7 +76,7 @@ pub fn main() !u8 {
     var draw_list = try zss.render.DrawOrderList.create(box_tree, allocator);
     defer draw_list.deinit(allocator);
 
-    const renderer = zss.render.opengl.Renderer.init();
+    var renderer = zss.render.opengl.Renderer.init(allocator);
     defer renderer.deinit();
 
     while (!window.shouldClose()) {
@@ -85,7 +85,7 @@ pub fn main() !u8 {
 
         const units_per_pixel = zss.used_values.units_per_pixel;
         const viewport_rect = zss.used_values.ZssRect{ .x = 0, .y = 0, .w = width * units_per_pixel, .h = height * units_per_pixel };
-        try zss.render.opengl.drawBoxTree(renderer, box_tree, draw_list, allocator, viewport_rect);
+        try zss.render.opengl.drawBoxTree(&renderer, box_tree, draw_list, allocator, viewport_rect);
 
         zgl.flush();
 
