@@ -49,14 +49,14 @@ pub fn drawBoxTree(
             .block_box => |block_box| {
                 const border_top_left = block_box.border_top_left.add(translation);
 
-                const subtree = box_tree.blocks.subtrees.items[block_box.block_box.subtree];
+                const subtree_slice = box_tree.blocks.subtrees.items[block_box.block_box.subtree].slice();
                 const index = block_box.block_box.index;
 
-                const box_offsets = subtree.box_offsets.items[index];
-                const borders = subtree.borders.items[index];
-                const background1 = subtree.background1.items[index];
-                const background2 = subtree.background2.items[index];
-                const border_colors = subtree.border_colors.items[index];
+                const box_offsets = subtree_slice.items(.box_offsets)[index];
+                const borders = subtree_slice.items(.borders)[index];
+                const background1 = subtree_slice.items(.background1)[index];
+                const background2 = subtree_slice.items(.background2)[index];
+                const border_colors = subtree_slice.items(.border_colors)[index];
                 const boxes = getThreeBoxes(border_top_left, box_offsets, borders);
 
                 drawBlockContainer(boxes, borders, background1, background2, border_colors, renderer, pixel_format);

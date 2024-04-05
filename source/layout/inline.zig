@@ -336,7 +336,7 @@ fn ifcRunOnce(
                 // }
             }
 
-            layout.result.total_inline_block_skip += box_tree.blocks.subtrees.items[block_box.subtree].skip.items[block_box.index];
+            layout.result.total_inline_block_skip += box_tree.blocks.subtrees.items[block_box.subtree].slice().items(.skip)[block_box.index];
             try ifcAddInlineBlock(box_tree, ifc, block_box.index);
         },
         .block => {
@@ -1079,9 +1079,10 @@ fn setMetricsLineBreak(metrics: *InlineFormattingContext.Metrics) void {
     metrics.* = .{ .offset = 0, .advance = 0, .width = 0 };
 }
 
-fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, subtree: *BlockSubtree, block_box_index: BlockBoxIndex) void {
-    const box_offsets = subtree.box_offsets.items[block_box_index];
-    const margins = subtree.margins.items[block_box_index];
+fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, subtree: *const BlockSubtree, block_box_index: BlockBoxIndex) void {
+    const subtree_slice = subtree.slice();
+    const box_offsets = subtree_slice.items(.box_offsets)[block_box_index];
+    const margins = subtree_slice.items(.margins)[block_box_index];
 
     const width = box_offsets.border_size.w;
     const advance = width + margins.left + margins.right;
@@ -1170,7 +1171,7 @@ pub const IFCLineSplitResult = struct {
 pub fn splitIntoLineBoxes(
     allocator: Allocator,
     box_tree: *BoxTree,
-    subtree: *BlockSubtree,
+    subtree: *const BlockSubtree,
     ifc: *InlineFormattingContext,
     max_line_box_length: ZssUnit,
 ) !IFCLineSplitResult {
@@ -1183,6 +1184,8 @@ pub fn splitIntoLineBoxes(
     ifc.descender = @divFloor(font_extents.descender * units_per_pixel, 64);
     const top_height: ZssUnit = @divFloor((font_extents.ascender + @divFloor(font_extents.line_gap, 2) + @mod(font_extents.line_gap, 2)) * units_per_pixel, 64);
     const bottom_height: ZssUnit = @divFloor((-font_extents.descender + @divFloor(font_extents.line_gap, 2)) * units_per_pixel, 64);
+
+    const subtree_slice = subtree.slice();
 
     var s = IFCLineSplitState.init(top_height, bottom_height);
     defer s.deinit(allocator);
@@ -1232,8 +1235,8 @@ pub fn splitIntoLineBoxes(
             switch (@as(InlineFormattingContext.Special.LayoutInternalKind, @enumFromInt(@intFromEnum(special.kind)))) {
                 .InlineBlock => {
                     const block_box_index = @as(BlockBoxIndex, special.data);
-                    const box_offsets = &subtree.box_offsets.items[block_box_index];
-                    const margins = subtree.margins.items[block_box_index];
+                    const box_offsets = &subtree_slice.items(.box_offsets)[block_box_index];
+                    const margins = subtree_slice.items(.margins)[block_box_index];
                     const margin_box_height = box_offsets.border_size.h + margins.top + margins.bottom;
                     s.max_top_height = @max(s.max_top_height, margin_box_height);
                     try s.inline_blocks_in_this_line_box.append(

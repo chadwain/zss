@@ -53,29 +53,30 @@ fn printBlocks(box_tree: BoxTree, stdout: anytype, allocator: Allocator) !void {
 
     const subtrees = box_tree.blocks.subtrees.items;
     try subtree_stack.append(allocator, .{ .index = 0, .subtree = subtrees[0], .index_of_root = 0 });
-    try block_stack.append(allocator, .{ .begin = 0, .end = subtrees[0].skip.items[0], .indent = 0 });
+    try block_stack.append(allocator, .{ .begin = 0, .end = subtrees[0].size(), .indent = 0 });
 
     while (block_stack.items.len > 0) {
         const top = &block_stack.items[block_stack.items.len - 1];
         const subtree = subtree_stack.items[subtree_stack.items.len - 1];
+        const subtree_slice = subtree.subtree.slice();
         if (top.begin != top.end) {
             const index = top.begin;
-            const skip = subtree.subtree.skip.items[index];
+            const skip = subtree_slice.items(.skip)[index];
             top.begin += skip;
 
-            switch (subtree.subtree.type.items[index]) {
+            switch (subtree_slice.items(.type)[index]) {
                 .subtree_proxy => |subtree_index| {
                     try stdout.writeByteNTimes(' ', top.indent * 4);
                     try stdout.print("subtree index={}\n", .{subtree_index});
 
                     const new_subtree = subtrees[subtree_index];
                     try subtree_stack.append(allocator, .{ .index = subtree_index, .subtree = new_subtree, .index_of_root = block_stack.items.len });
-                    try block_stack.append(allocator, .{ .begin = 0, .end = @intCast(new_subtree.skip.items.len), .indent = top.indent + 1 });
+                    try block_stack.append(allocator, .{ .begin = 0, .end = new_subtree.size(), .indent = top.indent + 1 });
                 },
                 .block => {
-                    const box_offsets = subtree.subtree.box_offsets.items[index];
-                    const borders = subtree.subtree.borders.items[index];
-                    const margins = subtree.subtree.margins.items[index];
+                    const box_offsets = subtree_slice.items(.box_offsets)[index];
+                    const borders = subtree_slice.items(.borders)[index];
+                    const margins = subtree_slice.items(.margins)[index];
                     const width = box_offsets.content_size.w;
                     const height = box_offsets.content_size.h;
                     const anchor = box_offsets.border_pos;
@@ -112,7 +113,7 @@ fn printBlocks(box_tree: BoxTree, stdout: anytype, allocator: Allocator) !void {
                     try block_stack.append(allocator, .{ .begin = index + 1, .end = index + skip, .indent = top.indent + 1 });
                 },
                 .ifc_container => {
-                    const box_offsets = subtree.subtree.box_offsets.items[index];
+                    const box_offsets = subtree_slice.items(.box_offsets)[index];
                     const width = box_offsets.content_size.w;
                     const height = box_offsets.content_size.h;
                     const anchor = box_offsets.border_pos;

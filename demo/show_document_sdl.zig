@@ -96,7 +96,7 @@ const ProgramState = struct {
     }
 
     fn updateMaxScroll(self: *Self) void {
-        const root_box_offsets = self.box_tree.blocks.subtrees.items[0].box_offsets.items[1];
+        const root_box_offsets = self.box_tree.blocks.subtrees.items[0].slice().items(.box_offsets)[1];
         self.max_scroll_y = @max(0, zss.render.sdl.zssUnitToPixel(root_box_offsets.border_pos.y + root_box_offsets.border_size.h) - self.height);
         self.scroll_y = std.math.clamp(self.scroll_y, 0, self.max_scroll_y);
     }

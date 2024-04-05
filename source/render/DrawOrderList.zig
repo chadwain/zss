@@ -173,9 +173,9 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawOrderList {
 
         try draw_order_list.sub_lists.append(allocator, .{});
 
-        const subtree = box_tree.blocks.subtrees.items[initial_containing_block.subtree];
-        const box_offsets = subtree.box_offsets.items[initial_containing_block.index];
-        const insets = subtree.insets.items[initial_containing_block.index];
+        const subtree_slice = box_tree.blocks.subtrees.items[initial_containing_block.subtree].slice();
+        const box_offsets = subtree_slice.items(.box_offsets)[initial_containing_block.index];
+        const insets = subtree_slice.items(.insets)[initial_containing_block.index];
         const border_top_left = insets.add(box_offsets.border_pos);
         const content_top_left = border_top_left.add(box_offsets.content_pos);
 
@@ -322,8 +322,9 @@ fn populateSubList(
 
     const root_block_box = slice.items(.block_box)[stacking_context];
     const root_block_subtree = box_tree.blocks.subtrees.items[root_block_box.subtree];
-    const root_box_offsets = root_block_subtree.box_offsets.items[root_block_box.index];
-    const root_insets = root_block_subtree.insets.items[root_block_box.index];
+    const root_block_subtree_slice = root_block_subtree.slice();
+    const root_box_offsets = root_block_subtree_slice.items(.box_offsets)[root_block_box.index];
+    const root_insets = root_block_subtree_slice.items(.insets)[root_block_box.index];
     const root_border_top_left = description.initial_vector.add(root_insets).add(root_box_offsets.border_pos);
     const root_content_top_left = root_border_top_left.add(root_box_offsets.content_pos);
 
@@ -356,7 +357,7 @@ fn populateSubList(
         defer stack.deinit(allocator);
         try stack.append(allocator, .{
             .begin = root_block_box.index + 1,
-            .end = root_block_box.index + root_block_subtree.skip.items[root_block_box.index],
+            .end = root_block_box.index + root_block_subtree_slice.items(.skip)[root_block_box.index],
             .subtree_index = root_block_box.subtree,
             .subtree = root_block_subtree,
             .vector = root_content_top_left,
@@ -370,11 +371,12 @@ fn populateSubList(
             const last = &stack.items[stack.items.len - 1];
             const subtree_index = last.subtree_index;
             const subtree = last.subtree;
+            const subtree_slice = subtree.slice();
             const vector = last.vector;
             while (last.begin < last.end) {
                 const block_index = last.begin;
-                const block_skip = subtree.skip.items[block_index];
-                const block_type = subtree.type.items[block_index];
+                const block_skip = subtree_slice.items(.skip)[block_index];
+                const block_type = subtree_slice.items(.type)[block_index];
                 switch (block_type) {
                     .block => |block_info| {
                         if (block_info.stacking_context) |child_stacking_context_ref| {
@@ -383,8 +385,8 @@ fn populateSubList(
 
                             last.begin += block_skip;
                         } else {
-                            const box_offsets = subtree.box_offsets.items[block_index];
-                            const insets = subtree.insets.items[block_index];
+                            const box_offsets = subtree_slice.items(.box_offsets)[block_index];
+                            const insets = subtree_slice.items(.insets)[block_index];
                             const border_top_left = vector.add(insets).add(box_offsets.border_pos);
                             const content_top_left = border_top_left.add(box_offsets.content_pos);
 
@@ -407,7 +409,7 @@ fn populateSubList(
                             if (block_skip != 1) {
                                 try stack.append(allocator, .{
                                     .begin = block_index + 1,
-                                    .end = block_index + subtree.skip.items[block_index],
+                                    .end = block_index + subtree_slice.items(.skip)[block_index],
                                     .subtree_index = subtree_index,
                                     .subtree = subtree,
                                     .vector = content_top_left,
@@ -417,7 +419,7 @@ fn populateSubList(
                         }
                     },
                     .ifc_container => |ifc_index| {
-                        const box_offsets = subtree.box_offsets.items[block_index];
+                        const box_offsets = subtree_slice.items(.box_offsets)[block_index];
                         const new_vector = vector.add(box_offsets.border_pos).add(box_offsets.content_pos);
                         try ifc_infos.putNoClobber(allocator, ifc_index, .{ .vector = new_vector, .containing_block_width = box_offsets.border_size.w });
                         last.begin += 1;
@@ -428,7 +430,7 @@ fn populateSubList(
                         const child_subtree = box_tree.blocks.subtrees.items[proxy_subtree_index];
                         try stack.append(allocator, .{
                             .begin = 0,
-                            .end = @intCast(child_subtree.skip.items.len),
+                            .end = child_subtree.size(),
                             .subtree_index = proxy_subtree_index,
                             .subtree = child_subtree,
                             .vector = vector,

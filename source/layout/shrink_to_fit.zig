@@ -446,9 +446,10 @@ fn createObjects(
             .flow_stf => {
                 const data = objects.getData2(.flow_stf, &data_index_mutable);
 
-                const box_offsets = &subtree.box_offsets.items[root_block_box.index];
-                const borders = &subtree.borders.items[root_block_box.index];
-                const margins = &subtree.margins.items[root_block_box.index];
+                const subtree_slice = subtree.slice();
+                const box_offsets = &subtree_slice.items(.box_offsets)[root_block_box.index];
+                const borders = &subtree_slice.items(.borders)[root_block_box.index];
+                const margins = &subtree_slice.items(.margins)[root_block_box.index];
                 // NOTE: Should we call normal.flowBlockAdjustWidthAndMargins?
                 // Maybe. It depends on the outer context.
                 const used_sizes = &data.used;
@@ -515,9 +516,10 @@ fn createObjects(
                             layout.blocks.items(.skip)[layout.blocks.len - 1] += 1;
                         }
 
-                        const box_offsets = &new_subtree.box_offsets.items[0];
+                        const new_subtree_slice = new_subtree.slice();
+                        const box_offsets = &new_subtree_slice.items(.box_offsets)[0];
                         flowBlockAdjustMargins(&data.margins, containing_block_width - box_offsets.border_size.w);
-                        const margins = &new_subtree.margins.items[0];
+                        const margins = &new_subtree_slice.items(.margins)[0];
                         flowBlockSetHorizontalMargins(data.margins, margins);
 
                         const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
@@ -540,10 +542,11 @@ fn createObjects(
                         const ifc = box_tree.ifcs.items[data.layout_result.ifc_index];
                         ifc.parent_block = .{ .subtree = root_block_box.subtree, .index = layout.blocks.items(.index)[layout.blocks.len - 1] };
 
+                        const new_subtree_slice = new_subtree.slice();
                         const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-                        new_subtree.type.items[block_index] = .{ .ifc_container = data.layout_result.ifc_index };
-                        new_subtree.skip.items[block_index] = 1 + data.layout_result.total_inline_block_skip;
-                        new_subtree.box_offsets.items[block_index] = .{
+                        new_subtree_slice.items(.type)[block_index] = .{ .ifc_container = data.layout_result.ifc_index };
+                        new_subtree_slice.items(.skip)[block_index] = 1 + data.layout_result.total_inline_block_skip;
+                        new_subtree_slice.items(.box_offsets)[block_index] = .{
                             .border_pos = .{ .x = 0, .y = parent_auto_height.* },
                             .border_size = .{ .w = data.line_split_result.longest_line_box_length, .h = data.line_split_result.height },
                             .content_pos = .{ .x = 0, .y = 0 },
@@ -562,9 +565,10 @@ fn createObjects(
 
                 const data = objects.getData(.flow_stf, data_index);
                 const used_sizes = data.used;
-                const box_offsets = &subtree.box_offsets.items[block.index];
+                const subtree_slice = subtree.slice();
+                const box_offsets = &subtree_slice.items(.box_offsets)[block.index];
 
-                subtree.skip.items[block.index] = block.skip;
+                subtree_slice.items(.skip)[block.index] = block.skip;
                 normal.flowBlockFinishLayout(box_offsets, used_sizes.getUsedContentHeight(), auto_height);
 
                 if (layout.objects.len > 0) {
@@ -572,7 +576,7 @@ fn createObjects(
                         .flow_stf => {
                             layout.blocks.items(.skip)[layout.blocks.len - 1] += block.skip;
                             const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-                            const margin_bottom = subtree.margins.items[block.index].bottom;
+                            const margin_bottom = subtree_slice.items(.margins)[block.index].bottom;
                             normal.addBlockToFlow(box_offsets, margin_bottom, parent_auto_height);
                         },
                         .flow_normal, .ifc => unreachable,

@@ -37,14 +37,6 @@ const Context = struct {
 };
 
 pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
-    for (box_tree.blocks.subtrees.items) |subtree| {
-        const num_created_boxes = subtree.skip.items.len;
-        try subtree.insets.resize(box_tree.allocator, num_created_boxes);
-        try subtree.border_colors.resize(box_tree.allocator, num_created_boxes);
-        try subtree.background1.resize(box_tree.allocator, num_created_boxes);
-        try subtree.background2.resize(box_tree.allocator, num_created_boxes);
-    }
-
     anonymousBlockBoxCosmeticLayout(box_tree, .{ .subtree = initial_subtree, .index = initial_containing_block });
     // TODO: Also process any anonymous block boxes.
 
@@ -61,7 +53,7 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
 
     {
         const initial_containing_block_subtree = box_tree.blocks.subtrees.items[initial_subtree];
-        const box_offsets = initial_containing_block_subtree.box_offsets.items[initial_containing_block];
+        const box_offsets = initial_containing_block_subtree.slice().items(.box_offsets)[initial_containing_block];
         try context.mode.append(computer.allocator, .InitialContainingBlock);
         try context.containing_block_size.append(computer.allocator, box_offsets.content_size);
     }
@@ -74,8 +66,8 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
                 try blockBoxCosmeticLayout(context, computer, box_tree, block_box, .Root);
 
                 if (!computer.element_tree_slice.firstChild(computer.root_element).eqlNull()) {
-                    const subtree = box_tree.blocks.subtrees.items[block_box.subtree];
-                    const box_offsets = subtree.box_offsets.items[block_box.index];
+                    const subtree_slice = box_tree.blocks.subtrees.items[block_box.subtree].slice();
+                    const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
                     try context.mode.append(computer.allocator, .Flow);
                     try context.containing_block_size.append(computer.allocator, box_offsets.content_size);
                     try computer.pushElement(.cosmetic);
@@ -108,8 +100,8 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
                     try blockBoxCosmeticLayout(context, computer, box_tree, block_box, .NonRoot);
 
                     if (has_children) {
-                        const subtree = box_tree.blocks.subtrees.items[block_box.subtree];
-                        const box_offsets = subtree.box_offsets.items[block_box.index];
+                        const subtree_slice = box_tree.blocks.subtrees.items[block_box.subtree].slice();
+                        const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
                         try context.mode.append(computer.allocator, .Flow);
                         try context.containing_block_size.append(computer.allocator, box_offsets.content_size);
                         try computer.pushElement(.cosmetic);
@@ -152,14 +144,14 @@ fn blockBoxCosmeticLayout(context: Context, computer: *StyleComputer, box_tree: 
         .insets = computer.getSpecifiedValue(.cosmetic, .insets),
     };
 
-    const subtree = box_tree.blocks.subtrees.items[block_box.subtree];
+    const subtree_slice = box_tree.blocks.subtrees.items[block_box.subtree].slice();
 
     const computed_box_style = solve.boxStyle(specified.box_style, is_root);
     const current_color = solve.currentColor(specified.color.color);
 
     var computed_insets: aggregates.Insets = undefined;
     {
-        const used_insets = &subtree.insets.items[block_box.index];
+        const used_insets = &subtree_slice.items(.insets)[block_box.index];
         switch (computed_box_style.position) {
             .static => solveInsetsStatic(specified.insets, &computed_insets, used_insets),
             .relative => {
@@ -171,19 +163,19 @@ fn blockBoxCosmeticLayout(context: Context, computer: *StyleComputer, box_tree: 
         }
     }
 
-    const box_offsets_ptr = &subtree.box_offsets.items[block_box.index];
-    const borders_ptr = &subtree.borders.items[block_box.index];
+    const box_offsets_ptr = &subtree_slice.items(.box_offsets)[block_box.index];
+    const borders_ptr = &subtree_slice.items(.borders)[block_box.index];
 
     {
-        const border_colors_ptr = &subtree.border_colors.items[block_box.index];
+        const border_colors_ptr = &subtree_slice.items(.border_colors)[block_box.index];
         border_colors_ptr.* = solve.borderColors(specified.border_colors, current_color);
     }
 
     solve.borderStyles(specified.border_styles);
 
     {
-        const background1_ptr = &subtree.background1.items[block_box.index];
-        const background2_ptr = &subtree.background2.items[block_box.index];
+        const background1_ptr = &subtree_slice.items(.background1)[block_box.index];
+        const background2_ptr = &subtree_slice.items(.background2)[block_box.index];
         background1_ptr.* = solve.background1(specified.background1, current_color);
         background2_ptr.* = try solve.background2(specified.background2, box_offsets_ptr, borders_ptr);
     }
@@ -311,11 +303,11 @@ fn solveInsetsRelative(
 }
 
 fn anonymousBlockBoxCosmeticLayout(box_tree: *BoxTree, block_box: BlockBox) void {
-    const subtree = box_tree.blocks.subtrees.items[block_box.subtree];
-    subtree.border_colors.items[block_box.index] = .{};
-    subtree.background1.items[block_box.index] = .{};
-    subtree.background2.items[block_box.index] = .{};
-    subtree.insets.items[block_box.index] = .{ .x = 0, .y = 0 };
+    const subtree_slice = box_tree.blocks.subtrees.items[block_box.subtree].slice();
+    subtree_slice.items(.border_colors)[block_box.index] = .{};
+    subtree_slice.items(.background1)[block_box.index] = .{};
+    subtree_slice.items(.background2)[block_box.index] = .{};
+    subtree_slice.items(.insets)[block_box.index] = .{ .x = 0, .y = 0 };
 }
 
 fn inlineBoxCosmeticLayout(context: Context, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {

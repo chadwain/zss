@@ -55,8 +55,8 @@ pub fn run(tests: []const Test) !void {
             if (box_tree.element_to_generated_box.get(t.root)) |generated| {
                 switch (generated) {
                     .block_box => |block_box| {
-                        const subtree = box_tree.blocks.subtrees.items[block_box.subtree];
-                        const box_offsets = subtree.box_offsets.items[block_box.index];
+                        const subtree_slice = box_tree.blocks.subtrees.items[block_box.subtree].slice();
+                        const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
                         root_sizes = .{
                             .width = r.zssUnitToPixel(box_offsets.border_size.w),
                             .height = r.zssUnitToPixel(box_offsets.border_size.h),
