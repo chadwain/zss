@@ -21,6 +21,7 @@ pub const Error = error{
     TooManyBlockSubtrees,
     TooManyBlocks,
     TooManyIfcs,
+    TooManyInlineBoxes,
 };
 
 pub const ViewportSize = struct {

@@ -783,6 +783,8 @@ fn drawLineBox(
         assert(sdl.SDL_SetTextureAlphaMod(atlas.texture, color[3]) == 0);
     }
 
+    const slice = ifc.slice();
+
     var inline_box_stack = ArrayListUnmanaged(InlineBoxIndex){};
     defer inline_box_stack.deinit(allocator);
 
@@ -793,10 +795,10 @@ fn drawLineBox(
 
     if (line_box.inline_box) |inline_box| {
         var i: InlineBoxIndex = 0;
-        const skips = ifc.skip.items;
+        const skips = slice.items(.skip);
 
         while (true) {
-            const insets = ifc.insets.items[i];
+            const insets = slice.items(.insets)[i];
             offset = offset.add(insets);
             try inline_box_stack.append(allocator, i);
             const match_info = findMatchingBoxEnd(all_glyphs, all_metrics, i);
@@ -804,6 +806,7 @@ fn drawLineBox(
                 renderer,
                 pixel_format,
                 ifc,
+                slice,
                 inline_box,
                 ZssVector{ .x = offset.x, .y = offset.y + line_box.baseline },
                 match_info.advance,
@@ -836,12 +839,13 @@ fn drawLineBox(
                 .ZeroGlyphIndex => break :blk,
                 .BoxStart => {
                     const match_info = findMatchingBoxEnd(all_glyphs[i + 1 ..], all_metrics[i + 1 ..], special.data);
-                    const insets = ifc.insets.items[special.data];
+                    const insets = slice.items(.insets)[special.data];
                     offset = offset.add(insets);
                     drawInlineBox(
                         renderer,
                         pixel_format,
                         ifc,
+                        slice,
                         special.data,
                         ZssVector{ .x = offset.x + cursor + metrics.offset, .y = offset.y + line_box.baseline },
                         match_info.advance,
@@ -852,7 +856,7 @@ fn drawLineBox(
                 },
                 .BoxEnd => {
                     assert(special.data == inline_box_stack.pop());
-                    const insets = ifc.insets.items[special.data];
+                    const insets = slice.items(.insets)[special.data];
                     offset = offset.sub(insets);
                 },
                 .InlineBlock => {},
@@ -921,17 +925,18 @@ fn drawInlineBox(
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
     ifc: *const InlineFormattingContext,
+    slice: InlineFormattingContext.Slice,
     inline_box: InlineBoxIndex,
     baseline_position: ZssVector,
     middle_length: ZssUnit,
     draw_start: bool,
     draw_end: bool,
 ) void {
-    const inline_start = ifc.inline_start.items[inline_box];
-    const inline_end = ifc.inline_end.items[inline_box];
-    const block_start = ifc.block_start.items[inline_box];
-    const block_end = ifc.block_end.items[inline_box];
-    const background1 = ifc.background1.items[inline_box];
+    const inline_start = slice.items(.inline_start)[inline_box];
+    const inline_end = slice.items(.inline_end)[inline_box];
+    const block_start = slice.items(.block_start)[inline_box];
+    const block_end = slice.items(.block_end)[inline_box];
+    const background1 = slice.items(.background1)[inline_box];
     // TODO: Apply the boxes insets
 
     const border = util.Widths{

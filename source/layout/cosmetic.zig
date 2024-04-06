@@ -41,8 +41,6 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
     // TODO: Also process any anonymous block boxes.
 
     for (box_tree.ifcs.items) |ifc| {
-        try ifc.background1.resize(box_tree.allocator, ifc.inline_start.items.len);
-        try ifc.insets.resize(box_tree.allocator, ifc.inline_start.items.len);
         rootInlineBoxCosmeticLayout(ifc);
     }
 
@@ -311,6 +309,8 @@ fn anonymousBlockBoxCosmeticLayout(box_tree: *BoxTree, block_box: BlockBox) void
 }
 
 fn inlineBoxCosmeticLayout(context: Context, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
+    const ifc_slice = ifc.slice();
+
     const specified = .{
         .box_style = computer.getSpecifiedValue(.cosmetic, .box_style),
         .color = computer.getSpecifiedValue(.cosmetic, .color),
@@ -325,7 +325,7 @@ fn inlineBoxCosmeticLayout(context: Context, computer: *StyleComputer, ifc: *Inl
 
     var computed_insets: aggregates.Insets = undefined;
     {
-        const used_insets = &ifc.insets.items[inline_box_index];
+        const used_insets = &ifc_slice.items(.insets)[inline_box_index];
         switch (computed_box_style.position) {
             .static => solveInsetsStatic(specified.insets, &computed_insets, used_insets),
             .relative => {
@@ -341,14 +341,14 @@ fn inlineBoxCosmeticLayout(context: Context, computer: *StyleComputer, ifc: *Inl
     const current_color = solve.currentColor(specified.color.color);
 
     const border_colors = solve.borderColors(specified.border_colors, current_color);
-    ifc.inline_start.items[inline_box_index].border_color = border_colors.left;
-    ifc.inline_end.items[inline_box_index].border_color = border_colors.right;
-    ifc.block_start.items[inline_box_index].border_color = border_colors.top;
-    ifc.block_end.items[inline_box_index].border_color = border_colors.bottom;
+    ifc_slice.items(.inline_start)[inline_box_index].border_color = border_colors.left;
+    ifc_slice.items(.inline_end)[inline_box_index].border_color = border_colors.right;
+    ifc_slice.items(.block_start)[inline_box_index].border_color = border_colors.top;
+    ifc_slice.items(.block_end)[inline_box_index].border_color = border_colors.bottom;
 
     solve.borderStyles(specified.border_styles);
 
-    const background1_ptr = &ifc.background1.items[inline_box_index];
+    const background1_ptr = &ifc_slice.items(.background1)[inline_box_index];
     background1_ptr.* = solve.background1(specified.background1, current_color);
 
     computer.setComputedValue(.cosmetic, .box_style, computed_box_style);
@@ -362,11 +362,13 @@ fn inlineBoxCosmeticLayout(context: Context, computer: *StyleComputer, ifc: *Inl
 }
 
 fn rootInlineBoxCosmeticLayout(ifc: *InlineFormattingContext) void {
-    ifc.inline_start.items[0].border_color = used_values.Color.transparent;
-    ifc.inline_end.items[0].border_color = used_values.Color.transparent;
-    ifc.block_start.items[0].border_color = used_values.Color.transparent;
-    ifc.block_end.items[0].border_color = used_values.Color.transparent;
+    const ifc_slice = ifc.slice();
 
-    ifc.background1.items[0] = .{};
-    ifc.insets.items[0] = .{ .x = 0, .y = 0 };
+    ifc_slice.items(.inline_start)[0].border_color = used_values.Color.transparent;
+    ifc_slice.items(.inline_end)[0].border_color = used_values.Color.transparent;
+    ifc_slice.items(.block_start)[0].border_color = used_values.Color.transparent;
+    ifc_slice.items(.block_end)[0].border_color = used_values.Color.transparent;
+
+    ifc_slice.items(.background1)[0] = .{};
+    ifc_slice.items(.insets)[0] = .{ .x = 0, .y = 0 };
 }

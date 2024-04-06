@@ -83,17 +83,6 @@ pub const InlineLayoutContext = struct {
     // }
 };
 
-fn createInlineBox(box_tree: *BoxTree, ifc: *InlineFormattingContext) !InlineBoxIndex {
-    const old_size = ifc.skip.items.len;
-    _ = try ifc.skip.addOne(box_tree.allocator);
-    _ = try ifc.inline_start.addOne(box_tree.allocator);
-    _ = try ifc.inline_end.addOne(box_tree.allocator);
-    _ = try ifc.block_start.addOne(box_tree.allocator);
-    _ = try ifc.block_end.addOne(box_tree.allocator);
-    _ = try ifc.margins.addOne(box_tree.allocator);
-    return @intCast(old_size);
-}
-
 pub fn makeInlineFormattingContext(
     allocator: Allocator,
     sc: *StackingContexts,
@@ -178,7 +167,7 @@ fn createInlineFormattingContext(
 
 fn ifcPushRootInlineBox(layout: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     assert(layout.inline_box_depth == 0);
-    const root_inline_box_index = try createInlineBox(box_tree, ifc);
+    const root_inline_box_index = try ifc.appendInlineBox(box_tree.allocator);
     rootInlineBoxSetData(ifc, root_inline_box_index);
     try ifcAddBoxStart(box_tree, ifc, root_inline_box_index);
     try layout.index.append(layout.allocator, root_inline_box_index);
@@ -189,7 +178,7 @@ fn ifcPopRootInlineBox(layout: *InlineLayoutContext, box_tree: *BoxTree, ifc: *I
     assert(layout.inline_box_depth == 0);
     const root_inline_box_index = layout.index.pop();
     const skip = layout.skip.pop();
-    ifc.skip.items[root_inline_box_index] = skip;
+    ifc.slice().items(.skip)[root_inline_box_index] = skip;
     try ifcAddBoxEnd(box_tree, ifc, root_inline_box_index);
 }
 
@@ -219,7 +208,7 @@ fn ifcRunOnce(
             try ifcAddText(box_tree, ifc, text, ifc.font);
         },
         .inline_ => {
-            const inline_box_index = try createInlineBox(box_tree, ifc);
+            const inline_box_index = try ifc.appendInlineBox(box_tree.allocator);
             try inlineBoxSetData(layout, computer, ifc, inline_box_index);
 
             const generated_box = GeneratedBox{ .inline_box = .{ .ifc_index = layout.result.ifc_index, .index = inline_box_index } };
@@ -358,7 +347,7 @@ fn ifcPopInlineBox(layout: *InlineLayoutContext, computer: *StyleComputer, box_t
     layout.inline_box_depth -= 1;
     const inline_box_index = layout.index.pop();
     const skip = layout.skip.pop();
-    ifc.skip.items[inline_box_index] = skip;
+    ifc.slice().items(.skip)[inline_box_index] = skip;
     try ifcAddBoxEnd(box_tree, ifc, inline_box_index);
     layout.skip.items[layout.skip.items.len - 1] += skip;
     computer.popElement(.box_gen);
@@ -452,12 +441,13 @@ fn ifcAddTextRun(box_tree: *BoxTree, ifc: *InlineFormattingContext, buffer: *hb.
     }
 }
 
-fn rootInlineBoxSetData(ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
-    ifc.inline_start.items[inline_box_index] = .{};
-    ifc.inline_end.items[inline_box_index] = .{};
-    ifc.block_start.items[inline_box_index] = .{};
-    ifc.block_end.items[inline_box_index] = .{};
-    ifc.margins.items[inline_box_index] = .{};
+fn rootInlineBoxSetData(ifc: *const InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
+    const ifc_slice = ifc.slice();
+    ifc_slice.items(.inline_start)[inline_box_index] = .{};
+    ifc_slice.items(.inline_end)[inline_box_index] = .{};
+    ifc_slice.items(.block_start)[inline_box_index] = .{};
+    ifc_slice.items(.block_end)[inline_box_index] = .{};
+    ifc_slice.items(.margins)[inline_box_index] = .{};
 }
 
 fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
@@ -673,11 +663,12 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
     computer.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
     computer.setComputedValue(.box_gen, .border_styles, specified.border_styles);
 
-    ifc.inline_start.items[inline_box_index] = .{ .border = used.border_inline_start, .padding = used.padding_inline_start };
-    ifc.inline_end.items[inline_box_index] = .{ .border = used.border_inline_end, .padding = used.padding_inline_end };
-    ifc.block_start.items[inline_box_index] = .{ .border = used.border_block_start, .padding = used.padding_block_start };
-    ifc.block_end.items[inline_box_index] = .{ .border = used.border_block_end, .padding = used.padding_block_end };
-    ifc.margins.items[inline_box_index] = .{ .start = used.margin_inline_start, .end = used.margin_inline_end };
+    const ifc_slice = ifc.slice();
+    ifc_slice.items(.inline_start)[inline_box_index] = .{ .border = used.border_inline_start, .padding = used.padding_inline_start };
+    ifc_slice.items(.inline_end)[inline_box_index] = .{ .border = used.border_inline_end, .padding = used.padding_inline_end };
+    ifc_slice.items(.block_start)[inline_box_index] = .{ .border = used.border_block_start, .padding = used.padding_block_start };
+    ifc_slice.items(.block_end)[inline_box_index] = .{ .border = used.border_block_end, .padding = used.padding_block_end };
+    ifc_slice.items(.margins)[inline_box_index] = .{ .start = used.margin_inline_start, .end = used.margin_inline_end };
 }
 
 fn inlineBlockSolveSizes(
@@ -1012,6 +1003,9 @@ fn inlineBlockSolveSizes(
 }
 
 fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree) void {
+    const ifc_slice = ifc.slice();
+    const subtree_slice = subtree.slice();
+
     const num_glyphs = ifc.glyph_indeces.items.len;
     var i: usize = 0;
     while (i < num_glyphs) : (i += 1) {
@@ -1026,15 +1020,15 @@ fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree) void {
                 .ZeroGlyphIndex => setMetricsGlyph(metrics, ifc.font, 0),
                 .BoxStart => {
                     const inline_box_index = @as(InlineBoxIndex, special.data);
-                    setMetricsBoxStart(metrics, ifc, inline_box_index);
+                    setMetricsBoxStart(metrics, ifc_slice, inline_box_index);
                 },
                 .BoxEnd => {
                     const inline_box_index = @as(InlineBoxIndex, special.data);
-                    setMetricsBoxEnd(metrics, ifc, inline_box_index);
+                    setMetricsBoxEnd(metrics, ifc_slice, inline_box_index);
                 },
                 .InlineBlock => {
                     const block_box_index = @as(BlockBoxIndex, special.data);
-                    setMetricsInlineBlock(metrics, subtree, block_box_index);
+                    setMetricsInlineBlock(metrics, subtree_slice, block_box_index);
                 },
                 .LineBreak => setMetricsLineBreak(metrics),
                 .ContinuationBlock => panic("TODO: Continuation block metrics", .{}),
@@ -1059,17 +1053,17 @@ fn setMetricsGlyph(metrics: *InlineFormattingContext.Metrics, font: *hb.hb_font_
     };
 }
 
-fn setMetricsBoxStart(metrics: *InlineFormattingContext.Metrics, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
-    const inline_start = ifc.inline_start.items[inline_box_index];
-    const margin = ifc.margins.items[inline_box_index].start;
+fn setMetricsBoxStart(metrics: *InlineFormattingContext.Metrics, ifc_slice: InlineFormattingContext.Slice, inline_box_index: InlineBoxIndex) void {
+    const inline_start = ifc_slice.items(.inline_start)[inline_box_index];
+    const margin = ifc_slice.items(.margins)[inline_box_index].start;
     const width = inline_start.border + inline_start.padding;
     const advance = width + margin;
     metrics.* = .{ .offset = margin, .advance = advance, .width = width };
 }
 
-fn setMetricsBoxEnd(metrics: *InlineFormattingContext.Metrics, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
-    const inline_end = ifc.inline_end.items[inline_box_index];
-    const margin = ifc.margins.items[inline_box_index].end;
+fn setMetricsBoxEnd(metrics: *InlineFormattingContext.Metrics, ifc_slice: InlineFormattingContext.Slice, inline_box_index: InlineBoxIndex) void {
+    const inline_end = ifc_slice.items(.inline_end)[inline_box_index];
+    const margin = ifc_slice.items(.margins)[inline_box_index].end;
     const width = inline_end.border + inline_end.padding;
     const advance = width + margin;
     metrics.* = .{ .offset = 0, .advance = advance, .width = width };
@@ -1079,8 +1073,7 @@ fn setMetricsLineBreak(metrics: *InlineFormattingContext.Metrics) void {
     metrics.* = .{ .offset = 0, .advance = 0, .width = 0 };
 }
 
-fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, subtree: *const BlockSubtree, block_box_index: BlockBoxIndex) void {
-    const subtree_slice = subtree.slice();
+fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, subtree_slice: BlockSubtree.Slice, block_box_index: BlockBoxIndex) void {
     const box_offsets = subtree_slice.items(.box_offsets)[block_box_index];
     const margins = subtree_slice.items(.margins)[block_box_index];
 

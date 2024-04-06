@@ -12,11 +12,10 @@ const ElementHashMap = zss.util.ElementHashMap;
 /// The fundamental unit of space used for all CSS layout computations in zss.
 pub const ZssUnit = i32;
 
-/// The number of ZssUnits contained wthin 1 screen pixel.
+/// The number of ZssUnits contained wthin the width or height of 1 screen pixel.
 pub const units_per_pixel = 2;
 
-/// A floating point number usually between 0 and 1, but it can
-/// exceed these values.
+/// A floating point number usually between 0 and 1, but it can exceed these values.
 pub const Percentage = f32;
 
 pub const ZssVector = struct {
@@ -194,9 +193,9 @@ pub const BlockBoxSkip = BlockBoxIndex;
 
 pub const BlockSubtree = struct {
     parent: ?BlockBox,
-    list: List = .{},
+    blocks: BlockList = .{},
 
-    pub const List = MultiArrayList(struct {
+    pub const BlockList = MultiArrayList(struct {
         skip: BlockBoxIndex,
         type: BlockType,
         box_offsets: BoxOffsets,
@@ -207,27 +206,28 @@ pub const BlockSubtree = struct {
         background1: Background1,
         background2: Background2,
     });
+    pub const Slice = BlockList.Slice;
 
     pub fn deinit(subtree: *BlockSubtree, allocator: Allocator) void {
-        subtree.list.deinit(allocator);
+        subtree.blocks.deinit(allocator);
     }
 
     pub fn size(subtree: BlockSubtree) BlockBoxSkip {
-        return @intCast(subtree.list.len);
+        return @intCast(subtree.blocks.len);
     }
 
-    pub fn slice(subtree: BlockSubtree) List.Slice {
-        return subtree.list.slice();
+    pub fn slice(subtree: BlockSubtree) Slice {
+        return subtree.blocks.slice();
     }
 
     pub fn ensureTotalCapacity(subtree: *BlockSubtree, allocator: Allocator, capacity: usize) !void {
-        try subtree.list.ensureTotalCapacity(allocator, capacity);
+        try subtree.blocks.ensureTotalCapacity(allocator, capacity);
     }
 
     pub fn appendBlock(subtree: *BlockSubtree, allocator: Allocator) !BlockBoxIndex {
-        const index = std.math.cast(BlockBoxIndex, subtree.size()) orelse return error.TooManyBlocks;
-        assert(index == try subtree.list.addOne(allocator));
-        return index;
+        const new_size = std.math.add(BlockBoxIndex, subtree.size(), 1) catch return error.TooManyBlocks;
+        assert(new_size - 1 == try subtree.blocks.addOne(allocator));
+        return new_size - 1;
     }
 };
 
@@ -243,13 +243,13 @@ pub const BlockBoxTree = struct {
     }
 
     pub fn makeSubtree(blocks: *BlockBoxTree, allocator: Allocator, value: BlockSubtree) !SubtreeIndex {
-        const index = std.math.cast(SubtreeIndex, blocks.subtrees.items.len) orelse return error.TooManyBlockSubtrees;
+        const new_size = std.math.add(SubtreeIndex, @intCast(blocks.subtrees.items.len), 1) catch return error.TooManyBlockSubtrees;
         const entry = try blocks.subtrees.addOne(allocator);
         errdefer _ = blocks.subtrees.pop();
         const subtree = try allocator.create(BlockSubtree);
         entry.* = subtree;
         subtree.* = value;
-        return index;
+        return new_size - 1;
     }
 };
 
@@ -283,18 +283,21 @@ pub const InlineFormattingContext = struct {
     ascender: ZssUnit = undefined,
     descender: ZssUnit = undefined,
 
-    skip: ArrayListUnmanaged(InlineBoxSkip) = .{},
-    inline_start: ArrayListUnmanaged(BoxProperties) = .{},
-    inline_end: ArrayListUnmanaged(BoxProperties) = .{},
-    block_start: ArrayListUnmanaged(BoxProperties) = .{},
-    block_end: ArrayListUnmanaged(BoxProperties) = .{},
-    background1: ArrayListUnmanaged(Background1) = .{},
-    margins: ArrayListUnmanaged(MarginsInline) = .{},
-    insets: ArrayListUnmanaged(Insets) = .{},
+    inline_boxes: InlineBoxList = .{},
+
+    pub const InlineBoxList = MultiArrayList(struct {
+        skip: InlineBoxSkip,
+        inline_start: BoxProperties,
+        inline_end: BoxProperties,
+        block_start: BoxProperties,
+        block_end: BoxProperties,
+        background1: Background1,
+        margins: MarginsInline,
+        insets: Insets,
+    });
+    pub const Slice = InlineBoxList.Slice;
 
     const hb = @import("mach-harfbuzz").c;
-
-    const Self = @This();
 
     pub const GlyphIndex = hb.hb_codepoint_t;
 
@@ -375,8 +378,9 @@ pub const InlineFormattingContext = struct {
         };
 
         comptime {
-            for (std.meta.fields(Kind)) |f| {
-                std.debug.assert(std.mem.eql(u8, f.name, @tagName(@as(LayoutInternalKind, @enumFromInt(f.value)))));
+            for (std.meta.fields(Kind)) |field| {
+                assert(field.value != 0);
+                assert(std.mem.eql(u8, field.name, @tagName(@as(LayoutInternalKind, @enumFromInt(field.value)))));
             }
         }
 
@@ -401,30 +405,29 @@ pub const InlineFormattingContext = struct {
         }
     };
 
-    pub fn deinit(self: *@This(), allocator: Allocator) void {
-        self.glyph_indeces.deinit(allocator);
-        self.metrics.deinit(allocator);
-        self.line_boxes.deinit(allocator);
-
-        self.skip.deinit(allocator);
-        self.inline_start.deinit(allocator);
-        self.inline_end.deinit(allocator);
-        self.block_start.deinit(allocator);
-        self.block_end.deinit(allocator);
-        self.background1.deinit(allocator);
-        self.margins.deinit(allocator);
-        self.insets.deinit(allocator);
+    pub fn deinit(ifc: *InlineFormattingContext, allocator: Allocator) void {
+        ifc.glyph_indeces.deinit(allocator);
+        ifc.metrics.deinit(allocator);
+        ifc.line_boxes.deinit(allocator);
+        ifc.inline_boxes.deinit(allocator);
     }
 
-    pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, count: usize) !void {
-        try self.skip.ensureTotalCapacity(allocator, count);
-        try self.inline_start.ensureTotalCapacity(allocator, count);
-        try self.inline_end.ensureTotalCapacity(allocator, count);
-        try self.block_start.ensureTotalCapacity(allocator, count);
-        try self.block_end.ensureTotalCapacity(allocator, count);
-        try self.background1.ensureTotalCapacity(allocator, count);
-        try self.margins.ensureTotalCapacity(allocator, count);
-        try self.insets.ensureTotalCapacity(allocator, count);
+    pub fn numInlineBoxes(ifc: InlineFormattingContext) InlineBoxSkip {
+        return @intCast(ifc.inline_boxes.len);
+    }
+
+    pub fn slice(ifc: InlineFormattingContext) Slice {
+        return ifc.inline_boxes.slice();
+    }
+
+    pub fn ensureTotalCapacity(ifc: *InlineFormattingContext, allocator: Allocator, count: usize) !void {
+        ifc.inline_boxes.ensureTotalCapacity(allocator, count);
+    }
+
+    pub fn appendInlineBox(ifc: *InlineFormattingContext, allocator: Allocator) !InlineBoxIndex {
+        const new_size = std.math.add(InlineBoxIndex, ifc.numInlineBoxes(), 1) catch return error.TooManyInlineBoxes;
+        assert(new_size - 1 == try ifc.inline_boxes.addOne(allocator));
+        return new_size - 1;
     }
 };
 
