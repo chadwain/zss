@@ -129,7 +129,7 @@ fn createElements(
     var tree = zss.ElementTree.init(allocator);
     errdefer tree.deinit();
 
-    var elements: [8]zss.ElementTree.Element = undefined;
+    var elements: [9]zss.ElementTree.Element = undefined;
     try tree.allocateElements(&elements);
 
     const root = elements[0];
@@ -140,6 +140,7 @@ fn createElements(
     const body_block = elements[5];
     const body_text = elements[6];
     const footer = elements[7];
+    const body_inline_box = elements[8];
 
     const slice = tree.slice();
 
@@ -149,7 +150,8 @@ fn createElements(
     slice.initElement(title_inline_box, .normal, .first_child_of, title_block);
     slice.initElement(title_text, .text, .first_child_of, title_inline_box);
     slice.initElement(body_block, .normal, .last_child_of, root);
-    slice.initElement(body_text, .text, .first_child_of, body_block);
+    slice.initElement(body_inline_box, .normal, .last_child_of, body_block);
+    slice.initElement(body_text, .text, .first_child_of, body_inline_box);
     slice.initElement(footer, .normal, .last_child_of, root);
 
     {
@@ -214,9 +216,25 @@ fn createElements(
         // Title inline box
         cv = slice.ptr(.cascaded_values, title_inline_box);
         try cv.add(arena, .box_style, .{ .display = .inline_ });
-        try cv.add(arena, .horizontal_edges, .{ .padding_left = .{ .px = 10 }, .padding_right = .{ .px = 10 } });
-        try cv.add(arena, .vertical_edges, .{ .padding_bottom = .{ .px = 5 } });
+        try cv.add(arena, .horizontal_edges, .{
+            .padding_left = .{ .px = 10 },
+            .padding_right = .{ .px = 10 },
+            .border_left = .{ .px = 10 },
+            .border_right = .{ .px = 10 },
+        });
+        try cv.add(arena, .vertical_edges, .{
+            .padding_bottom = .{ .px = 5 },
+            .border_top = .{ .px = 10 },
+            .border_bottom = .{ .px = 10 },
+        });
         try cv.add(arena, .background1, .{ .color = .{ .rgba = 0xfa58007f } });
+        try cv.add(arena, .border_styles, .{ .top = .solid, .right = .solid, .bottom = .solid, .left = .solid });
+        try cv.add(arena, .border_colors, .{
+            .top = .{ .rgba = 0xaa1010ff },
+            .right = .{ .rgba = 0x10aa10ff },
+            .bottom = .{ .rgba = 0x504090ff },
+            .left = .{ .rgba = 0x1010aaff },
+        });
 
         // Title text
         cv = slice.ptr(.cascaded_values, title_text);
@@ -226,6 +244,11 @@ fn createElements(
         // Body block box
         cv = slice.ptr(.cascaded_values, body_block);
         try cv.add(arena, .box_style, .{ .display = .block, .position = .relative });
+
+        // Body inline box
+        cv = slice.ptr(.cascaded_values, body_inline_box);
+        try cv.add(arena, .box_style, .{ .display = .inline_ });
+        try cv.add(arena, .background1, .{ .color = .{ .rgba = 0x1010507f } });
 
         // Body text
         cv = slice.ptr(.cascaded_values, body_text);

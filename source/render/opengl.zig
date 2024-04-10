@@ -18,6 +18,7 @@ const Color = zss.used_values.Color;
 const InlineBoxIndex = zss.used_values.InlineBoxIndex;
 const InlineFormattingContext = zss.used_values.InlineFormattingContext;
 const InlineFormattingContextIndex = zss.used_values.InlineFormattingContextIndex;
+const GlyphIndex = InlineFormattingContext.GlyphIndex;
 const StackingContext = zss.used_values.StackingContext;
 const StackingContextTree = zss.used_values.StackingContextTree;
 const ZIndex = zss.used_values.ZIndex;
@@ -189,6 +190,23 @@ pub const Renderer = struct {
     }
 };
 
+fn addTriangle(renderer: *Renderer, vertices: [3][2]ZssUnit, color: Color) !void {
+    const start_index: u32 = @intCast(renderer.vertices.items.len);
+    try renderer.vertices.appendSlice(renderer.allocator, &.{
+        .{ .pos = vertices[0], .color = undefined },
+        .{ .pos = vertices[1], .color = undefined },
+        .{ .pos = vertices[2], .color = color.toRgbaArray() },
+    });
+    const indeces_template = [3]u32{
+        0, 1, 2,
+    };
+    var indeces: [indeces_template.len]u32 = undefined;
+    for (indeces_template, &indeces) |in, *out| {
+        out.* = start_index + in;
+    }
+    try renderer.indeces.appendSlice(renderer.allocator, &indeces);
+}
+
 fn addQuad(renderer: *Renderer, vertices: [4][2]ZssUnit, color: Color) !void {
     const start_index: u32 = @intCast(renderer.vertices.items.len);
     try renderer.vertices.appendSlice(renderer.allocator, &.{
@@ -206,6 +224,16 @@ fn addQuad(renderer: *Renderer, vertices: [4][2]ZssUnit, color: Color) !void {
         out.* = start_index + in;
     }
     try renderer.indeces.appendSlice(renderer.allocator, &indeces);
+}
+
+fn addZssRect(renderer: *Renderer, rect: ZssRect, color: Color) !void {
+    const vertices = [4][2]ZssUnit{
+        .{ rect.x, rect.y },
+        .{ rect.x + rect.w, rect.y },
+        .{ rect.x + rect.w, rect.y + rect.h },
+        .{ rect.x, rect.y + rect.h },
+    };
+    return addQuad(renderer, vertices, color);
 }
 
 pub fn drawBoxTree(
@@ -241,7 +269,13 @@ pub fn drawBoxTree(
 
                 try drawBlockContainer(renderer, boxes, background1, border_colors);
             },
-            .line_box => {}, // TODO
+            .line_box => |line_box_info| {
+                const origin = line_box_info.origin.add(translation);
+                const ifc = box_tree.ifcs.items[line_box_info.ifc_index];
+                const line_box = ifc.line_boxes.items[line_box_info.line_box_index];
+
+                try drawLineBox(renderer, ifc, line_box, origin, allocator);
+            },
         }
     }
 
@@ -357,4 +391,264 @@ fn drawBlockContainer(
     try addQuad(renderer, .{ border_vertices[1], border_vertices[2], padding_vertices[2], padding_vertices[1] }, border_colors.right);
     try addQuad(renderer, .{ border_vertices[2], border_vertices[3], padding_vertices[3], padding_vertices[2] }, border_colors.bottom);
     try addQuad(renderer, .{ border_vertices[3], border_vertices[0], padding_vertices[0], padding_vertices[3] }, border_colors.left);
+}
+
+fn drawLineBox(
+    renderer: *Renderer,
+    ifc: *const InlineFormattingContext,
+    line_box: InlineFormattingContext.LineBox,
+    translation: ZssVector,
+    allocator: Allocator,
+) !void {
+    const slice = ifc.slice();
+
+    var inline_box_stack = std.ArrayListUnmanaged(InlineBoxIndex){};
+    defer inline_box_stack.deinit(allocator);
+
+    var offset = translation;
+
+    const all_glyphs = ifc.glyph_indeces.items[line_box.elements[0]..line_box.elements[1]];
+    const all_metrics = ifc.metrics.items[line_box.elements[0]..line_box.elements[1]];
+
+    if (line_box.inline_box) |inline_box| {
+        var i: InlineBoxIndex = 0;
+        const skips = slice.items(.skip);
+
+        while (true) {
+            const insets = slice.items(.insets)[i];
+            offset = offset.add(insets);
+            try inline_box_stack.append(allocator, i);
+            const match_info = findMatchingBoxEnd(all_glyphs, all_metrics, i);
+            try drawInlineBox(
+                renderer,
+                ifc,
+                slice,
+                inline_box,
+                ZssVector{ .x = offset.x, .y = offset.y + line_box.baseline },
+                match_info.advance,
+                false,
+                match_info.found,
+            );
+
+            if (i == inline_box) break;
+            const end = i + skips[i];
+            i += 1;
+            while (i < end) {
+                const skip = skips[i];
+                if (inline_box >= i and inline_box < i + skip) break;
+                i += skip;
+            } else unreachable;
+        }
+    }
+
+    var cursor: ZssUnit = 0;
+    var i: usize = 0;
+    while (i < all_glyphs.len) : (i += 1) {
+        const glyph_index = all_glyphs[i];
+        const metrics = all_metrics[i];
+        defer cursor += metrics.advance;
+
+        if (glyph_index == 0) blk: {
+            i += 1;
+            const special = InlineFormattingContext.Special.decode(all_glyphs[i]);
+            switch (special.kind) {
+                .ZeroGlyphIndex => break :blk,
+                .BoxStart => {
+                    const match_info = findMatchingBoxEnd(all_glyphs[i + 1 ..], all_metrics[i + 1 ..], special.data);
+                    const insets = slice.items(.insets)[special.data];
+                    offset = offset.add(insets);
+                    try drawInlineBox(
+                        renderer,
+                        ifc,
+                        slice,
+                        special.data,
+                        ZssVector{ .x = offset.x + cursor + metrics.offset, .y = offset.y + line_box.baseline },
+                        match_info.advance,
+                        true,
+                        match_info.found,
+                    );
+                    try inline_box_stack.append(allocator, special.data);
+                },
+                .BoxEnd => {
+                    assert(special.data == inline_box_stack.pop());
+                    const insets = slice.items(.insets)[special.data];
+                    offset = offset.sub(insets);
+                },
+                .InlineBlock => {},
+                _ => unreachable,
+            }
+            continue;
+        }
+    }
+}
+
+fn findMatchingBoxEnd(
+    glyph_indeces: []const GlyphIndex,
+    metrics: []const InlineFormattingContext.Metrics,
+    inline_box: InlineBoxIndex,
+) struct {
+    advance: ZssUnit,
+    found: bool,
+} {
+    var found = false;
+    var advance: ZssUnit = 0;
+    var i: usize = 0;
+    while (i < glyph_indeces.len) : (i += 1) {
+        const glyph_index = glyph_indeces[i];
+        const metric = metrics[i];
+
+        if (glyph_index == 0) {
+            i += 1;
+            const special = InlineFormattingContext.Special.decode(glyph_indeces[i]);
+            if (special.kind == .BoxEnd and @as(InlineBoxIndex, special.data) == inline_box) {
+                found = true;
+                break;
+            }
+        }
+
+        advance += metric.advance;
+    }
+
+    return .{ .advance = advance, .found = found };
+}
+
+fn drawInlineBox(
+    renderer: *Renderer,
+    ifc: *const InlineFormattingContext,
+    slice: InlineFormattingContext.Slice,
+    inline_box: InlineBoxIndex,
+    baseline_position: ZssVector,
+    middle_length: ZssUnit,
+    draw_start: bool,
+    draw_end: bool,
+) !void {
+    const inline_start = slice.items(.inline_start)[inline_box];
+    const inline_end = slice.items(.inline_end)[inline_box];
+    const block_start = slice.items(.block_start)[inline_box];
+    const block_end = slice.items(.block_end)[inline_box];
+    const background1 = slice.items(.background1)[inline_box];
+
+    // TODO: Assuming ltr writing mode
+    const border = .{
+        .top = block_start.border,
+        .right = inline_end.border,
+        .bottom = block_end.border,
+        .left = inline_start.border,
+    };
+
+    const padding = .{
+        .top = block_start.padding,
+        .right = inline_end.padding,
+        .bottom = block_end.padding,
+        .left = inline_start.padding,
+    };
+
+    const border_colors = .{
+        .top = block_start.border_color,
+        .right = inline_end.border_color,
+        .bottom = block_end.border_color,
+        .left = inline_start.border_color,
+    };
+
+    // NOTE: The height of the content box is based on the ascender and descender.
+    const content_top_y = baseline_position.y - ifc.ascender;
+    const padding_top_y = content_top_y - padding.top;
+    const border_top_y = padding_top_y - border.top;
+    const content_bottom_y = baseline_position.y - ifc.descender;
+    const padding_bottom_y = content_bottom_y + padding.bottom;
+    const border_bottom_y = padding_bottom_y + border.bottom;
+
+    { // background color
+        var background_clip_rect = ZssRect{
+            .x = baseline_position.x,
+            .y = undefined,
+            .w = middle_length,
+            .h = undefined,
+        };
+        switch (background1.clip) {
+            .Border => {
+                background_clip_rect.y = border_top_y;
+                background_clip_rect.h = border_bottom_y - border_top_y;
+                if (draw_start) background_clip_rect.w += padding.left + border.left;
+                if (draw_end) background_clip_rect.w += padding.right + border.right;
+            },
+            .Padding => {
+                background_clip_rect.y = padding_top_y;
+                background_clip_rect.h = padding_bottom_y - padding_top_y;
+                if (draw_start) {
+                    background_clip_rect.x += border.left;
+                    background_clip_rect.w += padding.left;
+                }
+                if (draw_end) background_clip_rect.w += padding.right;
+            },
+            .Content => {
+                background_clip_rect.y = content_top_y;
+                background_clip_rect.h = content_bottom_y - content_top_y;
+                if (draw_start) background_clip_rect.x += padding.left + border.left;
+            },
+        }
+        try addZssRect(renderer, background_clip_rect, background1.color);
+    }
+
+    var top_bottom_border_x = baseline_position.x;
+    var top_bottom_border_w = middle_length;
+
+    if (draw_start) {
+        const section_start_x = baseline_position.x;
+        const section_end_x = section_start_x + border.left;
+
+        const vertices = [6][2]ZssUnit{
+            .{ section_start_x, border_top_y },
+            .{ section_end_x, border_top_y },
+            .{ section_end_x, padding_top_y },
+            .{ section_end_x, padding_bottom_y },
+            .{ section_end_x, border_bottom_y },
+            .{ section_start_x, border_bottom_y },
+        };
+
+        try addQuad(renderer, .{ vertices[0], vertices[2], vertices[3], vertices[5] }, border_colors.left);
+        try addTriangle(renderer, .{ vertices[0], vertices[1], vertices[2] }, border_colors.top);
+        try addTriangle(renderer, .{ vertices[3], vertices[4], vertices[5] }, border_colors.bottom);
+
+        top_bottom_border_x += border.left;
+        top_bottom_border_w += padding.left;
+    }
+
+    if (draw_end) {
+        const section_start_x = baseline_position.x + border.left + padding.left + middle_length + padding.right;
+        const section_end_x = section_start_x + border.right;
+
+        const vertices = [6][2]ZssUnit{
+            .{ section_start_x, border_top_y },
+            .{ section_end_x, border_top_y },
+            .{ section_end_x, border_bottom_y },
+            .{ section_start_x, border_bottom_y },
+            .{ section_start_x, padding_bottom_y },
+            .{ section_start_x, padding_top_y },
+        };
+
+        try addQuad(renderer, .{ vertices[1], vertices[2], vertices[4], vertices[5] }, border_colors.right);
+        try addTriangle(renderer, .{ vertices[0], vertices[1], vertices[5] }, border_colors.top);
+        try addTriangle(renderer, .{ vertices[2], vertices[3], vertices[4] }, border_colors.bottom);
+
+        top_bottom_border_w += padding.right;
+    }
+
+    {
+        const top_rect = ZssRect{
+            .x = top_bottom_border_x,
+            .y = border_top_y,
+            .w = top_bottom_border_w,
+            .h = border.top,
+        };
+        const bottom_rect = ZssRect{
+            .x = top_bottom_border_x,
+            .y = padding_bottom_y,
+            .w = top_bottom_border_w,
+            .h = border.bottom,
+        };
+
+        try addZssRect(renderer, top_rect, border_colors.top);
+        try addZssRect(renderer, bottom_rect, border_colors.bottom);
+    }
 }

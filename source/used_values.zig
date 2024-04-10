@@ -278,6 +278,7 @@ pub const InlineFormattingContext = struct {
     // font and font color will be the same for all glyphs, and
     // ascender and descender will be the same for all line boxes.
     // NOTE: The descender is a negative value.
+    // TODO: Make descender positive
     font: *hb.hb_font_t = undefined,
     font_color: Color = undefined,
     ascender: ZssUnit = undefined,
