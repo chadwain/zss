@@ -1174,7 +1174,7 @@ pub fn splitIntoLineBoxes(
     // TODO assuming ltr direction
     assert(hb.hb_font_get_h_extents(ifc.font, &font_extents) != 0);
     ifc.ascender = @divFloor(font_extents.ascender * units_per_pixel, 64);
-    ifc.descender = @divFloor(font_extents.descender * units_per_pixel, 64);
+    ifc.descender = @divFloor(-font_extents.descender * units_per_pixel, 64);
     const top_height: ZssUnit = @divFloor((font_extents.ascender + @divFloor(font_extents.line_gap, 2) + @mod(font_extents.line_gap, 2)) * units_per_pixel, 64);
     const bottom_height: ZssUnit = @divFloor((-font_extents.descender + @divFloor(font_extents.line_gap, 2)) * units_per_pixel, 64);
 

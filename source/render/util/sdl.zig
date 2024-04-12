@@ -341,7 +341,7 @@ pub fn drawInlineBox(
     const content_top_y = baseline_position.y - ascender;
     const padding_top_y = content_top_y - padding.top;
     const border_top_y = padding_top_y - border.top;
-    const content_bottom_y = baseline_position.y - descender;
+    const content_bottom_y = baseline_position.y + descender;
     const padding_bottom_y = content_bottom_y + padding.bottom;
     const border_bottom_y = padding_bottom_y + border.bottom;
 

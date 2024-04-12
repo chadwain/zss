@@ -277,8 +277,7 @@ pub const InlineFormattingContext = struct {
     // zss is currently limited with what it can do with text. As a result,
     // font and font color will be the same for all glyphs, and
     // ascender and descender will be the same for all line boxes.
-    // NOTE: The descender is a negative value.
-    // TODO: Make descender positive
+    // NOTE: The descender is a positive value.
     font: *hb.hb_font_t = undefined,
     font_color: Color = undefined,
     ascender: ZssUnit = undefined,
@@ -326,6 +325,7 @@ pub const InlineFormattingContext = struct {
         /// It is a half-open interval of the form [a, b).
         elements: [2]usize,
         /// The inline box that starts this line box.
+        // TODO: Make this non-optional
         inline_box: ?InlineBoxIndex,
     };
 

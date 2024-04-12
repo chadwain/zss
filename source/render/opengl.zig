@@ -410,7 +410,7 @@ fn drawLineBox(
     const all_glyphs = ifc.glyph_indeces.items[line_box.elements[0]..line_box.elements[1]];
     const all_metrics = ifc.metrics.items[line_box.elements[0]..line_box.elements[1]];
 
-    if (line_box.inline_box) |inline_box| {
+    if (line_box.inline_box) |initial_inline_box| {
         var i: InlineBoxIndex = 0;
         const skips = slice.items(.skip);
 
@@ -423,19 +423,19 @@ fn drawLineBox(
                 renderer,
                 ifc,
                 slice,
-                inline_box,
+                i,
                 ZssVector{ .x = offset.x, .y = offset.y + line_box.baseline },
                 match_info.advance,
                 false,
                 match_info.found,
             );
 
-            if (i == inline_box) break;
+            if (i == initial_inline_box) break;
             const end = i + skips[i];
             i += 1;
             while (i < end) {
                 const skip = skips[i];
-                if (inline_box >= i and inline_box < i + skip) break;
+                if (initial_inline_box >= i and initial_inline_box < i + skip) break;
                 i += skip;
             } else unreachable;
         }
@@ -554,7 +554,7 @@ fn drawInlineBox(
     const content_top_y = baseline_position.y - ifc.ascender;
     const padding_top_y = content_top_y - padding.top;
     const border_top_y = padding_top_y - border.top;
-    const content_bottom_y = baseline_position.y - ifc.descender;
+    const content_bottom_y = baseline_position.y + ifc.descender;
     const padding_bottom_y = content_bottom_y + padding.bottom;
     const border_bottom_y = padding_bottom_y + border.bottom;
 
