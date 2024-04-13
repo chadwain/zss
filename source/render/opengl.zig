@@ -479,6 +479,18 @@ fn drawLineBox(
             }
             continue;
         }
+
+        const width = metrics.width;
+        const height = @divFloor(ifc.ascender, 2) + 2 * @as(ZssUnit, @intCast(i % 4));
+        const start_x = offset.x + cursor + metrics.offset;
+        const start_y = offset.y + line_box.baseline - height;
+        const rect = ZssRect{
+            .x = start_x,
+            .y = start_y,
+            .w = width,
+            .h = height,
+        };
+        try addZssRect(renderer, rect, .{ .r = 0, .g = 0, .b = 0, .a = 0x7f });
     }
 }
 
@@ -590,10 +602,13 @@ fn drawInlineBox(
         try addZssRect(renderer, background_clip_rect, background1.color);
     }
 
-    var top_bottom_border_x = baseline_position.x;
-    var top_bottom_border_w = middle_length;
+    var middle_border_x = baseline_position.x;
+    var middle_border_w = middle_length;
 
     if (draw_start) {
+        middle_border_x += border.left;
+        middle_border_w += padding.left;
+
         const section_start_x = baseline_position.x;
         const section_end_x = section_start_x + border.left;
 
@@ -609,13 +624,12 @@ fn drawInlineBox(
         try addQuad(renderer, .{ vertices[0], vertices[2], vertices[3], vertices[5] }, border_colors.left);
         try addTriangle(renderer, .{ vertices[0], vertices[1], vertices[2] }, border_colors.top);
         try addTriangle(renderer, .{ vertices[3], vertices[4], vertices[5] }, border_colors.bottom);
-
-        top_bottom_border_x += border.left;
-        top_bottom_border_w += padding.left;
     }
 
     if (draw_end) {
-        const section_start_x = baseline_position.x + border.left + padding.left + middle_length + padding.right;
+        middle_border_w += padding.right;
+
+        const section_start_x = middle_border_x + middle_border_w;
         const section_end_x = section_start_x + border.right;
 
         const vertices = [6][2]ZssUnit{
@@ -630,21 +644,19 @@ fn drawInlineBox(
         try addQuad(renderer, .{ vertices[1], vertices[2], vertices[4], vertices[5] }, border_colors.right);
         try addTriangle(renderer, .{ vertices[0], vertices[1], vertices[5] }, border_colors.top);
         try addTriangle(renderer, .{ vertices[2], vertices[3], vertices[4] }, border_colors.bottom);
-
-        top_bottom_border_w += padding.right;
     }
 
     {
         const top_rect = ZssRect{
-            .x = top_bottom_border_x,
+            .x = middle_border_x,
             .y = border_top_y,
-            .w = top_bottom_border_w,
+            .w = middle_border_w,
             .h = border.top,
         };
         const bottom_rect = ZssRect{
-            .x = top_bottom_border_x,
+            .x = middle_border_x,
             .y = padding_bottom_y,
-            .w = top_bottom_border_w,
+            .w = middle_border_w,
             .h = border.bottom,
         };
 
