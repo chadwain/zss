@@ -107,11 +107,18 @@ pub const Renderer = struct {
             \\uniform ivec2 viewport;
             \\uniform ivec2 translation;
             \\
+            \\const mat4 projection = mat4(
+            \\  vec4(2.0,  0.0,  0.0, -1.0),
+            \\  vec4(0.0, -2.0,  0.0,  1.0),
+            \\  vec4(0.0,  0.0,  0.0,  0.0),
+            \\  vec4(0.0,  0.0,  0.0,  1.0)
+            \\);
+            \\
             \\flat out vec4 Color;
             \\
             \\void main()
             \\{
-            \\    gl_Position = vec4(vec2(position + translation) * vec2(1.0, -1.0) / vec2(viewport) * 2 + vec2(-1.0, 1.0), 0.0, 1.0);
+            \\    gl_Position = vec4(vec2(position + translation) / vec2(viewport), 0.0, 1.0) * projection;
             \\    Color = color;
             \\}
         );
