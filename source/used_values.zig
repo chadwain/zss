@@ -108,6 +108,7 @@ pub const Color = extern struct {
     }
 
     pub const transparent = Color{ .r = 0, .g = 0, .b = 0, .a = 0 };
+    pub const white = Color{ .r = 0xff, .g = 0xff, .b = 0xff, .a = 0xff };
 };
 
 pub const BoxOffsets = struct {
@@ -162,7 +163,7 @@ pub const Background2 = struct {
         y: Style = .None,
     };
 
-    image: ?*zss.values.types.BackgroundImage.Object.Data = null,
+    image: ?zss.Environment.Images.Handle = null,
     position: Position = .{},
     size: Size = .{},
     repeat: Repeat = .{},

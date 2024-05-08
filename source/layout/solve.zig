@@ -143,15 +143,33 @@ pub fn background1(bg: aggregates.Background1, current_color: used_values.Color)
 }
 
 pub fn background2(
+    slice: zss.Environment.Images.Slice,
     bg: aggregates.Background2,
     box_offsets: *const used_values.BoxOffsets,
     borders: *const used_values.Borders,
 ) !used_values.Background2 {
-    var object = switch (bg.image) {
-        .object => |object| object,
+    const NaturalSize = struct {
+        width: ZssUnit,
+        height: ZssUnit,
+        has_aspect_ratio: bool,
+    };
+
+    const image_handle = switch (bg.image) {
+        .object => |image_handle| image_handle,
         .url => std.debug.panic("TODO: background-image: <url-token>", .{}),
         .none => return used_values.Background2{},
         .initial, .inherit, .unset, .undeclared => unreachable,
+    };
+
+    const natural_size: NaturalSize = blk: {
+        const dimensions = slice.items(.dimensions)[@intFromEnum(image_handle)];
+        const width = try positiveLength(.px, @floatFromInt(dimensions.width_px));
+        const height = try positiveLength(.px, @floatFromInt(dimensions.height_px));
+        break :blk .{
+            .width = width,
+            .height = height,
+            .has_aspect_ratio = width != 0 and height != 0,
+        };
     };
 
     const border_width = box_offsets.border_size.w;
@@ -166,25 +184,6 @@ pub fn background2(
         .content_box => .{ .origin = .Content, .width = content_width, .height = content_height },
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
-
-    const NaturalSize = struct {
-        width: ZssUnit,
-        height: ZssUnit,
-        has_aspect_ratio: bool,
-
-        fn init(obj: *zss.values.types.BackgroundImage.Object) !@This() {
-            const n = obj.getNaturalSize();
-            const width = try positiveLength(.px, n.width);
-            const height = try positiveLength(.px, n.height);
-            return @This(){
-                .width = width,
-                .height = height,
-                .has_aspect_ratio = width != 0 and height != 0,
-            };
-        }
-    };
-    // Initialize on first use.
-    var natural: ?NaturalSize = null;
 
     var width_was_auto = false;
     var height_was_auto = false;
@@ -208,21 +207,20 @@ pub fn background2(
             },
         },
         .contain, .cover => blk: {
-            if (natural == null) natural = try NaturalSize.init(&object);
-            if (!natural.?.has_aspect_ratio) break :blk used_values.Background2.Size{ .width = natural.?.width, .height = natural.?.height };
+            if (!natural_size.has_aspect_ratio) break :blk used_values.Background2.Size{ .width = natural_size.width, .height = natural_size.height };
 
-            const positioning_area_is_wider_than_image = positioning_area.width * natural.?.height > positioning_area.height * natural.?.width;
+            const positioning_area_is_wider_than_image = positioning_area.width * natural_size.height > positioning_area.height * natural_size.width;
             const is_contain = (bg.size == .contain);
 
             if (positioning_area_is_wider_than_image == is_contain) {
                 break :blk used_values.Background2.Size{
-                    .width = @divFloor(positioning_area.height * natural.?.width, natural.?.height),
+                    .width = @divFloor(positioning_area.height * natural_size.width, natural_size.height),
                     .height = positioning_area.height,
                 };
             } else {
                 break :blk used_values.Background2.Size{
                     .width = positioning_area.width,
-                    .height = @divFloor(positioning_area.width * natural.?.height, natural.?.width),
+                    .height = @divFloor(positioning_area.width * natural_size.height, natural_size.width),
                 };
             }
         },
@@ -249,15 +247,20 @@ pub fn background2(
 
     if (width_was_auto or height_was_auto or repeat.x == .Round or repeat.y == .Round) {
         const divRound = zss.util.divRound;
-        if (natural == null) natural = try NaturalSize.init(&object);
 
         if (width_was_auto and height_was_auto) {
-            size.width = natural.?.width;
-            size.height = natural.?.height;
+            size.width = natural_size.width;
+            size.height = natural_size.height;
         } else if (width_was_auto) {
-            size.width = if (natural.?.has_aspect_ratio) divRound(size.height * natural.?.width, natural.?.height) else positioning_area.width;
+            size.width = if (natural_size.has_aspect_ratio)
+                divRound(size.height * natural_size.width, natural_size.height)
+            else
+                positioning_area.width;
         } else if (height_was_auto) {
-            size.height = if (natural.?.has_aspect_ratio) divRound(size.width * natural.?.height, natural.?.width) else positioning_area.height;
+            size.height = if (natural_size.has_aspect_ratio)
+                divRound(size.width * natural_size.height, natural_size.width)
+            else
+                positioning_area.height;
         }
 
         if (repeat.x == .Round and repeat.y == .Round) {
@@ -265,10 +268,10 @@ pub fn background2(
             size.height = @divFloor(positioning_area.height, @max(1, divRound(positioning_area.height, size.height)));
         } else if (repeat.x == .Round) {
             if (size.width > 0) size.width = @divFloor(positioning_area.width, @max(1, divRound(positioning_area.width, size.width)));
-            if (height_was_auto and natural.?.has_aspect_ratio) size.height = @divFloor(size.width * natural.?.height, natural.?.width);
+            if (height_was_auto and natural_size.has_aspect_ratio) size.height = @divFloor(size.width * natural_size.height, natural_size.width);
         } else if (repeat.y == .Round) {
             if (size.height > 0) size.height = @divFloor(positioning_area.height, @max(1, divRound(positioning_area.height, size.height)));
-            if (width_was_auto and natural.?.has_aspect_ratio) size.width = @divFloor(size.height * natural.?.width, natural.?.height);
+            if (width_was_auto and natural_size.has_aspect_ratio) size.width = @divFloor(size.height * natural_size.width, natural_size.height);
         }
     }
 
@@ -317,7 +320,7 @@ pub fn background2(
     };
 
     return used_values.Background2{
-        .image = object.data,
+        .image = image_handle,
         .origin = positioning_area.origin,
         .position = position,
         .size = size,

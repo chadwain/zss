@@ -230,23 +230,7 @@ pub const Color = union(enum) {
 };
 
 pub const BackgroundImage = union(enum) {
-    pub const Object = struct {
-        pub const Data = opaque {};
-        pub const Dimensions = struct {
-            width: f32,
-            height: f32,
-        };
-
-        data: *Data,
-        // TODO: This should be able to return an error
-        getNaturalSizeFn: *const fn (data: *Data) Dimensions,
-
-        pub fn getNaturalSize(self: *Object) Dimensions {
-            return self.getNaturalSizeFn(self.data);
-        }
-    };
-
-    object: Object,
+    object: zss.Environment.Images.Handle,
     url: Utf8String,
     none,
     initial,

@@ -6,6 +6,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
+const Environment = zss.Environment;
 
 const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
@@ -30,13 +31,15 @@ const Context = struct {
     mode: ArrayListUnmanaged(Mode) = .{},
     containing_block_size: ArrayListUnmanaged(ZssSize) = .{},
 
+    images: Environment.Images.Slice,
+
     fn deinit(context: *Context, allocator: Allocator) void {
         context.mode.deinit(allocator);
         context.containing_block_size.deinit(allocator);
     }
 };
 
-pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
+pub fn run(computer: *StyleComputer, box_tree: *BoxTree, env: *const Environment) !void {
     anonymousBlockBoxCosmeticLayout(box_tree, .{ .subtree = initial_subtree, .index = initial_containing_block });
     // TODO: Also process any anonymous block boxes.
 
@@ -46,7 +49,9 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree) !void {
 
     if (computer.root_element.eqlNull()) return;
 
-    var context = Context{};
+    var context = Context{
+        .images = env.getImages(),
+    };
     defer context.deinit(computer.allocator);
 
     {
@@ -175,7 +180,7 @@ fn blockBoxCosmeticLayout(context: Context, computer: *StyleComputer, box_tree: 
         const background1_ptr = &subtree_slice.items(.background1)[block_box.index];
         const background2_ptr = &subtree_slice.items(.background2)[block_box.index];
         background1_ptr.* = solve.background1(specified.background1, current_color);
-        background2_ptr.* = try solve.background2(specified.background2, box_offsets_ptr, borders_ptr);
+        background2_ptr.* = try solve.background2(context.images, specified.background2, box_offsets_ptr, borders_ptr);
     }
 
     computer.setComputedValue(.cosmetic, .box_style, computed_box_style);

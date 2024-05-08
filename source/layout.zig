@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const zss = @import("zss.zig");
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
+const Environment = zss.Environment;
 
 const normal = @import("layout/normal.zig");
 const cosmetic = @import("layout/cosmetic.zig");
@@ -32,6 +33,7 @@ pub const ViewportSize = struct {
 pub fn doLayout(
     element_tree_slice: ElementTree.Slice,
     root: Element,
+    env: *const Environment,
     allocator: Allocator,
     /// The size of the viewport in pixels.
     // TODO: Make this ZssUnits instead of pixels
@@ -53,7 +55,7 @@ pub fn doLayout(
     errdefer box_tree.deinit();
 
     try boxGeneration(&computer, &box_tree, allocator);
-    try cosmeticLayout(&computer, &box_tree);
+    try cosmeticLayout(&computer, &box_tree, env);
 
     return box_tree;
 }
@@ -74,11 +76,11 @@ fn boxGeneration(computer: *StyleComputer, box_tree: *BoxTree, allocator: Alloca
     computer.assertEmptyStage(.box_gen);
 }
 
-fn cosmeticLayout(computer: *StyleComputer, box_tree: *BoxTree) !void {
+fn cosmeticLayout(computer: *StyleComputer, box_tree: *BoxTree, env: *const Environment) !void {
     computer.stage = .{ .cosmetic = .{} };
     defer computer.deinitStage(.cosmetic);
 
-    try cosmetic.run(computer, box_tree);
+    try cosmetic.run(computer, box_tree, env);
 
     computer.assertEmptyStage(.cosmetic);
 }
