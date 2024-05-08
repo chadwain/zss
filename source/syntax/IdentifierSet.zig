@@ -20,7 +20,9 @@ string_data: SegmentedList(u8, 0) = .{},
 max_size: usize,
 /// Choose how to compare identifiers.
 // TODO: We may want to have identifiers that are compared either case-insensitively or case-sensitively in the same set.
-case: enum { sensitive, insensitive },
+case: Case,
+
+pub const Case = enum { sensitive, insensitive };
 
 const Slice = struct {
     begin: u32,
@@ -32,8 +34,8 @@ pub fn deinit(set: *IdentifierSet, allocator: Allocator) void {
     set.string_data.deinit(allocator);
 }
 
-fn adjustCase(set: IdentifierSet, codepoint: u21) u21 {
-    return switch (set.case) {
+fn adjustCase(case: Case, codepoint: u21) u21 {
+    return switch (case) {
         .sensitive => codepoint,
         .insensitive => switch (codepoint) {
             'A'...'Z' => codepoint - 'A' + 'a',
@@ -50,8 +52,9 @@ const AdapterGeneric = struct {
     pub fn hash(adapter: AdapterGeneric, key: anytype) u32 {
         var hasher = std.hash.Wyhash.init(0);
         var it = key.iterator();
+        const case = adapter.set.case;
         while (it.next()) |codepoint| {
-            const adjusted = adapter.set.adjustCase(codepoint);
+            const adjusted = adjustCase(case, codepoint);
             const bytes = std.mem.asBytes(&adjusted)[0..3];
             hasher.update(bytes);
         }
@@ -65,6 +68,7 @@ const AdapterGeneric = struct {
         var string_it = adapter.set.string_data.constIterator(slice.begin);
         var buffer: [4]u8 = undefined;
 
+        const case = adapter.set.case;
         while (slice.len > 0) {
             const key_codepoint = key_it.next() orelse return false;
 
@@ -76,7 +80,7 @@ const AdapterGeneric = struct {
                 break :blk std.unicode.utf8Decode(buffer[0..len]) catch unreachable;
             };
 
-            if (adapter.set.adjustCase(key_codepoint) != string_codepoint) return false;
+            if (adjustCase(case, key_codepoint) != string_codepoint) return false;
         }
         return key_it.next() == null;
     }
@@ -104,11 +108,12 @@ fn getOrPutGeneric(set: *IdentifierSet, allocator: Allocator, key: anytype) !usi
     errdefer set.string_data.shrink(string_data_old_len);
 
     const slice = slice: {
+        const case = set.case;
         var slice = Slice{ .begin = string_data_old_len, .len = 0 };
         var it = key.iterator();
         var buffer: [4]u8 = undefined;
         while (it.next()) |codepoint| {
-            const len = std.unicode.utf8Encode(set.adjustCase(codepoint), &buffer) catch unreachable;
+            const len = std.unicode.utf8Encode(adjustCase(case, codepoint), &buffer) catch unreachable;
             slice.len += len;
             _ = try std.math.add(u32, slice.begin, slice.len);
             try set.string_data.appendSlice(allocator, buffer[0..len]);

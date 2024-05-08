@@ -5,6 +5,9 @@ const syntax = zss.syntax;
 const ParserSource = syntax.parse.Source;
 const IdentifierSet = syntax.IdentifierSet;
 
+pub const Images = @import("./Images.zig");
+pub const Stylesheet = @import("./Stylesheet.zig");
+
 const std = @import("std");
 const assert = std.debug.assert;
 const panic = std.debug.panic;
@@ -17,6 +20,7 @@ type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value, .case 
 // TODO: Case sensitivity depends on whether quirks mode is on
 id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensitive },
 default_namespace: ?NamespaceId = null,
+images: Images = .{},
 
 pub fn init(allocator: Allocator) Environment {
     return Environment{ .allocator = allocator };
@@ -27,9 +31,8 @@ pub fn deinit(env: *Environment) void {
     env.id_or_class_names.deinit(env.allocator);
     for (env.stylesheets.items) |*stylesheet| stylesheet.deinit(env.allocator);
     env.stylesheets.deinit(env.allocator);
+    env.images.deinit(env.allocator);
 }
-
-pub const Stylesheet = @import("./Stylesheet.zig");
 
 pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
     var components = try syntax.parse.parseCssStylesheet(source, env.allocator);
@@ -94,4 +97,12 @@ pub fn addIdName(env: *Environment, hash_id: ParserSource.Location, source: Pars
 pub fn addClassName(env: *Environment, identifier: ParserSource.Location, source: ParserSource) !ClassId {
     const index = try env.id_or_class_names.getOrPutFromSource(env.allocator, source, source.identTokenIterator(identifier));
     return @enumFromInt(@as(ClassId.Value, @intCast(index)));
+}
+
+pub fn addImage(env: *Environment, image: Images.Image) !Images.Handle {
+    return env.images.addImage(env.allocator, image);
+}
+
+pub fn getImages(env: Environment) Images.Slice {
+    return env.images.slice();
 }
