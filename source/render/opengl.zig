@@ -4,10 +4,14 @@ const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
+const Ratio = zss.util.Ratio;
+const Environment = zss.Environment;
+const Images = Environment.Images;
 const DrawOrderList = @import("./DrawOrderList.zig");
 const QuadTree = @import("./QuadTree.zig");
 const ZssUnit = zss.used_values.ZssUnit;
 const ZssRect = zss.used_values.ZssRect;
+const ZssSize = zss.used_values.ZssSize;
 const ZssVector = zss.used_values.ZssVector;
 const BlockBoxIndex = zss.used_values.BlockBoxIndex;
 const BlockSubtree = zss.used_values.BlockSubtree;
@@ -30,20 +34,29 @@ const zgl = @import("zgl");
 // TODO: Potentially lossy casts from integers to floats
 
 pub const Renderer = struct {
+    mode: Mode = .init,
+
     vao: zgl.VertexArray,
     ib: zgl.Buffer,
     vb: zgl.Buffer,
     program: zgl.Program,
     vertex_shader: zgl.Shader,
     fragment_shader: zgl.Shader,
+    one_pixel_texture: zgl.Texture,
+
+    textures: std.AutoHashMapUnmanaged(Images.Handle, zgl.Texture) = .{},
 
     vertices: std.ArrayListUnmanaged(Vertex) = .{},
     indeces: std.ArrayListUnmanaged(u32) = .{},
+
     allocator: Allocator,
+
+    const Mode = enum { init, flat_color, textured };
 
     const Vertex = extern struct {
         pos: [2]zgl.Int,
         color: [4]zgl.UByte,
+        tex_coords: [2]zgl.Float,
     };
 
     // Vertices needed to draw a block box's borders
@@ -68,21 +81,6 @@ pub const Renderer = struct {
     //  ______________
     // 11             10
 
-    const BlockVertices = [12]Vertex;
-
-    const index_buffer_data = [30]zgl.UInt{
-        8, 9,  11,
-        9, 10, 11,
-        0, 1,  4,
-        1, 5,  4,
-        1, 2,  5,
-        2, 6,  5,
-        2, 3,  6,
-        3, 7,  6,
-        3, 0,  7,
-        0, 4,  7,
-    };
-
     pub fn init(allocator: Allocator) Renderer {
         const vao = zgl.genVertexArray();
         zgl.bindVertexArray(vao);
@@ -96,6 +94,8 @@ pub const Renderer = struct {
         zgl.vertexAttribIPointer(0, 2, .int, @sizeOf(Vertex), @offsetOf(Vertex, "pos"));
         zgl.enableVertexAttribArray(1);
         zgl.vertexAttribPointer(1, 4, .unsigned_byte, true, @sizeOf(Vertex), @offsetOf(Vertex, "color"));
+        zgl.enableVertexAttribArray(2);
+        zgl.vertexAttribPointer(2, 2, .float, false, @sizeOf(Vertex), @offsetOf(Vertex, "tex_coords"));
 
         const program = zgl.createProgram();
         const vertex_shader = attachShader(program, .vertex,
@@ -103,6 +103,7 @@ pub const Renderer = struct {
             \\
             \\layout(location = 0) in ivec2 position;
             \\layout(location = 1) in vec4 color;
+            \\layout(location = 2) in vec2 tex_coords;
             \\
             \\uniform ivec2 viewport;
             \\uniform ivec2 translation;
@@ -115,26 +116,33 @@ pub const Renderer = struct {
             \\);
             \\
             \\flat out vec4 Color;
+            \\out vec2 TexCoords;
             \\
             \\void main()
             \\{
             \\    gl_Position = vec4(vec2(position + translation) / vec2(viewport), 0.0, 1.0) * projection;
             \\    Color = color;
+            \\    TexCoords = tex_coords;
             \\}
         );
         const fragment_shader = attachShader(program, .fragment,
             \\#version 330 core
             \\
+            \\uniform sampler2D Texture;
+            \\
             \\flat in vec4 Color;
+            \\in vec2 TexCoords;
             \\
             \\layout(location = 0) out vec4 color;
             \\
             \\void main()
             \\{
-            \\    color = Color;
+            \\    color = texture(Texture, TexCoords) * Color;
             \\}
         );
         zgl.linkProgram(program);
+
+        const one_pixel_texture = createOnePixelTexture();
 
         return Renderer{
             .vao = vao,
@@ -144,6 +152,7 @@ pub const Renderer = struct {
             .vertex_shader = vertex_shader,
             .fragment_shader = fragment_shader,
             .allocator = allocator,
+            .one_pixel_texture = one_pixel_texture,
         };
     }
 
@@ -161,15 +170,63 @@ pub const Renderer = struct {
         return shader;
     }
 
+    fn createOnePixelTexture() zgl.Texture {
+        const texture = zgl.genTexture();
+        zgl.bindTexture(texture, .@"2d");
+        zgl.texParameter(.@"2d", .min_filter, .nearest);
+        zgl.texParameter(.@"2d", .mag_filter, .nearest);
+        zgl.texParameter(.@"2d", .wrap_s, .repeat);
+        zgl.texParameter(.@"2d", .wrap_t, .repeat);
+        zgl.textureImage2D(.@"2d", 0, .rgba, 1, 1, .rgba, .unsigned_byte, &Color.white.toRgbaArray());
+        return texture;
+    }
+
     pub fn deinit(renderer: *Renderer) void {
         zgl.deleteBuffers(&.{ renderer.ib, renderer.vb });
         zgl.deleteVertexArray(renderer.vao);
         zgl.deleteShader(renderer.vertex_shader);
         zgl.deleteShader(renderer.fragment_shader);
         zgl.deleteProgram(renderer.program);
+        zgl.deleteTexture(renderer.one_pixel_texture);
+
+        var it = renderer.textures.valueIterator();
+        while (it.next()) |texture| {
+            zgl.deleteTexture(texture.*);
+        }
+        renderer.textures.deinit(renderer.allocator);
 
         renderer.vertices.deinit(renderer.allocator);
         renderer.indeces.deinit(renderer.allocator);
+    }
+
+    fn uploadImage(renderer: *Renderer, images: Images.Slice, handle: Images.Handle) !zgl.Texture {
+        const image = images.get(@intFromEnum(handle));
+        const value: zgl.Texture = switch (image.format) {
+            .none => .invalid,
+            .rgba => blk: {
+                zgl.activeTexture(.texture_1);
+                defer zgl.activeTexture(.texture_0);
+
+                const data = image.data.rgba orelse break :blk .invalid;
+                const texture = zgl.genTexture();
+                zgl.bindTexture(texture, .@"2d");
+                // TODO: Probably wrong source pixel format
+                // TODO: Need to flip the image
+                zgl.texParameter(.@"2d", .min_filter, .linear);
+                zgl.texParameter(.@"2d", .mag_filter, .linear);
+                zgl.texParameter(.@"2d", .wrap_s, .clamp_to_edge);
+                zgl.texParameter(.@"2d", .wrap_t, .clamp_to_edge);
+
+                const tmp = try renderer.allocator.alloc(u32, image.dimensions.width_px * image.dimensions.height_px);
+                defer renderer.allocator.free(tmp);
+                @memset(tmp, std.mem.nativeToBig(u32, 0x56789aff));
+
+                zgl.textureImage2D(.@"2d", 0, .rgba, image.dimensions.width_px, image.dimensions.height_px, .rgba, .unsigned_byte, @ptrCast(data.ptr));
+                break :blk texture;
+            },
+        };
+        try renderer.textures.putNoClobber(renderer.allocator, handle, value);
+        return value;
     }
 
     fn beginDraw(renderer: *Renderer, viewport: ZssRect, translation: ZssVector, num_objects: usize) !void {
@@ -185,24 +242,65 @@ pub const Renderer = struct {
         zgl.uniform2i(viewport_location, viewport.w, viewport.h);
         const translation_location = zgl.getUniformLocation(renderer.program, "translation");
         zgl.uniform2i(translation_location, translation.x, translation.y);
+        renderer.setMode(.flat_color, {});
 
         // TODO: Bad approximation of initial capacity
         try renderer.vertices.ensureTotalCapacity(renderer.allocator, num_objects * 12);
+        errdefer renderer.vertices.deinit(renderer.allocator);
         try renderer.indeces.ensureTotalCapacity(renderer.allocator, num_objects * 30);
     }
 
     fn endDraw(renderer: *Renderer) void {
-        renderer.vertices.clearRetainingCapacity();
-        renderer.indeces.clearRetainingCapacity();
+        renderer.endMode();
+    }
+
+    fn setMode(
+        renderer: *Renderer,
+        comptime mode: Mode,
+        extra: switch (mode) {
+            .init, .flat_color => void,
+            .textured => zgl.Texture,
+        },
+    ) void {
+        renderer.endMode();
+        switch (mode) {
+            .init => @compileError("Invalid renderer mode 'init'"),
+            .flat_color => {
+                zgl.activeTexture(.texture_0);
+                zgl.bindTexture(renderer.one_pixel_texture, .@"2d");
+                const texture_location = zgl.getUniformLocation(renderer.program, "Texture");
+                zgl.uniform1i(texture_location, 0);
+            },
+            .textured => {
+                zgl.activeTexture(.texture_0);
+                zgl.bindTexture(extra, .@"2d");
+                const texture_location = zgl.getUniformLocation(renderer.program, "Texture");
+                zgl.uniform1i(texture_location, 0);
+            },
+        }
+        renderer.mode = mode;
+    }
+
+    fn endMode(renderer: *Renderer) void {
+        switch (renderer.mode) {
+            .init => {},
+            .flat_color, .textured => {
+                zgl.bufferData(.array_buffer, Vertex, renderer.vertices.items, .dynamic_draw);
+                zgl.bufferData(.element_array_buffer, u32, renderer.indeces.items, .dynamic_draw);
+                zgl.drawElements(.triangles, renderer.indeces.items.len, .u32, 0);
+                renderer.vertices.clearRetainingCapacity();
+                renderer.indeces.clearRetainingCapacity();
+            },
+        }
     }
 };
 
 fn addTriangle(renderer: *Renderer, vertices: [3][2]ZssUnit, color: Color) !void {
     const start_index: u32 = @intCast(renderer.vertices.items.len);
     try renderer.vertices.appendSlice(renderer.allocator, &.{
-        .{ .pos = vertices[0], .color = undefined },
-        .{ .pos = vertices[1], .color = undefined },
-        .{ .pos = vertices[2], .color = color.toRgbaArray() },
+        .{ .pos = vertices[0], .color = undefined, .tex_coords = .{ 0.0, 0.0 } },
+        .{ .pos = vertices[1], .color = undefined, .tex_coords = .{ 0.0, 0.0 } },
+        .{ .pos = vertices[2], .color = color.toRgbaArray(), .tex_coords = .{ 0.0, 0.0 } },
     });
     const indeces_template = [3]u32{
         0, 1, 2,
@@ -214,13 +312,13 @@ fn addTriangle(renderer: *Renderer, vertices: [3][2]ZssUnit, color: Color) !void
     try renderer.indeces.appendSlice(renderer.allocator, &indeces);
 }
 
-fn addQuad(renderer: *Renderer, vertices: [4][2]ZssUnit, color: Color) !void {
+fn addQuadFull(renderer: *Renderer, pos: [4][2]ZssUnit, color: Color, tex_coords: [4][2]f32) !void {
     const start_index: u32 = @intCast(renderer.vertices.items.len);
     try renderer.vertices.appendSlice(renderer.allocator, &.{
-        .{ .pos = vertices[0], .color = undefined },
-        .{ .pos = vertices[1], .color = undefined },
-        .{ .pos = vertices[2], .color = undefined },
-        .{ .pos = vertices[3], .color = color.toRgbaArray() },
+        .{ .pos = pos[0], .color = undefined, .tex_coords = tex_coords[0] },
+        .{ .pos = pos[1], .color = undefined, .tex_coords = tex_coords[1] },
+        .{ .pos = pos[2], .color = undefined, .tex_coords = tex_coords[2] },
+        .{ .pos = pos[3], .color = color.toRgbaArray(), .tex_coords = tex_coords[3] },
     });
     const indeces_template = [6]u32{
         0, 1, 3,
@@ -233,6 +331,10 @@ fn addQuad(renderer: *Renderer, vertices: [4][2]ZssUnit, color: Color) !void {
     try renderer.indeces.appendSlice(renderer.allocator, &indeces);
 }
 
+fn addQuad(renderer: *Renderer, vertices: [4][2]ZssUnit, color: Color) !void {
+    return addQuadFull(renderer, vertices, color, .{[2]f32{ 0.0, 0.0 }} ** 4);
+}
+
 fn addZssRect(renderer: *Renderer, rect: ZssRect, color: Color) !void {
     const vertices = [4][2]ZssUnit{
         .{ rect.x, rect.y },
@@ -243,8 +345,25 @@ fn addZssRect(renderer: *Renderer, rect: ZssRect, color: Color) !void {
     return addQuad(renderer, vertices, color);
 }
 
+fn addTexturedRect(renderer: *Renderer, rect: ZssRect, tex_coords_x: [2]f32, tex_coords_y: [2]f32) !void {
+    const pos = [4][2]ZssUnit{
+        .{ rect.x, rect.y },
+        .{ rect.x + rect.w, rect.y },
+        .{ rect.x + rect.w, rect.y + rect.h },
+        .{ rect.x, rect.y + rect.h },
+    };
+    const tex_coords = [4][2]f32{
+        .{ tex_coords_x[0], tex_coords_y[0] },
+        .{ tex_coords_x[1], tex_coords_y[0] },
+        .{ tex_coords_x[1], tex_coords_y[1] },
+        .{ tex_coords_x[0], tex_coords_y[1] },
+    };
+    return addQuadFull(renderer, pos, Color.white, tex_coords);
+}
+
 pub fn drawBoxTree(
     renderer: *Renderer,
+    env: Environment,
     box_tree: BoxTree,
     draw_order_list: DrawOrderList,
     allocator: Allocator,
@@ -258,6 +377,8 @@ pub fn drawBoxTree(
     try renderer.beginDraw(viewport, translation, objects.len);
     defer renderer.endDraw();
 
+    const images = env.images.slice();
+
     for (objects) |object| {
         const entry = draw_order_list.getEntry(object);
         switch (entry) {
@@ -270,11 +391,11 @@ pub fn drawBoxTree(
                 const box_offsets = subtree_slice.items(.box_offsets)[index];
                 const borders = subtree_slice.items(.borders)[index];
                 const background1 = subtree_slice.items(.background1)[index];
-                // const background2 = subtree_slice.items(.background2)[index];
+                const background2 = subtree_slice.items(.background2)[index];
                 const border_colors = subtree_slice.items(.border_colors)[index];
                 const boxes = getThreeBoxes(border_top_left, box_offsets, borders);
 
-                try drawBlockContainer(renderer, boxes, background1, border_colors);
+                try drawBlockContainer(renderer, images, boxes, background1, background2, border_colors);
             },
             .line_box => |line_box_info| {
                 const origin = line_box_info.origin.add(translation);
@@ -285,10 +406,6 @@ pub fn drawBoxTree(
             },
         }
     }
-
-    zgl.bufferData(.array_buffer, Renderer.Vertex, renderer.vertices.items, .dynamic_draw);
-    zgl.bufferData(.element_array_buffer, u32, renderer.indeces.items, .dynamic_draw);
-    zgl.drawElements(.triangles, renderer.indeces.items.len, .u32, 0);
 }
 
 fn getObjectsOnScreenInDrawOrder(draw_order_list: DrawOrderList, allocator: Allocator, viewport: ZssRect) ![]QuadTree.Object {
@@ -353,8 +470,10 @@ fn getThreeBoxes(
 
 fn drawBlockContainer(
     renderer: *Renderer,
+    images: Images.Slice,
     boxes: ThreeBoxes,
     background1: zss.used_values.Background1,
+    background2: zss.used_values.Background2,
     border_colors: zss.used_values.BorderColor,
 ) !void {
     // draw background color
@@ -366,17 +485,31 @@ fn drawBlockContainer(
                 .Padding => boxes.padding,
                 .Content => boxes.content,
             };
-
-            try addQuad(renderer, .{
-                .{ bg_clip_rect.x, bg_clip_rect.y },
-                .{ bg_clip_rect.x + bg_clip_rect.w, bg_clip_rect.y },
-                .{ bg_clip_rect.x + bg_clip_rect.w, bg_clip_rect.y + bg_clip_rect.h },
-                .{ bg_clip_rect.x, bg_clip_rect.y + bg_clip_rect.h },
-            }, background1.color);
+            try addZssRect(renderer, bg_clip_rect, background1.color);
         },
     }
 
-    // TODO: draw the background image
+    if (background2.image) |handle| drawBgImage: {
+        const texture: zgl.Texture = renderer.textures.get(handle) orelse (try renderer.uploadImage(images, handle));
+        if (texture == .invalid) break :drawBgImage;
+
+        renderer.setMode(.textured, texture);
+        defer renderer.setMode(.flat_color, {});
+
+        const positioning_area = switch (background2.origin) {
+            .Border => boxes.border,
+            .Padding => boxes.padding,
+            .Content => boxes.content,
+        };
+
+        const painting_area = switch (background1.clip) {
+            .Border => boxes.border,
+            .Padding => boxes.padding,
+            .Content => boxes.content,
+        };
+
+        try drawBackgroundImage(renderer, positioning_area, painting_area, background2.position, background2.size, background2.repeat);
+    }
 
     // draw borders
     const border = boxes.border;
@@ -398,6 +531,206 @@ fn drawBlockContainer(
     try addQuad(renderer, .{ border_vertices[1], border_vertices[2], padding_vertices[2], padding_vertices[1] }, border_colors.right);
     try addQuad(renderer, .{ border_vertices[2], border_vertices[3], padding_vertices[3], padding_vertices[2] }, border_colors.bottom);
     try addQuad(renderer, .{ border_vertices[3], border_vertices[0], padding_vertices[0], padding_vertices[3] }, border_colors.left);
+}
+
+fn drawBackgroundImage(
+    renderer: *Renderer,
+    positioning_area: ZssRect,
+    painting_area: ZssRect,
+    position: ZssVector,
+    size: ZssSize,
+    repeat: zss.used_values.Background2.Repeat,
+) !void {
+    if (size.w == 0 or size.h == 0) return;
+
+    const info_x = getBackgroundImageRepeatInfo(
+        repeat.x,
+        painting_area.w,
+        positioning_area.x - painting_area.x,
+        positioning_area.w,
+        position.x,
+        size.w,
+    );
+    const info_y = getBackgroundImageRepeatInfo(
+        repeat.y,
+        painting_area.h,
+        positioning_area.y - painting_area.y,
+        positioning_area.h,
+        position.y,
+        size.h,
+    );
+
+    var i = info_x.start_index;
+    while (i < info_x.start_index + info_x.count) : (i += 1) {
+        // x = positioning_area.x + info_x.offset + i * (size.w + info_x.space)
+        //   = divFloor(info_x.space.den * (positioning_area.x + info_x.offset + i * size.w) + i * info_x.space.num, info_x.space.den)
+        const x = @divFloor(info_x.space.den * (positioning_area.x + info_x.offset + i * size.w) + i * info_x.space.num, info_x.space.den);
+        const clipped_x_min = @max(x, painting_area.x);
+        const clipped_x_max = @min(x + size.w, painting_area.x + painting_area.w);
+        assert(clipped_x_max > clipped_x_min);
+        const tex_coord_x_min: f32 = 0.0; // TODO
+        const tex_coord_x_max: f32 = 1.0; // TODO
+
+        var j = info_y.start_index;
+        while (j < info_y.start_index + info_y.count) : (j += 1) {
+            const y = @divFloor(info_y.space.den * (positioning_area.y + info_y.offset + j * size.h) + j * info_y.space.num, info_y.space.den);
+            const clipped_y_min = @max(y, painting_area.y);
+            const clipped_y_max = @min(y + size.h, painting_area.y + painting_area.h);
+            assert(clipped_y_max > clipped_y_min);
+            const tex_coord_y_min: f32 = 0.0; // TODO
+            const tex_coord_y_max: f32 = 1.0; // TODO
+
+            const image_rect = ZssRect{
+                .x = clipped_x_min,
+                .y = clipped_y_min,
+                .w = clipped_x_max - clipped_x_min,
+                .h = clipped_y_max - clipped_y_min,
+            };
+            try addTexturedRect(renderer, image_rect, .{ tex_coord_x_min, tex_coord_x_max }, .{ tex_coord_y_min, tex_coord_y_max });
+        }
+    }
+}
+
+// Tiling Background Images
+//
+//                             Painting area
+// |------------------------------------------------------------------|
+// | |---------|  |--------  Positioning area  -------|  ----------|  |
+// | ||----------------------------------------------------------| |  |
+// | ||(-2, -1)|  | (-1, -1)|  | (0, -1) |  | (1, -1) |  | (2, -1| |  |
+// | ||--------|  |----------  ----------|  |---------|  --------|-|  |
+// |  |                                                          |    |
+// |  |                          Origin                          |    |
+// | ||--------|  |---------|  |---------|  |---------|  |-------|-|  |
+// | ||Image   |  | Image   |  | Image   |  | Image   |  | Image | |  |
+// | ||(-2, 0) |  | (-1, 0) |  | (0, 0)  |  | (1, 0)  |  | (2, 0)| |  |
+// | ||--------|  |---------|  |---------|  |---------|  |-------|-|  |
+// |  |                                                          |    |
+// |  |                                                          |    |
+// | ||--------|  |---------|  |---------|  |---------|  |-------|-|  |
+// | ||Image   |  | Image   |  | Image   |  | Image   |  | Image | |  |
+// | ||(-2, 1) |  | (-1, 1) |  | (0, 1)  |  | (1, 1)  |  | (2, 1)| |  |
+// | ||--------|  |---------|  |---------|  |---------|  |-------|-|  |
+// |  |                                                          |    |
+// |  |                                                          |    |
+// | ||--------|  |---------|  |---------|  |---------|  |---------|  |
+// | ||(-2, 2) |  | (-1, 2) |  | (0, 2)  |  | (1, 2)  |  | (2, 2)| |  |
+// | ||----------------------------------------------------------| |  |
+// | |---------|  |---------|  |---------|  |---------|  |---------|  |
+// |------------------------------------------------------------------|
+//
+// Background images are positioned within the background positioning area, and painted within the background painting area.
+// In this diagram the positioning area is smaller than the painting area, but it could be the other way around.
+// The images have (x, y) coordinates that increase going to the right and down.
+// One image with a known position is designated to be the "origin image", and given the coordinates (0, 0).
+// All the other images are positioned relative to the origin image.
+// The spacing, position, and size of the images can be determined for the x and y axes independently.
+
+const BackgroundImageRepeatInfo = struct {
+    /// The index of the left-most/top-most image to be drawn.
+    start_index: i32,
+    /// The number of images to draw. Always positive.
+    count: i32,
+    /// The amount of space to leave between each image. Always positive.
+    space: Ratio(ZssUnit),
+    /// The offset of the top/left of the image with index 0 from the top/left of the positioning area.
+    offset: ZssUnit,
+};
+
+fn getBackgroundImageRepeatInfo(
+    repeat: zss.used_values.Background2.Repeat.Style,
+    /// Must be greater than or equal to 0.
+    painting_area_size: ZssUnit,
+    /// The offset of the top/left of the positioning area from the top/left of the painting area.
+    positioning_area_offset: ZssUnit,
+    /// Must be greater than or equal to 0.
+    positioning_area_size: ZssUnit,
+    /// The offset of the top/left of the image with index 0 from the top/left of the positioning area.
+    image_offset: ZssUnit,
+    /// Must be strictly greater than 0.
+    image_size: ZssUnit,
+) BackgroundImageRepeatInfo {
+    assert(painting_area_size >= 0);
+    assert(positioning_area_size >= 0);
+    assert(image_size > 0);
+
+    const divCeil = std.math.divCeil;
+    switch (repeat) {
+        .None => {
+            // The origin image is the one with offset `image_offset` from the positioning area
+            return .{
+                .start_index = 0,
+                .count = 1,
+                .space = .{ .num = 0, .den = 1 },
+                .offset = image_offset,
+            };
+        },
+        .Repeat => {
+            // The origin image is the one with offset `image_offset` from the positioning area
+
+            const space_before_origin = positioning_area_offset + image_offset;
+            const num_before_origin = divCeil(ZssUnit, space_before_origin, image_size) catch unreachable;
+
+            const space_after_origin = painting_area_size - positioning_area_offset - image_offset - image_size;
+            const num_after_origin = divCeil(ZssUnit, space_after_origin, image_size) catch unreachable;
+
+            return .{
+                .start_index = -num_before_origin,
+                .count = num_before_origin + num_after_origin + 1,
+                .space = .{ .num = 0, .den = 1 },
+                .offset = image_offset,
+            };
+        },
+        .Space => {
+            const num_within_positioning_area = @divFloor(positioning_area_size, image_size);
+            if (num_within_positioning_area <= 1) {
+                // The origin image is the one with offset `image_offset` from the positioning area
+                return .{
+                    .start_index = 0,
+                    .count = 1,
+                    .space = .{ .num = 0, .den = 1 },
+                    .offset = image_offset,
+                };
+            } else {
+                // The origin image is the one with offset 0 from the positioning area
+                const leftover_space = @mod(positioning_area_size, image_size);
+
+                // space_between_images = leftover_space / (num_within_positioning_area - 1)
+                //
+                // space_before_positioning_area = positioning_area_offset
+                // num_before_positioning_area
+                //     = divCeil(space_before_positioning_area - space_between_images, image_size + space_between_images)
+                //     = divCeil((num_within_positioning_area - 1) * space_before_positioning_area - leftover_space, (num_within_positioning_area - 1) * image_size + leftover_space)
+                //     = divCeil((num_within_positioning_area - 1) * space_before_positioning_area - leftover_space, (num_within_positioning_area) * image_size + leftover_space - image_size)
+                //     = divCeil((num_within_positioning_area - 1) * space_before_positioning_area - leftover_space, positioning_area_size - image_size)
+                //
+                // space_after_positioning_area = painting_area_size - positioning_area_offset - positioning_area_size
+                // num_after_positioning_area
+                //     = divCeil(space_after_positioning_area - space_between_images, image_size + space_between_images)
+                //     = divCeil((num_within_positioning_area - 1) * space_after_positioning_area - leftover_space, (num_within_positioning_area - 1) * image_size + leftover_space)
+                //     = divCeil((num_within_positioning_area - 1) * space_after_positioning_area - leftover_space, positioning_area_size - image_size)
+
+                const n = num_within_positioning_area - 1;
+                const denominator = positioning_area_size - image_size;
+
+                const space_before_positioning_area = positioning_area_offset;
+                const num_before_positioning_area =
+                    divCeil(ZssUnit, n * space_before_positioning_area - leftover_space, denominator) catch unreachable;
+
+                const space_after_positioning_area = painting_area_size - positioning_area_offset - positioning_area_size;
+                const num_after_positioning_area =
+                    divCeil(ZssUnit, n * space_after_positioning_area - leftover_space, denominator) catch unreachable;
+
+                return .{
+                    .start_index = -num_before_positioning_area,
+                    .count = num_before_positioning_area + num_after_positioning_area + num_within_positioning_area,
+                    .space = .{ .num = leftover_space, .den = n },
+                    .offset = 0,
+                };
+            }
+        },
+        .Round => panic("TODO: render: Background image round repeat style", .{}),
+    }
 }
 
 fn drawLineBox(

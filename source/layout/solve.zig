@@ -189,7 +189,7 @@ pub fn background2(
     var height_was_auto = false;
     var size: used_values.Background2.Size = switch (bg.size) {
         .size => |size| .{
-            .width = switch (size.width) {
+            .w = switch (size.width) {
                 .px => |val| try positiveLength(.px, val),
                 .percentage => |p| try positivePercentage(p, positioning_area.width),
                 .auto => blk: {
@@ -197,7 +197,7 @@ pub fn background2(
                     break :blk 0;
                 },
             },
-            .height = switch (size.height) {
+            .h = switch (size.height) {
                 .px => |val| try positiveLength(.px, val),
                 .percentage => |p| try positivePercentage(p, positioning_area.height),
                 .auto => blk: {
@@ -207,20 +207,20 @@ pub fn background2(
             },
         },
         .contain, .cover => blk: {
-            if (!natural_size.has_aspect_ratio) break :blk used_values.Background2.Size{ .width = natural_size.width, .height = natural_size.height };
+            if (!natural_size.has_aspect_ratio) break :blk used_values.Background2.Size{ .w = natural_size.width, .h = natural_size.height };
 
             const positioning_area_is_wider_than_image = positioning_area.width * natural_size.height > positioning_area.height * natural_size.width;
             const is_contain = (bg.size == .contain);
 
             if (positioning_area_is_wider_than_image == is_contain) {
                 break :blk used_values.Background2.Size{
-                    .width = @divFloor(positioning_area.height * natural_size.width, natural_size.height),
-                    .height = positioning_area.height,
+                    .w = @divFloor(positioning_area.height * natural_size.width, natural_size.height),
+                    .h = positioning_area.height,
                 };
             } else {
                 break :blk used_values.Background2.Size{
-                    .width = positioning_area.width,
-                    .height = @divFloor(positioning_area.width * natural_size.height, natural_size.width),
+                    .w = positioning_area.width,
+                    .h = @divFloor(positioning_area.width * natural_size.height, natural_size.width),
                 };
             }
         },
@@ -249,36 +249,36 @@ pub fn background2(
         const divRound = zss.util.divRound;
 
         if (width_was_auto and height_was_auto) {
-            size.width = natural_size.width;
-            size.height = natural_size.height;
+            size.w = natural_size.width;
+            size.h = natural_size.height;
         } else if (width_was_auto) {
-            size.width = if (natural_size.has_aspect_ratio)
-                divRound(size.height * natural_size.width, natural_size.height)
+            size.w = if (natural_size.has_aspect_ratio)
+                divRound(size.h * natural_size.width, natural_size.height)
             else
                 positioning_area.width;
         } else if (height_was_auto) {
-            size.height = if (natural_size.has_aspect_ratio)
-                divRound(size.width * natural_size.height, natural_size.width)
+            size.h = if (natural_size.has_aspect_ratio)
+                divRound(size.w * natural_size.height, natural_size.width)
             else
                 positioning_area.height;
         }
 
         if (repeat.x == .Round and repeat.y == .Round) {
-            size.width = @divFloor(positioning_area.width, @max(1, divRound(positioning_area.width, size.width)));
-            size.height = @divFloor(positioning_area.height, @max(1, divRound(positioning_area.height, size.height)));
+            size.w = @divFloor(positioning_area.width, @max(1, divRound(positioning_area.width, size.w)));
+            size.h = @divFloor(positioning_area.height, @max(1, divRound(positioning_area.height, size.h)));
         } else if (repeat.x == .Round) {
-            if (size.width > 0) size.width = @divFloor(positioning_area.width, @max(1, divRound(positioning_area.width, size.width)));
-            if (height_was_auto and natural_size.has_aspect_ratio) size.height = @divFloor(size.width * natural_size.height, natural_size.width);
+            if (size.w > 0) size.w = @divFloor(positioning_area.width, @max(1, divRound(positioning_area.width, size.w)));
+            if (height_was_auto and natural_size.has_aspect_ratio) size.h = @divFloor(size.w * natural_size.height, natural_size.width);
         } else if (repeat.y == .Round) {
-            if (size.height > 0) size.height = @divFloor(positioning_area.height, @max(1, divRound(positioning_area.height, size.height)));
-            if (width_was_auto and natural_size.has_aspect_ratio) size.width = @divFloor(size.height * natural_size.width, natural_size.height);
+            if (size.h > 0) size.h = @divFloor(positioning_area.height, @max(1, divRound(positioning_area.height, size.h)));
+            if (width_was_auto and natural_size.has_aspect_ratio) size.w = @divFloor(size.h * natural_size.width, natural_size.height);
         }
     }
 
     const position: used_values.Background2.Position = switch (bg.position) {
         .position => |position| .{
             .x = blk: {
-                const available_space = positioning_area.width - size.width;
+                const available_space = positioning_area.width - size.w;
                 switch (position.x.side) {
                     .start, .end => {
                         switch (position.x.offset) {
@@ -297,7 +297,7 @@ pub fn background2(
                 }
             },
             .y = blk: {
-                const available_space = positioning_area.height - size.height;
+                const available_space = positioning_area.height - size.h;
                 switch (position.y.side) {
                     .start, .end => {
                         switch (position.y.offset) {

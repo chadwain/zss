@@ -35,9 +35,6 @@ pub fn main() !u8 {
     defer hb.hb_font_destroy(font);
     hb.hb_ft_font_set_funcs(font);
 
-    var tree, const root = try createElements(allocator, file_name, file_contents.items, font);
-    defer tree.deinit();
-
     std.debug.print("\n{s}\n", .{glfw.getVersionString()});
 
     errdefer |err| if (err == error.GlfwError) {
@@ -70,7 +67,14 @@ pub fn main() !u8 {
     // TODO: Use zgl bindings that match the OpenGL version that we use
     try zgl.loadExtensions({}, getProcAddressWrapper);
 
-    var box_tree = try zss.layout.doLayout(tree.slice(), root, allocator, .{ .width = width, .height = height });
+    var env = zss.Environment.init(allocator);
+    defer env.deinit();
+    const checkerboard_image_handle = try env.addImage(checkerboard_image);
+
+    var tree, const root = try createElements(allocator, file_name, file_contents.items, font, checkerboard_image_handle);
+    defer tree.deinit();
+
+    var box_tree = try zss.layout.doLayout(tree.slice(), root, &env, allocator, .{ .width = width, .height = height });
     defer box_tree.deinit();
 
     var draw_list = try zss.render.DrawOrderList.create(box_tree, allocator);
@@ -85,7 +89,7 @@ pub fn main() !u8 {
 
         const units_per_pixel = zss.used_values.units_per_pixel;
         const viewport_rect = zss.used_values.ZssRect{ .x = 0, .y = 0, .w = width * units_per_pixel, .h = height * units_per_pixel };
-        try zss.render.opengl.drawBoxTree(&renderer, box_tree, draw_list, allocator, viewport_rect);
+        try zss.render.opengl.drawBoxTree(&renderer, env, box_tree, draw_list, allocator, viewport_rect);
 
         zgl.flush();
 
@@ -120,11 +124,18 @@ fn readFile(allocator: Allocator, file_name: []const u8) !std.ArrayListUnmanaged
     return list.moveToUnmanaged();
 }
 
+const checkerboard_image = zss.Environment.Images.Image{
+    .dimensions = .{ .width_px = 128, .height_px = 128 },
+    .format = .rgba,
+    .data = .{ .rgba = &(([1]u32{std.mem.nativeToBig(u32, 0x101010ff)} ** 32) ++ ([1]u32{std.mem.nativeToBig(u32, 0xddddddff)} ** 32)) ** (2 * 128) },
+};
+
 fn createElements(
     allocator: Allocator,
     file_name: []const u8,
     file_contents: []const u8,
     font: *hb.hb_font_t,
+    checkerboard_image_handle: zss.Environment.Images.Handle,
 ) !struct { zss.ElementTree, zss.ElementTree.Element } {
     var tree = zss.ElementTree.init(allocator);
     errdefer tree.deinit();
@@ -259,12 +270,13 @@ fn createElements(
         cv = slice.ptr(.cascaded_values, footer);
         try cv.add(arena, .box_style, .{ .display = .block });
         // try cv.add(arena, .content_width, .{ .width = .{ .px = 50 } });
-        try cv.add(arena, .content_height, .{ .height = .{ .px = 50 } });
+        try cv.add(arena, .content_height, .{ .height = .{ .px = 200 } });
         try cv.add(arena, .horizontal_edges, .{ .border_left = .inherit, .border_right = .inherit });
         try cv.add(arena, .vertical_edges, .{ .margin_top = .{ .px = 10 }, .border_top = .inherit, .border_bottom = .inherit });
         try cv.add(arena, .border_colors, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
         try cv.add(arena, .border_styles, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
         try cv.add(arena, .background2, .{
+            .image = .{ .object = checkerboard_image_handle },
             .position = .{ .position = .{
                 .x = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
                 .y = .{ .side = .start, .offset = .{ .percentage = 0.5 } },

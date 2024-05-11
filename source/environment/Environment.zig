@@ -20,6 +20,7 @@ type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value, .case 
 // TODO: Case sensitivity depends on whether quirks mode is on
 id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensitive },
 default_namespace: ?NamespaceId = null,
+// TODO: move this somewhere else
 images: Images = .{},
 
 pub fn init(allocator: Allocator) Environment {

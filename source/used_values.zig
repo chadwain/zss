@@ -155,8 +155,8 @@ pub const Background1 = struct {
 
 pub const Background2 = struct {
     pub const Origin = enum { Padding, Border, Content };
-    pub const Position = struct { x: ZssUnit = 0, y: ZssUnit = 0 };
-    pub const Size = struct { width: ZssUnit = 0, height: ZssUnit = 0 };
+    pub const Position = ZssVector;
+    pub const Size = ZssSize;
     pub const Repeat = struct {
         pub const Style = enum { None, Repeat, Space, Round };
         x: Style = .None,
@@ -164,8 +164,8 @@ pub const Background2 = struct {
     };
 
     image: ?zss.Environment.Images.Handle = null,
-    position: Position = .{},
-    size: Size = .{},
+    position: Position = .{ .x = 0, .y = 0 },
+    size: Size = .{ .w = 0, .h = 0 },
     repeat: Repeat = .{},
     origin: Origin = .Padding,
 };
