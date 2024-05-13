@@ -10,6 +10,7 @@ const Images = Environment.Images;
 const DrawOrderList = @import("./DrawOrderList.zig");
 const QuadTree = @import("./QuadTree.zig");
 const ZssUnit = zss.used_values.ZssUnit;
+const ZssRange = zss.used_values.ZssRange;
 const ZssRect = zss.used_values.ZssRect;
 const ZssSize = zss.used_values.ZssSize;
 const ZssVector = zss.used_values.ZssVector;
@@ -210,8 +211,6 @@ pub const Renderer = struct {
                 const data = image.data.rgba orelse break :blk .invalid;
                 const texture = zgl.genTexture();
                 zgl.bindTexture(texture, .@"2d");
-                // TODO: Probably wrong source pixel format
-                // TODO: Need to flip the image
                 zgl.texParameter(.@"2d", .min_filter, .linear);
                 zgl.texParameter(.@"2d", .mag_filter, .linear);
                 zgl.texParameter(.@"2d", .wrap_s, .clamp_to_edge);
@@ -490,6 +489,8 @@ fn drawBlockContainer(
     }
 
     if (background2.image) |handle| drawBgImage: {
+        if (background2.size.w == 0 or background2.size.h == 0) break :drawBgImage;
+
         const texture: zgl.Texture = renderer.textures.get(handle) orelse (try renderer.uploadImage(images, handle));
         if (texture == .invalid) break :drawBgImage;
 
@@ -541,9 +542,7 @@ fn drawBackgroundImage(
     size: ZssSize,
     repeat: zss.used_values.Background2.Repeat,
 ) !void {
-    if (size.w == 0 or size.h == 0) return;
-
-    const info_x = getBackgroundImageRepeatInfo(
+    const info_x = getBackgroundImageTilingInfo(
         repeat.x,
         painting_area.w,
         positioning_area.x - painting_area.x,
@@ -551,7 +550,7 @@ fn drawBackgroundImage(
         position.x,
         size.w,
     );
-    const info_y = getBackgroundImageRepeatInfo(
+    const info_y = getBackgroundImageTilingInfo(
         repeat.y,
         painting_area.h,
         positioning_area.y - painting_area.y,
@@ -562,31 +561,24 @@ fn drawBackgroundImage(
 
     var i = info_x.start_index;
     while (i < info_x.start_index + info_x.count) : (i += 1) {
-        // x = positioning_area.x + info_x.offset + i * (size.w + info_x.space)
-        //   = divFloor(info_x.space.den * (positioning_area.x + info_x.offset + i * size.w) + i * info_x.space.num, info_x.space.den)
-        const x = @divFloor(info_x.space.den * (positioning_area.x + info_x.offset + i * size.w) + i * info_x.space.num, info_x.space.den);
-        const clipped_x_min = @max(x, painting_area.x);
-        const clipped_x_max = @min(x + size.w, painting_area.x + painting_area.w);
-        assert(clipped_x_max > clipped_x_min);
-        const tex_coord_x_min: f32 = 0.0; // TODO
-        const tex_coord_x_max: f32 = 1.0; // TODO
+        const tile_x = getBackgroundImageTileCoords(i, painting_area.xRange(), positioning_area.xRange(), size.w, info_x.space, info_x.offset);
 
         var j = info_y.start_index;
         while (j < info_y.start_index + info_y.count) : (j += 1) {
-            const y = @divFloor(info_y.space.den * (positioning_area.y + info_y.offset + j * size.h) + j * info_y.space.num, info_y.space.den);
-            const clipped_y_min = @max(y, painting_area.y);
-            const clipped_y_max = @min(y + size.h, painting_area.y + painting_area.h);
-            assert(clipped_y_max > clipped_y_min);
-            const tex_coord_y_min: f32 = 0.0; // TODO
-            const tex_coord_y_max: f32 = 1.0; // TODO
+            const tile_y = getBackgroundImageTileCoords(j, painting_area.yRange(), positioning_area.yRange(), size.h, info_y.space, info_y.offset);
 
             const image_rect = ZssRect{
-                .x = clipped_x_min,
-                .y = clipped_y_min,
-                .w = clipped_x_max - clipped_x_min,
-                .h = clipped_y_max - clipped_y_min,
+                .x = tile_x.coords.min,
+                .y = tile_y.coords.min,
+                .w = tile_x.coords.max - tile_x.coords.min,
+                .h = tile_y.coords.max - tile_y.coords.min,
             };
-            try addTexturedRect(renderer, image_rect, .{ tex_coord_x_min, tex_coord_x_max }, .{ tex_coord_y_min, tex_coord_y_max });
+            try addTexturedRect(
+                renderer,
+                image_rect,
+                .{ tile_x.tex_coords.min, tile_x.tex_coords.max },
+                .{ 1.0 - tile_y.tex_coords.min, 1.0 - tile_y.tex_coords.max },
+            );
         }
     }
 }
@@ -600,7 +592,7 @@ fn drawBackgroundImage(
 // | ||(-2, -1)|  | (-1, -1)|  | (0, -1) |  | (1, -1) |  | (2, -1| |  |
 // | ||--------|  |----------  ----------|  |---------|  --------|-|  |
 // |  |                                                          |    |
-// |  |                          Origin                          |    |
+// |  |                          Center                          |    |
 // | ||--------|  |---------|  |---------|  |---------|  |-------|-|  |
 // | ||Image   |  | Image   |  | Image   |  | Image   |  | Image | |  |
 // | ||(-2, 0) |  | (-1, 0) |  | (0, 0)  |  | (1, 0)  |  | (2, 0)| |  |
@@ -622,11 +614,11 @@ fn drawBackgroundImage(
 // Background images are positioned within the background positioning area, and painted within the background painting area.
 // In this diagram the positioning area is smaller than the painting area, but it could be the other way around.
 // The images have (x, y) coordinates that increase going to the right and down.
-// One image with a known position is designated to be the "origin image", and given the coordinates (0, 0).
-// All the other images are positioned relative to the origin image.
+// One image with a known position is designated to be the "center image", and given the coordinates (0, 0).
+// All the other images are positioned relative to the center image.
 // The spacing, position, and size of the images can be determined for the x and y axes independently.
 
-const BackgroundImageRepeatInfo = struct {
+const BackgroundImageTilingInfo = struct {
     /// The index of the left-most/top-most image to be drawn.
     start_index: i32,
     /// The number of images to draw. Always positive.
@@ -637,7 +629,7 @@ const BackgroundImageRepeatInfo = struct {
     offset: ZssUnit,
 };
 
-fn getBackgroundImageRepeatInfo(
+fn getBackgroundImageTilingInfo(
     repeat: zss.used_values.Background2.Repeat.Style,
     /// Must be greater than or equal to 0.
     painting_area_size: ZssUnit,
@@ -649,15 +641,15 @@ fn getBackgroundImageRepeatInfo(
     image_offset: ZssUnit,
     /// Must be strictly greater than 0.
     image_size: ZssUnit,
-) BackgroundImageRepeatInfo {
+) BackgroundImageTilingInfo {
     assert(painting_area_size >= 0);
     assert(positioning_area_size >= 0);
     assert(image_size > 0);
 
+    // Unless otherwise specified, the center image is the one with offset `image_offset` from the start of the positioning area.
     const divCeil = std.math.divCeil;
     switch (repeat) {
         .None => {
-            // The origin image is the one with offset `image_offset` from the positioning area
             return .{
                 .start_index = 0,
                 .count = 1,
@@ -666,17 +658,15 @@ fn getBackgroundImageRepeatInfo(
             };
         },
         .Repeat => {
-            // The origin image is the one with offset `image_offset` from the positioning area
+            const space_before_center = positioning_area_offset + image_offset;
+            const num_before_center = divCeil(ZssUnit, space_before_center, image_size) catch unreachable;
 
-            const space_before_origin = positioning_area_offset + image_offset;
-            const num_before_origin = divCeil(ZssUnit, space_before_origin, image_size) catch unreachable;
-
-            const space_after_origin = painting_area_size - positioning_area_offset - image_offset - image_size;
-            const num_after_origin = divCeil(ZssUnit, space_after_origin, image_size) catch unreachable;
+            const space_after_center = painting_area_size - positioning_area_offset - image_offset - image_size;
+            const num_after_center = divCeil(ZssUnit, space_after_center, image_size) catch unreachable;
 
             return .{
-                .start_index = -num_before_origin,
-                .count = num_before_origin + num_after_origin + 1,
+                .start_index = -num_before_center,
+                .count = num_before_center + num_after_center + 1,
                 .space = .{ .num = 0, .den = 1 },
                 .offset = image_offset,
             };
@@ -684,53 +674,96 @@ fn getBackgroundImageRepeatInfo(
         .Space => {
             const num_within_positioning_area = @divFloor(positioning_area_size, image_size);
             if (num_within_positioning_area <= 1) {
-                // The origin image is the one with offset `image_offset` from the positioning area
                 return .{
                     .start_index = 0,
                     .count = 1,
                     .space = .{ .num = 0, .den = 1 },
                     .offset = image_offset,
                 };
-            } else {
-                // The origin image is the one with offset 0 from the positioning area
-                const leftover_space = @mod(positioning_area_size, image_size);
-
-                // space_between_images = leftover_space / (num_within_positioning_area - 1)
-                //
-                // space_before_positioning_area = positioning_area_offset
-                // num_before_positioning_area
-                //     = divCeil(space_before_positioning_area - space_between_images, image_size + space_between_images)
-                //     = divCeil((num_within_positioning_area - 1) * space_before_positioning_area - leftover_space, (num_within_positioning_area - 1) * image_size + leftover_space)
-                //     = divCeil((num_within_positioning_area - 1) * space_before_positioning_area - leftover_space, (num_within_positioning_area) * image_size + leftover_space - image_size)
-                //     = divCeil((num_within_positioning_area - 1) * space_before_positioning_area - leftover_space, positioning_area_size - image_size)
-                //
-                // space_after_positioning_area = painting_area_size - positioning_area_offset - positioning_area_size
-                // num_after_positioning_area
-                //     = divCeil(space_after_positioning_area - space_between_images, image_size + space_between_images)
-                //     = divCeil((num_within_positioning_area - 1) * space_after_positioning_area - leftover_space, (num_within_positioning_area - 1) * image_size + leftover_space)
-                //     = divCeil((num_within_positioning_area - 1) * space_after_positioning_area - leftover_space, positioning_area_size - image_size)
-
-                const n = num_within_positioning_area - 1;
-                const denominator = positioning_area_size - image_size;
-
-                const space_before_positioning_area = positioning_area_offset;
-                const num_before_positioning_area =
-                    divCeil(ZssUnit, n * space_before_positioning_area - leftover_space, denominator) catch unreachable;
-
-                const space_after_positioning_area = painting_area_size - positioning_area_offset - positioning_area_size;
-                const num_after_positioning_area =
-                    divCeil(ZssUnit, n * space_after_positioning_area - leftover_space, denominator) catch unreachable;
-
-                return .{
-                    .start_index = -num_before_positioning_area,
-                    .count = num_before_positioning_area + num_after_positioning_area + num_within_positioning_area,
-                    .space = .{ .num = leftover_space, .den = n },
-                    .offset = 0,
-                };
             }
+
+            // Here, the center image has offset 0 from the start of the positioning area.
+
+            const positioning_area_remaining_space = @mod(positioning_area_size, image_size);
+            const n = num_within_positioning_area - 1;
+
+            // space_between_images = positioning_area_remaining_space / n
+            //
+            // space_before_positioning_area = positioning_area_offset
+            // num_before_positioning_area
+            //     = divCeil(space_before_positioning_area - space_between_images, image_size + space_between_images)
+            //     = divCeil(n * space_before_positioning_area - positioning_area_remaining_space, n * image_size + positioning_area_remaining_space)
+            //     = divCeil(n * space_before_positioning_area - positioning_area_remaining_space, (n + 1) * image_size + positioning_area_remaining_space - image_size)
+            //     = divCeil(n * space_before_positioning_area - positioning_area_remaining_space, positioning_area_size - image_size)
+            //
+            // space_after_positioning_area = painting_area_size - positioning_area_offset - positioning_area_size
+            // num_after_positioning_area
+            //     = divCeil(space_after_positioning_area - space_between_images, image_size + space_between_images)
+            //     = divCeil(n * space_after_positioning_area - positioning_area_remaining_space, n * image_size + positioning_area_remaining_space)
+            //     = divCeil(n * space_after_positioning_area - positioning_area_remaining_space, (n + 1) * image_size + positioning_area_remaining_space - image_size)
+            //     = divCeil(n * space_after_positioning_area - positioning_area_remaining_space, positioning_area_size - image_size)
+
+            const denominator = positioning_area_size - image_size;
+
+            const space_before_positioning_area = positioning_area_offset;
+            const num_before_positioning_area =
+                divCeil(ZssUnit, n * space_before_positioning_area - positioning_area_remaining_space, denominator) catch unreachable;
+
+            const space_after_positioning_area = painting_area_size - positioning_area_offset - positioning_area_size;
+            const num_after_positioning_area =
+                divCeil(ZssUnit, n * space_after_positioning_area - positioning_area_remaining_space, denominator) catch unreachable;
+
+            return .{
+                .start_index = -num_before_positioning_area,
+                .count = num_before_positioning_area + num_after_positioning_area + num_within_positioning_area,
+                .space = .{ .num = positioning_area_remaining_space, .den = n },
+                .offset = 0,
+            };
         },
         .Round => panic("TODO: render: Background image round repeat style", .{}),
     }
+}
+
+const BackgroundImageTileCoords = struct {
+    coords: struct {
+        min: ZssUnit,
+        max: ZssUnit,
+    },
+    tex_coords: struct {
+        min: f32,
+        max: f32,
+    },
+};
+
+fn getBackgroundImageTileCoords(
+    tile_coord: i32,
+    painting_range: ZssRange,
+    positioning_range: ZssRange,
+    size: ZssUnit,
+    space: Ratio(ZssUnit),
+    offset: ZssUnit,
+) BackgroundImageTileCoords {
+    var result: BackgroundImageTileCoords = undefined;
+
+    // s = positioning_range.start + offset + tile_coord * (size + space)
+    //   = divFloor(space.den * (positioning_range.start + offset + tile_coord * size) + tile_coord * space.num, space.den)
+    const s = @divFloor(space.den * (positioning_range.start + offset + tile_coord * size) + tile_coord * space.num, space.den);
+    result.coords.min, result.tex_coords.min = if (s >= painting_range.start)
+        .{ s, 0.0 }
+    else
+        .{ painting_range.start, @as(f32, @floatFromInt(painting_range.start - s)) / @as(f32, @floatFromInt(size)) };
+
+    result.coords.max, result.tex_coords.max = blk: {
+        const s_end = s + size;
+        const painting_range_end = painting_range.start + painting_range.length;
+        break :blk if (s_end <= painting_range_end)
+            .{ s_end, 1.0 }
+        else
+            .{ painting_range_end, 1.0 + @as(f32, @floatFromInt(painting_range_end - s_end)) / @as(f32, @floatFromInt(size)) };
+    };
+
+    assert(result.coords.max > result.coords.min);
+    return result;
 }
 
 fn drawLineBox(

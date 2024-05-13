@@ -42,6 +42,11 @@ pub const ZssSize = struct {
     h: ZssUnit,
 };
 
+pub const ZssRange = struct {
+    start: ZssUnit,
+    length: ZssUnit,
+};
+
 pub const ZssRect = struct {
     x: ZssUnit,
     y: ZssUnit,
@@ -49,6 +54,14 @@ pub const ZssRect = struct {
     h: ZssUnit,
 
     const Self = @This();
+
+    pub fn xRange(rect: ZssRect) ZssRange {
+        return .{ .start = rect.x, .length = rect.w };
+    }
+
+    pub fn yRange(rect: ZssRect) ZssRange {
+        return .{ .start = rect.y, .length = rect.h };
+    }
 
     pub fn isEmpty(self: Self) bool {
         return self.w < 0 or self.h < 0;
