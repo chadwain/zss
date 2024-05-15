@@ -359,11 +359,11 @@ pub fn drawBoxTree(
     renderer: *Renderer,
     images: Images.Slice,
     box_tree: BoxTree,
-    draw_order_list: DrawList,
+    draw_list: DrawList,
     allocator: Allocator,
     viewport: ZssRect,
 ) !void {
-    const objects = try getObjectsOnScreenInDrawOrder(draw_order_list, allocator, viewport);
+    const objects = try getObjectsOnScreenInDrawOrder(draw_list, allocator, viewport);
     defer allocator.free(objects);
 
     const translation = ZssVector{ .x = -viewport.x, .y = -viewport.y };
@@ -372,10 +372,10 @@ pub fn drawBoxTree(
     defer renderer.endDraw();
 
     for (objects) |object| {
-        const entry = draw_order_list.getEntry(object);
+        const entry = draw_list.getEntry(object);
         switch (entry) {
             .block_box => |block_box| {
-                const border_top_left = block_box.border_top_left.add(translation);
+                const border_top_left = block_box.border_top_left;
 
                 const subtree_slice = box_tree.blocks.subtrees.items[block_box.block_box.subtree].slice();
                 const index = block_box.block_box.index;
@@ -390,7 +390,7 @@ pub fn drawBoxTree(
                 try drawBlockContainer(renderer, images, boxes, background1, background2, border_colors);
             },
             .line_box => |line_box_info| {
-                const origin = line_box_info.origin.add(translation);
+                const origin = line_box_info.origin;
                 const ifc = box_tree.ifcs.items[line_box_info.ifc_index];
                 const line_box = ifc.line_boxes.items[line_box_info.line_box_index];
 
@@ -400,14 +400,14 @@ pub fn drawBoxTree(
     }
 }
 
-fn getObjectsOnScreenInDrawOrder(draw_order_list: DrawList, allocator: Allocator, viewport: ZssRect) ![]QuadTree.Object {
-    const objects = try draw_order_list.quad_tree.findObjectsInRect(viewport, allocator);
+fn getObjectsOnScreenInDrawOrder(draw_list: DrawList, allocator: Allocator, viewport: ZssRect) ![]QuadTree.Object {
+    const objects = try draw_list.quad_tree.findObjectsInRect(viewport, allocator);
     errdefer allocator.free(objects);
 
     const draw_indeces = try allocator.alloc(DrawList.DrawIndex, objects.len);
     defer allocator.free(draw_indeces);
 
-    for (objects, draw_indeces) |object, *draw_index| draw_index.* = draw_order_list.getDrawIndex(object);
+    for (objects, draw_indeces) |object, *draw_index| draw_index.* = draw_list.getDrawIndex(object);
 
     const SortContext = struct {
         objects: []QuadTree.Object,
