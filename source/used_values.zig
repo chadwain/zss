@@ -13,7 +13,7 @@ const ElementHashMap = zss.util.ElementHashMap;
 pub const ZssUnit = i32;
 
 /// The number of ZssUnits contained wthin the width or height of 1 screen pixel.
-pub const units_per_pixel = 2;
+pub const units_per_pixel = 4;
 
 /// A floating point number usually between 0 and 1, but it can exceed these values.
 pub const Percentage = f32;
@@ -493,6 +493,12 @@ pub const BoxTree = struct {
         }
         self.stacking_contexts.deinit(self.allocator);
         self.element_to_generated_box.deinit(self.allocator);
+    }
+
+    pub fn rootBlockHeight(self: Self) ZssUnit {
+        const subtree = self.blocks.subtrees.items[0];
+        const box_offsets = subtree.slice().items(.box_offsets)[1];
+        return box_offsets.border_size.h;
     }
 };
 

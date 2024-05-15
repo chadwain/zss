@@ -8,6 +8,35 @@ const zgl = @import("zgl");
 const zigimg = @import("zigimg");
 const glfw = @import("mach-glfw");
 
+const ZssUnit = zss.used_values.ZssUnit;
+const zss_units_per_pixel = zss.used_values.units_per_pixel;
+
+const ProgramState = struct {
+    main_window: glfw.Window,
+    main_window_height: ZssUnit,
+    current_scroll: ZssUnit = 0,
+    max_scroll: ZssUnit,
+
+    fn changeMainWindowSize(self: *ProgramState, height: i32, box_tree: zss.used_values.BoxTree) void {
+        self.main_window_height = height * zss_units_per_pixel;
+        const root_block_height = box_tree.rootBlockHeight();
+        self.max_scroll = @max(0, root_block_height - self.main_window_height);
+        self.scroll(.nowhere);
+    }
+
+    fn scroll(self: *ProgramState, comptime dir: enum { nowhere, up, down, page_up, page_down }) void {
+        const scroll_amount = 20 * zss_units_per_pixel;
+        switch (dir) {
+            .nowhere => {},
+            .up => self.current_scroll -= scroll_amount,
+            .down => self.current_scroll += scroll_amount,
+            .page_up => self.current_scroll -= self.main_window_height,
+            .page_down => self.current_scroll += self.main_window_height,
+        }
+        self.current_scroll = std.math.clamp(self.current_scroll, 0, self.max_scroll);
+    }
+};
+
 pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(gpa.deinit() == .ok);
@@ -54,6 +83,14 @@ pub fn main() !u8 {
         .opengl_profile = .opengl_core_profile,
     }) orelse return error.GlfwError;
     defer window.destroy();
+
+    var program_state = ProgramState{
+        .main_window = window,
+        .main_window_height = undefined,
+        .max_scroll = undefined,
+    };
+    window.setUserPointer(&program_state);
+    window.setKeyCallback(keyCallback);
 
     glfw.makeContextCurrent(window);
     defer glfw.makeContextCurrent(null);
@@ -102,6 +139,8 @@ pub fn main() !u8 {
     var box_tree = try zss.layout.doLayout(tree.slice(), root, images_slice, allocator, .{ .width = width, .height = height });
     defer box_tree.deinit();
 
+    program_state.changeMainWindowSize(height, box_tree);
+
     var draw_list = try zss.render.DrawList.create(box_tree, allocator);
     defer draw_list.deinit(allocator);
 
@@ -112,8 +151,12 @@ pub fn main() !u8 {
         zgl.clearColor(0, 0, 0, 0);
         zgl.clear(.{ .color = true });
 
-        const units_per_pixel = zss.used_values.units_per_pixel;
-        const viewport_rect = zss.used_values.ZssRect{ .x = 0, .y = 0, .w = width * units_per_pixel, .h = height * units_per_pixel };
+        const viewport_rect = zss.used_values.ZssRect{
+            .x = 0,
+            .y = program_state.current_scroll,
+            .w = width * zss_units_per_pixel,
+            .h = height * zss_units_per_pixel,
+        };
         try zss.render.opengl.drawBoxTree(&renderer, images_slice, box_tree, draw_list, allocator, viewport_rect);
 
         zgl.flush();
@@ -307,4 +350,25 @@ fn createElements(
     }
 
     return .{ tree, root };
+}
+
+fn keyCallback(window: glfw.Window, key: glfw.Key, scancode: i32, action: glfw.Action, mods: glfw.Mods) void {
+    _ = scancode;
+    _ = mods;
+
+    const program_state = window.getUserPointer(ProgramState) orelse return;
+    if (program_state.main_window.handle != window.handle) return;
+
+    switch (action) {
+        .press, .repeat => {},
+        .release => return,
+    }
+
+    switch (key) {
+        .down => program_state.scroll(.down),
+        .up => program_state.scroll(.up),
+        .page_down => program_state.scroll(.page_down),
+        .page_up => program_state.scroll(.page_up),
+        else => {},
+    }
 }
