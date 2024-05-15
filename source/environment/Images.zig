@@ -24,7 +24,7 @@ pub const Format = enum {
 
 pub const Data = union {
     none: void,
-    rgba: ?[]const u32,
+    rgba: ?[]const u8,
 };
 
 list: List = .{},

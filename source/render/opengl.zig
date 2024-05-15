@@ -216,11 +216,7 @@ pub const Renderer = struct {
                 zgl.texParameter(.@"2d", .wrap_s, .clamp_to_edge);
                 zgl.texParameter(.@"2d", .wrap_t, .clamp_to_edge);
 
-                const tmp = try renderer.allocator.alloc(u32, image.dimensions.width_px * image.dimensions.height_px);
-                defer renderer.allocator.free(tmp);
-                @memset(tmp, std.mem.nativeToBig(u32, 0x56789aff));
-
-                zgl.textureImage2D(.@"2d", 0, .rgba, image.dimensions.width_px, image.dimensions.height_px, .rgba, .unsigned_byte, @ptrCast(data.ptr));
+                zgl.textureImage2D(.@"2d", 0, .rgba, image.dimensions.width_px, image.dimensions.height_px, .rgba, .unsigned_byte, data.ptr);
                 break :blk texture;
             },
         };
@@ -577,7 +573,7 @@ fn drawBackgroundImage(
                 renderer,
                 image_rect,
                 .{ tile_x.tex_coords.min, tile_x.tex_coords.max },
-                .{ 1.0 - tile_y.tex_coords.min, 1.0 - tile_y.tex_coords.max },
+                .{ tile_y.tex_coords.min, tile_y.tex_coords.max },
             );
         }
     }

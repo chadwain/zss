@@ -24,5 +24,9 @@
             .url = "git+https://github.com/ziglibs/zgl.git#0c7f680200aa3be87fb98a726c1fab480d02f8d9",
             .hash = "1220e0118a243a3917317c9cf466d59ac91fa9656620318f7e6290ca538e79498f15",
         },
+        .zigimg = .{
+            .url = "git+https://github.com/zigimg/zigimg.git#8873f29fc449e1b63400e9f4ad86d3c76204f962",
+            .hash = "122019f6439545235af116d0d8eb81fde1ff05fdb070da57c723772c557f84c5bf39",
+        },
     },
 }

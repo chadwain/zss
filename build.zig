@@ -20,6 +20,7 @@ const Modules = struct {
     mach_harfbuzz: *Module,
     sdl2: *Module,
     zgl: *Module,
+    zigimg: *Module,
 };
 
 fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules {
@@ -48,6 +49,9 @@ fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules
 
     const zgl_dep = b.dependency("zgl", .{});
     mods.zgl = zgl_dep.module("zgl");
+
+    const zigimg_dep = b.dependency("zigimg", .{});
+    mods.zigimg = zigimg_dep.module("zigimg");
 
     const mach_glfw_dep = b.dependency("mach-glfw", .{
         .optimize = optimize,
@@ -152,6 +156,7 @@ fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modu
     });
     demo_opengl.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
     demo_opengl.root_module.addImport("zgl", mods.zgl);
+    demo_opengl.root_module.addImport("zigimg", mods.zigimg);
     demo_opengl.root_module.addImport("mach-glfw", mods.mach_glfw);
     b.installArtifact(demo_opengl);
 

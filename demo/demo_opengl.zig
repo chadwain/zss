@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const zss = @import("zss");
 const hb = @import("mach-harfbuzz").c;
 const zgl = @import("zgl");
+const zigimg = @import("zigimg");
 const glfw = @import("mach-glfw");
 
 pub fn main() !u8 {
@@ -69,9 +70,32 @@ pub fn main() !u8 {
 
     var env = zss.Environment.init(allocator);
     defer env.deinit();
-    const checkerboard_image_handle = try env.addImage(checkerboard_image);
 
-    var tree, const root = try createElements(allocator, file_name, file_contents.items, font, checkerboard_image_handle);
+    var zig_logo = blk: {
+        const path = "demo/zig.png";
+        var file = try std.fs.cwd().openFile(path, .{});
+        defer file.close();
+        const image = try zigimg.Image.fromFile(allocator, &file);
+        break :blk image;
+    };
+    defer zig_logo.deinit();
+    const zig_logo_image: zss.Environment.Images.Image = .{
+        .dimensions = .{
+            .width_px = @intCast(zig_logo.width),
+            .height_px = @intCast(zig_logo.height),
+        },
+        .format = switch (zig_logo.pixelFormat()) {
+            .rgba32 => .rgba,
+            else => return error.Unsupported,
+        },
+        .data = switch (zig_logo.pixelFormat()) {
+            .rgba32 => .{ .rgba = zig_logo.rawBytes() },
+            else => return error.Unsupported,
+        },
+    };
+    const zig_logo_handle = try env.addImage(zig_logo_image);
+
+    var tree, const root = try createElements(allocator, file_name, file_contents.items, font, zig_logo_handle);
     defer tree.deinit();
 
     var box_tree = try zss.layout.doLayout(tree.slice(), root, &env, allocator, .{ .width = width, .height = height });
@@ -124,18 +148,12 @@ fn readFile(allocator: Allocator, file_name: []const u8) !std.ArrayListUnmanaged
     return list.moveToUnmanaged();
 }
 
-const checkerboard_image = zss.Environment.Images.Image{
-    .dimensions = .{ .width_px = 128, .height_px = 128 },
-    .format = .rgba,
-    .data = .{ .rgba = &(([1]u32{std.mem.nativeToBig(u32, 0x101010ff)} ** 32) ++ ([1]u32{std.mem.nativeToBig(u32, 0xddddddff)} ** 32)) ** (2 * 128) },
-};
-
 fn createElements(
     allocator: Allocator,
     file_name: []const u8,
     file_contents: []const u8,
     font: *hb.hb_font_t,
-    checkerboard_image_handle: zss.Environment.Images.Handle,
+    footer_image_handle: zss.Environment.Images.Handle,
 ) !struct { zss.ElementTree, zss.ElementTree.Element } {
     var tree = zss.ElementTree.init(allocator);
     errdefer tree.deinit();
@@ -275,13 +293,14 @@ fn createElements(
         try cv.add(arena, .vertical_edges, .{ .margin_top = .{ .px = 10 }, .border_top = .inherit, .border_bottom = .inherit });
         try cv.add(arena, .border_colors, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
         try cv.add(arena, .border_styles, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
+        try cv.add(arena, .background1, .{ .clip = .padding_box });
         try cv.add(arena, .background2, .{
-            .image = .{ .object = checkerboard_image_handle },
+            .image = .{ .object = footer_image_handle },
             .position = .{ .position = .{
                 .x = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
                 .y = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
             } },
-            .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
+            .repeat = .{ .repeat = .{ .x = .space, .y = .no_repeat } },
             .size = .contain,
         });
     }
