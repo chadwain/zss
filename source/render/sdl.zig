@@ -5,7 +5,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
 
 const zss = @import("../zss.zig");
-const DrawOrderList = @import("./DrawOrderList.zig");
+const DrawList = @import("./DrawList.zig");
 const QuadTree = @import("./QuadTree.zig");
 const ZssUnit = zss.used_values.ZssUnit;
 const ZssRect = zss.used_values.ZssRect;
@@ -30,7 +30,7 @@ pub const util = @import("util/sdl.zig");
 
 pub fn drawBoxTree(
     box_tree: BoxTree,
-    draw_order_list: DrawOrderList,
+    draw_order_list: DrawList,
     allocator: Allocator,
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
@@ -72,18 +72,18 @@ pub fn drawBoxTree(
     }
 }
 
-fn getObjectsOnScreenInDrawOrder(draw_order_list: DrawOrderList, allocator: Allocator, viewport: ZssRect) ![]QuadTree.Object {
+fn getObjectsOnScreenInDrawOrder(draw_order_list: DrawList, allocator: Allocator, viewport: ZssRect) ![]QuadTree.Object {
     const objects = try draw_order_list.quad_tree.findObjectsInRect(viewport, allocator);
     errdefer allocator.free(objects);
 
-    const draw_indeces = try allocator.alloc(DrawOrderList.DrawIndex, objects.len);
+    const draw_indeces = try allocator.alloc(DrawList.DrawIndex, objects.len);
     defer allocator.free(draw_indeces);
 
     for (objects, draw_indeces) |object, *draw_index| draw_index.* = draw_order_list.getDrawIndex(object);
 
     const SortContext = struct {
         objects: []QuadTree.Object,
-        draw_indeces: []DrawOrderList.DrawIndex,
+        draw_indeces: []DrawList.DrawIndex,
 
         pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
             return ctx.draw_indeces[a_index] < ctx.draw_indeces[b_index];
@@ -91,7 +91,7 @@ fn getObjectsOnScreenInDrawOrder(draw_order_list: DrawOrderList, allocator: Allo
 
         pub fn swap(ctx: @This(), a_index: usize, b_index: usize) void {
             std.mem.swap(QuadTree.Object, &ctx.objects[a_index], &ctx.objects[b_index]);
-            std.mem.swap(DrawOrderList.DrawIndex, &ctx.draw_indeces[a_index], &ctx.draw_indeces[b_index]);
+            std.mem.swap(DrawList.DrawIndex, &ctx.draw_indeces[a_index], &ctx.draw_indeces[b_index]);
         }
     };
 

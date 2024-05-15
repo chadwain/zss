@@ -102,7 +102,7 @@ pub fn main() !u8 {
     var box_tree = try zss.layout.doLayout(tree.slice(), root, images_slice, allocator, .{ .width = width, .height = height });
     defer box_tree.deinit();
 
-    var draw_list = try zss.render.DrawOrderList.create(box_tree, allocator);
+    var draw_list = try zss.render.DrawList.create(box_tree, allocator);
     defer draw_list.deinit(allocator);
 
     var renderer = zss.render.opengl.Renderer.init(allocator);

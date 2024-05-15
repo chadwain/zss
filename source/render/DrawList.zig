@@ -1,11 +1,11 @@
 //! In order to draw a document, we need to generate drawable objects from a `BoxTree` (the result of layout).
-//! The `DrawOrderList` is, conceptually, a list of all of those drawable objects, in the order they should be drawn.
-//! In terms of implementation, the `DrawOrderList` is made up of smaller "sub-lists" (called `SubList`).
+//! The `DrawList` is, conceptually, a list of all of those drawable objects, in the order they should be drawn.
+//! In terms of implementation, the `DrawList` is made up of smaller "sub-lists" (called `SubList`).
 //! Each drawable object can be referenced by its position in one of these sub-lists.
 //! Each drawable has an associated DrawIndex.
 //! The DrawIndex of two drawables can be compared to see which one must be drawn before the other. (Lower value = draw first)
 
-const DrawOrderList = @This();
+const DrawList = @This();
 
 const zss = @import("../zss.zig");
 const used_values = zss.used_values;
@@ -81,7 +81,7 @@ pub const DrawableRef = struct {
     }
 };
 
-/// A `SubList` represents a small segment of the entire `DrawOrderList`.
+/// A `SubList` represents a small segment of the entire `DrawList`.
 /// SubLists reference other SubLists, forming a tree structure.
 /// Each SubList is referenced by a `SubListIndex`.
 /// There is always at least 1 SubList - referenced by `root_sub_list`.
@@ -128,8 +128,8 @@ pub const SubList = struct {
     }
 };
 
-/// Frees resources associated with the DrawOrderList.
-pub fn deinit(list: *DrawOrderList, allocator: Allocator) void {
+/// Frees resources associated with the DrawList.
+pub fn deinit(list: *DrawList, allocator: Allocator) void {
     for (list.sub_lists.items) |*sub_list| {
         sub_list.entries.deinit(allocator);
         sub_list.before_and_after.deinit(allocator);
@@ -138,7 +138,7 @@ pub fn deinit(list: *DrawOrderList, allocator: Allocator) void {
     list.quad_tree.deinit(allocator);
 }
 
-/// Helper struct used while creating the DrawOrderList.
+/// Helper struct used while creating the DrawList.
 const Builder = struct {
     // A SubList can be in two states:
     //     "pending" - it has been allocated, but lacks the information needed to populate it
@@ -162,16 +162,16 @@ const Builder = struct {
     }
 };
 
-/// Creates a `DrawOrderList` from a `BoxTree`.
-pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawOrderList {
-    var draw_order_list = DrawOrderList{ .sub_lists = .{}, .quad_tree = .{} };
-    errdefer draw_order_list.deinit(allocator);
+/// Creates a `DrawList` from a `BoxTree`.
+pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawList {
+    var draw_list = DrawList{ .sub_lists = .{}, .quad_tree = .{} };
+    errdefer draw_list.deinit(allocator);
 
     {
         var builder = Builder{};
         defer builder.deinit(allocator);
 
-        try draw_order_list.sub_lists.append(allocator, .{});
+        try draw_list.sub_lists.append(allocator, .{});
 
         const subtree_slice = box_tree.blocks.subtrees.items[initial_containing_block.subtree].slice();
         const box_offsets = subtree_slice.items(.box_offsets)[initial_containing_block.index];
@@ -180,7 +180,7 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawOrderList {
         const content_top_left = border_top_left.add(box_offsets.content_pos);
 
         {
-            const data = draw_order_list.getSubList(root_sub_list);
+            const data = draw_list.getSubList(root_sub_list);
             data.setMidpoint();
 
             // Add the initial containing block to the draw order list
@@ -193,7 +193,7 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawOrderList {
                     },
                 },
             );
-            try draw_order_list.quad_tree.insert(
+            try draw_list.quad_tree.insert(
                 allocator,
                 calcBoundingBox(border_top_left, box_offsets),
                 .{
@@ -206,13 +206,13 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawOrderList {
         const slice = box_tree.stacking_contexts.list.slice();
         if (slice.len > 0) {
             // Add the root stacking context to the draw order list
-            try allocateSubList(&builder, &draw_order_list, allocator, root_sub_list, 0);
+            try allocateSubList(&builder, &draw_list, allocator, root_sub_list, 0);
             try builder.makeSublistReady(allocator, 0, content_top_left);
         }
 
         while (builder.ready_sub_lists.items.len > 0) {
             const description = builder.ready_sub_lists.pop();
-            try populateSubList(&draw_order_list, &builder, description, allocator, box_tree, slice);
+            try populateSubList(&draw_list, &builder, description, allocator, box_tree, slice);
         }
 
         assert(builder.pending_sub_lists.size == 0);
@@ -229,7 +229,7 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawOrderList {
         defer stack.deinit(allocator);
 
         {
-            const data = draw_order_list.getSubList(root_sub_list);
+            const data = draw_list.getSubList(root_sub_list);
             data.root_draw_index = 0;
             try stack.append(allocator, .{ .data = data });
         }
@@ -261,40 +261,40 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawOrderList {
 
             const child_sub_list = data.before_and_after.items[item.child_index];
             item.child_index += 1;
-            const child_data = draw_order_list.getSubList(child_sub_list);
+            const child_data = draw_list.getSubList(child_sub_list);
             child_data.root_draw_index = draw_index;
             draw_index += 1;
             try stack.append(allocator, .{ .data = child_data });
         }
     }
 
-    return draw_order_list;
+    return draw_list;
 }
 
-fn getSubList(draw_order_list: *DrawOrderList, index: SubListIndex) *SubList {
-    return &draw_order_list.sub_lists.items[index];
+fn getSubList(draw_list: *DrawList, index: SubListIndex) *SubList {
+    return &draw_list.sub_lists.items[index];
 }
 
 /// Allocating a SubList automatically puts it in the "pending" state, and updates the parent SubList.
 fn allocateSubList(
     builder: *Builder,
-    draw_order_list: *DrawOrderList,
+    draw_list: *DrawList,
     allocator: Allocator,
     parent: SubListIndex,
     stacking_context: StackingContextIndex,
 ) !void {
-    if (draw_order_list.sub_lists.items.len == std.math.maxInt(SubListIndex)) return error.Overflow;
-    const index = @as(SubListIndex, @intCast(draw_order_list.sub_lists.items.len));
-    try draw_order_list.sub_lists.append(allocator, .{});
+    if (draw_list.sub_lists.items.len == std.math.maxInt(SubListIndex)) return error.Overflow;
+    const index = @as(SubListIndex, @intCast(draw_list.sub_lists.items.len));
+    try draw_list.sub_lists.append(allocator, .{});
     try builder.pending_sub_lists.put(allocator, stacking_context, index);
 
-    const parent_data = draw_order_list.getSubList(parent);
+    const parent_data = draw_list.getSubList(parent);
     if (parent_data.before_and_after.items.len == std.math.maxInt(SubList.Size)) return error.Overflow;
     try parent_data.before_and_after.append(allocator, index);
 }
 
 fn populateSubList(
-    draw_order_list: *DrawOrderList,
+    draw_list: *DrawList,
     builder: *Builder,
     description: SubList.Description,
     allocator: Allocator,
@@ -310,13 +310,13 @@ fn populateSubList(
         var child_stacking_context = stacking_context + 1;
         const end = stacking_context + skips[stacking_context];
         while (child_stacking_context < end and z_indeces[child_stacking_context] < 0) : (child_stacking_context += skips[child_stacking_context]) {
-            try allocateSubList(builder, draw_order_list, allocator, description.index, child_stacking_context);
+            try allocateSubList(builder, draw_list, allocator, description.index, child_stacking_context);
         }
 
-        draw_order_list.getSubList(description.index).setMidpoint();
+        draw_list.getSubList(description.index).setMidpoint();
 
         while (child_stacking_context < end) : (child_stacking_context += skips[child_stacking_context]) {
-            try allocateSubList(builder, draw_order_list, allocator, description.index, child_stacking_context);
+            try allocateSubList(builder, draw_list, allocator, description.index, child_stacking_context);
         }
     }
 
@@ -329,7 +329,7 @@ fn populateSubList(
     const root_content_top_left = root_border_top_left.add(root_box_offsets.content_pos);
 
     {
-        const data = draw_order_list.getSubList(description.index);
+        const data = draw_list.getSubList(description.index);
 
         // Add the root block to the draw order list
         const root_entry_index = try data.addEntry(
@@ -341,7 +341,7 @@ fn populateSubList(
                 },
             },
         );
-        try draw_order_list.quad_tree.insert(
+        try draw_list.quad_tree.insert(
             allocator,
             calcBoundingBox(root_border_top_left, root_box_offsets),
             .{ .sub_list = description.index, .entry_index = root_entry_index },
@@ -399,7 +399,7 @@ fn populateSubList(
                                     },
                                 },
                             );
-                            try draw_order_list.quad_tree.insert(
+                            try draw_list.quad_tree.insert(
                                 allocator,
                                 calcBoundingBox(border_top_left, box_offsets),
                                 .{ .sub_list = description.index, .entry_index = entry_index },
@@ -465,7 +465,7 @@ fn populateSubList(
                         },
                     },
                 );
-                try draw_order_list.quad_tree.insert(
+                try draw_list.quad_tree.insert(
                     allocator,
                     bounding_box,
                     .{ .sub_list = description.index, .entry_index = entry_index },
@@ -484,14 +484,14 @@ fn calcBoundingBox(border_top_left: ZssVector, box_offsets: BoxOffsets) ZssRect 
     };
 }
 
-pub fn print(draw_order_list: DrawOrderList, writer: anytype, allocator: Allocator) !void {
+pub fn print(draw_list: DrawList, writer: anytype, allocator: Allocator) !void {
     var stack = ArrayListUnmanaged(struct {
         sub_list: *const SubList,
         child_index: SubList.Size = 0,
         state: enum { root, before, midpoint, after } = .root,
     }){};
     defer stack.deinit(allocator);
-    try stack.append(allocator, .{ .sub_list = &draw_order_list.sub_lists.items[0] });
+    try stack.append(allocator, .{ .sub_list = &draw_list.sub_lists.items[0] });
 
     while (stack.items.len > 0) {
         const indent = stack.items.len - 1;
@@ -514,7 +514,7 @@ pub fn print(draw_order_list: DrawOrderList, writer: anytype, allocator: Allocat
                 item.child_index += 1;
                 try writer.writeByteNTimes(' ', indent * 4);
                 try writer.print("SubList index={}\n", .{child_sub_list});
-                try stack.append(allocator, .{ .sub_list = &draw_order_list.sub_lists.items[child_sub_list] });
+                try stack.append(allocator, .{ .sub_list = &draw_list.sub_lists.items[child_sub_list] });
             },
             .midpoint => {
                 for (sub_list.entries.items[1..]) |entry| {
@@ -532,18 +532,18 @@ pub fn print(draw_order_list: DrawOrderList, writer: anytype, allocator: Allocat
                 item.child_index += 1;
                 try writer.writeByteNTimes(' ', indent * 4);
                 try writer.print("SubList index={}\n", .{child_sub_list});
-                try stack.append(allocator, .{ .sub_list = &draw_order_list.sub_lists.items[child_sub_list] });
+                try stack.append(allocator, .{ .sub_list = &draw_list.sub_lists.items[child_sub_list] });
             },
         }
     }
 }
 
-pub fn getEntry(draw_order_list: DrawOrderList, ref: DrawableRef) Drawable {
-    return draw_order_list.sub_lists.items[ref.sub_list].entries.items[ref.entry_index];
+pub fn getEntry(draw_list: DrawList, ref: DrawableRef) Drawable {
+    return draw_list.sub_lists.items[ref.sub_list].entries.items[ref.entry_index];
 }
 
-pub fn getDrawIndex(draw_order_list: DrawOrderList, ref: DrawableRef) DrawIndex {
-    const sub_list = draw_order_list.sub_lists.items[ref.sub_list];
+pub fn getDrawIndex(draw_list: DrawList, ref: DrawableRef) DrawIndex {
+    const sub_list = draw_list.sub_lists.items[ref.sub_list];
     if (ref.entry_index == 0) {
         return sub_list.root_draw_index;
     } else {

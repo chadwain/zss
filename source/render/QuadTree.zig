@@ -10,7 +10,7 @@ const SubtreeIndex = zss.used_values.SubtreeIndex;
 const BlockSubtree = zss.used_values.BlockSubtree;
 const InlineFormattingContextIndex = zss.used_values.InlineFormattingContextIndex;
 const BoxTree = zss.used_values.BoxTree;
-const DrawOrderList = @import("./DrawOrderList.zig");
+const DrawList = @import("./DrawList.zig");
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -48,7 +48,7 @@ const PatchSpan = struct {
 };
 
 /// The objects that are stored in the QuadTree.
-pub const Object = DrawOrderList.DrawableRef;
+pub const Object = DrawList.DrawableRef;
 
 /// An object is considered "large" if its bounding box spans more than one patch.
 const LargeObject = struct {
