@@ -5,8 +5,7 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
 const Ratio = zss.util.Ratio;
-const Environment = zss.Environment;
-const Images = Environment.Images;
+const Images = zss.Images;
 const DrawOrderList = @import("./DrawOrderList.zig");
 const QuadTree = @import("./QuadTree.zig");
 const ZssUnit = zss.used_values.ZssUnit;
@@ -358,7 +357,7 @@ fn addTexturedRect(renderer: *Renderer, rect: ZssRect, tex_coords_x: [2]f32, tex
 
 pub fn drawBoxTree(
     renderer: *Renderer,
-    env: Environment,
+    images: Images.Slice,
     box_tree: BoxTree,
     draw_order_list: DrawOrderList,
     allocator: Allocator,
@@ -371,8 +370,6 @@ pub fn drawBoxTree(
 
     try renderer.beginDraw(viewport, translation, objects.len);
     defer renderer.endDraw();
-
-    const images = env.images.slice();
 
     for (objects) |object| {
         const entry = draw_order_list.getEntry(object);

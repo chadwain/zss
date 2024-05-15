@@ -20,6 +20,7 @@ pub const values = @import("values.zig");
 
 pub const Environment = @import("environment/Environment.zig");
 pub const ElementTree = @import("environment/ElementTree.zig");
+pub const Images = @import("environment/Images.zig");
 
 comptime {
     if (@import("builtin").is_test) {

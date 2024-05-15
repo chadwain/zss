@@ -143,7 +143,7 @@ pub fn background1(bg: aggregates.Background1, current_color: used_values.Color)
 }
 
 pub fn background2(
-    slice: zss.Environment.Images.Slice,
+    slice: zss.Images.Slice,
     bg: aggregates.Background2,
     box_offsets: *const used_values.BoxOffsets,
     borders: *const used_values.Borders,

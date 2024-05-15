@@ -176,7 +176,7 @@ pub const Background2 = struct {
         y: Style = .None,
     };
 
-    image: ?zss.Environment.Images.Handle = null,
+    image: ?zss.Images.Handle = null,
     position: Position = .{ .x = 0, .y = 0 },
     size: Size = .{ .w = 0, .h = 0 },
     repeat: Repeat = .{},

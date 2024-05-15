@@ -6,7 +6,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
-const Environment = zss.Environment;
+const Images = zss.Images;
 
 const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
@@ -31,7 +31,7 @@ const Context = struct {
     mode: ArrayListUnmanaged(Mode) = .{},
     containing_block_size: ArrayListUnmanaged(ZssSize) = .{},
 
-    images: Environment.Images.Slice,
+    images: Images.Slice,
 
     fn deinit(context: *Context, allocator: Allocator) void {
         context.mode.deinit(allocator);
@@ -39,7 +39,7 @@ const Context = struct {
     }
 };
 
-pub fn run(computer: *StyleComputer, box_tree: *BoxTree, env: *const Environment) !void {
+pub fn run(computer: *StyleComputer, box_tree: *BoxTree, images: Images.Slice) !void {
     anonymousBlockBoxCosmeticLayout(box_tree, .{ .subtree = initial_subtree, .index = initial_containing_block });
     // TODO: Also process any anonymous block boxes.
 
@@ -50,7 +50,7 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, env: *const Environment
     if (computer.root_element.eqlNull()) return;
 
     var context = Context{
-        .images = env.getImages(),
+        .images = images,
     };
     defer context.deinit(computer.allocator);
 

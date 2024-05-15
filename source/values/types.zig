@@ -230,7 +230,7 @@ pub const Color = union(enum) {
 };
 
 pub const BackgroundImage = union(enum) {
-    object: zss.Environment.Images.Handle,
+    object: zss.Images.Handle,
     url: Utf8String,
     none,
     initial,

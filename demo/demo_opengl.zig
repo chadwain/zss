@@ -68,8 +68,8 @@ pub fn main() !u8 {
     // TODO: Use zgl bindings that match the OpenGL version that we use
     try zgl.loadExtensions({}, getProcAddressWrapper);
 
-    var env = zss.Environment.init(allocator);
-    defer env.deinit();
+    var images = zss.Images{};
+    defer images.deinit(allocator);
 
     var zig_logo = blk: {
         const path = "demo/zig.png";
@@ -79,7 +79,7 @@ pub fn main() !u8 {
         break :blk image;
     };
     defer zig_logo.deinit();
-    const zig_logo_image: zss.Environment.Images.Image = .{
+    const zig_logo_image: zss.Images.Image = .{
         .dimensions = .{
             .width_px = @intCast(zig_logo.width),
             .height_px = @intCast(zig_logo.height),
@@ -93,12 +93,13 @@ pub fn main() !u8 {
             else => return error.Unsupported,
         },
     };
-    const zig_logo_handle = try env.addImage(zig_logo_image);
+    const zig_logo_handle = try images.addImage(allocator, zig_logo_image);
+    const images_slice = images.slice();
 
     var tree, const root = try createElements(allocator, file_name, file_contents.items, font, zig_logo_handle);
     defer tree.deinit();
 
-    var box_tree = try zss.layout.doLayout(tree.slice(), root, &env, allocator, .{ .width = width, .height = height });
+    var box_tree = try zss.layout.doLayout(tree.slice(), root, images_slice, allocator, .{ .width = width, .height = height });
     defer box_tree.deinit();
 
     var draw_list = try zss.render.DrawOrderList.create(box_tree, allocator);
@@ -113,7 +114,7 @@ pub fn main() !u8 {
 
         const units_per_pixel = zss.used_values.units_per_pixel;
         const viewport_rect = zss.used_values.ZssRect{ .x = 0, .y = 0, .w = width * units_per_pixel, .h = height * units_per_pixel };
-        try zss.render.opengl.drawBoxTree(&renderer, env, box_tree, draw_list, allocator, viewport_rect);
+        try zss.render.opengl.drawBoxTree(&renderer, images_slice, box_tree, draw_list, allocator, viewport_rect);
 
         zgl.flush();
 
@@ -153,7 +154,7 @@ fn createElements(
     file_name: []const u8,
     file_contents: []const u8,
     font: *hb.hb_font_t,
-    footer_image_handle: zss.Environment.Images.Handle,
+    footer_image_handle: zss.Images.Handle,
 ) !struct { zss.ElementTree, zss.ElementTree.Element } {
     var tree = zss.ElementTree.init(allocator);
     errdefer tree.deinit();
