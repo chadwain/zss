@@ -122,6 +122,7 @@ pub const Color = extern struct {
 
     pub const transparent = Color{ .r = 0, .g = 0, .b = 0, .a = 0 };
     pub const white = Color{ .r = 0xff, .g = 0xff, .b = 0xff, .a = 0xff };
+    pub const black = Color{ .r = 0, .g = 0, .b = 0, .a = 0xff };
 };
 
 pub const BoxOffsets = struct {
@@ -163,24 +164,24 @@ pub const Insets = ZssVector;
 
 pub const Background1 = struct {
     color: Color = Color.transparent,
-    clip: enum { Border, Padding, Content } = .Border,
+    clip: enum { border, padding, content } = .border,
 };
 
 pub const Background2 = struct {
-    pub const Origin = enum { Padding, Border, Content };
+    pub const Origin = enum { padding, border, content };
     pub const Position = ZssVector;
     pub const Size = ZssSize;
     pub const Repeat = struct {
-        pub const Style = enum { None, Repeat, Space, Round };
-        x: Style = .None,
-        y: Style = .None,
+        pub const Style = enum { none, repeat, space, round };
+        x: Style = .none,
+        y: Style = .none,
     };
 
     image: ?zss.Images.Handle = null,
     position: Position = .{ .x = 0, .y = 0 },
     size: Size = .{ .w = 0, .h = 0 },
     repeat: Repeat = .{},
-    origin: Origin = .Padding,
+    origin: Origin = .padding,
 };
 
 pub const BlockType = union(enum) {

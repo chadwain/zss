@@ -134,9 +134,9 @@ pub fn background1(bg: aggregates.Background1, current_color: used_values.Color)
     return used_values.Background1{
         .color = color(bg.color, current_color),
         .clip = switch (bg.clip) {
-            .border_box => .Border,
-            .padding_box => .Padding,
-            .content_box => .Content,
+            .border_box => .border,
+            .padding_box => .padding,
+            .content_box => .content,
             .initial, .inherit, .unset, .undeclared => unreachable,
         },
     };
@@ -179,9 +179,9 @@ pub fn background2(
     const content_width = box_offsets.content_size.w;
     const content_height = box_offsets.content_size.h;
     const positioning_area: struct { origin: used_values.Background2.Origin, width: ZssUnit, height: ZssUnit } = switch (bg.origin) {
-        .border_box => .{ .origin = .Border, .width = border_width, .height = border_height },
-        .padding_box => .{ .origin = .Padding, .width = padding_width, .height = padding_height },
-        .content_box => .{ .origin = .Content, .width = content_width, .height = content_height },
+        .border_box => .{ .origin = .border, .width = border_width, .height = border_height },
+        .padding_box => .{ .origin = .padding, .width = padding_width, .height = padding_height },
+        .content_box => .{ .origin = .content, .width = content_width, .height = content_height },
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
@@ -230,22 +230,23 @@ pub fn background2(
     const repeat: used_values.Background2.Repeat = switch (bg.repeat) {
         .repeat => |repeat| .{
             .x = switch (repeat.x) {
-                .no_repeat => .None,
-                .repeat => .Repeat,
-                .space => .Space,
-                .round => .Round,
+                .no_repeat => .none,
+                .repeat => .repeat,
+                .space => .space,
+                .round => .round,
             },
             .y = switch (repeat.y) {
-                .no_repeat => .None,
-                .repeat => .Repeat,
-                .space => .Space,
-                .round => .Round,
+                .no_repeat => .none,
+                .repeat => .repeat,
+                .space => .space,
+                .round => .round,
             },
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
-    if (width_was_auto or height_was_auto or repeat.x == .Round or repeat.y == .Round) {
+    // TODO: Needs review
+    if (width_was_auto or height_was_auto or repeat.x == .round or repeat.y == .round) {
         const divRound = zss.util.divRound;
 
         if (width_was_auto and height_was_auto) {
@@ -263,13 +264,13 @@ pub fn background2(
                 positioning_area.height;
         }
 
-        if (repeat.x == .Round and repeat.y == .Round) {
+        if (repeat.x == .round and repeat.y == .round) {
             size.w = @divFloor(positioning_area.width, @max(1, divRound(positioning_area.width, size.w)));
             size.h = @divFloor(positioning_area.height, @max(1, divRound(positioning_area.height, size.h)));
-        } else if (repeat.x == .Round) {
+        } else if (repeat.x == .round) {
             if (size.w > 0) size.w = @divFloor(positioning_area.width, @max(1, divRound(positioning_area.width, size.w)));
             if (height_was_auto and natural_size.has_aspect_ratio) size.h = @divFloor(size.w * natural_size.height, natural_size.width);
-        } else if (repeat.y == .Round) {
+        } else if (repeat.y == .round) {
             if (size.h > 0) size.h = @divFloor(positioning_area.height, @max(1, divRound(positioning_area.height, size.h)));
             if (width_was_auto and natural_size.has_aspect_ratio) size.w = @divFloor(size.h * natural_size.width, natural_size.height);
         }

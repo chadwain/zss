@@ -24,9 +24,9 @@ const ProgramState = struct {
         self.scroll(.nowhere);
     }
 
-    fn scroll(self: *ProgramState, comptime dir: enum { nowhere, up, down, page_up, page_down }) void {
+    fn scroll(self: *ProgramState, comptime direction: enum { nowhere, up, down, page_up, page_down }) void {
         const scroll_amount = 20 * zss_units_per_pixel;
-        switch (dir) {
+        switch (direction) {
             .nowhere => {},
             .up => self.current_scroll -= scroll_amount,
             .down => self.current_scroll += scroll_amount,
@@ -146,6 +146,9 @@ pub fn main() !u8 {
 
     var renderer = zss.render.opengl.Renderer.init(allocator);
     defer renderer.deinit();
+
+    try renderer.initGlyphs(font);
+    defer renderer.deinitGlyphs();
 
     while (!window.shouldClose()) {
         zgl.clearColor(0, 0, 0, 0);
