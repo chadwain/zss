@@ -59,6 +59,7 @@ pub fn main() !u8 {
     defer _ = hb.FT_Done_Face(face);
 
     const font_size = 14;
+    // TODO: Get display DPI
     _ = hb.FT_Set_Char_Size(face, 0, font_size * 64, 96, 96);
 
     const font = hb.hb_ft_font_create_referenced(face) orelse @panic("Couldn't create font!");
@@ -161,6 +162,10 @@ pub fn main() !u8 {
             .h = height * zss_units_per_pixel,
         };
         try zss.render.opengl.drawBoxTree(&renderer, images_slice, box_tree, draw_list, allocator, viewport_rect);
+
+        // zgl.clearColor(0, 0, 0, 0);
+        // zgl.clear(.{ .color = true });
+        // try renderer.showGlyphs(viewport_rect);
 
         zgl.flush();
 

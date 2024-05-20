@@ -70,7 +70,7 @@ pub const Renderer = struct {
     };
 
     const glyphs_per_row = 16;
-    const glyphs_per_column = 8;
+    const glyphs_per_column = 16;
     const max_glyphs = glyphs_per_row * glyphs_per_column;
 
     const GlyphMetrics = struct {
@@ -213,7 +213,7 @@ pub const Renderer = struct {
         };
 
         const buffer_width = max_width * glyphs_per_row;
-        const buffer_stride = buffer_width * 4;
+        const buffer_stride = buffer_width;
         const buffer_rows = max_height * glyphs_per_column;
         const buffer = try renderer.allocator.alloc(u8, buffer_stride * buffer_rows);
         defer renderer.allocator.free(buffer);
@@ -221,11 +221,15 @@ pub const Renderer = struct {
         const texture = zgl.genTexture();
         errdefer zgl.deleteTexture(texture);
         zgl.bindTexture(texture, .@"2d");
-        zgl.texParameter(.@"2d", .min_filter, .linear);
-        zgl.texParameter(.@"2d", .mag_filter, .linear);
+        zgl.texParameter(.@"2d", .min_filter, .nearest);
+        zgl.texParameter(.@"2d", .mag_filter, .nearest);
         zgl.texParameter(.@"2d", .wrap_s, .repeat);
         zgl.texParameter(.@"2d", .wrap_t, .repeat);
-        zgl.textureImage2D(.@"2d", 0, .rgba, buffer_width, buffer_rows, .rgba, .unsigned_byte, null);
+        zgl.texParameter(.@"2d", .swizzle_r, .one);
+        zgl.texParameter(.@"2d", .swizzle_g, .one);
+        zgl.texParameter(.@"2d", .swizzle_b, .one);
+        zgl.texParameter(.@"2d", .swizzle_a, .red);
+        zgl.textureImage2D(.@"2d", 0, .red, buffer_width, buffer_rows, .red, .unsigned_byte, null);
 
         var exists = [1]bool{false} ** max_glyphs;
         var metrics = [1]GlyphMetrics{undefined} ** max_glyphs;
@@ -239,17 +243,16 @@ pub const Renderer = struct {
                 const glyph_x = glyph_index % glyphs_per_row;
                 const glyph_y = glyph_index / glyphs_per_row;
 
-                const dest_index = (glyph_x * max_width * 4) + (glyph_y * max_height * buffer_stride);
+                const dest_index = (glyph_x * max_width) + (glyph_y * max_height * buffer_stride);
 
                 const src_width = bitmap.width();
                 const src_height = bitmap.rows();
                 const src_stride: u32 = @abs(bitmap.pitch());
                 for (0..src_height) |y| {
-                    for (0..src_width) |x| {
-                        const alpha = src[y * src_stride + x];
-                        const color = Color{ .r = 0xff, .g = 0xff, .b = 0xff, .a = alpha };
-                        buffer[dest_index + y * buffer_stride + x * 4 ..][0..4].* = color.toRgbaArray();
-                    }
+                    @memcpy(
+                        buffer[dest_index + y * buffer_stride ..][0..src_width],
+                        src[y * src_stride ..][0..src_width],
+                    );
                 }
 
                 exists[glyph_index] = true;
@@ -261,7 +264,7 @@ pub const Renderer = struct {
             }
         }
 
-        zgl.texSubImage2D(.@"2d", 0, 0, 0, buffer_width, buffer_rows, .rgba, .unsigned_byte, buffer.ptr);
+        zgl.texSubImage2D(.@"2d", 0, 0, 0, buffer_width, buffer_rows, .red, .unsigned_byte, buffer.ptr);
 
         renderer.glyphs = .{
             .texture = texture,
@@ -274,6 +277,24 @@ pub const Renderer = struct {
 
     pub fn deinitGlyphs(renderer: *Renderer) void {
         zgl.deleteTexture(renderer.glyphs.texture);
+    }
+
+    pub fn showGlyphs(renderer: *Renderer, viewport: ZssRect) !void {
+        try renderer.beginDraw(viewport, 1);
+        defer renderer.endDraw();
+        renderer.setMode(.textured, renderer.glyphs.texture);
+
+        var rect = ZssRect{ .x = 0, .y = 0, .w = undefined, .h = undefined };
+        const texture_width: i32 = @intCast(renderer.glyphs.max_width_px * glyphs_per_row);
+        const texture_height: i32 = @intCast(renderer.glyphs.max_height_px * glyphs_per_column);
+        if (texture_width >= texture_height) {
+            rect.w = viewport.w;
+            rect.h = @divFloor(texture_height * viewport.w, texture_width);
+        } else {
+            rect.w = @divFloor(texture_width * viewport.h, texture_height);
+            rect.h = viewport.h;
+        }
+        try renderer.addTexturedRect(rect, Color.white, .{ 0.0, 1.0 }, .{ 0.0, 1.0 });
     }
 
     const GlyphInfo = struct {
@@ -308,7 +329,7 @@ pub const Renderer = struct {
 
     fn uploadImage(renderer: *Renderer, images: Images.Slice, handle: Images.Handle) !zgl.Texture {
         const image = images.get(@intFromEnum(handle));
-        const value: zgl.Texture = switch (image.format) {
+        const texture: zgl.Texture = switch (image.format) {
             .none => .invalid,
             .rgba => blk: {
                 zgl.activeTexture(.texture_1);
@@ -326,11 +347,11 @@ pub const Renderer = struct {
                 break :blk texture;
             },
         };
-        try renderer.textures.putNoClobber(renderer.allocator, handle, value);
-        return value;
+        try renderer.textures.putNoClobber(renderer.allocator, handle, texture);
+        return texture;
     }
 
-    fn beginDraw(renderer: *Renderer, viewport: ZssRect, translation: ZssVector, num_objects: usize) !void {
+    fn beginDraw(renderer: *Renderer, viewport: ZssRect, num_objects: usize) !void {
         zgl.bindVertexArray(renderer.vao);
         zgl.bindBuffer(renderer.vb, .array_buffer);
         zgl.bindBuffer(renderer.ib, .element_array_buffer);
@@ -342,7 +363,7 @@ pub const Renderer = struct {
         const viewport_location = zgl.getUniformLocation(renderer.program, "viewport");
         zgl.uniform2i(viewport_location, viewport.w, viewport.h);
         const translation_location = zgl.getUniformLocation(renderer.program, "translation");
-        zgl.uniform2i(translation_location, translation.x, translation.y);
+        zgl.uniform2i(translation_location, -viewport.x, -viewport.y);
         renderer.setMode(.flat_color, {});
 
         // TODO: Bad approximation of initial capacity
@@ -394,79 +415,79 @@ pub const Renderer = struct {
             },
         }
     }
+
+    fn addTriangle(renderer: *Renderer, vertices: [3][2]ZssUnit, color: Color) !void {
+        const start_index: u32 = @intCast(renderer.vertices.items.len);
+        try renderer.vertices.appendSlice(renderer.allocator, &.{
+            .{ .pos = vertices[0], .color = undefined, .tex_coords = .{ 0.0, 0.0 } },
+            .{ .pos = vertices[1], .color = undefined, .tex_coords = .{ 0.0, 0.0 } },
+            .{ .pos = vertices[2], .color = color.toRgbaArray(), .tex_coords = .{ 0.0, 0.0 } },
+        });
+        const indeces_template = [3]u32{
+            0, 1, 2,
+        };
+        var indeces: [indeces_template.len]u32 = undefined;
+        for (indeces_template, &indeces) |in, *out| {
+            out.* = start_index + in;
+        }
+        try renderer.indeces.appendSlice(renderer.allocator, &indeces);
+    }
+
+    /// Vertices are expected to be in this order:
+    ///
+    /// 0              1
+    ///  ______________
+    ///  |            |
+    ///  |            |
+    ///  |            |
+    ///  ______________
+    /// 3              2
+    fn addQuadFull(renderer: *Renderer, pos: [4][2]ZssUnit, color: Color, tex_coords: [4][2]f32) !void {
+        const start_index: u32 = @intCast(renderer.vertices.items.len);
+        try renderer.vertices.appendSlice(renderer.allocator, &.{
+            .{ .pos = pos[0], .color = undefined, .tex_coords = tex_coords[0] },
+            .{ .pos = pos[1], .color = undefined, .tex_coords = tex_coords[1] },
+            .{ .pos = pos[2], .color = undefined, .tex_coords = tex_coords[2] },
+            .{ .pos = pos[3], .color = color.toRgbaArray(), .tex_coords = tex_coords[3] },
+        });
+        const indeces_template = [6]u32{
+            0, 1, 3,
+            1, 2, 3,
+        };
+        var indeces: [indeces_template.len]u32 = undefined;
+        for (indeces_template, &indeces) |in, *out| {
+            out.* = start_index + in;
+        }
+        try renderer.indeces.appendSlice(renderer.allocator, &indeces);
+    }
+
+    fn addQuad(renderer: *Renderer, vertices: [4][2]ZssUnit, color: Color) !void {
+        return renderer.addQuadFull(vertices, color, .{[2]f32{ 0.0, 0.0 }} ** 4);
+    }
+
+    fn zssRectToVertices(rect: ZssRect) [4][2]ZssUnit {
+        return .{
+            .{ rect.x, rect.y },
+            .{ rect.x + rect.w, rect.y },
+            .{ rect.x + rect.w, rect.y + rect.h },
+            .{ rect.x, rect.y + rect.h },
+        };
+    }
+
+    fn addZssRect(renderer: *Renderer, rect: ZssRect, color: Color) !void {
+        return renderer.addQuad(zssRectToVertices(rect), color);
+    }
+
+    fn addTexturedRect(renderer: *Renderer, rect: ZssRect, tint: Color, tex_coords_x: [2]f32, tex_coords_y: [2]f32) !void {
+        const tex_coords = [4][2]f32{
+            .{ tex_coords_x[0], tex_coords_y[0] },
+            .{ tex_coords_x[1], tex_coords_y[0] },
+            .{ tex_coords_x[1], tex_coords_y[1] },
+            .{ tex_coords_x[0], tex_coords_y[1] },
+        };
+        return renderer.addQuadFull(zssRectToVertices(rect), tint, tex_coords);
+    }
 };
-
-fn addTriangle(renderer: *Renderer, vertices: [3][2]ZssUnit, color: Color) !void {
-    const start_index: u32 = @intCast(renderer.vertices.items.len);
-    try renderer.vertices.appendSlice(renderer.allocator, &.{
-        .{ .pos = vertices[0], .color = undefined, .tex_coords = .{ 0.0, 0.0 } },
-        .{ .pos = vertices[1], .color = undefined, .tex_coords = .{ 0.0, 0.0 } },
-        .{ .pos = vertices[2], .color = color.toRgbaArray(), .tex_coords = .{ 0.0, 0.0 } },
-    });
-    const indeces_template = [3]u32{
-        0, 1, 2,
-    };
-    var indeces: [indeces_template.len]u32 = undefined;
-    for (indeces_template, &indeces) |in, *out| {
-        out.* = start_index + in;
-    }
-    try renderer.indeces.appendSlice(renderer.allocator, &indeces);
-}
-
-/// Vertices are expected to be in this order:
-///
-/// 0              1
-///  ______________
-///  |            |
-///  |            |
-///  |            |
-///  ______________
-/// 3              2
-fn addQuadFull(renderer: *Renderer, pos: [4][2]ZssUnit, color: Color, tex_coords: [4][2]f32) !void {
-    const start_index: u32 = @intCast(renderer.vertices.items.len);
-    try renderer.vertices.appendSlice(renderer.allocator, &.{
-        .{ .pos = pos[0], .color = undefined, .tex_coords = tex_coords[0] },
-        .{ .pos = pos[1], .color = undefined, .tex_coords = tex_coords[1] },
-        .{ .pos = pos[2], .color = undefined, .tex_coords = tex_coords[2] },
-        .{ .pos = pos[3], .color = color.toRgbaArray(), .tex_coords = tex_coords[3] },
-    });
-    const indeces_template = [6]u32{
-        0, 1, 3,
-        1, 2, 3,
-    };
-    var indeces: [indeces_template.len]u32 = undefined;
-    for (indeces_template, &indeces) |in, *out| {
-        out.* = start_index + in;
-    }
-    try renderer.indeces.appendSlice(renderer.allocator, &indeces);
-}
-
-fn addQuad(renderer: *Renderer, vertices: [4][2]ZssUnit, color: Color) !void {
-    return addQuadFull(renderer, vertices, color, .{[2]f32{ 0.0, 0.0 }} ** 4);
-}
-
-fn zssRectToVertices(rect: ZssRect) [4][2]ZssUnit {
-    return .{
-        .{ rect.x, rect.y },
-        .{ rect.x + rect.w, rect.y },
-        .{ rect.x + rect.w, rect.y + rect.h },
-        .{ rect.x, rect.y + rect.h },
-    };
-}
-
-fn addZssRect(renderer: *Renderer, rect: ZssRect, color: Color) !void {
-    return addQuad(renderer, zssRectToVertices(rect), color);
-}
-
-fn addTexturedRect(renderer: *Renderer, rect: ZssRect, tint: Color, tex_coords_x: [2]f32, tex_coords_y: [2]f32) !void {
-    const tex_coords = [4][2]f32{
-        .{ tex_coords_x[0], tex_coords_y[0] },
-        .{ tex_coords_x[1], tex_coords_y[0] },
-        .{ tex_coords_x[1], tex_coords_y[1] },
-        .{ tex_coords_x[0], tex_coords_y[1] },
-    };
-    return addQuadFull(renderer, zssRectToVertices(rect), tint, tex_coords);
-}
 
 pub fn drawBoxTree(
     renderer: *Renderer,
@@ -479,9 +500,7 @@ pub fn drawBoxTree(
     const objects = try getObjectsOnScreenInDrawOrder(draw_list, allocator, viewport);
     defer allocator.free(objects);
 
-    const translation = ZssVector{ .x = -viewport.x, .y = -viewport.y };
-
-    try renderer.beginDraw(viewport, translation, objects.len);
+    try renderer.beginDraw(viewport, objects.len);
     defer renderer.endDraw();
 
     for (objects) |object| {
@@ -590,10 +609,11 @@ fn drawBlockContainer(
                 .padding => boxes.padding,
                 .content => boxes.content,
             };
-            try addZssRect(renderer, bg_clip_rect, background1.color);
+            try renderer.addZssRect(bg_clip_rect, background1.color);
         },
     }
 
+    // draw background image
     if (background2.image) |handle| drawBgImage: {
         if (background2.size.w == 0 or background2.size.h == 0) break :drawBgImage;
 
@@ -634,10 +654,10 @@ fn drawBlockContainer(
         .{ padding.x, padding.y + padding.h },
     };
 
-    try addQuad(renderer, .{ border_vertices[0], border_vertices[1], padding_vertices[1], padding_vertices[0] }, border_colors.top);
-    try addQuad(renderer, .{ border_vertices[1], border_vertices[2], padding_vertices[2], padding_vertices[1] }, border_colors.right);
-    try addQuad(renderer, .{ border_vertices[2], border_vertices[3], padding_vertices[3], padding_vertices[2] }, border_colors.bottom);
-    try addQuad(renderer, .{ border_vertices[3], border_vertices[0], padding_vertices[0], padding_vertices[3] }, border_colors.left);
+    try renderer.addQuad(.{ border_vertices[0], border_vertices[1], padding_vertices[1], padding_vertices[0] }, border_colors.top);
+    try renderer.addQuad(.{ border_vertices[1], border_vertices[2], padding_vertices[2], padding_vertices[1] }, border_colors.right);
+    try renderer.addQuad(.{ border_vertices[2], border_vertices[3], padding_vertices[3], padding_vertices[2] }, border_colors.bottom);
+    try renderer.addQuad(.{ border_vertices[3], border_vertices[0], padding_vertices[0], padding_vertices[3] }, border_colors.left);
 }
 
 fn drawBackgroundImage(
@@ -679,8 +699,7 @@ fn drawBackgroundImage(
                 .w = tile_x.coords.max - tile_x.coords.min,
                 .h = tile_y.coords.max - tile_y.coords.min,
             };
-            try addTexturedRect(
-                renderer,
+            try renderer.addTexturedRect(
                 image_rect,
                 Color.white,
                 .{ tile_x.tex_coords.min, tile_x.tex_coords.max },
@@ -969,7 +988,7 @@ fn drawLineBox(
                 .w = @intCast(info.metrics.width_px * units_per_pixel),
                 .h = @intCast(info.metrics.height_px * units_per_pixel),
             };
-            try addTexturedRect(renderer, rect, Color.black, info.tex_coords_x, info.tex_coords_y);
+            try renderer.addTexturedRect(rect, Color.black, info.tex_coords_x, info.tex_coords_y);
         }
     }
 }
@@ -1079,7 +1098,7 @@ fn drawInlineBox(
                 if (draw_start) background_clip_rect.x += padding.left + border.left;
             },
         }
-        try addZssRect(renderer, background_clip_rect, background1.color);
+        try renderer.addZssRect(background_clip_rect, background1.color);
     }
 
     var middle_border_x = baseline_position.x;
@@ -1101,9 +1120,9 @@ fn drawInlineBox(
             .{ section_start_x, border_bottom_y },
         };
 
-        try addQuad(renderer, .{ vertices[0], vertices[2], vertices[3], vertices[5] }, border_colors.left);
-        try addTriangle(renderer, .{ vertices[0], vertices[1], vertices[2] }, border_colors.top);
-        try addTriangle(renderer, .{ vertices[3], vertices[4], vertices[5] }, border_colors.bottom);
+        try renderer.addQuad(.{ vertices[0], vertices[2], vertices[3], vertices[5] }, border_colors.left);
+        try renderer.addTriangle(.{ vertices[0], vertices[1], vertices[2] }, border_colors.top);
+        try renderer.addTriangle(.{ vertices[3], vertices[4], vertices[5] }, border_colors.bottom);
     }
 
     if (draw_end) {
@@ -1121,9 +1140,9 @@ fn drawInlineBox(
             .{ section_start_x, padding_top_y },
         };
 
-        try addQuad(renderer, .{ vertices[1], vertices[2], vertices[4], vertices[5] }, border_colors.right);
-        try addTriangle(renderer, .{ vertices[0], vertices[1], vertices[5] }, border_colors.top);
-        try addTriangle(renderer, .{ vertices[2], vertices[3], vertices[4] }, border_colors.bottom);
+        try renderer.addQuad(.{ vertices[1], vertices[2], vertices[4], vertices[5] }, border_colors.right);
+        try renderer.addTriangle(.{ vertices[0], vertices[1], vertices[5] }, border_colors.top);
+        try renderer.addTriangle(.{ vertices[2], vertices[3], vertices[4] }, border_colors.bottom);
     }
 
     {
@@ -1140,7 +1159,7 @@ fn drawInlineBox(
             .h = border.bottom,
         };
 
-        try addZssRect(renderer, top_rect, border_colors.top);
-        try addZssRect(renderer, bottom_rect, border_colors.bottom);
+        try renderer.addZssRect(top_rect, border_colors.top);
+        try renderer.addZssRect(bottom_rect, border_colors.bottom);
     }
 }
