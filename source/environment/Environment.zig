@@ -29,7 +29,6 @@ pub fn deinit(env: *Environment) void {
     env.id_or_class_names.deinit(env.allocator);
     for (env.stylesheets.items) |*stylesheet| stylesheet.deinit(env.allocator);
     env.stylesheets.deinit(env.allocator);
-    env.images.deinit(env.allocator);
 }
 
 pub fn addStylesheet(env: *Environment, source: ParserSource) !void {

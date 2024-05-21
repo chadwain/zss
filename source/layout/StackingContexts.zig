@@ -41,17 +41,17 @@ pub fn deinit(sc: *StackingContexts) void {
     sc.index.deinit(sc.allocator);
 }
 
-pub fn createRootStackingContext(box_tree: *BoxTree, block_box: BlockBox, z_index: ZIndex) !IndexAndRef {
+pub fn createRootStackingContext(box_tree: *BoxTree, block_box: BlockBox) !IndexAndRef {
     assert(box_tree.stacking_contexts.size() == 0);
     try box_tree.stacking_contexts.ensureTotalCapacity(box_tree.allocator, 1);
-    const ref = box_tree.stacking_contexts.createRootAssumeCapacity(.{ .z_index = z_index, .block_box = block_box, .ifcs = .{} });
+    const ref = box_tree.stacking_contexts.createRootAssumeCapacity(.{ .z_index = 0, .block_box = block_box, .ifcs = .{} });
     return IndexAndRef{ .index = 0, .ref = ref };
 }
 
 pub fn createStackingContext(sc: *StackingContexts, box_tree: *BoxTree, block_box: BlockBox, z_index: ZIndex) !IndexAndRef {
-    const tree = &box_tree.stacking_contexts;
-    try tree.ensureTotalCapacity(box_tree.allocator, tree.size() + 1);
-    const tree_slice = tree.list.slice();
+    const sc_tree = &box_tree.stacking_contexts;
+    try sc_tree.ensureTotalCapacity(box_tree.allocator, sc_tree.size() + 1);
+    const tree_slice = sc_tree.list.slice();
     const tree_skips = tree_slice.items(.__skip);
     const tree_z_index = tree_slice.items(.z_index);
 
@@ -66,9 +66,9 @@ pub fn createStackingContext(sc: *StackingContexts, box_tree: *BoxTree, block_bo
         tree_skips[index] += 1;
     }
 
-    const ref = tree.next_ref;
-    tree.list.insertAssumeCapacity(current, .{ .__skip = 1, .__ref = ref, .z_index = z_index, .block_box = block_box, .ifcs = .{} });
-    tree.next_ref += 1;
+    const ref = sc_tree.next_ref;
+    sc_tree.list.insertAssumeCapacity(current, .{ .__skip = 1, .__ref = ref, .z_index = z_index, .block_box = block_box, .ifcs = .{} });
+    sc_tree.next_ref += 1;
     return IndexAndRef{ .index = current, .ref = ref };
 }
 

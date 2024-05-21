@@ -454,9 +454,9 @@ pub const ZIndex = i32;
 pub const StackingContext = struct {
     /// The z-index of this stacking context.
     z_index: ZIndex,
-    /// The block box that creates this stacking context.
+    /// The block box that created this stacking context.
     block_box: BlockBox,
-    /// The list of inline formatting contexts in this stacking context.
+    /// The list of inline formatting contexts contained within this stacking context.
     ifcs: ArrayListUnmanaged(InlineFormattingContextIndex),
 };
 

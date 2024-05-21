@@ -112,16 +112,18 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
 
                 switch (computed.box_style.display) {
                     .block => {
-                        const box = try makeFlowBlock(layout, computer, box_tree, subtree_index, containing_block_width, containing_block_height);
+                        const box = try makeFlowBlock(
+                            .root,
+                            layout,
+                            computer,
+                            box_tree,
+                            sc,
+                            computed.box_style.position,
+                            subtree_index,
+                            containing_block_width,
+                            containing_block_height,
+                        );
                         try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, box);
-
-                        const z_index = computer.getSpecifiedValue(.box_gen, .z_index); // TODO: Useless info
-                        computer.setComputedValue(.box_gen, .z_index, z_index);
-                        const stacking_context = try StackingContexts.createRootStackingContext(box_tree, box.block_box, 0);
-                        try sc.pushStackingContext(.is_parent, stacking_context.index);
-                        const subtree_slice = box_tree.blocks.subtrees.items[box.block_box.subtree].slice();
-                        subtree_slice.items(.type)[box.block_box.index].block.stacking_context = stacking_context.ref;
-
                         try computer.pushElement(.box_gen);
                     },
                     .none => {},
@@ -154,36 +156,18 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
 
                 switch (computed.box_style.display) {
                     .block => {
-                        const box = try makeFlowBlock(layout, computer, box_tree, subtree_index, containing_block_width, containing_block_height);
+                        const box = try makeFlowBlock(
+                            .non_root,
+                            layout,
+                            computer,
+                            box_tree,
+                            sc,
+                            computed.box_style.position,
+                            subtree_index,
+                            containing_block_width,
+                            containing_block_height,
+                        );
                         try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, box);
-                        const subtree_slice = box_tree.blocks.subtrees.items[box.block_box.subtree].slice();
-                        const block_info = &subtree_slice.items(.type)[box.block_box.index].block;
-
-                        const specified_z_index = computer.getSpecifiedValue(.box_gen, .z_index);
-                        computer.setComputedValue(.box_gen, .z_index, specified_z_index);
-                        switch (computed.box_style.position) {
-                            .static => {
-                                try sc.pushStackingContext(.none, {});
-                                block_info.stacking_context = null;
-                            },
-                            // TODO: Position the block using the values of the 'inset' family of properties.
-                            .relative => switch (specified_z_index.z_index) {
-                                .integer => |z_index| {
-                                    const stacking_context = try sc.createStackingContext(box_tree, box.block_box, z_index);
-                                    try sc.pushStackingContext(.is_parent, stacking_context.index);
-                                    block_info.stacking_context = stacking_context.ref;
-                                },
-                                .auto => {
-                                    const stacking_context = try sc.createStackingContext(box_tree, box.block_box, 0);
-                                    try sc.pushStackingContext(.is_non_parent, stacking_context.index);
-                                    block_info.stacking_context = stacking_context.ref;
-                                },
-                                .initial, .inherit, .unset, .undeclared => unreachable,
-                            },
-                            .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(computed.box_style.position)}),
-                            .initial, .inherit, .unset, .undeclared => unreachable,
-                        }
-
                         element_ptr.* = computer.element_tree_slice.nextSibling(element);
                         try computer.pushElement(.box_gen);
                     },
@@ -295,17 +279,20 @@ fn popContainingBlock(layout: *BlockLayoutContext) void {
 }
 
 fn makeFlowBlock(
+    is_root: enum { root, non_root },
     layout: *BlockLayoutContext,
     computer: *StyleComputer,
     box_tree: *BoxTree,
+    sc: *StackingContexts,
+    position: zss.values.types.Position,
     subtree_index: BlockSubtreeIndex,
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
 ) !GeneratedBox {
     const subtree = box_tree.blocks.subtrees.items[subtree_index];
     const block = try createBlock(box_tree, subtree);
+    const block_box = BlockBox{ .subtree = subtree_index, .index = block.index };
     block.skip.* = undefined;
-    block.type.* = .{ .block = .{ .stacking_context = undefined } };
 
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     const specified_sizes = FlowBlockComputedSizes{
@@ -322,15 +309,48 @@ fn makeFlowBlock(
     flowBlockAdjustWidthAndMargins(&used_sizes, containing_block_width);
     flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
 
+    const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
+    const stacking_context = switch (is_root) {
+        .root => blk: {
+            const stacking_context = try StackingContexts.createRootStackingContext(box_tree, block_box);
+            try sc.pushStackingContext(.is_parent, stacking_context.index);
+            break :blk stacking_context.ref;
+        },
+        .non_root => switch (position) {
+            .static => blk: {
+                try sc.pushStackingContext(.none, {});
+                break :blk null;
+            },
+            // TODO: Position the block using the values of the 'inset' family of properties.
+            .relative => switch (z_index.z_index) {
+                .integer => |integer| blk: {
+                    const stacking_context = try sc.createStackingContext(box_tree, block_box, integer);
+                    try sc.pushStackingContext(.is_parent, stacking_context.index);
+                    break :blk stacking_context.ref;
+                },
+                .auto => blk: {
+                    const stacking_context = try sc.createStackingContext(box_tree, block_box, 0);
+                    try sc.pushStackingContext(.is_non_parent, stacking_context.index);
+                    break :blk stacking_context.ref;
+                },
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            },
+            .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        },
+    };
+
     computer.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
     computer.setComputedValue(.box_gen, .horizontal_edges, computed_sizes.horizontal_edges);
     computer.setComputedValue(.box_gen, .content_height, computed_sizes.content_height);
     computer.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
     computer.setComputedValue(.box_gen, .border_styles, border_styles);
+    computer.setComputedValue(.box_gen, .z_index, z_index);
 
+    block.type.* = .{ .block = .{ .stacking_context = stacking_context } };
     try pushFlowBlock(layout, subtree_index, block.index, used_sizes);
     // TODO: Returning the subtree_index is redundant
-    return GeneratedBox{ .block_box = .{ .subtree = subtree_index, .index = block.index } };
+    return GeneratedBox{ .block_box = block_box };
 }
 
 pub fn pushFlowBlock(
