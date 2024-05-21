@@ -18,6 +18,10 @@ pub fn run(tests: []const Test) !void {
 
     const stdout = std.io.getStdOut().writer();
 
+    var images = zss.Images{};
+    defer images.deinit(allocator);
+    const images_slice = images.slice();
+
     for (tests, 0..) |t, i| {
         try stdout.print("print: ({}/{}) \"{s}\" ... \n", .{ i + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
@@ -25,6 +29,7 @@ pub fn run(tests: []const Test) !void {
         var box_tree = try zss.layout.doLayout(
             t.slice,
             t.root,
+            images_slice,
             allocator,
             .{ .width = t.width, .height = t.height },
         );

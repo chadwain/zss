@@ -29,10 +29,16 @@ const BlockSubtreeIndex = used_values.SubtreeIndex;
 const initial_subtree = @as(BlockSubtreeIndex, 0);
 const BlockBoxTree = used_values.BlockBoxTree;
 const StackingContextIndex = used_values.StackingContextIndex;
+const StackingContextRef = used_values.StackingContextRef;
 const GeneratedBox = used_values.GeneratedBox;
 const BoxTree = used_values.BoxTree;
 
 const hb = @import("mach-harfbuzz").c;
+
+const IsRoot = enum {
+    root,
+    non_root,
+};
 
 const LayoutMode = enum {
     InitialContainingBlock,
@@ -186,7 +192,8 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                             containing_block_height,
                         );
                         const ifc = box_tree.ifcs.items[result.ifc_index];
-                        const line_split_result = try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, subtree, ifc, containing_block_width);
+                        const line_split_result =
+                            try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, subtree, ifc, containing_block_width);
                         ifc.parent_block = .{ .subtree = subtree_index, .index = ifc_container.index };
 
                         const skip = 1 + result.total_inline_block_skip;
@@ -279,7 +286,7 @@ fn popContainingBlock(layout: *BlockLayoutContext) void {
 }
 
 fn makeFlowBlock(
-    is_root: enum { root, non_root },
+    is_root: IsRoot,
     layout: *BlockLayoutContext,
     computer: *StyleComputer,
     box_tree: *BoxTree,
@@ -305,40 +312,19 @@ fn makeFlowBlock(
     var used_sizes: FlowBlockUsedSizes = undefined;
     try flowBlockSolveWidths(specified_sizes, containing_block_width, border_styles, &computed_sizes, &used_sizes);
     try flowBlockSolveContentHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &used_sizes);
-    try flowBlockSolveVerticalEdges(specified_sizes.vertical_edges, containing_block_width, border_styles, &computed_sizes.vertical_edges, &used_sizes);
+    try flowBlockSolveVerticalEdges(
+        specified_sizes.vertical_edges,
+        containing_block_width,
+        border_styles,
+        &computed_sizes.vertical_edges,
+        &used_sizes,
+    );
     flowBlockAdjustWidthAndMargins(&used_sizes, containing_block_width);
-    flowBlockSetData(used_sizes, block.box_offsets, block.borders, block.margins);
 
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
-    const stacking_context = switch (is_root) {
-        .root => blk: {
-            const stacking_context = try StackingContexts.createRootStackingContext(box_tree, block_box);
-            try sc.pushStackingContext(.is_parent, stacking_context.index);
-            break :blk stacking_context.ref;
-        },
-        .non_root => switch (position) {
-            .static => blk: {
-                try sc.pushStackingContext(.none, {});
-                break :blk null;
-            },
-            // TODO: Position the block using the values of the 'inset' family of properties.
-            .relative => switch (z_index.z_index) {
-                .integer => |integer| blk: {
-                    const stacking_context = try sc.createStackingContext(box_tree, block_box, integer);
-                    try sc.pushStackingContext(.is_parent, stacking_context.index);
-                    break :blk stacking_context.ref;
-                },
-                .auto => blk: {
-                    const stacking_context = try sc.createStackingContext(box_tree, block_box, 0);
-                    try sc.pushStackingContext(.is_non_parent, stacking_context.index);
-                    break :blk stacking_context.ref;
-                },
-                .initial, .inherit, .unset, .undeclared => unreachable,
-            },
-            .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),
-            .initial, .inherit, .unset, .undeclared => unreachable,
-        },
-    };
+    const stacking_context = try flowBlockCreateStackingContext(is_root, box_tree, sc, position, z_index.z_index, block_box);
+
+    flowBlockSetData(used_sizes, stacking_context, block.box_offsets, block.borders, block.margins, block.type);
 
     computer.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
     computer.setComputedValue(.box_gen, .horizontal_edges, computed_sizes.horizontal_edges);
@@ -347,9 +333,7 @@ fn makeFlowBlock(
     computer.setComputedValue(.box_gen, .border_styles, border_styles);
     computer.setComputedValue(.box_gen, .z_index, z_index);
 
-    block.type.* = .{ .block = .{ .stacking_context = stacking_context } };
     try pushFlowBlock(layout, subtree_index, block.index, used_sizes);
-    // TODO: Returning the subtree_index is redundant
     return GeneratedBox{ .block_box = block_box };
 }
 
@@ -454,7 +438,7 @@ pub const FlowBlockUsedSizes = struct {
         return if (self.isFieldAuto(field)) null else @field(self, @tagName(field) ++ "_untagged");
     }
 
-    pub fn inlineSizeAndMarginsAreNotAuto(self: FlowBlockUsedSizes) bool {
+    pub fn inlineSizeAndMarginsAreAllNotAuto(self: FlowBlockUsedSizes) bool {
         const mask = @intFromEnum(PossiblyAutoField.inline_size) |
             @intFromEnum(PossiblyAutoField.margin_inline_start) |
             @intFromEnum(PossiblyAutoField.margin_inline_end);
@@ -818,7 +802,7 @@ pub fn flowBlockSolveVerticalEdges(
 fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_width: ZssUnit) void {
     const content_margin_space = containing_block_width -
         (used.border_inline_start + used.border_inline_end + used.padding_inline_start + used.padding_inline_end);
-    if (used.inlineSizeAndMarginsAreNotAuto()) {
+    if (used.inlineSizeAndMarginsAreAllNotAuto()) {
         // None of the values were auto, so one of the margins must be set according to the other values.
         // TODO the margin that gets set is determined by the 'direction' property
         used.set(.margin_inline_end, content_margin_space - used.inline_size_untagged - used.margin_inline_start_untagged);
@@ -841,11 +825,52 @@ fn flowBlockAdjustWidthAndMargins(used: *FlowBlockUsedSizes, containing_block_wi
     }
 }
 
+fn flowBlockCreateStackingContext(
+    is_root: IsRoot,
+    box_tree: *BoxTree,
+    sc: *StackingContexts,
+    position: zss.values.types.Position,
+    z_index: zss.values.types.ZIndex,
+    block_box: BlockBox,
+) !?StackingContextRef {
+    switch (is_root) {
+        .root => {
+            const stacking_context = try StackingContexts.createRootStackingContext(box_tree, block_box);
+            try sc.pushStackingContext(.is_parent, stacking_context.index);
+            return stacking_context.ref;
+        },
+        .non_root => switch (position) {
+            .static => {
+                try sc.pushStackingContext(.none, {});
+                return null;
+            },
+            // TODO: Position the block using the values of the 'inset' family of properties.
+            .relative => switch (z_index) {
+                .integer => |integer| {
+                    const stacking_context = try sc.createStackingContext(box_tree, block_box, integer);
+                    try sc.pushStackingContext(.is_parent, stacking_context.index);
+                    return stacking_context.ref;
+                },
+                .auto => {
+                    const stacking_context = try sc.createStackingContext(box_tree, block_box, 0);
+                    try sc.pushStackingContext(.is_non_parent, stacking_context.index);
+                    return stacking_context.ref;
+                },
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            },
+            .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        },
+    }
+}
+
 pub fn flowBlockSetData(
     used: FlowBlockUsedSizes,
+    stacking_context: ?StackingContextRef,
     box_offsets: *used_values.BoxOffsets,
     borders: *used_values.Borders,
     margins: *used_values.Margins,
+    @"type": *used_values.BlockType,
 ) void {
     // horizontal
     box_offsets.border_pos.x = used.get(.margin_inline_start).?;
@@ -862,6 +887,7 @@ pub fn flowBlockSetData(
     // vertical
     box_offsets.border_pos.y = used.margin_block_start;
     box_offsets.content_pos.y = used.border_block_start + used.padding_block_start;
+    box_offsets.content_size.h = undefined;
     box_offsets.border_size.h = box_offsets.content_pos.y + used.padding_block_end + used.border_block_end;
 
     borders.top = used.border_block_start;
@@ -869,10 +895,15 @@ pub fn flowBlockSetData(
 
     margins.top = used.margin_block_start;
     margins.bottom = used.margin_block_end;
+
+    @"type".* = .{ .block = .{ .stacking_context = stacking_context } };
 }
 
 pub fn flowBlockFinishLayout(box_offsets: *used_values.BoxOffsets, heights: UsedContentHeight, auto_height: ZssUnit) void {
-    const used_height = heights.height orelse solve.clampSize(auto_height, heights.min_height, heights.max_height);
+    const used_height = if (heights.height) |h| blk: {
+        assert(solve.clampSize(h, heights.min_height, heights.max_height) == h);
+        break :blk h;
+    } else solve.clampSize(auto_height, heights.min_height, heights.max_height);
     box_offsets.content_size.h = used_height;
     box_offsets.border_size.h += used_height;
 }

@@ -1,6 +1,6 @@
 const zss = @import("zss");
 const BoxTree = zss.used_values.BoxTree;
-const DrawOrderList = zss.render.DrawOrderList;
+const DrawList = zss.render.DrawList;
 const r = zss.render.sdl;
 
 const std = @import("std");
@@ -43,11 +43,15 @@ pub fn run(tests: []const Test) !void {
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
+    var images = zss.Images{};
+    defer images.deinit(allocator);
+    const images_slice = images.slice();
+
     for (tests, 0..) |t, i| {
         try stdout.print("sdl: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
 
-        var box_tree = try zss.layout.doLayout(t.slice, t.root, allocator, .{ .width = t.width, .height = t.height });
+        var box_tree = try zss.layout.doLayout(t.slice, t.root, images_slice, allocator, .{ .width = t.width, .height = t.height });
         defer box_tree.deinit();
 
         var root_sizes: struct { width: i32, height: i32 } = undefined;
@@ -79,7 +83,7 @@ pub fn run(tests: []const Test) !void {
         defer if (maybe_atlas) |*atlas| atlas.deinit(allocator);
         const atlas_ptr = if (maybe_atlas) |*atlas| atlas else null;
 
-        var draw_order_list = try DrawOrderList.create(box_tree, allocator);
+        var draw_order_list = try DrawList.create(box_tree, allocator);
         defer draw_order_list.deinit(allocator);
 
         const surface = try drawToSurface(
@@ -114,7 +118,7 @@ fn drawToSurface(
     renderer: *sdl.SDL_Renderer,
     pixel_format: *sdl.SDL_PixelFormat,
     glyph_atlas: ?*r.GlyphAtlas,
-    draw_order_list: DrawOrderList,
+    draw_order_list: DrawList,
 ) !*sdl.SDL_Surface {
     const surface = sdl.SDL_CreateRGBSurface(0, width, height, 32, 0, 0, 0, 0);
     errdefer sdl.SDL_FreeSurface(surface);

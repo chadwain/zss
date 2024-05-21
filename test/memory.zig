@@ -15,12 +15,16 @@ pub fn run(tests: []const Test) !void {
 
     const stdout = std.io.getStdOut().writer();
 
+    var images = zss.Images{};
+    defer images.deinit(allocator);
+    const images_slice = images.slice();
+
     for (tests, 0..) |t, i| {
         try stdout.print("memory safety: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
 
         const viewport_size = ViewportSize{ .width = t.width, .height = t.height };
-        try std.testing.checkAllAllocationFailures(allocator, testFn, .{ t.slice, t.root, viewport_size });
+        try std.testing.checkAllAllocationFailures(allocator, testFn, .{ t.slice, t.root, images_slice, viewport_size });
 
         try stdout.writeAll("success");
     }
@@ -32,8 +36,9 @@ fn testFn(
     allocator: std.mem.Allocator,
     element_tree_slice: ElementTree.Slice,
     root: Element,
+    images: zss.Images.Slice,
     viewport_size: ViewportSize,
 ) !void {
-    var box_tree = try zss.layout.doLayout(element_tree_slice, root, allocator, viewport_size);
+    var box_tree = try zss.layout.doLayout(element_tree_slice, root, images, allocator, viewport_size);
     defer box_tree.deinit();
 }
