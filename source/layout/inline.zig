@@ -92,7 +92,7 @@ pub fn makeInlineFormattingContext(
         break :ifc result;
     };
 
-    const sc_ifcs = &box_tree.stacking_contexts.list.items(.ifcs)[sc.current];
+    const sc_ifcs = &box_tree.stacking_contexts.list.items(.ifcs)[sc.current_index];
     try sc_ifcs.append(box_tree.allocator, ifc_index);
 
     const percentage_base_unit: ZssUnit = switch (mode) {
@@ -259,7 +259,7 @@ fn ifcRunOnce(
                 var normal_layout = normal.BlockLayoutContext{ .allocator = layout.allocator };
                 defer normal_layout.deinit();
                 try normal.pushContainingBlock(&normal_layout, layout.containing_block_width, layout.containing_block_height);
-                try normal.pushFlowBlock(&normal_layout, layout.subtree_index, block.index, used_sizes);
+                try normal.pushFlowBlock(&normal_layout, sc, layout.subtree_index, block.index, used_sizes, stacking_context);
                 // TODO: Recursive call here
                 try normal.mainLoop(&normal_layout, sc, computer, box_tree);
             } else {
@@ -271,6 +271,7 @@ fn ifcRunOnce(
 
                 var stf_layout = try stf.ShrinkToFitLayoutContext.initFlow(
                     layout.allocator,
+                    sc,
                     element,
                     block_box,
                     used_sizes,
@@ -278,9 +279,7 @@ fn ifcRunOnce(
                     available_width,
                 );
                 defer stf_layout.deinit();
-
-                // TODO: Recursive call here
-                try stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree);
+                try stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree); // TODO: Recursive call here
             }
 
             layout.result.total_inline_block_skip += box_tree.blocks.subtrees.items[block_box.subtree].slice().items(.skip)[block_box.index];
@@ -966,28 +965,16 @@ fn inlineBlockCreateStackingContext(
     sc: *StackingContexts,
     position: zss.values.types.Position,
     block_box: BlockBox,
-) !StackingContextRef {
+) !StackingContexts.Info {
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
     computer.setComputedValue(.box_gen, .z_index, z_index);
 
     switch (position) {
-        .static => {
-            const stacking_context = try sc.createStackingContext(box_tree, block_box, 0);
-            try sc.pushStackingContext(.is_non_parent, stacking_context.index);
-            return stacking_context.ref;
-        },
+        .static => return sc.createStackingContext(.is_non_parent, box_tree, block_box, 0),
         // TODO: Position the block using the values of the 'inset' family of properties.
         .relative => switch (z_index.z_index) {
-            .integer => |integer| {
-                const stacking_context = try sc.createStackingContext(box_tree, block_box, integer);
-                try sc.pushStackingContext(.is_parent, stacking_context.index);
-                return stacking_context.ref;
-            },
-            .auto => {
-                const stacking_context = try sc.createStackingContext(box_tree, block_box, 0);
-                try sc.pushStackingContext(.is_non_parent, stacking_context.index);
-                return stacking_context.ref;
-            },
+            .integer => |integer| return sc.createStackingContext(.is_parent, box_tree, block_box, integer),
+            .auto => return sc.createStackingContext(.is_non_parent, box_tree, block_box, 0),
             .initial, .inherit, .unset, .undeclared => unreachable,
         },
         .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),

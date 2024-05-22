@@ -15,20 +15,26 @@ const ZIndex = used_values.ZIndex;
 
 tag: ArrayListUnmanaged(Tag) = .{},
 index: ArrayListUnmanaged(StackingContextIndex) = .{},
-current: StackingContextIndex = undefined,
+ref: ArrayListUnmanaged(StackingContextRef) = .{},
+current_index: StackingContextIndex = undefined,
 allocator: Allocator,
 
 pub const Tag = enum {
+    /// Represents no stacking context.
     none,
+    /// Represents a stacking context that can have child stacking contexts.
     is_parent,
+    /// Represents a stacking context that cannot have child stacking contexts.
+    /// When one tries to create new stacking context as a child of one of these ones, it instead becomes its sibling.
+    /// This type of stacking context is created by, for example, static-positioned inline-blocks, or
+    /// relative-positioned blocks with a z-index that is not 'auto'.
     is_non_parent,
+};
 
-    fn Value(comptime tag: Tag) type {
-        return switch (tag) {
-            .none => void,
-            .is_parent, .is_non_parent => StackingContextIndex,
-        };
-    }
+pub const Info = union(Tag) {
+    none,
+    is_parent: IndexAndRef,
+    is_non_parent: IndexAndRef,
 };
 
 pub const IndexAndRef = struct {
@@ -39,16 +45,27 @@ pub const IndexAndRef = struct {
 pub fn deinit(sc: *StackingContexts) void {
     sc.tag.deinit(sc.allocator);
     sc.index.deinit(sc.allocator);
+    sc.ref.deinit(sc.allocator);
 }
 
-pub fn createRootStackingContext(box_tree: *BoxTree, block_box: BlockBox) !IndexAndRef {
+pub fn createRootStackingContext(box_tree: *BoxTree, block_box: BlockBox) !Info {
     assert(box_tree.stacking_contexts.size() == 0);
     try box_tree.stacking_contexts.ensureTotalCapacity(box_tree.allocator, 1);
     const ref = box_tree.stacking_contexts.createRootAssumeCapacity(.{ .z_index = 0, .block_box = block_box, .ifcs = .{} });
-    return IndexAndRef{ .index = 0, .ref = ref };
+    return .{ .is_parent = .{ .index = 0, .ref = ref } };
 }
 
-pub fn createStackingContext(sc: *StackingContexts, box_tree: *BoxTree, block_box: BlockBox, z_index: ZIndex) !IndexAndRef {
+pub fn createStackingContext(sc: *StackingContexts, comptime tag: Tag, box_tree: *BoxTree, block_box: BlockBox, z_index: ZIndex) !Info {
+    switch (tag) {
+        .none => @compileError("nope"),
+        .is_parent, .is_non_parent => {
+            const index_and_ref = try createStackingContextImpl(sc, box_tree, block_box, z_index);
+            return @unionInit(Info, @tagName(tag), index_and_ref);
+        },
+    }
+}
+
+fn createStackingContextImpl(sc: *StackingContexts, box_tree: *BoxTree, block_box: BlockBox, z_index: ZIndex) !IndexAndRef {
     const sc_tree = &box_tree.stacking_contexts;
     try sc_tree.ensureTotalCapacity(box_tree.allocator, sc_tree.size() + 1);
     const tree_slice = sc_tree.list.slice();
@@ -69,18 +86,19 @@ pub fn createStackingContext(sc: *StackingContexts, box_tree: *BoxTree, block_bo
     const ref = sc_tree.next_ref;
     sc_tree.list.insertAssumeCapacity(current, .{ .__skip = 1, .__ref = ref, .z_index = z_index, .block_box = block_box, .ifcs = .{} });
     sc_tree.next_ref += 1;
-    return IndexAndRef{ .index = current, .ref = ref };
+    return .{ .index = current, .ref = ref };
 }
 
-pub fn pushStackingContext(sc: *StackingContexts, comptime tag: Tag, value: tag.Value()) !void {
-    try sc.tag.append(sc.allocator, tag);
-    switch (tag) {
+pub fn pushStackingContext(sc: *StackingContexts, info: Info) !void {
+    try sc.tag.append(sc.allocator, info);
+    switch (info) {
         .none => {},
-        .is_parent => {
-            sc.current = value;
-            try sc.index.append(sc.allocator, value);
+        .is_parent => |i| {
+            sc.current_index = i.index;
+            try sc.index.append(sc.allocator, i.index);
+            try sc.ref.append(sc.allocator, i.ref);
         },
-        .is_non_parent => sc.current = value,
+        .is_non_parent => |i| sc.current_index = i.index,
     }
 }
 
@@ -90,27 +108,23 @@ pub fn popStackingContext(sc: *StackingContexts) void {
         .none => {},
         .is_parent => {
             _ = sc.index.pop();
+            _ = sc.ref.pop();
             if (sc.tag.items.len > 0) {
-                sc.current = sc.index.items[sc.index.items.len - 1];
+                sc.current_index = sc.index.items[sc.index.items.len - 1];
             } else {
-                sc.current = undefined;
+                sc.current_index = undefined;
             }
         },
         .is_non_parent => {
-            sc.current = sc.index.items[sc.index.items.len - 1];
+            sc.current_index = sc.index.items[sc.index.items.len - 1];
         },
     }
-}
-
-pub fn fixupStackingContextIndex(box_tree: *BoxTree, index: StackingContextIndex, block_box: BlockBox) void {
-    const tree = &box_tree.stacking_contexts;
-    const block_boxes = tree.list.items(.block_box);
-    block_boxes[index] = block_box;
 }
 
 pub fn fixupStackingContextRef(box_tree: *BoxTree, ref: StackingContextRef, block_box: BlockBox) void {
     const tree = &box_tree.stacking_contexts;
     const refs = tree.list.items(.__ref);
     const index = @as(StackingContextIndex, @intCast(std.mem.indexOfScalar(StackingContextRef, refs, ref).?));
-    fixupStackingContextIndex(box_tree, index, block_box);
+    const block_boxes = tree.list.items(.block_box);
+    block_boxes[index] = block_box;
 }
