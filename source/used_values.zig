@@ -186,7 +186,7 @@ pub const Background2 = struct {
 
 pub const BlockType = union(enum) {
     block: struct {
-        stacking_context: ?StackingContextRef,
+        stacking_context: ?StackingContext.Id,
     },
     ifc_container: InlineFormattingContextIndex,
     subtree_proxy: SubtreeIndex,
@@ -447,11 +447,16 @@ pub const InlineFormattingContext = struct {
     }
 };
 
-pub const StackingContextIndex = u16;
-pub const StackingContextRef = u17;
 pub const ZIndex = i32;
 
 pub const StackingContext = struct {
+    pub const Index = u16;
+    pub const Skip = Index;
+    pub const Id = u16;
+
+    skip: Skip,
+    /// A unique identifier.
+    id: Id,
     /// The z-index of this stacking context.
     z_index: ZIndex,
     /// The block box that created this stacking context.
@@ -460,7 +465,7 @@ pub const StackingContext = struct {
     ifcs: ArrayListUnmanaged(InlineFormattingContextIndex),
 };
 
-pub const StackingContextTree = ReferencedSkipTree(StackingContextIndex, StackingContextRef, StackingContext);
+pub const StackingContextTree = MultiArrayList(StackingContext);
 
 /// The type of box(es) that an element generates.
 pub const GeneratedBox = union(enum) {
@@ -489,7 +494,7 @@ pub const BoxTree = struct {
             self.allocator.destroy(ifc);
         }
         self.ifcs.deinit(self.allocator);
-        for (self.stacking_contexts.list.items(.ifcs)) |*ifc_list| {
+        for (self.stacking_contexts.items(.ifcs)) |*ifc_list| {
             ifc_list.deinit(self.allocator);
         }
         self.stacking_contexts.deinit(self.allocator);

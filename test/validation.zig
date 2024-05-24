@@ -67,30 +67,28 @@ fn validateInline(inl: *used.InlineFormattingContext) !void {
 
 fn validateStackingContexts(box_tree: *zss.used_values.BoxTree) !void {
     @setRuntimeSafety(true);
-    const StackingContextTree = used.StackingContextTree;
+    const Index = used.StackingContext.Index;
     const ZIndex = used.ZIndex;
 
-    const root_iterator = box_tree.stacking_contexts.iterator();
-    if (root_iterator.empty()) return;
+    const slice = box_tree.stacking_contexts.slice();
+    if (slice.len == 0) return;
+    const skips = slice.items(.skip);
+    const z_indeces = slice.items(.z_index);
 
-    const slice = box_tree.stacking_contexts.list.slice();
-    const skips = slice.items(.__skip);
-    const z_index = slice.items(.z_index);
-    try expect(z_index[root_iterator.index] == 0);
-
-    var stack = std.ArrayList(StackingContextTree.Iterator).init(allocator);
+    var stack = std.ArrayList(struct { current: Index, end: Index }).init(allocator);
     defer stack.deinit();
 
-    stack.append(root_iterator) catch unreachable;
+    try expect(z_indeces[0] == 0);
+    stack.append(.{ .current = 0, .end = skips[0] }) catch unreachable;
     while (stack.items.len > 0) {
         const parent = stack.pop();
-        var child = parent.firstChild(skips);
-        var previous: ZIndex = std.math.minInt(ZIndex);
-        while (!child.empty()) : (child = child.nextSibling(skips)) {
-            const current = z_index[child.index];
-            try expect(previous <= current);
-            previous = current;
-            stack.append(child) catch unreachable;
+        var child = parent.current + 1;
+        var previous_z_index: ZIndex = std.math.minInt(ZIndex);
+        while (child < parent.end) : (child += skips[child]) {
+            const z_index = z_indeces[child];
+            try expect(previous_z_index <= z_index);
+            previous_z_index = z_index;
+            stack.append(.{ .current = child, .end = child + skips[child] }) catch unreachable;
         }
     }
 }

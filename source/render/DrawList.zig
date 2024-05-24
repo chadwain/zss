@@ -18,7 +18,8 @@ const initial_containing_block = used_values.initial_containing_block;
 const BlockSubtree = used_values.BlockSubtree;
 const BlockSubtreeIndex = used_values.SubtreeIndex;
 const InlineFormattingContextIndex = used_values.InlineFormattingContextIndex;
-const StackingContextIndex = used_values.StackingContextIndex;
+const StackingContextIndex = used_values.StackingContext.Index;
+const StackingContextId = used_values.StackingContext.Id;
 const StackingContextTree = used_values.StackingContextTree;
 const BoxTree = used_values.BoxTree;
 const QuadTree = @import("./QuadTree.zig");
@@ -203,7 +204,7 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawList {
             );
         }
 
-        const slice = box_tree.stacking_contexts.list.slice();
+        const slice = box_tree.stacking_contexts.slice();
         if (slice.len > 0) {
             // Add the root stacking context to the draw order list
             try allocateSubList(&builder, &draw_list, allocator, root_sub_list, 0);
@@ -299,13 +300,13 @@ fn populateSubList(
     description: SubList.Description,
     allocator: Allocator,
     box_tree: BoxTree,
-    slice: StackingContextTree.List.Slice,
+    slice: StackingContextTree.Slice,
 ) !void {
     const stacking_context = description.stacking_context;
 
     {
         // Allocate sub-lists for child stacking contexts
-        const skips = slice.items(.__skip);
+        const skips = slice.items(.skip);
         const z_indeces = slice.items(.z_index);
         var child_stacking_context = stacking_context + 1;
         const end = stacking_context + skips[stacking_context];
@@ -379,8 +380,9 @@ fn populateSubList(
                 const block_type = subtree_slice.items(.type)[block_index];
                 switch (block_type) {
                     .block => |block_info| {
-                        if (block_info.stacking_context) |child_stacking_context_ref| {
-                            const child_stacking_context = StackingContextTree.refToIndex(slice, child_stacking_context_ref);
+                        if (block_info.stacking_context) |child_stacking_context_id| {
+                            const child_stacking_context: StackingContextIndex =
+                                @intCast(std.mem.indexOfScalar(StackingContextId, slice.items(.id), child_stacking_context_id).?);
                             try builder.makeSublistReady(allocator, child_stacking_context, vector);
 
                             last.begin += block_skip;

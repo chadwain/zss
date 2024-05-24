@@ -163,6 +163,7 @@ pub const ShrinkToFitLayoutContext = struct {
 
     pub fn initFlow(
         allocator: Allocator,
+        box_tree: *BoxTree,
         sc: *StackingContexts,
         element: Element,
         root_block_box: BlockBox,
@@ -178,7 +179,7 @@ pub const ShrinkToFitLayoutContext = struct {
         const data_ptr = result.objects.getData(.flow_stf, data_index);
         data_ptr.* = .{ .used = used_sizes, .stacking_context_info = stacking_context_info };
         try result.object_stack.append(result.allocator, .{ .index = 0, .skip = 1, .data_index = data_index });
-        try pushFlowBlock(&result, sc, used_sizes, available_width, stacking_context_info);
+        try pushFlowBlock(&result, box_tree, sc, used_sizes, available_width, stacking_context_info);
         return result;
     }
 
@@ -273,20 +274,20 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
                                 switch (stacking_context) {
                                     .none => {},
-                                    .is_parent, .is_non_parent => |info| StackingContexts.fixupStackingContextRef(box_tree, info.ref, generated_box.block_box),
+                                    .is_parent, .is_non_parent => |id| StackingContexts.fixupStackingContext(box_tree, id, generated_box.block_box),
                                 }
 
                                 var new_block_layout = BlockLayoutContext{ .allocator = layout.allocator };
                                 defer new_block_layout.deinit();
                                 try normal.pushContainingBlock(&new_block_layout, 0, containing_block_height);
-                                try normal.pushFlowBlock(&new_block_layout, sc, data.subtree_index, new_subtree_block.index, used, stacking_context);
+                                try normal.pushFlowBlock(&new_block_layout, box_tree, sc, data.subtree_index, new_subtree_block.index, used, stacking_context);
 
                                 // TODO: Recursive call here
                                 try normal.mainLoop(&new_block_layout, sc, computer, box_tree);
                             } else {
                                 const parent_available_width = layout.widths.items(.available)[layout.widths.len - 1];
                                 const available_width = solve.clampSize(parent_available_width - edge_width, used.min_inline_size, used.max_inline_size);
-                                try pushFlowBlock(layout, sc, used, available_width, stacking_context);
+                                try pushFlowBlock(layout, box_tree, sc, used, available_width, stacking_context);
 
                                 const data_index = try layout.objects.allocData(layout.allocator, .flow_stf);
                                 const data = layout.objects.getData(.flow_stf, data_index);
@@ -343,7 +344,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                     const object_info = layout.object_stack.pop();
                     layout.objects.tree.items(.skip)[object_info.index] = object_info.skip;
 
-                    const block_info = popFlowBlock(layout, sc);
+                    const block_info = popFlowBlock(layout, box_tree, sc);
                     const data = layout.objects.getData(.flow_stf, object_info.data_index);
 
                     const used = &data.used;
@@ -471,7 +472,7 @@ fn createObjects(
 
                         switch (data.stacking_context_info) {
                             .none => {},
-                            .is_parent, .is_non_parent => |info| StackingContexts.fixupStackingContextRef(box_tree, info.ref, generated_box.block_box),
+                            .is_parent, .is_non_parent => |id| StackingContexts.fixupStackingContext(box_tree, id, generated_box.block_box),
                         }
 
                         try layout.objects.append(allocator, .{ .tag = .flow_stf, .interval = .{ .begin = index + 1, .end = index + skip }, .data_index = data_index });
@@ -592,6 +593,7 @@ fn solveFlowBlockSizes(
 
 fn pushFlowBlock(
     layout: *ShrinkToFitLayoutContext,
+    box_tree: *BoxTree,
     sc: *StackingContexts,
     used_sizes: FlowBlockUsedSizes,
     available_width: ZssUnit,
@@ -600,13 +602,13 @@ fn pushFlowBlock(
     // The allocations here must have corresponding deallocations in popFlowBlock.
     try layout.widths.append(layout.allocator, .{ .auto = 0, .available = available_width });
     try layout.heights.append(layout.allocator, used_sizes.get(.block_size));
-    try sc.pushStackingContext(stacking_context);
+    try sc.pushStackingContext(box_tree, stacking_context);
 }
 
-fn popFlowBlock(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts) struct { auto_width: ZssUnit } {
+fn popFlowBlock(layout: *ShrinkToFitLayoutContext, box_tree: *BoxTree, sc: *StackingContexts) struct { auto_width: ZssUnit } {
     // The deallocations here must correspond to allocations in pushFlowBlock.
     _ = layout.heights.pop();
-    sc.popStackingContext();
+    sc.popStackingContext(box_tree);
     return .{
         .auto_width = layout.widths.pop().auto,
     };
@@ -854,7 +856,7 @@ fn flowBlockSetData(
     @"type".* = .{ .block = .{
         .stacking_context = switch (stacking_context) {
             .none => null,
-            .is_parent, .is_non_parent => |info| info.ref,
+            .is_parent, .is_non_parent => |id| id,
         },
     } };
 }

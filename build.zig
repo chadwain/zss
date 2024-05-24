@@ -18,7 +18,7 @@ const Modules = struct {
     zss: *Module,
     mach_glfw: *Module,
     mach_harfbuzz: *Module,
-    sdl2: *Module,
+    // sdl2: *Module,
     zgl: *Module,
     zigimg: *Module,
 };
@@ -32,20 +32,20 @@ fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules
     });
     mods.mach_harfbuzz = mach_freetype_dep.module("mach-harfbuzz");
 
-    mods.sdl2 = b.createModule(.{
-        .root_source_file = .{ .path = "dependencies/SDL2.zig" },
-        .target = target,
-    });
-    mods.sdl2.linkSystemLibrary("SDL2", .{});
-    if (target.result.os.tag == .windows) {
-        mods.sdl2.linkSystemLibrary("gdi32", .{});
-        mods.sdl2.linkSystemLibrary("imm32", .{});
-        mods.sdl2.linkSystemLibrary("ole32", .{});
-        mods.sdl2.linkSystemLibrary("oleaut32", .{});
-        mods.sdl2.linkSystemLibrary("setupapi", .{});
-        mods.sdl2.linkSystemLibrary("version", .{});
-        mods.sdl2.linkSystemLibrary("winmm", .{});
-    }
+    // mods.sdl2 = b.createModule(.{
+    //     .root_source_file = .{ .path = "dependencies/SDL2.zig" },
+    //     .target = target,
+    // });
+    // mods.sdl2.linkSystemLibrary("SDL2", .{});
+    // if (target.result.os.tag == .windows) {
+    //     mods.sdl2.linkSystemLibrary("gdi32", .{});
+    //     mods.sdl2.linkSystemLibrary("imm32", .{});
+    //     mods.sdl2.linkSystemLibrary("ole32", .{});
+    //     mods.sdl2.linkSystemLibrary("oleaut32", .{});
+    //     mods.sdl2.linkSystemLibrary("setupapi", .{});
+    //     mods.sdl2.linkSystemLibrary("version", .{});
+    //     mods.sdl2.linkSystemLibrary("winmm", .{});
+    // }
 
     const zgl_dep = b.dependency("zgl", .{});
     mods.zgl = zgl_dep.module("zgl");
@@ -66,7 +66,7 @@ fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules
             .{ .name = "mach-glfw", .module = mods.mach_glfw },
             // TODO: Only import SDL2 if necessary
             // TODO: Only import zgl if necessary
-            .{ .name = "SDL2", .module = mods.sdl2 },
+            // .{ .name = "SDL2", .module = mods.sdl2 },
             .{ .name = "zgl", .module = mods.zgl },
         },
         .target = target,
@@ -102,7 +102,7 @@ fn addTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Mod
     });
     test_suite.root_module.addImport("zss", mods.zss);
     test_suite.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
-    test_suite.root_module.addImport("SDL2", mods.sdl2);
+    // test_suite.root_module.addImport("SDL2", mods.sdl2);
     b.installArtifact(test_suite);
 
     const test_category_filter = b.option([]const []const u8, "tests", "List of test categories to run");
@@ -122,22 +122,22 @@ fn addTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Mod
 }
 
 fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) void {
-    const demo = b.addExecutable(.{
-        .name = "demo",
-        .root_source_file = .{ .path = "demo/demo.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-    demo.root_module.addImport("zss", mods.zss);
-    demo.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
-    demo.root_module.addImport("SDL2", mods.sdl2);
-    demo.linkSystemLibrary("SDL2_image");
-    b.installArtifact(demo);
+    // const demo = b.addExecutable(.{
+    //     .name = "demo",
+    //     .root_source_file = .{ .path = "demo/demo.zig" },
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
+    // demo.root_module.addImport("zss", mods.zss);
+    // demo.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
+    // demo.root_module.addImport("SDL2", mods.sdl2);
+    // demo.linkSystemLibrary("SDL2_image");
+    // b.installArtifact(demo);
 
-    const demo_step = b.step("demo", "Run a graphical demo program");
-    const run_demo = b.addRunArtifact(demo);
-    demo_step.dependOn(&run_demo.step);
-    if (b.args) |args| run_demo.addArgs(args);
+    // const demo_step = b.step("demo", "Run a graphical demo program");
+    // const run_demo = b.addRunArtifact(demo);
+    // demo_step.dependOn(&run_demo.step);
+    // if (b.args) |args| run_demo.addArgs(args);
 
     const demo_opengl = b.addExecutable(.{
         .name = "demo-opengl",

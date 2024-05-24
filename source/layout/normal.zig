@@ -332,12 +332,13 @@ fn makeFlowBlock(
     computer.setComputedValue(.box_gen, .border_styles, border_styles);
     computer.setComputedValue(.box_gen, .z_index, z_index);
 
-    try pushFlowBlock(layout, sc, subtree_index, block.index, used_sizes, stacking_context);
+    try pushFlowBlock(layout, box_tree, sc, subtree_index, block.index, used_sizes, stacking_context);
     return GeneratedBox{ .block_box = block_box };
 }
 
 pub fn pushFlowBlock(
     layout: *BlockLayoutContext,
+    box_tree: *BoxTree,
     sc: *StackingContexts,
     subtree_index: BlockSubtreeIndex,
     block_box_index: BlockBoxIndex,
@@ -352,7 +353,7 @@ pub fn pushFlowBlock(
     try layout.width.append(layout.allocator, used_sizes.get(.inline_size).?);
     try layout.auto_height.append(layout.allocator, 0);
     try layout.heights.append(layout.allocator, used_sizes.getUsedContentHeight());
-    try sc.pushStackingContext(stacking_context);
+    try sc.pushStackingContext(box_tree, stacking_context);
 }
 
 fn popFlowBlock(layout: *BlockLayoutContext, sc: *StackingContexts, box_tree: *BoxTree) void {
@@ -364,7 +365,7 @@ fn popFlowBlock(layout: *BlockLayoutContext, sc: *StackingContexts, box_tree: *B
     const width = layout.width.pop();
     const auto_height = layout.auto_height.pop();
     const heights = layout.heights.pop();
-    sc.popStackingContext();
+    sc.popStackingContext(box_tree);
 
     const subtree_slice = box_tree.blocks.subtrees.items[subtree_index].slice();
     subtree_slice.items(.skip)[block_box_index] = skip;
@@ -837,7 +838,7 @@ fn flowBlockCreateStackingContext(
     block_box: BlockBox,
 ) !StackingContexts.Info {
     switch (is_root) {
-        .root => return StackingContexts.createRootStackingContext(box_tree, block_box),
+        .root => return sc.createRootStackingContext(box_tree, block_box),
         .non_root => switch (position) {
             .static => return .none,
             // TODO: Position the block using the values of the 'inset' family of properties.
@@ -887,7 +888,7 @@ pub fn flowBlockSetData(
     @"type".* = .{ .block = .{
         .stacking_context = switch (stacking_context) {
             .none => null,
-            .is_parent, .is_non_parent => |info| info.ref,
+            .is_parent, .is_non_parent => |id| id,
         },
     } };
 }

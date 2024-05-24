@@ -92,7 +92,7 @@ pub fn makeInlineFormattingContext(
         break :ifc result;
     };
 
-    const sc_ifcs = &box_tree.stacking_contexts.list.items(.ifcs)[sc.current_index];
+    const sc_ifcs = &box_tree.stacking_contexts.items(.ifcs)[sc.current_index];
     try sc_ifcs.append(box_tree.allocator, ifc_index);
 
     const percentage_base_unit: ZssUnit = switch (mode) {
@@ -259,7 +259,7 @@ fn ifcRunOnce(
                 var normal_layout = normal.BlockLayoutContext{ .allocator = layout.allocator };
                 defer normal_layout.deinit();
                 try normal.pushContainingBlock(&normal_layout, layout.containing_block_width, layout.containing_block_height);
-                try normal.pushFlowBlock(&normal_layout, sc, layout.subtree_index, block.index, used_sizes, stacking_context);
+                try normal.pushFlowBlock(&normal_layout, box_tree, sc, layout.subtree_index, block.index, used_sizes, stacking_context);
                 // TODO: Recursive call here
                 try normal.mainLoop(&normal_layout, sc, computer, box_tree);
             } else {
@@ -271,6 +271,7 @@ fn ifcRunOnce(
 
                 var stf_layout = try stf.ShrinkToFitLayoutContext.initFlow(
                     layout.allocator,
+                    box_tree,
                     sc,
                     element,
                     block_box,
