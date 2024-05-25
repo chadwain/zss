@@ -305,7 +305,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                             }
                         },
                         .none => element_ptr.* = computer.element_tree_slice.nextSibling(element),
-                        .inline_, .inline_block, .text => {
+                        .@"inline", .inline_block, .text => {
                             const new_subtree_index = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = undefined });
                             const new_subtree = box_tree.blocks.subtrees.items[new_subtree_index];
                             const new_ifc_container = try normal.createBlock(box_tree, new_subtree);

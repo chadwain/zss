@@ -133,7 +133,7 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                         try computer.pushElement(.box_gen);
                     },
                     .none => {},
-                    .inline_, .inline_block, .text => unreachable,
+                    .@"inline", .inline_block, .text => unreachable,
                     .initial, .inherit, .unset, .undeclared => unreachable,
                 }
             },
@@ -177,7 +177,7 @@ fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, comp
                         element_ptr.* = computer.element_tree_slice.nextSibling(element);
                         try computer.pushElement(.box_gen);
                     },
-                    .inline_, .inline_block, .text => {
+                    .@"inline", .inline_block, .text => {
                         const subtree = box_tree.blocks.subtrees.items[subtree_index];
                         const ifc_container = try createBlock(box_tree, subtree);
 

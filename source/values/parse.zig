@@ -228,7 +228,7 @@ fn testParsing(comptime T: type, input: []const u8, expected: ?T, is_complete: b
 
 test "css value parsing" {
     try testParsing(types.Display, "block", .block, true);
-    try testParsing(types.Display, "inline", .inline_, true);
+    try testParsing(types.Display, "inline", .@"inline", true);
 
     try testParsing(types.Position, "static", .static, true);
 
@@ -420,7 +420,7 @@ pub fn cssWideKeyword(
 // | table-footer-group | table-row | table-column-group | table-column | table-cell | table-caption | none
 pub fn display(source: *Source) !types.Display {
     return parseSingleKeyword(source, types.Display, &.{
-        .{ "inline", .inline_ },
+        .{ "inline", .@"inline" },
         .{ "block", .block },
         // .{ "list-item", .list_item },
         .{ "inline-block", .inline_block },

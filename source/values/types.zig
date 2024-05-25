@@ -32,7 +32,7 @@ pub const Text = []const u8;
 
 pub const Display = enum {
     block,
-    inline_,
+    @"inline",
     inline_block,
     text,
     none,
@@ -230,7 +230,7 @@ pub const Color = union(enum) {
 };
 
 pub const BackgroundImage = union(enum) {
-    object: zss.Images.Handle,
+    image: zss.Images.Handle,
     url: Utf8String,
     none,
     initial,
@@ -245,7 +245,7 @@ pub const BackgroundImage = union(enum) {
         const Tag = std.meta.Tag(BackgroundImage);
         try expectEqual(@as(Tag, lhs), @as(Tag, rhs));
         switch (lhs) {
-            .object => try expectEqual(lhs.object, rhs.object),
+            .image => try expectEqual(lhs.image, rhs.image),
             .url => try expectEqualSlices(u8, lhs.url.data, rhs.url.data),
             .none,
             .initial,

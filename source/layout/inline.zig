@@ -191,7 +191,7 @@ fn ifcRunOnce(
             if (ifc.font == hb.hb_font_get_empty()) panic("TODO: Found text, but no font was specified.", .{});
             try ifcAddText(box_tree, ifc, text, ifc.font);
         },
-        .inline_ => {
+        .@"inline" => {
             const inline_box_index = try ifc.appendInlineBox(box_tree.allocator);
             try inlineBoxSetData(layout, computer, ifc, inline_box_index);
 

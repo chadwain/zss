@@ -296,7 +296,7 @@ fn createElements(
 
         // Title inline box
         cv = slice.ptr(.cascaded_values, title_inline_box);
-        try cv.add(arena, .box_style, .{ .display = .inline_ });
+        try cv.add(arena, .box_style, .{ .display = .@"inline" });
         try cv.add(arena, .horizontal_edges, .{
             .padding_left = .{ .px = 10 },
             .padding_right = .{ .px = 10 },
@@ -328,7 +328,7 @@ fn createElements(
 
         // Body inline box
         cv = slice.ptr(.cascaded_values, body_inline_box);
-        try cv.add(arena, .box_style, .{ .display = .inline_ });
+        try cv.add(arena, .box_style, .{ .display = .@"inline" });
         try cv.add(arena, .background1, .{ .color = .{ .rgba = 0x1010507f } });
 
         // Body text
@@ -347,7 +347,7 @@ fn createElements(
         try cv.add(arena, .border_styles, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
         try cv.add(arena, .background1, .{ .clip = .padding_box });
         try cv.add(arena, .background2, .{
-            .image = .{ .object = footer_image_handle },
+            .image = .{ .image = footer_image_handle },
             .position = .{ .position = .{
                 .x = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
                 .y = .{ .side = .start, .offset = .{ .percentage = 0.5 } },

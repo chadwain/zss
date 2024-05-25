@@ -197,7 +197,7 @@ test {
 
     const box_style = decls.normal.get(.box_style) orelse return error.TestFailure;
     try expectEqual(aggregates.BoxStyle{
-        .display = .inline_,
+        .display = .@"inline",
         .position = .relative,
         .float = .none,
     }, box_style);

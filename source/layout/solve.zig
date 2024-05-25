@@ -99,7 +99,7 @@ fn @"CSS2.2Section9.7Table"(display: zss.values.types.Display) zss.values.types.
     // TODO: This is incomplete, fill in the rest when more values of the 'display' property are supported.
     // TODO: There should be a slightly different version of this switch table for the root element. (See rule 4 of secion 9.7)
     return switch (display) {
-        .inline_, .inline_block, .text => .block,
+        .@"inline", .inline_block, .text => .block,
         .initial, .inherit, .unset, .undeclared => unreachable,
         else => display,
     };
@@ -155,7 +155,7 @@ pub fn background2(
     };
 
     const image_handle = switch (bg.image) {
-        .object => |image_handle| image_handle,
+        .image => |image_handle| image_handle,
         .url => std.debug.panic("TODO: background-image: <url-token>", .{}),
         .none => return used_values.Background2{},
         .initial, .inherit, .unset, .undeclared => unreachable,

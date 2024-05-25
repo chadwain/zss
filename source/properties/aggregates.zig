@@ -103,7 +103,7 @@ pub const BoxStyle = struct {
     float: types.Float = .undeclared,
 
     pub const initial_values = BoxStyle{
-        .display = .inline_,
+        .display = .@"inline",
         .position = .static,
         .float = .none,
     };
