@@ -81,149 +81,70 @@ pub const BlockLayoutContext = struct {
 
 pub fn mainLoop(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
     while (layout.layout_mode.items.len > 0) {
-        try mainLoopOneIteration(layout, sc, computer, box_tree);
+        const layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
+        switch (layout_mode) {
+            .InitialContainingBlock => try initialContainingBlockLayoutMode(layout, sc, computer, box_tree),
+            .Flow => try flowLayoutMode(layout, sc, computer, box_tree),
+            .ContainingBlock => containingBlockLayoutMode(layout),
+        }
     }
 }
 
-fn mainLoopOneIteration(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
-    const layout_mode = layout.layout_mode.items[layout.layout_mode.items.len - 1];
-    switch (layout_mode) {
-        .InitialContainingBlock => switch (layout.initial_containing_block_action) {
-            .Push => {
-                layout.initial_containing_block_action = .Pop;
-                if (computer.root_element.eqlNull()) return;
+fn initialContainingBlockLayoutMode(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
+    switch (layout.initial_containing_block_action) {
+        .Push => {
+            layout.initial_containing_block_action = .Pop;
+            if (computer.root_element.eqlNull()) return;
 
-                const element = computer.root_element;
-                computer.setElementDirectChild(.box_gen, element);
+            const element = computer.root_element;
+            computer.setElementDirectChild(.box_gen, element);
 
-                const font = computer.getSpecifiedValue(.box_gen, .font);
-                computer.setComputedValue(.box_gen, .font, font);
-                computer.root_font.font = switch (font.font) {
-                    .font => |f| f,
-                    .zss_default => hb.hb_font_get_empty().?, // TODO: Provide a text-rendering-backend-specific default font.
-                    .initial, .inherit, .unset, .undeclared => unreachable,
-                };
+            const font = computer.getSpecifiedValue(.box_gen, .font);
+            computer.setComputedValue(.box_gen, .font, font);
+            computer.root_font.font = switch (font.font) {
+                .font => |f| f,
+                .zss_default => hb.hb_font_get_empty().?, // TODO: Provide a text-rendering-backend-specific default font.
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            };
 
-                const specified = .{
-                    .box_style = computer.getSpecifiedValue(.box_gen, .box_style),
-                };
-                const computed = .{
-                    .box_style = solve.boxStyle(specified.box_style, .Root),
-                };
-                computer.setComputedValue(.box_gen, .box_style, computed.box_style);
+            const specified = .{
+                .box_style = computer.getSpecifiedValue(.box_gen, .box_style),
+            };
+            const computed = .{
+                .box_style = solve.boxStyle(specified.box_style, .Root),
+            };
+            computer.setComputedValue(.box_gen, .box_style, computed.box_style);
 
-                const subtree_index = layout.subtree.items[layout.subtree.items.len - 1];
-                const containing_block_width = layout.width.items[layout.width.items.len - 1];
-                const containing_block_height = layout.heights.items[layout.heights.items.len - 1].height;
+            const subtree_index = layout.subtree.items[layout.subtree.items.len - 1];
+            const containing_block_width = layout.width.items[layout.width.items.len - 1];
+            const containing_block_height = layout.heights.items[layout.heights.items.len - 1].height;
 
-                switch (computed.box_style.display) {
-                    .block => {
-                        const box = try makeFlowBlock(
-                            .root,
-                            layout,
-                            computer,
-                            box_tree,
-                            sc,
-                            computed.box_style.position,
-                            subtree_index,
-                            containing_block_width,
-                            containing_block_height,
-                        );
-                        try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, box);
-                        try computer.pushElement(.box_gen);
-                    },
-                    .none => {},
-                    .@"inline", .inline_block, .text => unreachable,
-                    .initial, .inherit, .unset, .undeclared => unreachable,
-                }
-            },
-            .Pop => popInitialContainingBlock(layout, box_tree),
-        },
-        .Flow => {
-            const element_ptr = &computer.child_stack.items[computer.child_stack.items.len - 1];
-            if (!element_ptr.eqlNull()) {
-                const element = element_ptr.*;
-                computer.setElementDirectChild(.box_gen, element);
-
-                const font = computer.getSpecifiedValue(.box_gen, .font);
-                computer.setComputedValue(.box_gen, .font, font);
-
-                const specified = .{
-                    .box_style = computer.getSpecifiedValue(.box_gen, .box_style),
-                };
-                const computed = .{
-                    .box_style = solve.boxStyle(specified.box_style, .NonRoot),
-                };
-                computer.setComputedValue(.box_gen, .box_style, computed.box_style);
-
-                const subtree_index = layout.subtree.items[layout.subtree.items.len - 1];
-                const containing_block_width = layout.width.items[layout.width.items.len - 1];
-                const containing_block_height = layout.heights.items[layout.heights.items.len - 1].height;
-
-                switch (computed.box_style.display) {
-                    .block => {
-                        const box = try makeFlowBlock(
-                            .non_root,
-                            layout,
-                            computer,
-                            box_tree,
-                            sc,
-                            computed.box_style.position,
-                            subtree_index,
-                            containing_block_width,
-                            containing_block_height,
-                        );
-                        try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, box);
-                        element_ptr.* = computer.element_tree_slice.nextSibling(element);
-                        try computer.pushElement(.box_gen);
-                    },
-                    .@"inline", .inline_block, .text => {
-                        const subtree = box_tree.blocks.subtrees.items[subtree_index];
-                        const ifc_container = try createBlock(box_tree, subtree);
-
-                        const result = try inline_layout.makeInlineFormattingContext(
-                            layout.allocator,
-                            sc,
-                            computer,
-                            box_tree,
-                            subtree_index,
-                            .Normal,
-                            containing_block_width,
-                            containing_block_height,
-                        );
-                        const ifc = box_tree.ifcs.items[result.ifc_index];
-                        const line_split_result =
-                            try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, subtree, ifc, containing_block_width);
-                        ifc.parent_block = .{ .subtree = subtree_index, .index = ifc_container.index };
-
-                        const skip = 1 + result.total_inline_block_skip;
-                        const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-                        ifc_container.type.* = .{ .ifc_container = result.ifc_index };
-                        ifc_container.skip.* = skip;
-                        ifc_container.box_offsets.* = .{
-                            .border_pos = .{ .x = 0, .y = parent_auto_height.* },
-                            .border_size = .{ .w = containing_block_width, .h = line_split_result.height },
-                            .content_pos = .{ .x = 0, .y = 0 },
-                            .content_size = .{ .w = containing_block_width, .h = line_split_result.height },
-                        };
-
-                        layout.skip.items[layout.skip.items.len - 1] += skip;
-
-                        advanceFlow(parent_auto_height, line_split_result.height);
-                    },
-                    .none => element_ptr.* = computer.element_tree_slice.nextSibling(element),
-                    .initial, .inherit, .unset, .undeclared => unreachable,
-                }
-            } else {
-                popFlowBlock(layout, sc, box_tree);
-                computer.popElement(.box_gen);
+            switch (computed.box_style.display) {
+                .block => {
+                    const box = try analyzeFlowBlock(
+                        .root,
+                        layout,
+                        computer,
+                        box_tree,
+                        sc,
+                        computed.box_style.position,
+                        subtree_index,
+                        containing_block_width,
+                        containing_block_height,
+                    );
+                    try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, box);
+                    try computer.pushElement(.box_gen);
+                },
+                .none => {},
+                .@"inline", .inline_block, .text => unreachable,
+                .initial, .inherit, .unset, .undeclared => unreachable,
             }
         },
-        .ContainingBlock => popContainingBlock(layout),
+        .Pop => popInitialContainingBlock(layout, box_tree),
     }
 }
 
-pub fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
+pub fn createAndPushInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
     const width = @as(ZssUnit, @intCast(computer.viewport_size.width * units_per_pixel));
     const height = @as(ZssUnit, @intCast(computer.viewport_size.height * units_per_pixel));
 
@@ -244,6 +165,7 @@ pub fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleC
     block.borders.* = .{};
     block.margins.* = .{};
 
+    // The allocations here must have corresponding deallocations in popInitialContainingBlock.
     try layout.layout_mode.append(layout.allocator, .InitialContainingBlock);
     try layout.subtree.append(layout.allocator, subtree_index);
     try layout.index.append(layout.allocator, block.index);
@@ -257,6 +179,7 @@ pub fn makeInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleC
 }
 
 fn popInitialContainingBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) void {
+    // The deallocations here must correspond to allocations in createAndPushInitialContainingBlock.
     assert(layout.layout_mode.pop() == .InitialContainingBlock);
     assert(layout.subtree.pop() == initial_subtree);
     assert(layout.index.pop() == initial_containing_block);
@@ -268,7 +191,12 @@ fn popInitialContainingBlock(layout: *BlockLayoutContext, box_tree: *BoxTree) vo
     subtree_slice.items(.skip)[initial_containing_block] = skip;
 }
 
+fn containingBlockLayoutMode(layout: *BlockLayoutContext) void {
+    popContainingBlock(layout);
+}
+
 pub fn pushContainingBlock(layout: *BlockLayoutContext, width: ZssUnit, height: ?ZssUnit) !void {
+    // The allocations here must have corresponding deallocations in popContainingBlock.
     try layout.layout_mode.append(layout.allocator, .ContainingBlock);
     try layout.width.append(layout.allocator, width);
     try layout.heights.append(layout.allocator, .{
@@ -279,12 +207,94 @@ pub fn pushContainingBlock(layout: *BlockLayoutContext, width: ZssUnit, height: 
 }
 
 fn popContainingBlock(layout: *BlockLayoutContext) void {
+    // The deallocations here must correspond to allocations in pushContainingBlock.
     assert(layout.layout_mode.pop() == .ContainingBlock);
     _ = layout.width.pop();
     _ = layout.heights.pop();
 }
 
-fn makeFlowBlock(
+fn flowLayoutMode(layout: *BlockLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
+    const element_ptr = &computer.child_stack.items[computer.child_stack.items.len - 1];
+    if (!element_ptr.eqlNull()) {
+        const element = element_ptr.*;
+        computer.setElementDirectChild(.box_gen, element);
+
+        const font = computer.getSpecifiedValue(.box_gen, .font);
+        computer.setComputedValue(.box_gen, .font, font);
+
+        const specified = .{
+            .box_style = computer.getSpecifiedValue(.box_gen, .box_style),
+        };
+        const computed = .{
+            .box_style = solve.boxStyle(specified.box_style, .NonRoot),
+        };
+        computer.setComputedValue(.box_gen, .box_style, computed.box_style);
+
+        const subtree_index = layout.subtree.items[layout.subtree.items.len - 1];
+        const containing_block_width = layout.width.items[layout.width.items.len - 1];
+        const containing_block_height = layout.heights.items[layout.heights.items.len - 1].height;
+
+        switch (computed.box_style.display) {
+            .block => {
+                const box = try analyzeFlowBlock(
+                    .non_root,
+                    layout,
+                    computer,
+                    box_tree,
+                    sc,
+                    computed.box_style.position,
+                    subtree_index,
+                    containing_block_width,
+                    containing_block_height,
+                );
+                try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, box);
+                element_ptr.* = computer.element_tree_slice.nextSibling(element);
+                try computer.pushElement(.box_gen);
+            },
+            .inline_, .inline_block, .text => {
+                const subtree = box_tree.blocks.subtrees.items[subtree_index];
+                const ifc_container = try createBlock(box_tree, subtree);
+
+                const result = try inline_layout.makeInlineFormattingContext(
+                    layout.allocator,
+                    sc,
+                    computer,
+                    box_tree,
+                    subtree_index,
+                    .Normal,
+                    containing_block_width,
+                    containing_block_height,
+                );
+                const ifc = box_tree.ifcs.items[result.ifc_index];
+                const line_split_result =
+                    try inline_layout.splitIntoLineBoxes(layout.allocator, box_tree, subtree, ifc, containing_block_width);
+                ifc.parent_block = .{ .subtree = subtree_index, .index = ifc_container.index };
+
+                const skip = 1 + result.total_inline_block_skip;
+                const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
+                ifc_container.type.* = .{ .ifc_container = result.ifc_index };
+                ifc_container.skip.* = skip;
+                ifc_container.box_offsets.* = .{
+                    .border_pos = .{ .x = 0, .y = parent_auto_height.* },
+                    .border_size = .{ .w = containing_block_width, .h = line_split_result.height },
+                    .content_pos = .{ .x = 0, .y = 0 },
+                    .content_size = .{ .w = containing_block_width, .h = line_split_result.height },
+                };
+
+                layout.skip.items[layout.skip.items.len - 1] += skip;
+
+                advanceFlow(parent_auto_height, line_split_result.height);
+            },
+            .none => element_ptr.* = computer.element_tree_slice.nextSibling(element),
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
+    } else {
+        popFlowBlock(layout, sc, box_tree);
+        computer.popElement(.box_gen);
+    }
+}
+
+fn analyzeFlowBlock(
     is_root: IsRoot,
     layout: *BlockLayoutContext,
     computer: *StyleComputer,

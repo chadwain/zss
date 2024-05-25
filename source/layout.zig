@@ -70,7 +70,7 @@ fn boxGeneration(computer: *StyleComputer, box_tree: *BoxTree, allocator: Alloca
     var sc = StackingContexts{ .allocator = allocator };
     defer sc.deinit();
 
-    try normal.makeInitialContainingBlock(&layout, computer, box_tree);
+    try normal.createAndPushInitialContainingBlock(&layout, computer, box_tree);
     try normal.mainLoop(&layout, &sc, computer, box_tree);
 
     computer.assertEmptyStage(.box_gen);
