@@ -17,7 +17,7 @@ pub fn none(t: *Test) void {
 
 pub fn @"inline"(t: *Test) void {
     const root = t.createRoot();
-    t.set(.box_style, root, .{ .display = .inline_ });
+    t.set(.box_style, root, .{ .display = .@"inline" });
 }
 
 pub fn block(t: *Test) void {

@@ -21,7 +21,7 @@ pub fn blockInline(t: *Test) void {
     const root = t.createRoot();
     const child = t.appendChild(root, .normal);
     t.set(.box_style, root, .{ .display = .block });
-    t.set(.box_style, child, .{ .display = .inline_ });
+    t.set(.box_style, child, .{ .display = .@"inline" });
 }
 
 pub fn blockNone(t: *Test) void {

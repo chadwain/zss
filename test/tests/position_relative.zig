@@ -32,7 +32,7 @@ pub fn inlineBoxText(t: *Test) void {
     t.set(.content_width, root, .{ .width = .{ .px = 400 } });
     t.set(.content_height, root, .{ .height = .{ .px = 400 } });
 
-    t.set(.box_style, inline_box, .{ .display = .inline_, .position = .relative });
+    t.set(.box_style, inline_box, .{ .display = .@"inline", .position = .relative });
     t.set(.background1, inline_box, .{ .color = colors[1] });
     t.set(.insets, inline_box, .{ .left = .{ .px = 100 }, .top = .{ .px = 150 } });
 

@@ -251,7 +251,7 @@ fn flowLayoutMode(layout: *BlockLayoutContext, sc: *StackingContexts, computer: 
                 element_ptr.* = computer.element_tree_slice.nextSibling(element);
                 try computer.pushElement(.box_gen);
             },
-            .inline_, .inline_block, .text => {
+            .@"inline", .inline_block, .text => {
                 const subtree = box_tree.blocks.subtrees.items[subtree_index];
                 const ifc_container = try createBlock(box_tree, subtree);
 

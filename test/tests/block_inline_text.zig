@@ -10,7 +10,7 @@ pub fn setup(t: *Test) void {
     const text = t.appendChild(inline_box, .text);
 
     t.set(.box_style, block, .{ .display = .block });
-    t.set(.box_style, inline_box, .{ .display = .inline_ });
+    t.set(.box_style, inline_box, .{ .display = .@"inline" });
     t.set(.box_style, text, .{ .display = .text });
     t.setText(text, strings[0]);
     t.font_size = 18;
