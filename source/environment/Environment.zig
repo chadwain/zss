@@ -3,9 +3,8 @@ const Environment = @This();
 const zss = @import("../zss.zig");
 const syntax = zss.syntax;
 const ParserSource = syntax.parse.Source;
+const Stylesheet = zss.Stylesheet;
 const IdentifierSet = syntax.IdentifierSet;
-
-pub const Stylesheet = @import("./Stylesheet.zig");
 
 const std = @import("std");
 const assert = std.debug.assert;

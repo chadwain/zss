@@ -237,7 +237,7 @@ fn createElements(
 
     {
         const arena = slice.arena;
-        var cv: *zss.ElementTree.CascadedValues = undefined;
+        var cv: *zss.CascadedValues = undefined;
 
         const bg_color = 0xefefefff;
         const text_color = 0x101010ff;

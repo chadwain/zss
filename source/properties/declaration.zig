@@ -1,5 +1,5 @@
 const zss = @import("../zss.zig");
-const CascadedValues = zss.ElementTree.CascadedValues;
+const CascadedValues = zss.CascadedValues;
 const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;
 const PropertyName = zss.properties.definitions.PropertyName;

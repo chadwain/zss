@@ -6,7 +6,6 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("zss.zig");
-const ReferencedSkipTree = zss.ReferencedSkipTree;
 const ElementHashMap = zss.util.ElementHashMap;
 
 /// The fundamental unit of space used for all CSS layout computations in zss.

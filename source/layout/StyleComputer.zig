@@ -5,14 +5,14 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
+const CascadedValues = zss.CascadedValues;
 const ElementTree = zss.ElementTree;
-const CascadedValues = ElementTree.CascadedValues;
 const Element = ElementTree.Element;
 const null_element = Element.null_element;
 const ViewportSize = zss.layout.ViewportSize;
 
-const ElementIndex = undefined;
-const root_element = undefined;
+const ElementIndex = undefined; // TODO: What are these???
+const root_element = undefined; // TODO: What are these???
 
 const hb = @import("mach-harfbuzz").c;
 

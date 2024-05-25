@@ -1,5 +1,6 @@
 const zss = @import("../zss.zig");
 const AggregateTag = zss.properties.aggregates.Tag;
+const CascadedValues = zss.CascadedValues;
 const Environment = zss.Environment;
 const NamespaceId = Environment.NamespaceId;
 const NameId = Environment.NameId;
@@ -14,7 +15,6 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 const ElementTree = @This();
-pub const CascadedValues = @import("./CascadedValues.zig");
 pub const Text = ?[]const u8;
 
 comptime {
