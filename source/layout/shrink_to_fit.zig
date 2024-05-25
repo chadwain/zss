@@ -274,7 +274,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
                                 switch (stacking_context) {
                                     .none => {},
-                                    .is_parent, .is_non_parent => |id| StackingContexts.fixupStackingContext(box_tree, id, generated_box.block_box),
+                                    .is_parent, .is_non_parent => |id| StackingContexts.fixup(box_tree, id, generated_box.block_box),
                                 }
 
                                 var new_block_layout = BlockLayoutContext{ .allocator = layout.allocator };
@@ -472,7 +472,7 @@ fn createObjects(
 
                         switch (data.stacking_context_info) {
                             .none => {},
-                            .is_parent, .is_non_parent => |id| StackingContexts.fixupStackingContext(box_tree, id, generated_box.block_box),
+                            .is_parent, .is_non_parent => |id| StackingContexts.fixup(box_tree, id, generated_box.block_box),
                         }
 
                         try layout.objects.append(allocator, .{ .tag = .flow_stf, .interval = .{ .begin = index + 1, .end = index + skip }, .data_index = data_index });
@@ -602,13 +602,13 @@ fn pushFlowBlock(
     // The allocations here must have corresponding deallocations in popFlowBlock.
     try layout.widths.append(layout.allocator, .{ .auto = 0, .available = available_width });
     try layout.heights.append(layout.allocator, used_sizes.get(.block_size));
-    try sc.pushStackingContext(box_tree, stacking_context);
+    try sc.push(box_tree, stacking_context);
 }
 
 fn popFlowBlock(layout: *ShrinkToFitLayoutContext, box_tree: *BoxTree, sc: *StackingContexts) struct { auto_width: ZssUnit } {
     // The deallocations here must correspond to allocations in pushFlowBlock.
     _ = layout.heights.pop();
-    sc.popStackingContext(box_tree);
+    sc.pop(box_tree);
     return .{
         .auto_width = layout.widths.pop().auto,
     };
@@ -812,8 +812,8 @@ fn flowBlockCreateStackingContext(
         .static => return .none,
         // TODO: Position the block using the values of the 'inset' family of properties.
         .relative => switch (z_index.z_index) {
-            .integer => |integer| return sc.createStackingContext(.is_parent, box_tree, undefined, integer),
-            .auto => return sc.createStackingContext(.is_non_parent, box_tree, undefined, 0),
+            .integer => |integer| return sc.create(.is_parent, box_tree, undefined, integer),
+            .auto => return sc.create(.is_non_parent, box_tree, undefined, 0),
             .initial, .inherit, .unset, .undeclared => unreachable,
         },
         .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),

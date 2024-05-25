@@ -353,7 +353,7 @@ pub fn pushFlowBlock(
     try layout.width.append(layout.allocator, used_sizes.get(.inline_size).?);
     try layout.auto_height.append(layout.allocator, 0);
     try layout.heights.append(layout.allocator, used_sizes.getUsedContentHeight());
-    try sc.pushStackingContext(box_tree, stacking_context);
+    try sc.push(box_tree, stacking_context);
 }
 
 fn popFlowBlock(layout: *BlockLayoutContext, sc: *StackingContexts, box_tree: *BoxTree) void {
@@ -365,7 +365,7 @@ fn popFlowBlock(layout: *BlockLayoutContext, sc: *StackingContexts, box_tree: *B
     const width = layout.width.pop();
     const auto_height = layout.auto_height.pop();
     const heights = layout.heights.pop();
-    sc.popStackingContext(box_tree);
+    sc.pop(box_tree);
 
     const subtree_slice = box_tree.blocks.subtrees.items[subtree_index].slice();
     subtree_slice.items(.skip)[block_box_index] = skip;
@@ -838,13 +838,13 @@ fn flowBlockCreateStackingContext(
     block_box: BlockBox,
 ) !StackingContexts.Info {
     switch (is_root) {
-        .root => return sc.createRootStackingContext(box_tree, block_box),
+        .root => return sc.createRoot(box_tree, block_box),
         .non_root => switch (position) {
             .static => return .none,
             // TODO: Position the block using the values of the 'inset' family of properties.
             .relative => switch (z_index) {
-                .integer => |integer| return sc.createStackingContext(.is_parent, box_tree, block_box, integer),
-                .auto => return sc.createStackingContext(.is_non_parent, box_tree, block_box, 0),
+                .integer => |integer| return sc.create(.is_parent, box_tree, block_box, integer),
+                .auto => return sc.create(.is_non_parent, box_tree, block_box, 0),
                 .initial, .inherit, .unset, .undeclared => unreachable,
             },
             .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),

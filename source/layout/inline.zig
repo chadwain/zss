@@ -971,11 +971,11 @@ fn inlineBlockCreateStackingContext(
     computer.setComputedValue(.box_gen, .z_index, z_index);
 
     switch (position) {
-        .static => return sc.createStackingContext(.is_non_parent, box_tree, block_box, 0),
+        .static => return sc.create(.is_non_parent, box_tree, block_box, 0),
         // TODO: Position the block using the values of the 'inset' family of properties.
         .relative => switch (z_index.z_index) {
-            .integer => |integer| return sc.createStackingContext(.is_parent, box_tree, block_box, integer),
-            .auto => return sc.createStackingContext(.is_non_parent, box_tree, block_box, 0),
+            .integer => |integer| return sc.create(.is_parent, box_tree, block_box, integer),
+            .auto => return sc.create(.is_non_parent, box_tree, block_box, 0),
             .initial, .inherit, .unset, .undeclared => unreachable,
         },
         .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),

@@ -452,7 +452,7 @@ pub const ZIndex = i32;
 pub const StackingContext = struct {
     pub const Index = u16;
     pub const Skip = Index;
-    pub const Id = u16;
+    pub const Id = enum(u16) { _ };
 
     skip: Skip,
     /// A unique identifier.

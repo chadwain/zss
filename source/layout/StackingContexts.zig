@@ -19,7 +19,7 @@ const Id = StackingContext.Id;
 tag: ArrayListUnmanaged(Tag) = .{},
 contexts: MultiArrayList(struct { index: Index, skip: Skip, id: Id }) = .{},
 current_index: Index = undefined,
-next_id: Id = 0,
+next_id: std.meta.Tag(Id) = 0,
 debug_state: DebugState = .{},
 allocator: Allocator, // TODO: This should not have its own allocator
 
@@ -60,16 +60,14 @@ pub fn deinit(sc: *StackingContexts) void {
     sc.contexts.deinit(sc.allocator);
 }
 
-pub fn createRootStackingContext(sc: *StackingContexts, box_tree: *BoxTree, block_box: BlockBox) !Info {
+pub fn createRoot(sc: *StackingContexts, box_tree: *BoxTree, block_box: BlockBox) !Info {
     assert(box_tree.stacking_contexts.len == 0);
     try box_tree.stacking_contexts.ensureTotalCapacity(box_tree.allocator, 1);
     const id = sc.insert(0, &box_tree.stacking_contexts, block_box, 0);
     return .{ .is_parent = id };
 }
 
-pub fn createStackingContext(sc: *StackingContexts, comptime tag: Tag, box_tree: *BoxTree, block_box: BlockBox, z_index: ZIndex) !Info {
-    if (tag == .none) @compileError("calling createStackingContext with tag '.none'");
-
+pub fn create(sc: *StackingContexts, comptime tag: Tag, box_tree: *BoxTree, block_box: BlockBox, z_index: ZIndex) !Info {
     const sc_tree = &box_tree.stacking_contexts;
     try sc_tree.ensureUnusedCapacity(box_tree.allocator, 1);
     const slice = sc_tree.slice();
@@ -88,14 +86,23 @@ pub fn createStackingContext(sc: *StackingContexts, comptime tag: Tag, box_tree:
 
 fn insert(sc: *StackingContexts, index: Index, sc_tree: *zss.used_values.StackingContextTree, block_box: BlockBox, z_index: ZIndex) Id {
     sc.debug_state.assertState(.init);
-    sc_tree.insertAssumeCapacity(index, .{ .skip = undefined, .id = sc.next_id, .z_index = z_index, .block_box = block_box, .ifcs = .{} });
+    sc_tree.insertAssumeCapacity(
+        index,
+        .{
+            .skip = undefined,
+            .id = @enumFromInt(sc.next_id),
+            .z_index = z_index,
+            .block_box = block_box,
+            .ifcs = .{},
+        },
+    );
     sc.current_index = index;
     sc.debug_state.set(.context_created);
     defer sc.next_id += 1;
-    return sc.next_id;
+    return @enumFromInt(sc.next_id);
 }
 
-pub fn pushStackingContext(sc: *StackingContexts, box_tree: *BoxTree, info: Info) !void {
+pub fn push(sc: *StackingContexts, box_tree: *BoxTree, info: Info) !void {
     try sc.tag.append(sc.allocator, info);
     switch (info) {
         .none => sc.debug_state.assertState(.init),
@@ -113,7 +120,7 @@ pub fn pushStackingContext(sc: *StackingContexts, box_tree: *BoxTree, info: Info
     sc.debug_state.set(.init);
 }
 
-pub fn popStackingContext(sc: *StackingContexts, box_tree: *BoxTree) void {
+pub fn pop(sc: *StackingContexts, box_tree: *BoxTree) void {
     sc.debug_state.assertState(.init);
     const tag = sc.tag.pop();
     const skip: Skip = switch (tag) {
@@ -134,7 +141,7 @@ pub fn popStackingContext(sc: *StackingContexts, box_tree: *BoxTree) void {
     }
 }
 
-pub fn fixupStackingContext(box_tree: *BoxTree, id: Id, block_box: BlockBox) void {
+pub fn fixup(box_tree: *BoxTree, id: Id, block_box: BlockBox) void {
     const slice = box_tree.stacking_contexts.slice();
     const ids = slice.items(.id);
     const index: Index = @intCast(std.mem.indexOfScalar(Id, ids, id).?);
