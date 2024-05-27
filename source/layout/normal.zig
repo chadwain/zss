@@ -145,8 +145,8 @@ fn initialContainingBlockLayoutMode(layout: *BlockLayoutContext, sc: *StackingCo
 }
 
 pub fn createAndPushInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
-    const width = @as(ZssUnit, @intCast(computer.viewport_size.width * units_per_pixel));
-    const height = @as(ZssUnit, @intCast(computer.viewport_size.height * units_per_pixel));
+    const width = computer.viewport_size.w;
+    const height = computer.viewport_size.h;
 
     const subtree_index = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = null });
     assert(subtree_index == initial_subtree);

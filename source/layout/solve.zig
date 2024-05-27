@@ -148,6 +148,8 @@ pub fn background2(
     box_offsets: *const used_values.BoxOffsets,
     borders: *const used_values.Borders,
 ) !used_values.Background2 {
+    // TODO: Handle background-attachment
+
     const NaturalSize = struct {
         width: ZssUnit,
         height: ZssUnit,
@@ -155,6 +157,7 @@ pub fn background2(
     };
 
     const image_handle = switch (bg.image) {
+        .many => |_| std.debug.panic("TODO: multiple background images", .{}),
         .image => |image_handle| image_handle,
         .url => std.debug.panic("TODO: background-image: <url-token>", .{}),
         .none => return used_values.Background2{},

@@ -134,10 +134,20 @@ pub fn main() !u8 {
     const zig_logo_handle = try images.addImage(allocator, zig_logo_image);
     const images_slice = images.slice();
 
+    var storage = zss.values.Storage{ .allocator = allocator };
+    defer storage.deinit();
+    _ = try storage.alloc(zss.values.types.BackgroundClip, 1);
+
     var tree, const root = try createElements(allocator, file_name, file_contents.items, font, zig_logo_handle);
     defer tree.deinit();
 
-    var box_tree = try zss.layout.doLayout(tree.slice(), root, images_slice, allocator, .{ .width = width, .height = height });
+    var box_tree = try zss.layout.doLayout(
+        tree.slice(),
+        root,
+        images_slice,
+        allocator,
+        .{ .w = width * zss_units_per_pixel, .h = height * zss_units_per_pixel },
+    );
     defer box_tree.deinit();
 
     program_state.changeMainWindowSize(height, box_tree);

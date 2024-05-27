@@ -14,6 +14,7 @@ const StackingContexts = @import("layout/StackingContexts.zig");
 const used_values = zss.used_values;
 const BoxTree = used_values.BoxTree;
 const GeneratedBox = used_values.GeneratedBox;
+const ZssSize = used_values.ZssSize;
 
 pub const Error = error{
     InvalidValue,
@@ -35,9 +36,8 @@ pub fn doLayout(
     root: Element,
     images: Images.Slice,
     allocator: Allocator,
-    /// The size of the viewport in pixels.
-    // TODO: Make this ZssUnits instead of pixels
-    viewport_size: ViewportSize,
+    /// The size of the viewport in ZssUnits.
+    viewport_size: ZssSize,
 ) Error!BoxTree {
     var computer = StyleComputer{
         .root_element = root,
