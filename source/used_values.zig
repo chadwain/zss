@@ -476,12 +476,49 @@ pub const GeneratedBox = union(enum) {
     text,
 };
 
+const BlockBoxBackground = struct {};
+
+pub const BackgroundImages = struct {
+    pub const Handle = enum(u32) {
+        invalid = 0,
+        _,
+    };
+
+    const Slice = struct {
+        begin: u32,
+        end: u32,
+    };
+
+    slices: ArrayListUnmanaged(Slice) = .{},
+    images: ArrayListUnmanaged(BlockBoxBackground) = .{},
+
+    pub fn deinit(self: *BackgroundImages, allocator: Allocator) void {
+        self.slices.deinit(allocator);
+        self.images.deinit(allocator);
+    }
+
+    pub fn alloc(self: *BackgroundImages, allocator: Allocator, count: u32) !struct { Handle, []BlockBoxBackground } {
+        try self.slices.ensureUnusedCapacity(allocator, 1);
+        const begin: u32 = @intCast(self.images.items.len);
+        const images = try self.images.addManyAsSlice(allocator, count);
+        self.slices.appendAssumeCapacity(.{ .begin = begin, .end = begin + count });
+        const handle: Handle = @enumFromInt(self.slices.items.len);
+        return .{ handle, images };
+    }
+
+    pub fn get(self: BackgroundImages, handle: Handle) []const BlockBoxBackground {
+        const slice = self.slices.items[@intFromEnum(handle) - 1];
+        return self.images.items[slice.begin..slice.end];
+    }
+};
+
 /// The result of layout.
 pub const BoxTree = struct {
     blocks: BlockBoxTree = .{},
     ifcs: ArrayListUnmanaged(*InlineFormattingContext) = .{},
     stacking_contexts: StackingContextTree = .{},
     element_to_generated_box: ElementHashMap(GeneratedBox) = .{},
+    background_images: BackgroundImages = .{},
     allocator: Allocator,
 
     const Self = @This();
@@ -498,6 +535,7 @@ pub const BoxTree = struct {
         }
         self.stacking_contexts.deinit(self.allocator);
         self.element_to_generated_box.deinit(self.allocator);
+        self.background_images.deinit(self.allocator);
     }
 
     pub fn rootBlockHeight(self: Self) ZssUnit {
