@@ -25,7 +25,7 @@ pub const Inputs = struct {
 };
 
 pub const Error = error{
-    InvalidValue,
+    InvalidValue, // TODO: Remove this error. Layout should never fail for this reason.
     OutOfMemory,
     OutOfRefs,
     TooManyBlockSubtrees,

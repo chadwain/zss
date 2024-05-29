@@ -231,10 +231,10 @@ pub const Color = union(enum) {
 };
 
 pub const BackgroundImage = union(enum) {
-    many: Storage.Handle,
     image: zss.Images.Handle,
     url: Utf8String,
     none,
+    many: Storage.Handle,
     initial,
     inherit,
     unset,
@@ -247,10 +247,9 @@ pub const BackgroundImage = union(enum) {
         const Tag = std.meta.Tag(BackgroundImage);
         try expectEqual(@as(Tag, lhs), @as(Tag, rhs));
         switch (lhs) {
-            .many => |_| std.debug.panic("TODO", .{}),
             .image => try expectEqual(lhs.image, rhs.image),
             .url => try expectEqualSlices(u8, lhs.url.data, rhs.url.data),
-            .none,
+            .none, .many => |_| std.debug.panic("TODO", .{}),
             .initial,
             .inherit,
             .unset,
@@ -269,16 +268,18 @@ pub const BackgroundRepeat = union(enum) {
     };
 
     repeat: Repeat,
+    many: Storage.Handle,
     initial,
     inherit,
     unset,
     undeclared,
 };
 
-pub const BackgroundAttachment = enum {
+pub const BackgroundAttachment = union(enum) {
     scroll,
     fixed,
     local,
+    many: Storage.Handle,
     initial,
     inherit,
     unset,
@@ -305,6 +306,7 @@ pub const BackgroundPosition = union(enum) {
         x: SideOffset,
         y: SideOffset,
     },
+    many: Storage.Handle,
     initial,
     inherit,
     unset,
@@ -322,10 +324,11 @@ pub const BackgroundClip = union(enum) {
     undeclared,
 };
 
-pub const BackgroundOrigin = enum {
+pub const BackgroundOrigin = union(enum) {
     border_box,
     padding_box,
     content_box,
+    many: Storage.Handle,
     initial,
     inherit,
     unset,
@@ -345,6 +348,7 @@ pub const BackgroundSize = union(enum) {
     },
     contain,
     cover,
+    many: Storage.Handle,
     initial,
     inherit,
     unset,

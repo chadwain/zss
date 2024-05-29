@@ -5,11 +5,11 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
-const aggregates = zss.properties.aggregates;
-
 const Inputs = zss.layout.Inputs;
-const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
+const aggregates = zss.properties.aggregates;
+const solve = @import("./solve.zig");
+const types = zss.values.types;
 
 const used_values = zss.used_values;
 const initial_containing_block = @as(used_values.BlockBoxIndex, 0);
@@ -181,10 +181,16 @@ fn blockBoxCosmeticLayout(
     solve.borderStyles(specified.border_styles);
 
     {
-        const background1_ptr = &subtree_slice.items(.background1)[block_box.index];
-        const background2_ptr = &subtree_slice.items(.background2)[block_box.index];
-        background1_ptr.* = solve.background1(specified.background1, current_color);
-        background2_ptr.* = try solve.background2(inputs.images, specified.background2, box_offsets_ptr, borders_ptr);
+        const background_ptr = &subtree_slice.items(.background)[block_box.index];
+        try blockBoxBackgrounds(
+            box_tree,
+            inputs,
+            box_offsets_ptr,
+            borders_ptr,
+            current_color,
+            .{ .background1 = &specified.background1, .background2 = &specified.background2 },
+            background_ptr,
+        );
     }
 
     computer.setComputedValue(.cosmetic, .box_style, computed_box_style);
@@ -309,11 +315,81 @@ fn solveInsetsRelative(
     };
 }
 
+fn blockBoxBackgrounds(
+    box_tree: *BoxTree,
+    inputs: Inputs,
+    box_offsets: *const used_values.BoxOffsets,
+    borders: *const used_values.Borders,
+    current_color: used_values.Color,
+    specified: struct {
+        background1: *const aggregates.Background1,
+        background2: *const aggregates.Background2,
+    },
+    background_ptr: *used_values.BlockBoxBackground,
+) !void {
+    background_ptr.color = solve.color(specified.background1.color, current_color);
+
+    const images = switch (specified.background2.image) {
+        .many => |storage_handle| inputs.storage.get(types.BackgroundImage, storage_handle),
+        .image, .url => @as(*const [1]types.BackgroundImage, @ptrCast(&specified.background2.image)),
+        .none => {
+            background_ptr.images = .invalid;
+            background_ptr.color_clip = comptime solve.backgroundClip(aggregates.Background1.initial_values.clip);
+            return;
+        },
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    };
+    const clips = getBackgroundPropertyArray(inputs, &specified.background1.clip);
+    background_ptr.color_clip = solve.backgroundClip(clips[(images.len - 1) % clips.len]);
+
+    const origins = getBackgroundPropertyArray(inputs, &specified.background2.origin);
+    const positions = getBackgroundPropertyArray(inputs, &specified.background2.position);
+    const sizes = getBackgroundPropertyArray(inputs, &specified.background2.size);
+    const repeats = getBackgroundPropertyArray(inputs, &specified.background2.repeat);
+
+    const handle, const buffer = try box_tree.background_images.alloc(box_tree.allocator, @intCast(images.len));
+    for (images, buffer, 0..) |image, *dest, index| {
+        const image_handle = switch (image) {
+            .image => |image_handle| image_handle,
+            .url => std.debug.panic("TODO: background-image URLs", .{}),
+            .none => {
+                dest.* = .{};
+                continue;
+            },
+            .many => unreachable,
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        };
+        const dimensions = inputs.images.items(.dimensions)[@intFromEnum(image_handle)];
+        dest.* = try solve.backgroundImage(
+            image_handle,
+            dimensions,
+            .{
+                .origin = origins[index % origins.len],
+                .position = positions[index % positions.len],
+                .size = sizes[index % sizes.len],
+                .repeat = repeats[index % repeats.len],
+                .clip = clips[index % clips.len],
+            },
+            box_offsets,
+            borders,
+        );
+    }
+    background_ptr.images = handle;
+}
+
+fn getBackgroundPropertyArray(inputs: Inputs, ptr_to_value: anytype) []const std.meta.Child(@TypeOf(ptr_to_value)) {
+    const T = std.meta.Child(@TypeOf(ptr_to_value));
+    switch (ptr_to_value.*) {
+        .many => |storage_handle| return inputs.storage.get(T, storage_handle),
+        .initial, .inherit, .unset, .undeclared => unreachable,
+        else => return @as(*const [1]T, @ptrCast(ptr_to_value)),
+    }
+}
+
 fn anonymousBlockBoxCosmeticLayout(box_tree: *BoxTree, block_box: BlockBox) void {
     const subtree_slice = box_tree.blocks.subtrees.items[block_box.subtree].slice();
     subtree_slice.items(.border_colors)[block_box.index] = .{};
-    subtree_slice.items(.background1)[block_box.index] = .{};
-    subtree_slice.items(.background2)[block_box.index] = .{};
+    subtree_slice.items(.background)[block_box.index] = .{};
     subtree_slice.items(.insets)[block_box.index] = .{ .x = 0, .y = 0 };
 }
 

@@ -16,6 +16,7 @@ pub fn length(comptime unit: LengthUnit, value: f32) ZssUnit {
 }
 
 pub fn positiveLength(comptime unit: LengthUnit, value: f32) !ZssUnit {
+    // TODO: This check isn't good enough. Must check what class of floating point value this belongs to.
     if (value < 0) return error.InvalidValue;
     return length(unit, value);
 }
@@ -25,6 +26,7 @@ pub fn percentage(value: f32, unit: ZssUnit) ZssUnit {
 }
 
 pub fn positivePercentage(value: f32, unit: ZssUnit) !ZssUnit {
+    // TODO: This check isn't good enough. Must check what class of floating point value this belongs to.
     if (value < 0) return error.InvalidValue;
     return percentage(value, unit);
 }
@@ -87,7 +89,7 @@ pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: IsRoot) aggreg
     } else if (specified.float != .none) {
         computed.display = @"CSS2.2Section9.7Table"(specified.display);
     } else if (is_root == .Root) {
-        // TODO: There should be a slightly different version of this function for the root element. (See rule 4 of secion 9.7)
+        // TODO: There should be a slightly different version of this function for the root element. (See rule 4 of section 9.7)
         computed.display = @"CSS2.2Section9.7Table"(specified.display);
     } else {
         computed.display = specified.display;
@@ -131,38 +133,36 @@ pub fn borderStyles(border_styles: aggregates.BorderStyles) void {
     }
 }
 
+pub fn backgroundClip(clip: types.BackgroundClip) used_values.BackgroundClip {
+    return switch (clip) {
+        .border_box => .border,
+        .padding_box => .padding,
+        .content_box => .content,
+        .many => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    };
+}
+
 pub fn inlineBoxBackground(col: types.Color, clip: types.BackgroundClip, current_color: used_values.Color) used_values.InlineBoxBackground {
     return .{
         .color = color(col, current_color),
-        .clip = switch (clip) {
-            .border_box => .border,
-            .padding_box => .padding,
-            .content_box => .content,
-            .initial, .inherit, .unset, .undeclared => unreachable,
-            .many => unreachable,
-        },
+        .clip = backgroundClip(clip),
     };
 }
 
-pub fn background1(bg: aggregates.Background1, current_color: used_values.Color) used_values.Background1 {
-    return used_values.Background1{
-        .color = color(bg.color, current_color),
-        .clip = switch (bg.clip) {
-            .border_box => .border,
-            .padding_box => .padding,
-            .content_box => .content,
-            .initial, .inherit, .unset, .undeclared => unreachable,
-            .many => std.debug.panic("TODO: many", .{}),
-        },
-    };
-}
-
-pub fn background2(
-    slice: zss.Images.Slice,
-    bg: aggregates.Background2,
+pub fn backgroundImage(
+    handle: zss.Images.Handle,
+    dimensions: zss.Images.Dimensions,
+    specified: struct {
+        origin: types.BackgroundOrigin,
+        position: types.BackgroundPosition,
+        size: types.BackgroundSize,
+        repeat: types.BackgroundRepeat,
+        clip: types.BackgroundClip,
+    },
     box_offsets: *const used_values.BoxOffsets,
     borders: *const used_values.Borders,
-) !used_values.Background2 {
+) !used_values.BackgroundImage {
     // TODO: Handle background-attachment
 
     const NaturalSize = struct {
@@ -171,16 +171,7 @@ pub fn background2(
         has_aspect_ratio: bool,
     };
 
-    const image_handle = switch (bg.image) {
-        .many => |_| std.debug.panic("TODO: multiple background images", .{}),
-        .image => |image_handle| image_handle,
-        .url => std.debug.panic("TODO: background-image: <url-token>", .{}),
-        .none => return used_values.Background2{},
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    };
-
     const natural_size: NaturalSize = blk: {
-        const dimensions = slice.items(.dimensions)[@intFromEnum(image_handle)];
         const width = try positiveLength(.px, @floatFromInt(dimensions.width_px));
         const height = try positiveLength(.px, @floatFromInt(dimensions.height_px));
         break :blk .{
@@ -196,16 +187,17 @@ pub fn background2(
     const padding_height = border_height - borders.top - borders.bottom;
     const content_width = box_offsets.content_size.w;
     const content_height = box_offsets.content_size.h;
-    const positioning_area: struct { origin: used_values.Background2.Origin, width: ZssUnit, height: ZssUnit } = switch (bg.origin) {
+    const positioning_area: struct { origin: used_values.BackgroundImage.Origin, width: ZssUnit, height: ZssUnit } = switch (specified.origin) {
         .border_box => .{ .origin = .border, .width = border_width, .height = border_height },
         .padding_box => .{ .origin = .padding, .width = padding_width, .height = padding_height },
         .content_box => .{ .origin = .content, .width = content_width, .height = content_height },
+        .many => unreachable,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
     var width_was_auto = false;
     var height_was_auto = false;
-    var size: used_values.Background2.Size = switch (bg.size) {
+    var size: used_values.BackgroundImage.Size = switch (specified.size) {
         .size => |size| .{
             .w = switch (size.width) {
                 .px => |val| try positiveLength(.px, val),
@@ -225,27 +217,28 @@ pub fn background2(
             },
         },
         .contain, .cover => blk: {
-            if (!natural_size.has_aspect_ratio) break :blk used_values.Background2.Size{ .w = natural_size.width, .h = natural_size.height };
+            if (!natural_size.has_aspect_ratio) break :blk used_values.BackgroundImage.Size{ .w = natural_size.width, .h = natural_size.height };
 
             const positioning_area_is_wider_than_image = positioning_area.width * natural_size.height > positioning_area.height * natural_size.width;
-            const is_contain = (bg.size == .contain);
+            const is_contain = (specified.size == .contain);
 
             if (positioning_area_is_wider_than_image == is_contain) {
-                break :blk used_values.Background2.Size{
+                break :blk used_values.BackgroundImage.Size{
                     .w = @divFloor(positioning_area.height * natural_size.width, natural_size.height),
                     .h = positioning_area.height,
                 };
             } else {
-                break :blk used_values.Background2.Size{
+                break :blk used_values.BackgroundImage.Size{
                     .w = positioning_area.width,
                     .h = @divFloor(positioning_area.width * natural_size.height, natural_size.width),
                 };
             }
         },
+        .many => unreachable,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
-    const repeat: used_values.Background2.Repeat = switch (bg.repeat) {
+    const repeat: used_values.BackgroundImage.Repeat = switch (specified.repeat) {
         .repeat => |repeat| .{
             .x = switch (repeat.x) {
                 .no_repeat => .none,
@@ -260,6 +253,7 @@ pub fn background2(
                 .round => .round,
             },
         },
+        .many => unreachable,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
@@ -294,7 +288,7 @@ pub fn background2(
         }
     }
 
-    const position: used_values.Background2.Position = switch (bg.position) {
+    const position: used_values.BackgroundImage.Position = switch (specified.position) {
         .position => |position| .{
             .x = blk: {
                 const available_space = positioning_area.width - size.w;
@@ -335,14 +329,18 @@ pub fn background2(
                 }
             },
         },
+        .many => unreachable,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
-    return used_values.Background2{
-        .image = image_handle,
+    const clip = backgroundClip(specified.clip);
+
+    return used_values.BackgroundImage{
+        .handle = handle,
         .origin = positioning_area.origin,
         .position = position,
         .size = size,
         .repeat = repeat,
+        .clip = clip,
     };
 }

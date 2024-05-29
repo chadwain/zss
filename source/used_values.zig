@@ -168,12 +168,13 @@ pub const InlineBoxBackground = struct {
     clip: BackgroundClip = .border,
 };
 
-pub const Background1 = struct {
+pub const BlockBoxBackground = struct {
     color: Color = Color.transparent,
-    clip: enum { border, padding, content } = .border,
+    color_clip: BackgroundClip = .border,
+    images: BackgroundImages.Handle = .invalid,
 };
 
-pub const Background2 = struct {
+pub const BackgroundImage = struct {
     pub const Origin = enum { padding, border, content };
     pub const Position = ZssVector;
     pub const Size = ZssSize;
@@ -183,11 +184,12 @@ pub const Background2 = struct {
         y: Style = .none,
     };
 
-    image: ?zss.Images.Handle = null,
+    handle: ?zss.Images.Handle = null,
     position: Position = .{ .x = 0, .y = 0 },
     size: Size = .{ .w = 0, .h = 0 },
     repeat: Repeat = .{},
     origin: Origin = .padding,
+    clip: BackgroundClip = .border,
 };
 
 pub const BlockType = union(enum) {
@@ -224,8 +226,7 @@ pub const BlockSubtree = struct {
         margins: Margins,
         insets: Insets,
         border_colors: BorderColor,
-        background1: Background1,
-        background2: Background2,
+        background: BlockBoxBackground,
     });
     pub const Slice = BlockList.Slice;
 
@@ -483,8 +484,6 @@ pub const GeneratedBox = union(enum) {
     text,
 };
 
-const BlockBoxBackground = struct {};
-
 pub const BackgroundImages = struct {
     pub const Handle = enum(u32) {
         invalid = 0,
@@ -497,14 +496,14 @@ pub const BackgroundImages = struct {
     };
 
     slices: ArrayListUnmanaged(Slice) = .{},
-    images: ArrayListUnmanaged(BlockBoxBackground) = .{},
+    images: ArrayListUnmanaged(BackgroundImage) = .{},
 
     pub fn deinit(self: *BackgroundImages, allocator: Allocator) void {
         self.slices.deinit(allocator);
         self.images.deinit(allocator);
     }
 
-    pub fn alloc(self: *BackgroundImages, allocator: Allocator, count: u32) !struct { Handle, []BlockBoxBackground } {
+    pub fn alloc(self: *BackgroundImages, allocator: Allocator, count: u32) !struct { Handle, []BackgroundImage } {
         try self.slices.ensureUnusedCapacity(allocator, 1);
         const begin: u32 = @intCast(self.images.items.len);
         const images = try self.images.addManyAsSlice(allocator, count);
@@ -513,7 +512,8 @@ pub const BackgroundImages = struct {
         return .{ handle, images };
     }
 
-    pub fn get(self: BackgroundImages, handle: Handle) []const BlockBoxBackground {
+    pub fn get(self: BackgroundImages, handle: Handle) ?[]const BackgroundImage {
+        if (handle == .invalid) return null;
         const slice = self.slices.items[@intFromEnum(handle) - 1];
         return self.images.items[slice.begin..slice.end];
     }

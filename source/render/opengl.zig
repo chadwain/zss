@@ -514,12 +514,11 @@ pub fn drawBoxTree(
 
                 const box_offsets = subtree_slice.items(.box_offsets)[index];
                 const borders = subtree_slice.items(.borders)[index];
-                const background1 = subtree_slice.items(.background1)[index];
-                const background2 = subtree_slice.items(.background2)[index];
+                const background = subtree_slice.items(.background)[index];
                 const border_colors = subtree_slice.items(.border_colors)[index];
                 const boxes = getThreeBoxes(border_top_left, box_offsets, borders);
 
-                try drawBlockContainer(renderer, images, boxes, background1, background2, border_colors);
+                try drawBlockContainer(renderer, box_tree, images, boxes, background, border_colors);
             },
             .line_box => |line_box_info| {
                 const origin = line_box_info.origin;
@@ -594,48 +593,53 @@ fn getThreeBoxes(
 
 fn drawBlockContainer(
     renderer: *Renderer,
+    box_tree: BoxTree,
     images: Images.Slice,
     boxes: ThreeBoxes,
-    background1: zss.used_values.Background1,
-    background2: zss.used_values.Background2,
+    background: zss.used_values.BlockBoxBackground,
     border_colors: zss.used_values.BorderColor,
 ) !void {
     // draw background color
-    switch (background1.color.a) {
+    switch (background.color.a) {
         0 => {},
         else => {
-            const bg_clip_rect = switch (background1.clip) {
+            const bg_clip_rect = switch (background.color_clip) {
                 .border => boxes.border,
                 .padding => boxes.padding,
                 .content => boxes.content,
             };
-            try renderer.addZssRect(bg_clip_rect, background1.color);
+            try renderer.addZssRect(bg_clip_rect, background.color);
         },
     }
 
-    // draw background image
-    if (background2.image) |handle| drawBgImage: {
-        if (background2.size.w == 0 or background2.size.h == 0) break :drawBgImage;
+    // draw background images
+    if (box_tree.background_images.get(background.images)) |background_images| {
+        var i = background_images.len;
+        while (i > 0) : (i -= 1) {
+            const bg_image = background_images[i - 1];
+            const handle = bg_image.handle orelse continue;
+            if (bg_image.size.w == 0 or bg_image.size.h == 0) continue;
 
-        const texture: zgl.Texture = renderer.textures.get(handle) orelse (try renderer.uploadImage(images, handle));
-        if (texture == .invalid) break :drawBgImage;
+            const texture: zgl.Texture = renderer.textures.get(handle) orelse (try renderer.uploadImage(images, handle));
+            if (texture == .invalid) continue;
 
-        renderer.setMode(.textured, texture);
-        defer renderer.setMode(.flat_color, {});
+            renderer.setMode(.textured, texture);
+            defer renderer.setMode(.flat_color, {});
 
-        const positioning_area = switch (background2.origin) {
-            .border => boxes.border,
-            .padding => boxes.padding,
-            .content => boxes.content,
-        };
+            const positioning_area = switch (bg_image.origin) {
+                .border => boxes.border,
+                .padding => boxes.padding,
+                .content => boxes.content,
+            };
 
-        const painting_area = switch (background1.clip) {
-            .border => boxes.border,
-            .padding => boxes.padding,
-            .content => boxes.content,
-        };
+            const painting_area = switch (bg_image.clip) {
+                .border => boxes.border,
+                .padding => boxes.padding,
+                .content => boxes.content,
+            };
 
-        try drawBackgroundImage(renderer, positioning_area, painting_area, background2.position, background2.size, background2.repeat);
+            try drawBackgroundImage(renderer, positioning_area, painting_area, bg_image.position, bg_image.size, bg_image.repeat);
+        }
     }
 
     // draw borders
@@ -666,7 +670,7 @@ fn drawBackgroundImage(
     painting_area: ZssRect,
     position: ZssVector,
     size: ZssSize,
-    repeat: zss.used_values.Background2.Repeat,
+    repeat: zss.used_values.BackgroundImage.Repeat,
 ) !void {
     const info_x = getBackgroundImageTilingInfo(
         repeat.x,
@@ -756,7 +760,7 @@ const BackgroundImageTilingInfo = struct {
 };
 
 fn getBackgroundImageTilingInfo(
-    repeat: zss.used_values.Background2.Repeat.Style,
+    repeat: zss.used_values.BackgroundImage.Repeat.Style,
     /// Must be greater than or equal to 0.
     painting_area_size: ZssUnit,
     /// The offset of the top/left of the positioning area from the top/left of the painting area.
