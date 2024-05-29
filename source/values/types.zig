@@ -311,10 +311,11 @@ pub const BackgroundPosition = union(enum) {
     undeclared,
 };
 
-pub const BackgroundClip = enum {
+pub const BackgroundClip = union(enum) {
     border_box,
     padding_box,
     content_box,
+    many: Storage.Handle,
     initial,
     inherit,
     unset,

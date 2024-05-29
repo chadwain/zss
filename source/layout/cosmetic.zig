@@ -6,8 +6,8 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
-const Images = zss.Images;
 
+const Inputs = zss.layout.Inputs;
 const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 
@@ -30,16 +30,15 @@ const Mode = enum {
 const Context = struct {
     mode: ArrayListUnmanaged(Mode) = .{},
     containing_block_size: ArrayListUnmanaged(ZssSize) = .{},
+    allocator: Allocator,
 
-    images: Images.Slice,
-
-    fn deinit(context: *Context, allocator: Allocator) void {
-        context.mode.deinit(allocator);
-        context.containing_block_size.deinit(allocator);
+    fn deinit(context: *Context) void {
+        context.mode.deinit(context.allocator);
+        context.containing_block_size.deinit(context.allocator);
     }
 };
 
-pub fn run(computer: *StyleComputer, box_tree: *BoxTree, images: Images.Slice) !void {
+pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, inputs: Inputs) !void {
     anonymousBlockBoxCosmeticLayout(box_tree, .{ .subtree = initial_subtree, .index = initial_containing_block });
     // TODO: Also process any anonymous block boxes.
 
@@ -49,16 +48,14 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, images: Images.Slice) !
 
     if (computer.root_element.eqlNull()) return;
 
-    var context = Context{
-        .images = images,
-    };
-    defer context.deinit(computer.allocator);
+    var context = Context{ .allocator = allocator };
+    defer context.deinit();
 
     {
         const initial_containing_block_subtree = box_tree.blocks.subtrees.items[initial_subtree];
         const box_offsets = initial_containing_block_subtree.slice().items(.box_offsets)[initial_containing_block];
-        try context.mode.append(computer.allocator, .InitialContainingBlock);
-        try context.containing_block_size.append(computer.allocator, box_offsets.content_size);
+        try context.mode.append(context.allocator, .InitialContainingBlock);
+        try context.containing_block_size.append(context.allocator, box_offsets.content_size);
     }
 
     {
@@ -66,13 +63,13 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, images: Images.Slice) !
         computer.setElementDirectChild(.cosmetic, computer.root_element);
         switch (box_type) {
             .block_box => |block_box| {
-                try blockBoxCosmeticLayout(context, computer, box_tree, block_box, .Root);
+                try blockBoxCosmeticLayout(context, computer, box_tree, inputs, block_box, .Root);
 
                 if (!computer.element_tree_slice.firstChild(computer.root_element).eqlNull()) {
                     const subtree_slice = box_tree.blocks.subtrees.items[block_box.subtree].slice();
                     const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
-                    try context.mode.append(computer.allocator, .Flow);
-                    try context.containing_block_size.append(computer.allocator, box_offsets.content_size);
+                    try context.mode.append(context.allocator, .Flow);
+                    try context.containing_block_size.append(context.allocator, box_offsets.content_size);
                     try computer.pushElement(.cosmetic);
                 }
             },
@@ -100,22 +97,22 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, images: Images.Slice) !
             switch (box_type) {
                 .text => continue,
                 .block_box => |block_box| {
-                    try blockBoxCosmeticLayout(context, computer, box_tree, block_box, .NonRoot);
+                    try blockBoxCosmeticLayout(context, computer, box_tree, inputs, block_box, .NonRoot);
 
                     if (has_children) {
                         const subtree_slice = box_tree.blocks.subtrees.items[block_box.subtree].slice();
                         const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
-                        try context.mode.append(computer.allocator, .Flow);
-                        try context.containing_block_size.append(computer.allocator, box_offsets.content_size);
+                        try context.mode.append(context.allocator, .Flow);
+                        try context.containing_block_size.append(context.allocator, box_offsets.content_size);
                         try computer.pushElement(.cosmetic);
                     }
                 },
                 .inline_box => |inline_box| {
                     const ifc = box_tree.ifcs.items[inline_box.ifc_index];
-                    inlineBoxCosmeticLayout(context, computer, ifc, inline_box.index);
+                    inlineBoxCosmeticLayout(context, computer, inputs, ifc, inline_box.index);
 
                     if (has_children) {
-                        try context.mode.append(computer.allocator, .InlineBox);
+                        try context.mode.append(context.allocator, .InlineBox);
                         try computer.pushElement(.cosmetic);
                     }
                 },
@@ -136,7 +133,14 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, images: Images.Slice) !
     assert(context.mode.pop() == .InitialContainingBlock);
 }
 
-fn blockBoxCosmeticLayout(context: Context, computer: *StyleComputer, box_tree: *BoxTree, block_box: BlockBox, comptime is_root: solve.IsRoot) !void {
+fn blockBoxCosmeticLayout(
+    context: Context,
+    computer: *StyleComputer,
+    box_tree: *BoxTree,
+    inputs: Inputs,
+    block_box: BlockBox,
+    comptime is_root: solve.IsRoot,
+) !void {
     const specified = .{
         .box_style = computer.getSpecifiedValue(.cosmetic, .box_style),
         .color = computer.getSpecifiedValue(.cosmetic, .color),
@@ -180,7 +184,7 @@ fn blockBoxCosmeticLayout(context: Context, computer: *StyleComputer, box_tree: 
         const background1_ptr = &subtree_slice.items(.background1)[block_box.index];
         const background2_ptr = &subtree_slice.items(.background2)[block_box.index];
         background1_ptr.* = solve.background1(specified.background1, current_color);
-        background2_ptr.* = try solve.background2(context.images, specified.background2, box_offsets_ptr, borders_ptr);
+        background2_ptr.* = try solve.background2(inputs.images, specified.background2, box_offsets_ptr, borders_ptr);
     }
 
     computer.setComputedValue(.cosmetic, .box_style, computed_box_style);
@@ -313,7 +317,13 @@ fn anonymousBlockBoxCosmeticLayout(box_tree: *BoxTree, block_box: BlockBox) void
     subtree_slice.items(.insets)[block_box.index] = .{ .x = 0, .y = 0 };
 }
 
-fn inlineBoxCosmeticLayout(context: Context, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
+fn inlineBoxCosmeticLayout(
+    context: Context,
+    computer: *StyleComputer,
+    inputs: Inputs,
+    ifc: *InlineFormattingContext,
+    inline_box_index: InlineBoxIndex,
+) void {
     const ifc_slice = ifc.slice();
 
     const specified = .{
@@ -353,8 +363,19 @@ fn inlineBoxCosmeticLayout(context: Context, computer: *StyleComputer, ifc: *Inl
 
     solve.borderStyles(specified.border_styles);
 
-    const background1_ptr = &ifc_slice.items(.background1)[inline_box_index];
-    background1_ptr.* = solve.background1(specified.background1, current_color);
+    {
+        const background_clip = switch (specified.background1.clip) {
+            .many => |storage_handle| blk: {
+                const array = inputs.storage.get(zss.values.types.BackgroundClip, storage_handle);
+                // CSS-BACKGROUNDS-3§2.2:
+                // The background color is clipped according to the background-clip value associated with the bottom-most background image layer.
+                break :blk array[array.len - 1];
+            },
+            else => |tag| tag,
+        };
+        const background_ptr = &ifc_slice.items(.background)[inline_box_index];
+        background_ptr.* = solve.inlineBoxBackground(specified.background1.color, background_clip, current_color);
+    }
 
     computer.setComputedValue(.cosmetic, .box_style, computed_box_style);
     computer.setComputedValue(.cosmetic, .insets, computed_insets);
@@ -374,6 +395,6 @@ fn rootInlineBoxCosmeticLayout(ifc: *InlineFormattingContext) void {
     ifc_slice.items(.block_start)[0].border_color = used_values.Color.transparent;
     ifc_slice.items(.block_end)[0].border_color = used_values.Color.transparent;
 
-    ifc_slice.items(.background1)[0] = .{};
+    ifc_slice.items(.background)[0] = .{};
     ifc_slice.items(.insets)[0] = .{ .x = 0, .y = 0 };
 }

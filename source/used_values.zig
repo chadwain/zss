@@ -161,6 +161,13 @@ pub const Margins = struct {
 
 pub const Insets = ZssVector;
 
+pub const BackgroundClip = enum { border, padding, content };
+
+pub const InlineBoxBackground = struct {
+    color: Color = Color.transparent,
+    clip: BackgroundClip = .border,
+};
+
 pub const Background1 = struct {
     color: Color = Color.transparent,
     clip: enum { border, padding, content } = .border,
@@ -305,7 +312,7 @@ pub const InlineFormattingContext = struct {
         inline_end: BoxProperties,
         block_start: BoxProperties,
         block_end: BoxProperties,
-        background1: Background1,
+        background: InlineBoxBackground,
         margins: MarginsInline,
         insets: Insets,
     });

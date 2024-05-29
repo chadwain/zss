@@ -90,7 +90,6 @@ const ThisElement = struct {
 
 root_element: Element,
 element_tree_slice: ElementTree.Slice,
-viewport_size: zss.used_values.ZssSize,
 allocator: Allocator,
 
 this_element: ThisElement = undefined,

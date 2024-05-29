@@ -1037,7 +1037,7 @@ fn drawInlineBox(
     const inline_end = slice.items(.inline_end)[inline_box];
     const block_start = slice.items(.block_start)[inline_box];
     const block_end = slice.items(.block_end)[inline_box];
-    const background1 = slice.items(.background1)[inline_box];
+    const background = slice.items(.background)[inline_box];
 
     // TODO: Assuming ltr writing mode
     const border = .{
@@ -1076,7 +1076,7 @@ fn drawInlineBox(
             .w = middle_length,
             .h = undefined,
         };
-        switch (background1.clip) {
+        switch (background.clip) {
             .border => {
                 background_clip_rect.y = border_top_y;
                 background_clip_rect.h = border_bottom_y - border_top_y;
@@ -1098,7 +1098,7 @@ fn drawInlineBox(
                 if (draw_start) background_clip_rect.x += padding.left + border.left;
             },
         }
-        try renderer.addZssRect(background_clip_rect, background1.color);
+        try renderer.addZssRect(background_clip_rect, background.color);
     }
 
     var middle_border_x = baseline_position.x;

@@ -2,6 +2,7 @@ const std = @import("std");
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
+const types = zss.values.types;
 const units_per_pixel = used_values.units_per_pixel;
 const used_values = zss.used_values;
 const ZssUnit = used_values.ZssUnit;
@@ -43,7 +44,7 @@ pub fn borderWidth(comptime thickness: BorderThickness) f32 {
     };
 }
 
-pub fn borderWidthMultiplier(border_style: zss.values.types.BorderStyle) f32 {
+pub fn borderWidthMultiplier(border_style: types.BorderStyle) f32 {
     return switch (border_style) {
         .none, .hidden => 0,
         .initial, .inherit, .unset, .undeclared => unreachable,
@@ -51,7 +52,7 @@ pub fn borderWidthMultiplier(border_style: zss.values.types.BorderStyle) f32 {
     };
 }
 
-pub fn color(col: zss.values.types.Color, current_color: used_values.Color) used_values.Color {
+pub fn color(col: types.Color, current_color: used_values.Color) used_values.Color {
     return switch (col) {
         .rgba => |rgba| used_values.Color.fromRgbaInt(rgba),
         .current_color => current_color,
@@ -59,7 +60,7 @@ pub fn color(col: zss.values.types.Color, current_color: used_values.Color) used
     };
 }
 
-pub fn currentColor(col: zss.values.types.Color) used_values.Color {
+pub fn currentColor(col: types.Color) used_values.Color {
     return switch (col) {
         .rgba => |rgba| used_values.Color.fromRgbaInt(rgba),
         .current_color => unreachable,
@@ -95,7 +96,7 @@ pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: IsRoot) aggreg
 }
 
 /// Given a specified value for 'display', returns the computed value according to the table found in section 9.7 of CSS2.2.
-fn @"CSS2.2Section9.7Table"(display: zss.values.types.Display) zss.values.types.Display {
+fn @"CSS2.2Section9.7Table"(display: types.Display) types.Display {
     // TODO: This is incomplete, fill in the rest when more values of the 'display' property are supported.
     // TODO: There should be a slightly different version of this switch table for the root element. (See rule 4 of secion 9.7)
     return switch (display) {
@@ -116,7 +117,7 @@ pub fn borderColors(border_colors: aggregates.BorderColors, current_color: used_
 
 pub fn borderStyles(border_styles: aggregates.BorderStyles) void {
     const solveOne = struct {
-        fn f(border_style: zss.values.types.BorderStyle) void {
+        fn f(border_style: types.BorderStyle) void {
             switch (border_style) {
                 .none, .hidden, .solid => {},
                 .initial, .inherit, .unset, .undeclared => unreachable,
@@ -130,6 +131,19 @@ pub fn borderStyles(border_styles: aggregates.BorderStyles) void {
     }
 }
 
+pub fn inlineBoxBackground(col: types.Color, clip: types.BackgroundClip, current_color: used_values.Color) used_values.InlineBoxBackground {
+    return .{
+        .color = color(col, current_color),
+        .clip = switch (clip) {
+            .border_box => .border,
+            .padding_box => .padding,
+            .content_box => .content,
+            .initial, .inherit, .unset, .undeclared => unreachable,
+            .many => unreachable,
+        },
+    };
+}
+
 pub fn background1(bg: aggregates.Background1, current_color: used_values.Color) used_values.Background1 {
     return used_values.Background1{
         .color = color(bg.color, current_color),
@@ -138,6 +152,7 @@ pub fn background1(bg: aggregates.Background1, current_color: used_values.Color)
             .padding_box => .padding,
             .content_box => .content,
             .initial, .inherit, .unset, .undeclared => unreachable,
+            .many => std.debug.panic("TODO: many", .{}),
         },
     };
 }

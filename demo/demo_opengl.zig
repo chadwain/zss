@@ -144,9 +144,12 @@ pub fn main() !u8 {
     var box_tree = try zss.layout.doLayout(
         tree.slice(),
         root,
-        images_slice,
         allocator,
-        .{ .w = width * zss_units_per_pixel, .h = height * zss_units_per_pixel },
+        .{
+            .viewport = .{ .w = width * zss_units_per_pixel, .h = height * zss_units_per_pixel },
+            .images = images_slice,
+            .storage = &storage,
+        },
     );
     defer box_tree.deinit();
 

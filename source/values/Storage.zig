@@ -53,6 +53,7 @@ pub fn deinit(storage: *Storage) void {
 }
 
 pub fn alloc(storage: *Storage, comptime T: type, amount: u8) !struct { Handle, []T } {
+    std.debug.assert(amount > 0);
     const field_name = comptime blk: {
         for (supported_types) |info| {
             if (T == info[0]) break :blk info[1];
@@ -64,4 +65,14 @@ pub fn alloc(storage: *Storage, comptime T: type, amount: u8) !struct { Handle, 
     const handle: Handle = @enumFromInt(list.items.len);
     list.appendAssumeCapacity(memory);
     return .{ handle, memory };
+}
+
+pub fn get(storage: Storage, comptime T: type, handle: Handle) []const T {
+    const field_name = comptime blk: {
+        for (supported_types) |info| {
+            if (T == info[0]) break :blk info[1];
+        } else @compileError("unsupported type " ++ @typeName(T));
+    };
+    const list = &@field(storage.lists, field_name);
+    return list.items[@intFromEnum(handle)];
 }

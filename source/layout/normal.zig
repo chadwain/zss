@@ -10,6 +10,7 @@ const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
 const root_element = @as(zss.ElementIndex, 0);
 
+const Inputs = zss.layout.Inputs;
 const solve = @import("./solve.zig");
 const inline_layout = @import("./inline.zig");
 const StyleComputer = @import("./StyleComputer.zig");
@@ -41,6 +42,7 @@ const IsRoot = enum {
 };
 
 const LayoutMode = enum {
+    // TODO: Move initial containing block layout to its own file
     InitialContainingBlock,
     Flow,
     ContainingBlock,
@@ -144,9 +146,9 @@ fn initialContainingBlockLayoutMode(layout: *BlockLayoutContext, sc: *StackingCo
     }
 }
 
-pub fn createAndPushInitialContainingBlock(layout: *BlockLayoutContext, computer: *StyleComputer, box_tree: *BoxTree) !void {
-    const width = computer.viewport_size.w;
-    const height = computer.viewport_size.h;
+pub fn createAndPushInitialContainingBlock(layout: *BlockLayoutContext, box_tree: *BoxTree, inputs: Inputs) !void {
+    const width = inputs.viewport.w;
+    const height = inputs.viewport.h;
 
     const subtree_index = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = null });
     assert(subtree_index == initial_subtree);
