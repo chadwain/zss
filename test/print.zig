@@ -22,6 +22,9 @@ pub fn run(tests: []const Test) !void {
     defer images.deinit(allocator);
     const images_slice = images.slice();
 
+    var storage = zss.values.Storage{ .allocator = allocator };
+    defer storage.deinit();
+
     for (tests, 0..) |t, i| {
         try stdout.print("print: ({}/{}) \"{s}\" ... \n", .{ i + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
@@ -29,9 +32,11 @@ pub fn run(tests: []const Test) !void {
         var box_tree = try zss.layout.doLayout(
             t.slice,
             t.root,
-            images_slice,
             allocator,
-            .{ .width = t.width, .height = t.height },
+            t.width,
+            t.height,
+            images_slice,
+            &storage,
         );
         defer box_tree.deinit();
 

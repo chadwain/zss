@@ -26,6 +26,12 @@ pub fn main() !void {
     slice.initElement(root, .normal, .orphan, {});
     try slice.runCascade(root, allocator, &env);
 
-    var box_tree = try zss.layout.doLayout(slice, root, allocator, .{ .width = 100, .height = 100 });
+    var images = zss.Images{};
+    defer images.deinit(allocator);
+
+    var storage = zss.values.Storage{ .allocator = allocator };
+    defer storage.deinit();
+
+    var box_tree = try zss.layout.doLayout(slice, root, allocator, 100, 100, images.slice(), &storage);
     defer box_tree.deinit();
 }

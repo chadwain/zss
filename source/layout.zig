@@ -13,12 +13,12 @@ const StyleComputer = @import("layout/StyleComputer.zig");
 const StackingContexts = @import("layout/StackingContexts.zig");
 
 const used_values = zss.used_values;
+const units_per_pixel = used_values.units_per_pixel;
 const BoxTree = used_values.BoxTree;
 const GeneratedBox = used_values.GeneratedBox;
 const ZssSize = used_values.ZssSize;
 
 pub const Inputs = struct {
-    /// The size of the viewport in ZssUnits (*not* pixels).
     viewport: ZssSize,
     images: Images.Slice,
     storage: *const Storage,
@@ -38,7 +38,12 @@ pub fn doLayout(
     element_tree_slice: ElementTree.Slice,
     root: Element,
     allocator: Allocator,
-    inputs: Inputs,
+    /// The width of the viewport in pixels.
+    width: u32,
+    /// The height of the viewport in pixels.
+    height: u32,
+    images: Images.Slice,
+    storage: *const Storage,
 ) Error!BoxTree {
     var computer = StyleComputer{
         .root_element = root,
@@ -50,6 +55,15 @@ pub fn doLayout(
 
     var box_tree = BoxTree{ .allocator = allocator };
     errdefer box_tree.deinit();
+
+    const inputs = Inputs{
+        .viewport = .{
+            .w = @intCast(width * units_per_pixel),
+            .h = @intCast(height * units_per_pixel),
+        },
+        .images = images,
+        .storage = storage,
+    };
 
     try boxGeneration(&computer, &box_tree, allocator, inputs);
     try cosmeticLayout(&computer, &box_tree, allocator, inputs);

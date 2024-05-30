@@ -125,11 +125,10 @@ pub fn main() !u8 {
         tree.slice(),
         root,
         allocator,
-        .{
-            .viewport = .{ .w = width * zss_units_per_pixel, .h = height * zss_units_per_pixel },
-            .images = images_slice,
-            .storage = &storage,
-        },
+        width,
+        height,
+        images_slice,
+        &storage,
     );
     defer box_tree.deinit();
 
