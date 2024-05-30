@@ -109,34 +109,14 @@ pub fn main() !u8 {
     var images = zss.Images{};
     defer images.deinit(allocator);
 
-    var zig_logo = blk: {
-        const path = "demo/zig.png";
-        var file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
-        const image = try zigimg.Image.fromFile(allocator, &file);
-        break :blk image;
-    };
-    defer zig_logo.deinit();
-    const zig_logo_image: zss.Images.Image = .{
-        .dimensions = .{
-            .width_px = @intCast(zig_logo.width),
-            .height_px = @intCast(zig_logo.height),
-        },
-        .format = switch (zig_logo.pixelFormat()) {
-            .rgba32 => .rgba,
-            else => return error.Unsupported,
-        },
-        .data = switch (zig_logo.pixelFormat()) {
-            .rgba32 => .{ .rgba = zig_logo.rawBytes() },
-            else => return error.Unsupported,
-        },
-    };
+    const zig_logo_data, const zig_logo_image = try loadImage("demo/zig.png", allocator);
+    defer zig_logo_data.deinit();
     const zig_logo_handle = try images.addImage(allocator, zig_logo_image);
+
     const images_slice = images.slice();
 
     var storage = zss.values.Storage{ .allocator = allocator };
     defer storage.deinit();
-    _ = try storage.alloc(zss.values.types.BackgroundClip, 1);
 
     var tree, const root = try createElements(allocator, file_name, file_contents.items, font, zig_logo_handle);
     defer tree.deinit();
@@ -211,6 +191,33 @@ fn readFile(allocator: Allocator, file_name: []const u8) !std.ArrayListUnmanaged
     }
 
     return list.moveToUnmanaged();
+}
+
+fn loadImage(path: []const u8, allocator: Allocator) !struct { zigimg.Image, zss.Images.Image } {
+    var zigimg_image = blk: {
+        var file = try std.fs.cwd().openFile(path, .{});
+        defer file.close();
+        const image = try zigimg.Image.fromFile(allocator, &file);
+        break :blk image;
+    };
+    errdefer zigimg_image.deinit();
+
+    const zss_image: zss.Images.Image = .{
+        .dimensions = .{
+            .width_px = @intCast(zigimg_image.width),
+            .height_px = @intCast(zigimg_image.height),
+        },
+        .format = switch (zigimg_image.pixelFormat()) {
+            .rgba32 => .rgba,
+            else => return error.Unsupported,
+        },
+        .data = switch (zigimg_image.pixelFormat()) {
+            .rgba32 => .{ .rgba = zigimg_image.rawBytes() },
+            else => return error.Unsupported,
+        },
+    };
+
+    return .{ zigimg_image, zss_image };
 }
 
 fn createElements(

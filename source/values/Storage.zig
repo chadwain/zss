@@ -7,22 +7,35 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
-const supported_types = [_]struct { type, [:0]const u8 }{
-    .{ types.BackgroundImage, "background_image" },
-    .{ types.BackgroundRepeat, "background_repeat" },
-    .{ types.BackgroundAttachment, "background_attachment" },
-    .{ types.BackgroundPosition, "background_position" },
-    .{ types.BackgroundClip, "background_clip" },
-    .{ types.BackgroundOrigin, "background_origin" },
-    .{ types.BackgroundSize, "background_size" },
+const supported_types = [_]type{
+    types.BackgroundImage,
+    types.BackgroundRepeat,
+    types.BackgroundAttachment,
+    types.BackgroundPosition,
+    types.BackgroundClip,
+    types.BackgroundOrigin,
+    types.BackgroundSize,
 };
+
+fn typeToFieldName(comptime T: type) [:0]const u8 {
+    return switch (T) {
+        types.BackgroundImage => "background_image",
+        types.BackgroundRepeat => "background_repeat",
+        types.BackgroundAttachment => "background_attachment",
+        types.BackgroundPosition => "background_position",
+        types.BackgroundClip => "background_clip",
+        types.BackgroundOrigin => "background_origin",
+        types.BackgroundSize => "background_size",
+        else => @compileError("unsupported type '" ++ @typeName(T) ++ "'"),
+    };
+}
 
 const Lists = blk: {
     var fields: [supported_types.len]std.builtin.Type.StructField = undefined;
-    for (supported_types, &fields) |in, *out| {
-        const List = ArrayListUnmanaged([]in[0]);
+    for (supported_types, &fields) |T, *out| {
+        const List = ArrayListUnmanaged([]T);
         out.* = .{
-            .name = in[1],
+            .name = typeToFieldName(T),
             .type = List,
             .default_value = &List{},
             .is_comptime = false,
@@ -54,12 +67,7 @@ pub fn deinit(storage: *Storage) void {
 
 pub fn alloc(storage: *Storage, comptime T: type, amount: u8) !struct { Handle, []T } {
     std.debug.assert(amount > 0);
-    const field_name = comptime blk: {
-        for (supported_types) |info| {
-            if (T == info[0]) break :blk info[1];
-        } else @compileError("unsupported type " ++ @typeName(T));
-    };
-    const list = &@field(storage.lists, field_name);
+    const list = &@field(storage.lists, typeToFieldName(T));
     try list.ensureUnusedCapacity(storage.allocator, 1);
     const memory = try storage.allocator.alloc(T, amount);
     const handle: Handle = @enumFromInt(list.items.len);
@@ -68,11 +76,6 @@ pub fn alloc(storage: *Storage, comptime T: type, amount: u8) !struct { Handle, 
 }
 
 pub fn get(storage: Storage, comptime T: type, handle: Handle) []const T {
-    const field_name = comptime blk: {
-        for (supported_types) |info| {
-            if (T == info[0]) break :blk info[1];
-        } else @compileError("unsupported type " ++ @typeName(T));
-    };
-    const list = &@field(storage.lists, field_name);
+    const list = &@field(storage.lists, typeToFieldName(T));
     return list.items[@intFromEnum(handle)];
 }
