@@ -10,9 +10,9 @@ const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const StyleComputer = @import("./StyleComputer.zig");
 
-const normal = @import("./normal.zig");
-const FlowBlockComputedSizes = normal.FlowBlockComputedSizes;
-const FlowBlockUsedSizes = normal.FlowBlockUsedSizes;
+const flow = @import("./flow.zig");
+const BlockComputedSizes = flow.BlockComputedSizes;
+const BlockUsedSizes = flow.BlockUsedSizes;
 
 const stf = @import("./shrink_to_fit.zig");
 
@@ -244,7 +244,7 @@ fn ifcRunOnce(
 
             if (!used_sizes.isFieldAuto(.inline_size)) {
                 // TODO: Recursive call here
-                const skip = try normal.runFlowLayout(
+                const result = try flow.runFlowLayout(
                     layout.allocator,
                     box_tree,
                     sc,
@@ -255,7 +255,7 @@ fn ifcRunOnce(
                     used_sizes,
                     stacking_context,
                 );
-                layout.result.total_inline_block_skip += skip;
+                layout.result.total_inline_block_skip += result.skip;
             } else {
                 const available_width_unclamped = layout.containing_block_width -
                     (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
@@ -627,19 +627,19 @@ fn inlineBlockSolveSizes(
     computer: *StyleComputer,
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
-) !FlowBlockUsedSizes {
+) !BlockUsedSizes {
     assert(containing_block_width >= 0);
     if (containing_block_height) |h| assert(h >= 0);
 
-    const specified = FlowBlockComputedSizes{
+    const specified = BlockComputedSizes{
         .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
         .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
         .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
     };
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
-    var computed: FlowBlockComputedSizes = undefined;
-    var used: FlowBlockUsedSizes = undefined;
+    var computed: BlockComputedSizes = undefined;
+    var used: BlockUsedSizes = undefined;
 
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
 

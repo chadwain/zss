@@ -8,14 +8,11 @@ const MultiArrayList = std.MultiArrayList;
 const zss = @import("zss.zig");
 const ElementHashMap = zss.util.ElementHashMap;
 
-/// The fundamental unit of space used for all CSS layout computations in zss.
+/// The smallest unit of space in the zss coordinate system.
 pub const ZssUnit = i32;
 
 /// The number of ZssUnits contained wthin the width or height of 1 screen pixel.
 pub const units_per_pixel = 4;
-
-/// A floating point number usually between 0 and 1, but it can exceed these values.
-pub const Percentage = f32;
 
 pub const ZssVector = struct {
     x: ZssUnit,

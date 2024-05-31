@@ -11,9 +11,9 @@ const aggregates = zss.properties.aggregates;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 
-const normal = @import("./normal.zig");
-const FlowBlockComputedSizes = normal.FlowBlockComputedSizes;
-const FlowBlockUsedSizes = normal.FlowBlockUsedSizes;
+const flow = @import("./flow.zig");
+const BlockComputedSizes = flow.BlockComputedSizes;
+const BlockUsedSizes = flow.BlockUsedSizes;
 
 const inline_layout = @import("./inline.zig");
 
@@ -52,7 +52,7 @@ const Objects = struct {
 
     const Data = union {
         flow_stf: struct {
-            used: FlowBlockUsedSizes,
+            used: BlockUsedSizes,
             stacking_context_info: StackingContexts.Info,
         },
         flow_normal: struct {
@@ -97,7 +97,7 @@ const UsedMargins = struct {
         return if (self.isFieldAuto(field)) null else @field(self, @tagName(field) ++ "_untagged");
     }
 
-    fn fromFlowBlockUsedSizes(sizes: FlowBlockUsedSizes) UsedMargins {
+    fn fromBlockUsedSizes(sizes: BlockUsedSizes) UsedMargins {
         return UsedMargins{
             .inline_start_untagged = sizes.margin_inline_start_untagged,
             .inline_end_untagged = sizes.margin_inline_end_untagged,
@@ -133,7 +133,7 @@ pub const ShrinkToFitLayoutContext = struct {
         sc: *StackingContexts,
         element: Element,
         main_block: BlockBox,
-        used_sizes: FlowBlockUsedSizes,
+        used_sizes: BlockUsedSizes,
         stacking_context_info: StackingContexts.Info,
         available_width: ZssUnit,
     ) !ShrinkToFitLayoutContext {
@@ -143,7 +143,7 @@ pub const ShrinkToFitLayoutContext = struct {
         try result.object_stack.append(result.allocator, .{ .index = 0, .skip = 1 });
         try result.objects.tree.append(result.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
         try result.objects.data.append(result.allocator, .{ .flow_stf = .{ .used = used_sizes, .stacking_context_info = stacking_context_info } });
-        try pushFlowBlock(&result, box_tree, sc, used_sizes, available_width, stacking_context_info);
+        try pushBlock(&result, box_tree, sc, used_sizes, available_width, stacking_context_info);
         return result;
     }
 
@@ -189,8 +189,8 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
 
                     switch (computed.display) {
                         .block => {
-                            var used: FlowBlockUsedSizes = undefined;
-                            try solveFlowBlockSizes(computer, &used, containing_block_height);
+                            var used: BlockUsedSizes = undefined;
+                            try solveBlockSizes(computer, &used, containing_block_height);
 
                             const stacking_context = try flowBlockCreateStackingContext(box_tree, computer, sc, computed.position);
 
@@ -218,7 +218,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 try layout.objects.data.append(
                                     layout.allocator,
                                     .{ .flow_normal = .{
-                                        .margins = UsedMargins.fromFlowBlockUsedSizes(used),
+                                        .margins = UsedMargins.fromBlockUsedSizes(used),
                                         .subtree_index = new_subtree_index,
                                     } },
                                 );
@@ -234,7 +234,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 }
 
                                 // TODO: Recursive call here
-                                _ = try normal.runFlowLayout(
+                                _ = try flow.runFlowLayout(
                                     layout.allocator,
                                     box_tree,
                                     sc,
@@ -248,7 +248,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                             } else {
                                 const parent_available_width = layout.widths.items(.available)[layout.widths.len - 1];
                                 const available_width = solve.clampSize(parent_available_width - edge_width, used.min_inline_size, used.max_inline_size);
-                                try pushFlowBlock(layout, box_tree, sc, used, available_width, stacking_context);
+                                try pushBlock(layout, box_tree, sc, used, available_width, stacking_context);
 
                                 try layout.object_stack.append(layout.allocator, .{ .index = @intCast(layout.objects.tree.len), .skip = 1 });
                                 try layout.objects.tree.append(layout.allocator, .{ .skip = undefined, .tag = .flow_stf, .element = element });
@@ -302,7 +302,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                     const object_info = layout.object_stack.pop();
                     layout.objects.tree.items(.skip)[object_info.index] = object_info.skip;
 
-                    const block_info = popFlowBlock(layout, box_tree, sc);
+                    const block_info = popBlock(layout, box_tree, sc);
                     const data = &layout.objects.data.items[object_info.index].flow_stf;
 
                     const used = &data.used;
@@ -383,10 +383,10 @@ fn realizeObjects(
                 const borders = &subtree_slice.items(.borders)[main_block.index];
                 const margins = &subtree_slice.items(.margins)[main_block.index];
                 const @"type" = &subtree_slice.items(.type)[main_block.index];
-                // NOTE: Should we call normal.flowBlockAdjustWidthAndMargins?
+                // NOTE: Should we call flow.adjustWidthAndMargins?
                 // Maybe. It depends on the outer context.
                 const used_sizes = data.used;
-                normal.writeBlockDataPart1(used_sizes, data.stacking_context_info, box_offsets, borders, margins, @"type");
+                flow.writeBlockDataPart1(used_sizes, data.stacking_context_info, box_offsets, borders, margins, @"type");
 
                 try layout.blocks.append(allocator, .{ .index = main_block.index, .skip = 1 });
                 try layout.width.append(allocator, used_sizes.get(.inline_size).?);
@@ -419,7 +419,7 @@ fn realizeObjects(
 
                         const used_sizes = data.used;
                         const stacking_context = data.stacking_context_info;
-                        var used_margins = UsedMargins.fromFlowBlockUsedSizes(used_sizes);
+                        var used_margins = UsedMargins.fromBlockUsedSizes(used_sizes);
                         flowBlockAdjustMargins(&used_margins, containing_block_width - block.box_offsets.border_size.w);
                         flowBlockSetData(used_sizes, stacking_context, used_margins, block.box_offsets, block.borders, block.margins, block.type);
 
@@ -456,7 +456,7 @@ fn realizeObjects(
                         flowBlockSetHorizontalMargins(data.margins, margins);
 
                         const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-                        normal.addBlockToFlow(box_offsets, margins.bottom, parent_auto_height);
+                        flow.addBlockToFlow(box_offsets, margins.bottom, parent_auto_height);
                     },
                     .ifc => {
                         const data = datas[index].ifc;
@@ -486,7 +486,7 @@ fn realizeObjects(
                             .content_size = .{ .w = data.line_split_result.longest_line_box_length, .h = data.line_split_result.height },
                         };
 
-                        normal.advanceFlow(parent_auto_height, data.line_split_result.height);
+                        flow.advanceFlow(parent_auto_height, data.line_split_result.height);
                     },
                 }
             } else {
@@ -501,7 +501,7 @@ fn realizeObjects(
                 const subtree_slice = subtree.slice();
                 const skip_ptr = &subtree_slice.items(.skip)[block.index];
                 const box_offsets_ptr = &subtree_slice.items(.box_offsets)[block.index];
-                normal.writeBlockDataPart2(skip_ptr, box_offsets_ptr, block.skip, used_sizes.getUsedContentHeight(), auto_height);
+                flow.writeBlockDataPart2(skip_ptr, box_offsets_ptr, block.skip, used_sizes.getUsedContentHeight(), auto_height);
 
                 if (layout.objects.len > 0) {
                     switch (layout.objects.items(.tag)[layout.objects.len - 1]) {
@@ -509,7 +509,7 @@ fn realizeObjects(
                             layout.blocks.items(.skip)[layout.blocks.len - 1] += block.skip;
                             const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
                             const margin_bottom = subtree_slice.items(.margins)[block.index].bottom;
-                            normal.addBlockToFlow(box_offsets_ptr, margin_bottom, parent_auto_height);
+                            flow.addBlockToFlow(box_offsets_ptr, margin_bottom, parent_auto_height);
                         },
                         .flow_normal, .ifc => unreachable,
                     }
@@ -520,9 +520,9 @@ fn realizeObjects(
     }
 }
 
-fn solveFlowBlockSizes(
+fn solveBlockSizes(
     computer: *StyleComputer,
-    used: *FlowBlockUsedSizes,
+    used: *BlockUsedSizes,
     containing_block_height: ?ZssUnit,
 ) !void {
     const specified = .{
@@ -532,12 +532,12 @@ fn solveFlowBlockSizes(
         .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
         .border_styles = computer.getSpecifiedValue(.box_gen, .border_styles),
     };
-    var computed: FlowBlockComputedSizes = undefined;
+    var computed: BlockComputedSizes = undefined;
 
     try flowBlockSolveContentWidth(specified.content_width, &computed.content_width, used);
     try flowBlockSolveHorizontalEdges(specified.horizontal_edges, specified.border_styles, &computed.horizontal_edges, used);
-    try normal.flowBlockSolveContentHeight(specified.content_height, containing_block_height, &computed.content_height, used);
-    try normal.flowBlockSolveVerticalEdges(specified.vertical_edges, 0, specified.border_styles, &computed.vertical_edges, used);
+    try flow.solveContentHeight(specified.content_height, containing_block_height, &computed.content_height, used);
+    try flow.solveVerticalEdges(specified.vertical_edges, 0, specified.border_styles, &computed.vertical_edges, used);
 
     computer.setComputedValue(.box_gen, .content_width, computed.content_width);
     computer.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
@@ -546,22 +546,22 @@ fn solveFlowBlockSizes(
     computer.setComputedValue(.box_gen, .border_styles, specified.border_styles);
 }
 
-fn pushFlowBlock(
+fn pushBlock(
     layout: *ShrinkToFitLayoutContext,
     box_tree: *BoxTree,
     sc: *StackingContexts,
-    used_sizes: FlowBlockUsedSizes,
+    used_sizes: BlockUsedSizes,
     available_width: ZssUnit,
     stacking_context: StackingContexts.Info,
 ) !void {
-    // The allocations here must have corresponding deallocations in popFlowBlock.
+    // The allocations here must have corresponding deallocations in popBlock.
     try layout.widths.append(layout.allocator, .{ .auto = 0, .available = available_width });
     try layout.heights.append(layout.allocator, used_sizes.get(.block_size));
     try sc.push(box_tree, stacking_context);
 }
 
-fn popFlowBlock(layout: *ShrinkToFitLayoutContext, box_tree: *BoxTree, sc: *StackingContexts) struct { auto_width: ZssUnit } {
-    // The deallocations here must correspond to allocations in pushFlowBlock.
+fn popBlock(layout: *ShrinkToFitLayoutContext, box_tree: *BoxTree, sc: *StackingContexts) struct { auto_width: ZssUnit } {
+    // The deallocations here must correspond to allocations in pushBlock.
     _ = layout.heights.pop();
     sc.pop(box_tree);
     return .{
@@ -572,7 +572,7 @@ fn popFlowBlock(layout: *ShrinkToFitLayoutContext, box_tree: *BoxTree, sc: *Stac
 fn flowBlockSolveContentWidth(
     specified: aggregates.ContentWidth,
     computed: *aggregates.ContentWidth,
-    used: *FlowBlockUsedSizes,
+    used: *BlockUsedSizes,
 ) !void {
     switch (specified.min_width) {
         .px => |value| {
@@ -622,7 +622,7 @@ fn flowBlockSolveHorizontalEdges(
     specified: aggregates.HorizontalEdges,
     border_styles: aggregates.BorderStyles,
     computed: *aggregates.HorizontalEdges,
-    used: *FlowBlockUsedSizes,
+    used: *BlockUsedSizes,
 ) !void {
     {
         const multiplier = solve.borderWidthMultiplier(border_styles.left);
@@ -777,7 +777,7 @@ fn flowBlockCreateStackingContext(
 }
 
 fn flowBlockSetData(
-    used: FlowBlockUsedSizes,
+    used: BlockUsedSizes,
     stacking_context: StackingContexts.Info,
     used_margins: UsedMargins,
     box_offsets: *used_values.BoxOffsets,

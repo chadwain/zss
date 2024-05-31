@@ -5,7 +5,7 @@ const zss = @import("../zss.zig");
 const root_element = @as(zss.ElementIndex, 0);
 
 const Inputs = zss.layout.Inputs;
-const normal = @import("./normal.zig");
+const flow = @import("./flow.zig");
 const solve = @import("./solve.zig");
 const inline_layout = @import("./inline.zig");
 const StyleComputer = @import("./StyleComputer.zig");
@@ -86,11 +86,22 @@ fn analyzeRootBlock(layout: *const InitialLayoutContext, sc: *StackingContexts, 
             const block_box = BlockBox{ .subtree = initial_subtree, .index = block.index };
             try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .{ .block_box = block_box });
 
-            const used_sizes = try normal.flowBlockSolveUsedSizes(computer, layout.width, layout.height);
+            const used_sizes = try flow.solveAllSizes(computer, layout.width, layout.height);
             const stacking_context = try rootFlowBlockCreateStackingContext(box_tree, computer, sc, block_box);
             try computer.pushElement(.box_gen);
 
-            return normal.runFlowLayout(layout.allocator, box_tree, sc, computer, block, initial_subtree, block.index, used_sizes, stacking_context);
+            const result = try flow.runFlowLayout(
+                layout.allocator,
+                box_tree,
+                sc,
+                computer,
+                block,
+                initial_subtree,
+                block.index,
+                used_sizes,
+                stacking_context,
+            );
+            return result.skip;
         },
         .none => return 0,
         .@"inline", .inline_block, .text => unreachable,
