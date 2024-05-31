@@ -230,23 +230,12 @@ fn ifcRunOnce(
             computer.setComputedValue(.box_gen, .box_style, computed);
 
             const subtree = box_tree.blocks.subtrees.items[layout.subtree_index];
-            const block = try normal.createBlock(box_tree, subtree);
-            block.skip.* = undefined;
+            const block = try zss.layout.createBlock(box_tree, subtree);
             const block_box = BlockBox{ .subtree = layout.subtree_index, .index = block.index };
             try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .{ .block_box = block_box });
 
-            const used_sizes = try inlineBlockSolveSizes(
-                computer,
-                layout.containing_block_width,
-                layout.containing_block_height,
-            );
-            const stacking_context = try inlineBlockCreateStackingContext(
-                box_tree,
-                computer,
-                sc,
-                computed.position,
-                block_box,
-            );
+            const used_sizes = try inlineBlockSolveSizes(computer, layout.containing_block_width, layout.containing_block_height);
+            const stacking_context = try inlineBlockCreateStackingContext(box_tree, computer, sc, computed.position, block_box);
 
             // TODO: Grabbing useless data to satisfy inheritance...
             const font = computer.getSpecifiedValue(.box_gen, .font);
@@ -254,14 +243,19 @@ fn ifcRunOnce(
             try computer.pushElement(.box_gen);
 
             if (!used_sizes.isFieldAuto(.inline_size)) {
-                normal.flowBlockSetData(used_sizes, stacking_context, block.box_offsets, block.borders, block.margins, block.type);
-
-                var normal_layout = normal.BlockLayoutContext{ .allocator = layout.allocator };
-                defer normal_layout.deinit();
-                try normal.pushContainingBlock(&normal_layout, layout.containing_block_width, layout.containing_block_height);
-                try normal.pushFlowBlock(&normal_layout, box_tree, sc, layout.subtree_index, block.index, used_sizes, stacking_context);
                 // TODO: Recursive call here
-                try normal.mainLoop(&normal_layout, sc, computer, box_tree);
+                const skip = try normal.runFlowLayout(
+                    layout.allocator,
+                    box_tree,
+                    sc,
+                    computer,
+                    block,
+                    layout.subtree_index,
+                    block.index,
+                    used_sizes,
+                    stacking_context,
+                );
+                layout.result.total_inline_block_skip += skip;
             } else {
                 const available_width_unclamped = layout.containing_block_width -
                     (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
@@ -281,9 +275,9 @@ fn ifcRunOnce(
                 );
                 defer stf_layout.deinit();
                 try stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree); // TODO: Recursive call here
+                layout.result.total_inline_block_skip += box_tree.blocks.subtrees.items[block_box.subtree].slice().items(.skip)[block_box.index];
             }
 
-            layout.result.total_inline_block_skip += box_tree.blocks.subtrees.items[block_box.subtree].slice().items(.skip)[block_box.index];
             try ifcAddInlineBlock(box_tree, ifc, block_box.index);
         },
         .block => {

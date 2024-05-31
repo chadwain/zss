@@ -7,7 +7,7 @@ const Element = ElementTree.Element;
 const Images = zss.Images;
 const Storage = zss.values.Storage;
 
-const normal = @import("layout/normal.zig");
+const initial = @import("layout/initial.zig");
 const cosmetic = @import("layout/cosmetic.zig");
 const StyleComputer = @import("layout/StyleComputer.zig");
 const StackingContexts = @import("layout/StackingContexts.zig");
@@ -15,7 +15,6 @@ const StackingContexts = @import("layout/StackingContexts.zig");
 const used_values = zss.used_values;
 const units_per_pixel = used_values.units_per_pixel;
 const BoxTree = used_values.BoxTree;
-const GeneratedBox = used_values.GeneratedBox;
 const ZssSize = used_values.ZssSize;
 
 pub const Inputs = struct {
@@ -75,14 +74,12 @@ fn boxGeneration(computer: *StyleComputer, box_tree: *BoxTree, allocator: Alloca
     computer.stage = .{ .box_gen = .{} };
     defer computer.deinitStage(.box_gen);
 
-    var layout = normal.BlockLayoutContext{ .allocator = allocator };
-    defer layout.deinit();
+    var context = initial.InitialLayoutContext{ .allocator = allocator };
 
     var sc = StackingContexts{ .allocator = allocator };
     defer sc.deinit();
 
-    try normal.createAndPushInitialContainingBlock(&layout, box_tree, inputs);
-    try normal.mainLoop(&layout, &sc, computer, box_tree);
+    try initial.run(&context, &sc, computer, box_tree, inputs);
 
     computer.assertEmptyStage(.box_gen);
 }
@@ -94,4 +91,27 @@ fn cosmeticLayout(computer: *StyleComputer, box_tree: *BoxTree, allocator: Alloc
     try cosmetic.run(computer, box_tree, allocator, inputs);
 
     computer.assertEmptyStage(.cosmetic);
+}
+
+pub const Block = struct {
+    index: used_values.BlockBoxIndex,
+    skip: *used_values.BlockBoxSkip,
+    type: *used_values.BlockType,
+    box_offsets: *used_values.BoxOffsets,
+    borders: *used_values.Borders,
+    margins: *used_values.Margins,
+};
+
+// TODO: Make this return only the index
+pub fn createBlock(box_tree: *BoxTree, subtree: *used_values.BlockSubtree) !Block {
+    const index = try subtree.appendBlock(box_tree.allocator);
+    const slice = subtree.slice();
+    return Block{
+        .index = index,
+        .skip = &slice.items(.skip)[index],
+        .type = &slice.items(.type)[index],
+        .box_offsets = &slice.items(.box_offsets)[index],
+        .borders = &slice.items(.borders)[index],
+        .margins = &slice.items(.margins)[index],
+    };
 }

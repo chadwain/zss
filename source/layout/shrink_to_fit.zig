@@ -12,7 +12,6 @@ const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 
 const normal = @import("./normal.zig");
-const BlockLayoutContext = normal.BlockLayoutContext;
 const FlowBlockComputedSizes = normal.FlowBlockComputedSizes;
 const FlowBlockUsedSizes = normal.FlowBlockUsedSizes;
 
@@ -225,15 +224,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                 );
 
                                 const new_subtree = box_tree.blocks.subtrees.items[new_subtree_index];
-                                const new_subtree_block = try normal.createBlock(box_tree, new_subtree);
-                                normal.flowBlockSetData(
-                                    used,
-                                    stacking_context,
-                                    new_subtree_block.box_offsets,
-                                    new_subtree_block.borders,
-                                    new_subtree_block.margins,
-                                    new_subtree_block.type,
-                                );
+                                const new_subtree_block = try zss.layout.createBlock(box_tree, new_subtree);
 
                                 const generated_box = GeneratedBox{ .block_box = .{ .subtree = new_subtree_index, .index = new_subtree_block.index } };
                                 try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
@@ -242,13 +233,18 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                     .is_parent, .is_non_parent => |id| StackingContexts.fixup(box_tree, id, generated_box.block_box),
                                 }
 
-                                var new_block_layout = BlockLayoutContext{ .allocator = layout.allocator };
-                                defer new_block_layout.deinit();
-                                try normal.pushContainingBlock(&new_block_layout, 0, containing_block_height);
-                                try normal.pushFlowBlock(&new_block_layout, box_tree, sc, new_subtree_index, new_subtree_block.index, used, stacking_context);
-
                                 // TODO: Recursive call here
-                                try normal.mainLoop(&new_block_layout, sc, computer, box_tree);
+                                _ = try normal.runFlowLayout(
+                                    layout.allocator,
+                                    box_tree,
+                                    sc,
+                                    computer,
+                                    new_subtree_block,
+                                    new_subtree_index,
+                                    new_subtree_block.index,
+                                    used,
+                                    stacking_context,
+                                );
                             } else {
                                 const parent_available_width = layout.widths.items(.available)[layout.widths.len - 1];
                                 const available_width = solve.clampSize(parent_available_width - edge_width, used.min_inline_size, used.max_inline_size);
@@ -269,7 +265,7 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                         .@"inline", .inline_block, .text => {
                             const new_subtree_index = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = undefined });
                             const new_subtree = box_tree.blocks.subtrees.items[new_subtree_index];
-                            const new_ifc_container = try normal.createBlock(box_tree, new_subtree);
+                            const new_ifc_container = try zss.layout.createBlock(box_tree, new_subtree);
 
                             const result = try inline_layout.makeInlineFormattingContext(
                                 layout.allocator,
@@ -390,8 +386,7 @@ fn realizeObjects(
                 // NOTE: Should we call normal.flowBlockAdjustWidthAndMargins?
                 // Maybe. It depends on the outer context.
                 const used_sizes = data.used;
-                // TODO: Main block has already had its data set by the parent context?
-                normal.flowBlockSetData(used_sizes, data.stacking_context_info, box_offsets, borders, margins, @"type");
+                normal.writeBlockDataPart1(used_sizes, data.stacking_context_info, box_offsets, borders, margins, @"type");
 
                 try layout.blocks.append(allocator, .{ .index = main_block.index, .skip = 1 });
                 try layout.width.append(allocator, used_sizes.get(.inline_size).?);
@@ -420,7 +415,7 @@ fn realizeObjects(
                     .flow_stf => {
                         const data = datas[index].flow_stf;
 
-                        const block = try normal.createBlock(box_tree, subtree);
+                        const block = try zss.layout.createBlock(box_tree, subtree);
 
                         const used_sizes = data.used;
                         const stacking_context = data.stacking_context_info;
@@ -447,7 +442,7 @@ fn realizeObjects(
                         const new_subtree = box_tree.blocks.subtrees.items[data.subtree_index];
 
                         {
-                            const proxy = try normal.createBlock(box_tree, subtree);
+                            const proxy = try zss.layout.createBlock(box_tree, subtree);
                             proxy.type.* = .{ .subtree_proxy = data.subtree_index };
                             proxy.skip.* = 1;
                             new_subtree.parent = .{ .subtree = main_block.subtree, .index = proxy.index };
@@ -470,7 +465,7 @@ fn realizeObjects(
 
                         // TODO: The proxy block should have its box_offsets value set, while the subtree root block should have default values
                         {
-                            const proxy = try normal.createBlock(box_tree, subtree);
+                            const proxy = try zss.layout.createBlock(box_tree, subtree);
                             proxy.skip.* = 1;
                             proxy.type.* = .{ .subtree_proxy = data.subtree_index };
                             new_subtree.parent = .{ .subtree = main_block.subtree, .index = proxy.index };
@@ -504,10 +499,9 @@ fn realizeObjects(
                 const data = objects.data.items[index].flow_stf;
                 const used_sizes = data.used;
                 const subtree_slice = subtree.slice();
-                const box_offsets = &subtree_slice.items(.box_offsets)[block.index];
-
-                subtree_slice.items(.skip)[block.index] = block.skip;
-                normal.flowBlockFinishLayout(box_offsets, used_sizes.getUsedContentHeight(), auto_height);
+                const skip_ptr = &subtree_slice.items(.skip)[block.index];
+                const box_offsets_ptr = &subtree_slice.items(.box_offsets)[block.index];
+                normal.writeBlockDataPart2(skip_ptr, box_offsets_ptr, block.skip, used_sizes.getUsedContentHeight(), auto_height);
 
                 if (layout.objects.len > 0) {
                     switch (layout.objects.items(.tag)[layout.objects.len - 1]) {
@@ -515,7 +509,7 @@ fn realizeObjects(
                             layout.blocks.items(.skip)[layout.blocks.len - 1] += block.skip;
                             const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
                             const margin_bottom = subtree_slice.items(.margins)[block.index].bottom;
-                            normal.addBlockToFlow(box_offsets, margin_bottom, parent_auto_height);
+                            normal.addBlockToFlow(box_offsets_ptr, margin_bottom, parent_auto_height);
                         },
                         .flow_normal, .ifc => unreachable,
                     }
