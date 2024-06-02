@@ -13,14 +13,46 @@ const zss_units_per_pixel = zss.used_values.units_per_pixel;
 
 const ProgramState = struct {
     main_window: glfw.Window,
-    main_window_height: ZssUnit,
+    main_window_width: u32,
+    main_window_height: u32,
+
+    resize_timer: *std.time.Timer,
+    next_resize: ?struct { width: u32, height: u32 } = null,
+
     current_scroll: ZssUnit = 0,
     max_scroll: ZssUnit,
 
-    fn changeMainWindowSize(self: *ProgramState, height: i32, box_tree: zss.used_values.BoxTree) void {
-        self.main_window_height = height * zss_units_per_pixel;
-        const root_block_height = box_tree.rootBlockHeight();
-        self.max_scroll = @max(0, root_block_height - self.main_window_height);
+    allocator: Allocator,
+    element_tree: zss.ElementTree.Slice,
+    root_element: zss.ElementTree.Element,
+    images: zss.Images.Slice,
+    storage: *const zss.values.Storage,
+
+    box_tree: zss.used_values.BoxTree,
+    draw_list: zss.render.DrawList,
+
+    fn deinit(self: *ProgramState) void {
+        self.box_tree.deinit();
+        self.draw_list.deinit(self.allocator);
+    }
+
+    fn resize(self: *ProgramState) !void {
+        if (self.resize_timer.read() < std.time.ns_per_ms * 250) return;
+        self.resize_timer.reset();
+        if (self.next_resize) |size| {
+            zgl.viewport(0, 0, size.width, size.height);
+            try self.changeMainWindowSize(size.width, size.height);
+            self.next_resize = null;
+        }
+    }
+
+    fn changeMainWindowSize(self: *ProgramState, width: u32, height: u32) !void {
+        self.main_window_width = width;
+        self.main_window_height = height;
+        try self.layout();
+
+        const root_block_height = self.box_tree.rootBlockHeight();
+        self.max_scroll = @max(0, root_block_height - @as(ZssUnit, @intCast(self.main_window_height * zss_units_per_pixel)));
         self.scroll(.nowhere);
     }
 
@@ -30,10 +62,29 @@ const ProgramState = struct {
             .nowhere => {},
             .up => self.current_scroll -= scroll_amount,
             .down => self.current_scroll += scroll_amount,
-            .page_up => self.current_scroll -= self.main_window_height,
-            .page_down => self.current_scroll += self.main_window_height,
+            .page_up => self.current_scroll -= @intCast(self.main_window_height * zss_units_per_pixel),
+            .page_down => self.current_scroll += @intCast(self.main_window_height * zss_units_per_pixel),
         }
         self.current_scroll = std.math.clamp(self.current_scroll, 0, self.max_scroll);
+    }
+
+    fn layout(self: *ProgramState) !void {
+        var box_tree = try zss.layout.doLayout(
+            self.element_tree,
+            self.root_element,
+            self.allocator,
+            self.main_window_width,
+            self.main_window_height,
+            self.images,
+            self.storage,
+        );
+        defer box_tree.deinit();
+
+        var draw_list = try zss.render.DrawList.create(box_tree, self.allocator);
+        defer draw_list.deinit(self.allocator);
+
+        std.mem.swap(zss.used_values.BoxTree, &self.box_tree, &box_tree);
+        std.mem.swap(zss.render.DrawList, &self.draw_list, &draw_list);
     }
 };
 
@@ -76,22 +127,14 @@ pub fn main() !u8 {
     if (!glfw.init(.{})) return error.GlfwError;
     defer glfw.terminate();
 
-    const width = 800;
-    const height = 600;
-    const window = glfw.Window.create(width, height, "zss demo", null, null, .{
+    const initial_width = 800;
+    const initial_height = 600;
+    const window = glfw.Window.create(initial_width, initial_height, "zss demo", null, null, .{
         .context_version_major = 3,
         .context_version_minor = 3,
         .opengl_profile = .opengl_core_profile,
     }) orelse return error.GlfwError;
     defer window.destroy();
-
-    var program_state = ProgramState{
-        .main_window = window,
-        .main_window_height = undefined,
-        .max_scroll = undefined,
-    };
-    window.setUserPointer(&program_state);
-    window.setKeyCallback(keyCallback);
 
     glfw.makeContextCurrent(window);
     defer glfw.makeContextCurrent(null);
@@ -113,29 +156,38 @@ pub fn main() !u8 {
     defer zig_logo_data.deinit();
     const zig_logo_handle = try images.addImage(allocator, zig_logo_image);
 
-    const images_slice = images.slice();
-
     var storage = zss.values.Storage{ .allocator = allocator };
     defer storage.deinit();
 
     var tree, const root = try createElements(allocator, file_name, file_contents.items, font, zig_logo_handle);
     defer tree.deinit();
 
-    var box_tree = try zss.layout.doLayout(
-        tree.slice(),
-        root,
-        allocator,
-        width,
-        height,
-        images_slice,
-        &storage,
-    );
-    defer box_tree.deinit();
+    var resize_timer = try std.time.Timer.start();
 
-    program_state.changeMainWindowSize(height, box_tree);
+    var program_state = ProgramState{
+        .main_window = window,
+        .main_window_width = undefined,
+        .main_window_height = undefined,
 
-    var draw_list = try zss.render.DrawList.create(box_tree, allocator);
-    defer draw_list.deinit(allocator);
+        .resize_timer = &resize_timer,
+
+        .max_scroll = undefined,
+
+        .allocator = allocator,
+        .element_tree = tree.slice(),
+        .root_element = root,
+        .images = images.slice(),
+        .storage = &storage,
+
+        // TODO: Don't "default initialize" these
+        .box_tree = .{ .allocator = allocator },
+        .draw_list = .{ .sub_lists = .{}, .quad_tree = .{} },
+    };
+    defer program_state.deinit();
+    window.setUserPointer(&program_state);
+    window.setKeyCallback(keyCallback);
+    window.setFramebufferSizeCallback(framebufferSizeCallback);
+    try program_state.changeMainWindowSize(initial_width, initial_height);
 
     var renderer = zss.render.opengl.Renderer.init(allocator);
     defer renderer.deinit();
@@ -144,16 +196,18 @@ pub fn main() !u8 {
     defer renderer.deinitGlyphs();
 
     while (!window.shouldClose()) {
+        try program_state.resize();
+
         zgl.clearColor(0, 0, 0, 0);
         zgl.clear(.{ .color = true });
 
         const viewport_rect = zss.used_values.ZssRect{
             .x = 0,
             .y = program_state.current_scroll,
-            .w = width * zss_units_per_pixel,
-            .h = height * zss_units_per_pixel,
+            .w = @intCast(program_state.main_window_width * zss_units_per_pixel),
+            .h = @intCast(program_state.main_window_height * zss_units_per_pixel),
         };
-        try zss.render.opengl.drawBoxTree(&renderer, images_slice, box_tree, draw_list, allocator, viewport_rect);
+        try zss.render.opengl.drawBoxTree(&renderer, program_state.images, program_state.box_tree, program_state.draw_list, allocator, viewport_rect);
 
         // zgl.clearColor(0, 0, 0, 0);
         // zgl.clear(.{ .color = true });
@@ -162,7 +216,7 @@ pub fn main() !u8 {
         zgl.flush();
 
         window.swapBuffers();
-        glfw.waitEvents();
+        glfw.waitEventsTimeout(0.25);
     }
 
     return 0;
@@ -398,4 +452,11 @@ fn keyCallback(window: glfw.Window, key: glfw.Key, scancode: i32, action: glfw.A
         .page_up => program_state.scroll(.page_up),
         else => {},
     }
+}
+
+fn framebufferSizeCallback(window: glfw.Window, width: u32, height: u32) void {
+    const program_state = window.getUserPointer(ProgramState) orelse return;
+    if (program_state.main_window.handle != window.handle) return;
+
+    program_state.next_resize = .{ .width = width, .height = height };
 }
