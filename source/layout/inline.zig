@@ -249,7 +249,6 @@ fn ifcRunOnce(
                     box_tree,
                     sc,
                     computer,
-                    block,
                     layout.subtree_index,
                     block.index,
                     used_sizes,
@@ -451,18 +450,8 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
                 computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
             },
@@ -503,18 +492,8 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
                 computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
             },
@@ -541,18 +520,8 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
                 computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.vertical_edges.border_top = .{ .px = width };
-                used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.vertical_edges.border_top = .{ .px = width };
-                used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
             },
@@ -578,18 +547,8 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
                 computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.vertical_edges.border_bottom = .{ .px = width };
-                used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.vertical_edges.border_bottom = .{ .px = width };
-                used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
             },
@@ -651,18 +610,8 @@ fn inlineBlockSolveSizes(
                 computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
             },
@@ -677,18 +626,8 @@ fn inlineBlockSolveSizes(
                 computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
             },
@@ -798,18 +737,8 @@ fn inlineBlockSolveSizes(
                 computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.vertical_edges.border_top = .{ .px = width };
-                used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.vertical_edges.border_top = .{ .px = width };
-                used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
             },
@@ -824,18 +753,8 @@ fn inlineBlockSolveSizes(
                 computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.vertical_edges.border_bottom = .{ .px = width };
-                used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.vertical_edges.border_bottom = .{ .px = width };
-                used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
             },

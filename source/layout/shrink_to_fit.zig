@@ -239,7 +239,6 @@ fn buildObjectTree(layout: *ShrinkToFitLayoutContext, sc: *StackingContexts, com
                                     box_tree,
                                     sc,
                                     computer,
-                                    new_subtree_block,
                                     new_subtree_index,
                                     new_subtree_block.index,
                                     used,
@@ -379,14 +378,10 @@ fn realizeObjects(
                 const data = datas[0].flow_stf;
 
                 const subtree_slice = subtree.slice();
-                const box_offsets = &subtree_slice.items(.box_offsets)[main_block.index];
-                const borders = &subtree_slice.items(.borders)[main_block.index];
-                const margins = &subtree_slice.items(.margins)[main_block.index];
-                const @"type" = &subtree_slice.items(.type)[main_block.index];
                 // NOTE: Should we call flow.adjustWidthAndMargins?
                 // Maybe. It depends on the outer context.
                 const used_sizes = data.used;
-                flow.writeBlockDataPart1(used_sizes, data.stacking_context_info, box_offsets, borders, margins, @"type");
+                flow.writeBlockDataPart1(subtree_slice, main_block.index, used_sizes, data.stacking_context_info);
 
                 try layout.blocks.append(allocator, .{ .index = main_block.index, .skip = 1 });
                 try layout.width.append(allocator, used_sizes.get(.inline_size).?);
@@ -456,7 +451,7 @@ fn realizeObjects(
                         flowBlockSetHorizontalMargins(data.margins, margins);
 
                         const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-                        flow.addBlockToFlow(box_offsets, margins.bottom, parent_auto_height);
+                        flow.addBlockToFlow(new_subtree_slice, 0, parent_auto_height);
                     },
                     .ifc => {
                         const data = datas[index].ifc;
@@ -499,17 +494,14 @@ fn realizeObjects(
                 const data = objects.data.items[index].flow_stf;
                 const used_sizes = data.used;
                 const subtree_slice = subtree.slice();
-                const skip_ptr = &subtree_slice.items(.skip)[block.index];
-                const box_offsets_ptr = &subtree_slice.items(.box_offsets)[block.index];
-                flow.writeBlockDataPart2(skip_ptr, box_offsets_ptr, block.skip, used_sizes.getUsedContentHeight(), auto_height);
+                flow.writeBlockDataPart2(subtree_slice, block.index, block.skip, used_sizes.getUsedContentHeight(), auto_height);
 
                 if (layout.objects.len > 0) {
                     switch (layout.objects.items(.tag)[layout.objects.len - 1]) {
                         .flow_stf => {
                             layout.blocks.items(.skip)[layout.blocks.len - 1] += block.skip;
                             const parent_auto_height = &layout.auto_height.items[layout.auto_height.items.len - 1];
-                            const margin_bottom = subtree_slice.items(.margins)[block.index].bottom;
-                            flow.addBlockToFlow(box_offsets_ptr, margin_bottom, parent_auto_height);
+                            flow.addBlockToFlow(subtree_slice, block.index, parent_auto_height);
                         },
                         .flow_normal, .ifc => unreachable,
                     }
@@ -632,18 +624,8 @@ fn flowBlockSolveHorizontalEdges(
                 computed.border_left = .{ .px = width };
                 used.border_inline_start = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.border_left = .{ .px = width };
                 used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
             },
@@ -658,18 +640,8 @@ fn flowBlockSolveHorizontalEdges(
                 computed.border_right = .{ .px = width };
                 used.border_inline_end = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.border_right = .{ .px = width };
                 used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
             },

@@ -35,14 +35,13 @@ pub fn clampSize(size: ZssUnit, min_size: ZssUnit, max_size: ZssUnit) ZssUnit {
     return @max(min_size, @min(size, max_size));
 }
 
-pub const BorderThickness = enum { thin, medium, thick };
-
-pub fn borderWidth(comptime thickness: BorderThickness) f32 {
+pub fn borderWidth(comptime thickness: std.meta.Tag(types.BorderWidth)) f32 {
     return switch (thickness) {
         // TODO: Let these values be user-customizable.
         .thin => 1,
         .medium => 3,
         .thick => 5,
+        else => @compileError("invalid value"),
     };
 }
 

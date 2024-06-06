@@ -18,6 +18,7 @@ const BlockBoxIndex = used_values.BlockBoxIndex;
 const BlockBoxSkip = used_values.BlockBoxSkip;
 const BlockSubtreeIndex = used_values.SubtreeIndex;
 const BoxTree = used_values.BoxTree;
+const SubtreeSlice = used_values.BlockSubtree.Slice;
 const ZssUnit = used_values.ZssUnit;
 
 pub const Result = struct {
@@ -29,7 +30,6 @@ pub fn runFlowLayout(
     box_tree: *BoxTree,
     sc: *StackingContexts,
     computer: *StyleComputer,
-    block: zss.layout.Block,
     subtree_index: BlockSubtreeIndex,
     block_box_index: BlockBoxIndex,
     used_sizes: BlockUsedSizes,
@@ -38,7 +38,7 @@ pub fn runFlowLayout(
     var ctx = Context{ .allocator = allocator };
     defer ctx.deinit();
 
-    try pushBlock(true, &ctx, box_tree, sc, block, subtree_index, block_box_index, used_sizes, stacking_context);
+    try pushBlock(true, &ctx, box_tree, sc, subtree_index, block_box_index, used_sizes, stacking_context);
     while (ctx.current) |*current| {
         try analyzeElement(&ctx, sc, computer, box_tree, current);
     }
@@ -96,7 +96,7 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                 const used_sizes = try solveAllSizes(computer, containing_block_width, containing_block_height);
                 const stacking_context = try createStackingContext(computer, box_tree, sc, computed_box_style.position, block_box);
 
-                try pushBlock(false, ctx, box_tree, sc, block, subtree_index, block.index, used_sizes, stacking_context);
+                try pushBlock(false, ctx, box_tree, sc, subtree_index, block.index, used_sizes, stacking_context);
 
                 element_ptr.* = computer.element_tree_slice.nextSibling(element);
                 try computer.pushElement(.box_gen);
@@ -144,20 +144,20 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
 }
 
 fn pushBlock(
-    comptime init: bool,
+    comptime initial_push: bool,
     ctx: *Context,
     box_tree: *BoxTree,
     sc: *StackingContexts,
-    block: zss.layout.Block,
     subtree_index: BlockSubtreeIndex,
     block_box_index: BlockBoxIndex,
     used_sizes: BlockUsedSizes,
     stacking_context: StackingContexts.Info,
 ) !void {
-    writeBlockDataPart1(used_sizes, stacking_context, block.box_offsets, block.borders, block.margins, block.type);
+    const subtree_slice = box_tree.blocks.subtrees.items[subtree_index].slice();
+    writeBlockDataPart1(subtree_slice, block_box_index, used_sizes, stacking_context);
 
     // The allocations here must have corresponding deallocations in popBlock.
-    if (!init) try ctx.stack.append(ctx.allocator, ctx.current.?);
+    if (!initial_push) try ctx.stack.append(ctx.allocator, ctx.current.?);
     try sc.push(box_tree, stacking_context);
 
     ctx.current = .{
@@ -177,17 +177,14 @@ fn popBlock(ctx: *Context, sc: *StackingContexts, box_tree: *BoxTree) void {
     sc.pop(box_tree);
 
     const subtree_slice = box_tree.blocks.subtrees.items[current.subtree].slice();
-    const skip = &subtree_slice.items(.skip)[current.index];
-    const box_offsets = &subtree_slice.items(.box_offsets)[current.index];
-    assert(box_offsets.content_size.w == current.width);
-    writeBlockDataPart2(skip, box_offsets, current.skip, current.heights, current.auto_height);
+    assert(subtree_slice.items(.box_offsets)[current.index].content_size.w == current.width);
+    writeBlockDataPart2(subtree_slice, current.index, current.skip, current.heights, current.auto_height);
 
     if (ctx.current) |*parent| {
         parent.skip += current.skip;
-        const margin_bottom = subtree_slice.items(.margins)[current.index].bottom;
-        addBlockToFlow(box_offsets, margin_bottom, &parent.auto_height);
+        addBlockToFlow(subtree_slice, current.index, &parent.auto_height);
     } else {
-        ctx.result.skip = current.skip;
+        ctx.result = .{ .skip = current.skip };
     }
 }
 
@@ -206,16 +203,13 @@ pub const BlockComputedSizes = struct {
 
 pub const BlockUsedSizes = struct {
     border_inline_start: ZssUnit,
-
     border_inline_end: ZssUnit,
     padding_inline_start: ZssUnit,
     padding_inline_end: ZssUnit,
-
     margin_inline_start_untagged: ZssUnit,
     margin_inline_end_untagged: ZssUnit,
     inline_size_untagged: ZssUnit,
     min_inline_size: ZssUnit,
-
     max_inline_size: ZssUnit,
 
     border_block_start: ZssUnit,
@@ -242,7 +236,6 @@ pub const BlockUsedSizes = struct {
         const clamped_value = switch (field) {
             .inline_size => solve.clampSize(value, self.min_inline_size, self.max_inline_size),
             .margin_inline_start, .margin_inline_end => value,
-
             .block_size => solve.clampSize(value, self.min_block_size, self.max_block_size),
         };
         @field(self, @tagName(field) ++ "_untagged") = clamped_value;
@@ -286,7 +279,6 @@ pub fn solveAllSizes(
     const specified_sizes = BlockComputedSizes{
         .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
-
         .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
         .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
     };
@@ -298,10 +290,8 @@ pub fn solveAllSizes(
     try solveContentHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &used_sizes);
     try solveVerticalEdges(
         specified_sizes.vertical_edges,
-
         containing_block_width,
         border_styles,
-
         &computed_sizes.vertical_edges,
         &used_sizes,
     );
@@ -336,18 +326,8 @@ pub fn solveWidths(
                 computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
             },
@@ -362,18 +342,8 @@ pub fn solveWidths(
                 computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
             },
@@ -558,18 +528,8 @@ pub fn solveVerticalEdges(
                 computed.border_top = .{ .px = width };
                 used.border_block_start = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.border_top = .{ .px = width };
-                used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.border_top = .{ .px = width };
-                used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.border_top = .{ .px = width };
                 used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
             },
@@ -584,18 +544,8 @@ pub fn solveVerticalEdges(
                 computed.border_bottom = .{ .px = width };
                 used.border_block_end = try solve.positiveLength(.px, width);
             },
-            .thin => {
-                const width = solve.borderWidth(.thin) * multiplier;
-                computed.border_bottom = .{ .px = width };
-                used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .medium => {
-                const width = solve.borderWidth(.medium) * multiplier;
-                computed.border_bottom = .{ .px = width };
-                used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
-            },
-            .thick => {
-                const width = solve.borderWidth(.thick) * multiplier;
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
                 computed.border_bottom = .{ .px = width };
                 used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
             },
@@ -712,16 +662,25 @@ fn createStackingContext(
 /// Partially writes a flow block's data to the BoxTree.
 /// Must eventually be followed by a call to writeBlockDataPart2.
 pub fn writeBlockDataPart1(
+    subtree_slice: SubtreeSlice,
+    index: BlockBoxIndex,
     used: BlockUsedSizes,
     stacking_context: StackingContexts.Info,
-    box_offsets: *used_values.BoxOffsets,
-    borders: *used_values.Borders,
-    margins: *used_values.Margins,
-    @"type": *used_values.BlockType,
 ) void {
-    // horizontal
-    box_offsets.border_pos.x = used.get(.margin_inline_start).?;
+    const @"type" = &subtree_slice.items(.type)[index];
+    const box_offsets = &subtree_slice.items(.box_offsets)[index];
+    const borders = &subtree_slice.items(.borders)[index];
+    const margins = &subtree_slice.items(.margins)[index];
 
+    @"type".* = .{ .block = .{
+        .stacking_context = switch (stacking_context) {
+            .none => null,
+            .is_parent, .is_non_parent => |id| id,
+        },
+    } };
+
+    // Horizontal sizes
+    box_offsets.border_pos.x = used.get(.margin_inline_start).?;
     box_offsets.content_pos.x = used.border_inline_start + used.padding_inline_start;
     box_offsets.content_size.w = used.get(.inline_size).?;
     box_offsets.border_size.w = box_offsets.content_pos.x + box_offsets.content_size.w + used.padding_inline_end + used.border_inline_end;
@@ -732,7 +691,7 @@ pub fn writeBlockDataPart1(
     margins.left = used.get(.margin_inline_start).?;
     margins.right = used.get(.margin_inline_end).?;
 
-    // vertical
+    // Vertical sizes
     box_offsets.border_pos.y = used.margin_block_start;
     box_offsets.content_pos.y = used.border_block_start + used.padding_block_start;
     box_offsets.content_size.h = undefined;
@@ -743,23 +702,19 @@ pub fn writeBlockDataPart1(
 
     margins.top = used.margin_block_start;
     margins.bottom = used.margin_block_end;
-
-    @"type".* = .{ .block = .{
-        .stacking_context = switch (stacking_context) {
-            .none => null,
-            .is_parent, .is_non_parent => |id| id,
-        },
-    } };
 }
 
 /// Writes data to the BoxTree that was left out during writeBlockDataPart1.
 pub fn writeBlockDataPart2(
-    skip_ptr: *BlockBoxSkip,
-    box_offsets_ptr: *used_values.BoxOffsets,
+    subtree_slice: SubtreeSlice,
+    index: BlockBoxIndex,
     skip: BlockBoxSkip,
     heights: UsedContentHeight,
     auto_height: ZssUnit,
 ) void {
+    const skip_ptr = &subtree_slice.items(.skip)[index];
+    const box_offsets_ptr = &subtree_slice.items(.box_offsets)[index];
+
     skip_ptr.* = skip;
 
     const used_height = if (heights.height) |h| blk: {
@@ -770,7 +725,10 @@ pub fn writeBlockDataPart2(
     box_offsets_ptr.border_size.h += used_height;
 }
 
-pub fn addBlockToFlow(box_offsets: *used_values.BoxOffsets, margin_bottom: ZssUnit, parent_auto_height: *ZssUnit) void {
+pub fn addBlockToFlow(subtree_slice: SubtreeSlice, index: BlockBoxIndex, parent_auto_height: *ZssUnit) void {
+    const box_offsets = &subtree_slice.items(.box_offsets)[index];
+    const margin_bottom = subtree_slice.items(.margins)[index].bottom;
+
     const margin_top = box_offsets.border_pos.y;
     box_offsets.border_pos.y += parent_auto_height.*;
     advanceFlow(parent_auto_height, box_offsets.border_size.h + margin_top + margin_bottom);

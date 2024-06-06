@@ -120,6 +120,64 @@ pub fn push(sc: *StackingContexts, box_tree: *BoxTree, info: Info) !void {
     sc.debug_state.set(.init);
 }
 
+pub const Info2 = union(Tag) {
+    none,
+    is_parent: ZIndex,
+    is_non_parent: ZIndex,
+};
+
+// TODO: unused
+pub fn push2(sc: *StackingContexts, info: Info2, box_tree: *BoxTree, block_box: BlockBox) !?Id {
+    sc.debug_state.assertState(.init);
+    try sc.tag.append(sc.allocator, info);
+
+    const z_index = switch (info) {
+        .none => return null,
+        .is_parent, .is_non_parent => |z_index| z_index,
+    };
+
+    const sc_tree = &box_tree.stacking_contexts;
+    try sc_tree.ensureUnusedCapacity(box_tree.allocator, 1);
+
+    const index = blk: {
+        const slice = sc_tree.slice();
+        const skips, const z_indeces = .{ slice.items(.skip), slice.items(.z_index) };
+
+        const parent = sc.contexts.get(sc.contexts.len - 1);
+        var index = parent.index + 1;
+        const end = parent.index + parent.skip;
+        while (index < end and z_index >= z_indeces[index]) {
+            index += skips[index];
+        }
+
+        break :blk index;
+    };
+
+    const id: Id = @enumFromInt(sc.next_id);
+    const skip: Skip = switch (info) {
+        .none => unreachable,
+        .is_parent => blk: {
+            try sc.contexts.append(sc.allocator, .{ .index = index, .skip = 1, .id = id });
+            break :blk undefined;
+        },
+        .is_non_parent => 1,
+    };
+    sc_tree.insertAssumeCapacity(
+        index,
+        .{
+            .skip = skip,
+            .id = id,
+            .z_index = z_index,
+            .block_box = block_box,
+            .ifcs = .{},
+        },
+    );
+
+    sc.current_index = index;
+    sc.next_id += 1;
+    return id;
+}
+
 pub fn pop(sc: *StackingContexts, box_tree: *BoxTree) void {
     sc.debug_state.assertState(.init);
     const tag = sc.tag.pop();

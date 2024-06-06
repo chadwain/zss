@@ -53,11 +53,11 @@ pub fn run(layout: *InitialLayoutContext, sc: *StackingContexts, computer: *Styl
 
     layout.width = width;
     layout.height = height;
-    const skip = try analyzeRootBlock(layout, sc, computer, box_tree);
+    const skip = try analyzeRootElement(layout, sc, computer, box_tree);
     block.skip.* = 1 + skip;
 }
 
-fn analyzeRootBlock(layout: *const InitialLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !BlockBoxSkip {
+fn analyzeRootElement(layout: *const InitialLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !BlockBoxSkip {
     if (computer.root_element.eqlNull()) return 0;
 
     const element = computer.root_element;
@@ -95,7 +95,6 @@ fn analyzeRootBlock(layout: *const InitialLayoutContext, sc: *StackingContexts, 
                 box_tree,
                 sc,
                 computer,
-                block,
                 initial_subtree,
                 block.index,
                 used_sizes,
