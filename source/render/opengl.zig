@@ -992,7 +992,7 @@ fn drawLineBox(
                 .w = @intCast(info.metrics.width_px * units_per_pixel),
                 .h = @intCast(info.metrics.height_px * units_per_pixel),
             };
-            try renderer.addTexturedRect(rect, Color.black, info.tex_coords_x, info.tex_coords_y);
+            try renderer.addTexturedRect(rect, ifc.font_color, info.tex_coords_x, info.tex_coords_y);
         }
     }
 }

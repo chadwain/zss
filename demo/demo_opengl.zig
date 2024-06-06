@@ -51,8 +51,20 @@ const ProgramState = struct {
         self.main_window_height = height;
         try self.layout();
 
-        const root_block_height = self.box_tree.rootBlockHeight();
-        self.max_scroll = @max(0, root_block_height - @as(ZssUnit, @intCast(self.main_window_height * zss_units_per_pixel)));
+        const max_height = if (self.box_tree.element_to_generated_box.get(self.root_element)) |generated_box| blk: {
+            const block_box = switch (generated_box) {
+                .block_box => |block_box| block_box,
+                .inline_box, .text => unreachable,
+            };
+            const subtree = self.box_tree.blocks.subtrees.items[block_box.subtree];
+            const box_offsets = subtree.slice().items(.box_offsets)[block_box.index];
+            break :blk box_offsets.border_size.h;
+        } else blk: {
+            const subtree = self.box_tree.blocks.subtrees.items[0];
+            const box_offsets = subtree.slice().items(.box_offsets)[0];
+            break :blk box_offsets.border_size.h;
+        };
+        self.max_scroll = @max(0, max_height - @as(ZssUnit, @intCast(self.main_window_height * zss_units_per_pixel)));
         self.scroll(.nowhere);
     }
 

@@ -101,7 +101,10 @@ fn addTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Mod
         .optimize = optimize,
     });
     test_suite.root_module.addImport("zss", mods.zss);
+    test_suite.root_module.addImport("mach-glfw", mods.mach_glfw);
     test_suite.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
+    test_suite.root_module.addImport("zgl", mods.zgl);
+    test_suite.root_module.addImport("zigimg", mods.zigimg);
     // test_suite.root_module.addImport("SDL2", mods.sdl2);
     b.installArtifact(test_suite);
 

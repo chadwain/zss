@@ -541,12 +541,6 @@ pub const BoxTree = struct {
         self.element_to_generated_box.deinit(self.allocator);
         self.background_images.deinit(self.allocator);
     }
-
-    pub fn rootBlockHeight(self: Self) ZssUnit {
-        const subtree = self.blocks.subtrees.items[0];
-        const box_offsets = subtree.slice().items(.box_offsets)[1];
-        return box_offsets.border_size.h;
-    }
 };
 
 test "ZssRect" {
