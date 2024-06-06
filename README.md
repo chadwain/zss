@@ -4,7 +4,7 @@ zss is a [CSS](https://www.w3.org/Style/CSS/) layout engine and document rendere
 # Building zss
 To build zss, simply run `zig build --help` to see your options.
 
-zss specifically requires [nominated zig version 2024.3.0-mach](https://machengine.org/about/nominated-zig/), a.k.a. zig version 0.12.0-dev.3180+83e578a18.
+zss specifically requires [nominated zig version 2024.5.0-mach](https://machengine.org/about/nominated-zig/), a.k.a. zig version 0.13.0-dev.351+64ef45eb0.
 
 # Standards Implemented
 In general, zss tries to implement the standards contained in [CSS Snapshot 2023](https://www.w3.org/TR/css-2023/).

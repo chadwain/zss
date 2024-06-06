@@ -409,7 +409,7 @@ pub const Renderer = struct {
             .flat_color, .textured => {
                 zgl.bufferData(.array_buffer, Vertex, renderer.vertices.items, .dynamic_draw);
                 zgl.bufferData(.element_array_buffer, u32, renderer.indeces.items, .dynamic_draw);
-                zgl.drawElements(.triangles, renderer.indeces.items.len, .u32, 0);
+                zgl.drawElements(.triangles, renderer.indeces.items.len, .unsigned_int, 0);
                 renderer.vertices.clearRetainingCapacity();
                 renderer.indeces.clearRetainingCapacity();
             },

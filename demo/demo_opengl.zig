@@ -158,13 +158,12 @@ pub fn main() !u8 {
             return glfw.getProcAddress(symbol_name);
         }
     }.f;
-    // TODO: Use zgl bindings that match the OpenGL version that we use
     try zgl.loadExtensions({}, getProcAddressWrapper);
 
     var images = zss.Images{};
     defer images.deinit(allocator);
 
-    const zig_logo_data, const zig_logo_image = try loadImage("demo/zig.png", allocator);
+    var zig_logo_data, const zig_logo_image = try loadImage("demo/zig.png", allocator);
     defer zig_logo_data.deinit();
     const zig_logo_handle = try images.addImage(allocator, zig_logo_image);
 

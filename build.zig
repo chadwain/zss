@@ -33,7 +33,7 @@ fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules
     mods.mach_harfbuzz = mach_freetype_dep.module("mach-harfbuzz");
 
     // mods.sdl2 = b.createModule(.{
-    //     .root_source_file = .{ .path = "dependencies/SDL2.zig" },
+    //     .root_source_file = b.path("dependencies/SDL2.zig"),
     //     .target = target,
     // });
     // mods.sdl2.linkSystemLibrary("SDL2", .{});
@@ -60,7 +60,7 @@ fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules
     mods.mach_glfw = mach_glfw_dep.module("mach-glfw");
 
     mods.zss = b.addModule("zss", .{
-        .root_source_file = .{ .path = "source/zss.zig" },
+        .root_source_file = b.path("source/zss.zig"),
         .imports = &.{
             .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
             .{ .name = "mach-glfw", .module = mods.mach_glfw },
@@ -81,7 +81,7 @@ fn addTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Mod
 
     const unit_tests = b.addTest(.{
         .name = "zss-unit-tests",
-        .root_source_file = .{ .path = "source/zss.zig" },
+        .root_source_file = b.path("source/zss.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -96,7 +96,7 @@ fn addTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Mod
 
     const test_suite = b.addExecutable(.{
         .name = "zss-test-suite",
-        .root_source_file = .{ .path = "test/testing.zig" },
+        .root_source_file = b.path("test/testing.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -127,7 +127,7 @@ fn addTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Mod
 fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) void {
     // const demo = b.addExecutable(.{
     //     .name = "demo",
-    //     .root_source_file = .{ .path = "demo/demo.zig" },
+    //     .root_source_file = b.path("demo/demo.zig"),
     //     .target = target,
     //     .optimize = optimize,
     // });
@@ -144,12 +144,12 @@ fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modu
 
     const demo_opengl = b.addExecutable(.{
         .name = "demo-opengl",
-        .root_source_file = .{ .path = "demo/demo_opengl.zig" },
+        .root_source_file = b.path("demo/demo_opengl.zig"),
         .target = target,
         .optimize = optimize,
     });
     demo_opengl.root_module.addAnonymousImport("zss", .{
-        .root_source_file = .{ .path = "source/zss.zig" },
+        .root_source_file = b.path("source/zss.zig"),
         .imports = &.{
             .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
             .{ .name = "zgl", .module = mods.zgl },
@@ -185,7 +185,7 @@ fn addExample(
 ) void {
     const exe = b.addExecutable(.{
         .name = name,
-        .root_source_file = .{ .path = path },
+        .root_source_file = b.path(path),
         .target = target,
         .optimize = optimize,
     });

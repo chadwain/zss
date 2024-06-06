@@ -118,7 +118,8 @@ fn parsePropertyName(
         for (names, &result) |property_name, *entry| {
             entry.* = .{ property_name.name, @enumFromInt(property_name.value) };
         }
-        break :blk &result;
+        const const_result = result;
+        break :blk &const_result;
     };
     const location = components.location(declaration_index);
     return parser_source.mapIdentifier(location, PropertyName, map);

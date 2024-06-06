@@ -36,7 +36,6 @@ pub fn run(tests: []const Test) !void {
             return glfw.getProcAddress(symbol_name);
         }
     }.f;
-    // TODO: Use zgl bindings that match the OpenGL version that we use
     try zgl.loadExtensions({}, getProcAddressWrapper);
 
     const results_path = "test/output/opengl";

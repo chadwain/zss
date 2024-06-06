@@ -43,7 +43,7 @@ const Lists = blk: {
         };
     }
     break :blk @Type(std.builtin.Type{ .Struct = .{
-        .layout = .Auto,
+        .layout = .auto,
         .fields = &fields,
         .decls = &.{},
         .is_tuple = false,

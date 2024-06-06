@@ -13,20 +13,20 @@
     },
     .dependencies = .{
         .@"mach-freetype" = .{
-            .url = "https://pkg.machengine.org/mach-freetype/dc4a5d8ce14f8678f35bdaf197303091e22b1f27.tar.gz",
-            .hash = "122070070dd2c402d94c279d64d4a4d154691ad49f46fa2c24ed7c6e4e4f5c531477",
+            .url = "https://pkg.machengine.org/mach-freetype/86fc8024d4ddd53df75dfa4f3ad4eebe0b1b4284.tar.gz",
+            .hash = "12206251ed342f400b80abf3c338521f5d8c83eb596899abf77a2afe0cfd46e61ff0",
         },
         .@"mach-glfw" = .{
-            .url = "https://pkg.machengine.org/mach-glfw/1a9a03399058fd83f7fbb597f3f8304007ff6a3c.tar.gz",
-            .hash = "1220b4d58ec6cf53abfd8d7547d39afb9bffa41822d4d58f52625230466e51cc93bb",
+            .url = "https://pkg.machengine.org/mach-glfw/8da44b719e345097664ff2e0a7620474eb11db5f.tar.gz",
+            .hash = "1220e5343c2fe2a490aa90dc52d92fd34ebfd7d0ffc7d246dd4720bb5c339ead4d7b",
         },
         .zgl = .{
-            .url = "git+https://github.com/ziglibs/zgl.git#0c7f680200aa3be87fb98a726c1fab480d02f8d9",
-            .hash = "1220e0118a243a3917317c9cf466d59ac91fa9656620318f7e6290ca538e79498f15",
+            .url = "git+https://github.com/chadwain/zgl.git#1c5a5830fdd0be4a075219ade1e637baf946cdd3",
+            .hash = "1220321dfd8487b92a05f13d7ef9520a3b5ef73cb53f0f40cadbfc1003bd53c06960",
         },
         .zigimg = .{
-            .url = "git+https://github.com/zigimg/zigimg.git#8873f29fc449e1b63400e9f4ad86d3c76204f962",
-            .hash = "122019f6439545235af116d0d8eb81fde1ff05fdb070da57c723772c557f84c5bf39",
+            .url = "git+https://github.com/zigimg/zigimg.git#268c786ff5550ccb35c46a5fe804483ff210bd24",
+            .hash = "1220fc66474870d6ed00f442556718cb0dc7a4cb8137074370689aa8922bcc4a8bd6",
         },
     },
 }
