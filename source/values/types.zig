@@ -249,7 +249,8 @@ pub const BackgroundImage = union(enum) {
         switch (lhs) {
             .image => try expectEqual(lhs.image, rhs.image),
             .url => try expectEqualSlices(u8, lhs.url.data, rhs.url.data),
-            .none, .many => std.debug.panic("TODO", .{}),
+            .none => {},
+            .many => std.debug.panic("TODO", .{}),
             .initial,
             .inherit,
             .unset,
