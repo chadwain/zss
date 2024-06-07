@@ -6,6 +6,7 @@ const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
+const Stack = zss.util.Stack;
 
 const solve = @import("./solve.zig");
 const inline_layout = @import("./inline.zig");
@@ -39,20 +40,17 @@ pub fn runFlowLayout(
     defer ctx.deinit();
 
     try pushBlock(true, &ctx, box_tree, sc, subtree_index, block_box_index, used_sizes, stacking_context);
-    while (ctx.current) |*current| {
-        try analyzeElement(&ctx, sc, computer, box_tree, current);
-    }
-
-    return ctx.result;
+    while (ctx.result == null) {
+        try analyzeElement(&ctx, sc, computer, box_tree);
+    } else return ctx.result.?;
 }
 
 const Context = struct {
     allocator: Allocator,
-    result: Result = undefined,
-    stack: MultiArrayList(BlockData) = .{},
-    current: ?BlockData = null,
+    result: ?Result = null,
+    stack: Stack(StackItem) = .{},
 
-    const BlockData = struct {
+    const StackItem = struct {
         subtree: BlockSubtreeIndex,
         index: BlockBoxIndex,
         skip: BlockBoxSkip,
@@ -67,7 +65,7 @@ const Context = struct {
     }
 };
 
-fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree, current: *Context.BlockData) !void {
+fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
     const element_ptr = &computer.child_stack.items[computer.child_stack.items.len - 1];
     if (!element_ptr.eqlNull()) {
         const element = element_ptr.*;
@@ -81,9 +79,10 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
         computer.setComputedValue(.box_gen, .box_style, computed_box_style);
         computer.setComputedValue(.box_gen, .font, specified.font);
 
-        const subtree_index = current.subtree;
-        const containing_block_width = current.width;
-        const containing_block_height = current.heights.height;
+        const parent = &ctx.stack.top.unwrap;
+        const subtree_index = parent.subtree;
+        const containing_block_width = parent.width;
+        const containing_block_height = parent.heights.height;
 
         switch (computed_box_style.display) {
             .block => {
@@ -124,15 +123,15 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                 ifc_container.type.* = .{ .ifc_container = result.ifc_index };
                 ifc_container.skip.* = skip;
                 ifc_container.box_offsets.* = .{
-                    .border_pos = .{ .x = 0, .y = current.auto_height },
+                    .border_pos = .{ .x = 0, .y = parent.auto_height },
                     .border_size = .{ .w = containing_block_width, .h = line_split_result.height },
                     .content_pos = .{ .x = 0, .y = 0 },
                     .content_size = .{ .w = containing_block_width, .h = line_split_result.height },
                 };
 
-                current.skip += skip;
+                parent.skip += skip;
 
-                advanceFlow(&current.auto_height, line_split_result.height);
+                advanceFlow(&parent.auto_height, line_split_result.height);
             },
             .none => element_ptr.* = computer.element_tree_slice.nextSibling(element),
             .initial, .inherit, .unset, .undeclared => unreachable,
@@ -156,11 +155,7 @@ fn pushBlock(
     const subtree_slice = box_tree.blocks.subtrees.items[subtree_index].slice();
     writeBlockDataPart1(subtree_slice, block_box_index, used_sizes, stacking_context);
 
-    // The allocations here must have corresponding deallocations in popBlock.
-    if (!initial_push) try ctx.stack.append(ctx.allocator, ctx.current.?);
-    try sc.push(box_tree, stacking_context);
-
-    ctx.current = .{
+    const stack_item = Context.StackItem{
         .subtree = subtree_index,
         .index = block_box_index,
         .skip = 1,
@@ -168,19 +163,28 @@ fn pushBlock(
         .auto_height = 0,
         .heights = used_sizes.getUsedContentHeight(),
     };
+
+    // The allocations here must have corresponding deallocations in popBlock.
+    if (initial_push) {
+        ctx.stack.top.set(stack_item);
+    } else {
+        try ctx.stack.push(ctx.allocator, stack_item);
+    }
+    try sc.push(box_tree, stacking_context);
 }
 
 fn popBlock(ctx: *Context, sc: *StackingContexts, box_tree: *BoxTree) void {
-    const current = ctx.current.?;
     // The deallocations here must correspond to allocations in pushBlock.
-    ctx.current = ctx.stack.popOrNull();
+    const stack_empty = ctx.stack.rest.len == 0;
+    const current = ctx.stack.pop();
     sc.pop(box_tree);
 
     const subtree_slice = box_tree.blocks.subtrees.items[current.subtree].slice();
     assert(subtree_slice.items(.box_offsets)[current.index].content_size.w == current.width);
     writeBlockDataPart2(subtree_slice, current.index, current.skip, current.heights, current.auto_height);
 
-    if (ctx.current) |*parent| {
+    if (!stack_empty) {
+        const parent = &ctx.stack.top.unwrap;
         parent.skip += current.skip;
         addBlockToFlow(subtree_slice, current.index, &parent.auto_height);
     } else {

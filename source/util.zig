@@ -7,6 +7,7 @@ const zss = @import("zss.zig");
 const Element = zss.ElementTree.Element;
 
 pub const unicode = @import("util/unicode.zig");
+pub const Stack = @import("util/Stack.zig").Stack;
 
 /// This type serves as documentation only.
 /// It shows that the data contained within is acknowledged to be a UTF-8 encoded string,
@@ -269,4 +270,23 @@ pub const UnicodeString = struct {
 
 pub fn unicodeString(data: []const u21) UnicodeString {
     return .{ .data = data };
+}
+
+pub fn DebugOptional(comptime T: type) type {
+    return union {
+        unwrap: T,
+        null: T,
+
+        pub fn init() @This() {
+            return .{ .null = undefined };
+        }
+
+        pub fn set(self: *@This(), value: T) void {
+            self.* = .{ .unwrap = value };
+        }
+
+        pub fn unset(self: *@This()) void {
+            self.* = init();
+        }
+    };
 }
