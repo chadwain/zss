@@ -87,7 +87,7 @@ fn analyzeRootElement(layout: *const InitialLayoutContext, sc: *StackingContexts
             try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .{ .block_box = block_box });
 
             const used_sizes = try flow.solveAllSizes(computer, layout.width, layout.height);
-            const stacking_context = try rootFlowBlockCreateStackingContext(box_tree, computer, sc, block_box);
+            const stacking_context = rootFlowBlockCreateStackingContext(computer);
             try computer.pushElement(.box_gen);
 
             const result = try flow.runFlowLayout(
@@ -109,13 +109,10 @@ fn analyzeRootElement(layout: *const InitialLayoutContext, sc: *StackingContexts
 }
 
 fn rootFlowBlockCreateStackingContext(
-    box_tree: *BoxTree,
     computer: *StyleComputer,
-    sc: *StackingContexts,
-    block_box: BlockBox,
-) !StackingContexts.Info {
+) StackingContexts.Info {
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
     computer.setComputedValue(.box_gen, .z_index, z_index);
     // TODO: Use z-index?
-    return sc.createRoot(box_tree, block_box);
+    return .{ .is_parent = 0 };
 }

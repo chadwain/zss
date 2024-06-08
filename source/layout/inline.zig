@@ -235,7 +235,7 @@ fn ifcRunOnce(
             try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .{ .block_box = block_box });
 
             const used_sizes = try inlineBlockSolveSizes(computer, layout.containing_block_width, layout.containing_block_height);
-            const stacking_context = try inlineBlockCreateStackingContext(box_tree, computer, sc, computed.position, block_box);
+            const stacking_context = inlineBlockCreateStackingContext(computer, computed.position);
 
             // TODO: Grabbing useless data to satisfy inheritance...
             const font = computer.getSpecifiedValue(.box_gen, .font);
@@ -874,21 +874,18 @@ fn inlineBlockSolveSizes(
 }
 
 fn inlineBlockCreateStackingContext(
-    box_tree: *BoxTree,
     computer: *StyleComputer,
-    sc: *StackingContexts,
     position: zss.values.types.Position,
-    block_box: BlockBox,
-) !StackingContexts.Info {
+) StackingContexts.Info {
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
     computer.setComputedValue(.box_gen, .z_index, z_index);
 
     switch (position) {
-        .static => return sc.create(.is_non_parent, box_tree, block_box, 0),
+        .static => return .{ .is_non_parent = 0 },
         // TODO: Position the block using the values of the 'inset' family of properties.
         .relative => switch (z_index.z_index) {
-            .integer => |integer| return sc.create(.is_parent, box_tree, block_box, integer),
-            .auto => return sc.create(.is_non_parent, box_tree, block_box, 0),
+            .integer => |integer| return .{ .is_parent = integer },
+            .auto => return .{ .is_non_parent = 0 },
             .initial, .inherit, .unset, .undeclared => unreachable,
         },
         .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),

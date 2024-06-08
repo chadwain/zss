@@ -19,6 +19,7 @@ const BlockBoxIndex = used_values.BlockBoxIndex;
 const BlockBoxSkip = used_values.BlockBoxSkip;
 const BlockSubtreeIndex = used_values.SubtreeIndex;
 const BoxTree = used_values.BoxTree;
+const StackingContext = used_values.StackingContext;
 const SubtreeSlice = used_values.BlockSubtree.Slice;
 const ZssUnit = used_values.ZssUnit;
 
@@ -93,7 +94,7 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                 try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .{ .block_box = block_box });
 
                 const used_sizes = try solveAllSizes(computer, containing_block_width, containing_block_height);
-                const stacking_context = try createStackingContext(computer, box_tree, sc, computed_box_style.position, block_box);
+                const stacking_context = createStackingContext(computer, computed_box_style.position);
 
                 try pushBlock(false, ctx, box_tree, sc, subtree_index, block.index, used_sizes, stacking_context);
 
@@ -152,9 +153,6 @@ fn pushBlock(
     used_sizes: BlockUsedSizes,
     stacking_context: StackingContexts.Info,
 ) !void {
-    const subtree_slice = box_tree.blocks.subtrees.items[subtree_index].slice();
-    writeBlockDataPart1(subtree_slice, block_box_index, used_sizes, stacking_context);
-
     const stack_item = Context.StackItem{
         .subtree = subtree_index,
         .index = block_box_index,
@@ -170,7 +168,10 @@ fn pushBlock(
     } else {
         try ctx.stack.push(ctx.allocator, stack_item);
     }
-    try sc.push(box_tree, stacking_context);
+    const stacking_context_id = try sc.push(stacking_context, box_tree, .{ .subtree = subtree_index, .index = block_box_index });
+
+    const subtree_slice = box_tree.blocks.subtrees.items[subtree_index].slice();
+    writeBlockDataPart1(subtree_slice, block_box_index, used_sizes, stacking_context_id);
 }
 
 fn popBlock(ctx: *Context, sc: *StackingContexts, box_tree: *BoxTree) void {
@@ -642,11 +643,8 @@ pub fn adjustWidthAndMargins(used: *BlockUsedSizes, containing_block_width: ZssU
 
 fn createStackingContext(
     computer: *StyleComputer,
-    box_tree: *BoxTree,
-    sc: *StackingContexts,
     position: zss.values.types.Position,
-    block_box: BlockBox,
-) !StackingContexts.Info {
+) StackingContexts.Info {
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
     computer.setComputedValue(.box_gen, .z_index, z_index);
 
@@ -654,8 +652,8 @@ fn createStackingContext(
         .static => return .none,
         // TODO: Position the block using the values of the 'inset' family of properties.
         .relative => switch (z_index.z_index) {
-            .integer => |integer| return sc.create(.is_parent, box_tree, block_box, integer),
-            .auto => return sc.create(.is_non_parent, box_tree, block_box, 0),
+            .integer => |integer| return .{ .is_parent = integer },
+            .auto => return .{ .is_non_parent = 0 },
             .initial, .inherit, .unset, .undeclared => unreachable,
         },
         .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),
@@ -669,7 +667,7 @@ pub fn writeBlockDataPart1(
     subtree_slice: SubtreeSlice,
     index: BlockBoxIndex,
     used: BlockUsedSizes,
-    stacking_context: StackingContexts.Info,
+    stacking_context: ?StackingContext.Id,
 ) void {
     const @"type" = &subtree_slice.items(.type)[index];
     const box_offsets = &subtree_slice.items(.box_offsets)[index];
@@ -677,10 +675,7 @@ pub fn writeBlockDataPart1(
     const margins = &subtree_slice.items(.margins)[index];
 
     @"type".* = .{ .block = .{
-        .stacking_context = switch (stacking_context) {
-            .none => null,
-            .is_parent, .is_non_parent => |id| id,
-        },
+        .stacking_context = stacking_context,
     } };
 
     // Horizontal sizes
