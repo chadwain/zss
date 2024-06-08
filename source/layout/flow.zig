@@ -177,19 +177,19 @@ fn pushBlock(
 fn popBlock(ctx: *Context, sc: *StackingContexts, box_tree: *BoxTree) void {
     // The deallocations here must correspond to allocations in pushBlock.
     const stack_empty = ctx.stack.rest.len == 0;
-    const current = ctx.stack.pop();
+    const this = ctx.stack.pop();
     sc.pop(box_tree);
 
-    const subtree_slice = box_tree.blocks.subtrees.items[current.subtree].slice();
-    assert(subtree_slice.items(.box_offsets)[current.index].content_size.w == current.width);
-    writeBlockDataPart2(subtree_slice, current.index, current.skip, current.heights, current.auto_height);
+    const subtree_slice = box_tree.blocks.subtrees.items[this.subtree].slice();
+    assert(subtree_slice.items(.box_offsets)[this.index].content_size.w == this.width);
+    writeBlockDataPart2(subtree_slice, this.index, this.skip, this.heights, this.auto_height);
 
     if (!stack_empty) {
         const parent = &ctx.stack.top.unwrap;
-        parent.skip += current.skip;
-        addBlockToFlow(subtree_slice, current.index, &parent.auto_height);
+        parent.skip += this.skip;
+        addBlockToFlow(subtree_slice, this.index, &parent.auto_height);
     } else {
-        ctx.result = .{ .skip = current.skip };
+        ctx.result = .{ .skip = this.skip };
     }
 }
 

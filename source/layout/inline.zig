@@ -262,19 +262,19 @@ fn ifcRunOnce(
                     used_sizes.padding_inline_start + used_sizes.padding_inline_end);
                 const available_width = solve.clampSize(available_width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
 
-                var stf_layout = try stf.ShrinkToFitLayoutContext.initFlow(
+                // TODO: Recursive call here
+                const result = try stf.runShrinkToFitLayout(
                     layout.allocator,
                     box_tree,
                     sc,
+                    computer,
                     element,
                     block_box,
                     used_sizes,
                     stacking_context,
                     available_width,
                 );
-                defer stf_layout.deinit();
-                try stf.shrinkToFitLayout(&stf_layout, sc, computer, box_tree); // TODO: Recursive call here
-                layout.result.total_inline_block_skip += box_tree.blocks.subtrees.items[block_box.subtree].slice().items(.skip)[block_box.index];
+                layout.result.total_inline_block_skip += result.skip;
             }
 
             try ifcAddInlineBlock(box_tree, ifc, block_box.index);
