@@ -167,11 +167,8 @@ fn flowObject(
     computer: *StyleComputer,
     box_tree: *BoxTree,
 ) !void {
-    const element_ptr = &computer.child_stack.items[computer.child_stack.items.len - 1];
-    if (!element_ptr.eqlNull()) {
-        const element = element_ptr.*;
-        computer.setElementDirectChild(.box_gen, element);
-
+    const element = computer.getCurrentElement();
+    if (!element.eqlNull()) {
         const specified = computer.getSpecifiedValue(.box_gen, .box_style);
         const computed = solve.boxStyle(specified, .NonRoot);
         computer.setComputedValue(.box_gen, .box_style, computed);
@@ -190,7 +187,6 @@ fn flowObject(
                     };
                     computer.setComputedValue(.box_gen, .font, stuff.font);
                 }
-                element_ptr.* = computer.element_tree_slice.nextSibling(element);
                 try computer.pushElement(.box_gen);
 
                 const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
@@ -228,7 +224,7 @@ fn flowObject(
                     try pushFlowObject(false, ctx, object_tree, allocator, box_tree, sc, element, used, available_width, stacking_context);
                 }
             },
-            .none => element_ptr.* = computer.element_tree_slice.nextSibling(element),
+            .none => computer.advanceElement(.box_gen),
             .@"inline", .inline_block, .text => {
                 const new_subtree_index = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = undefined });
                 const new_subtree = box_tree.blocks.subtree(new_subtree_index);

@@ -127,15 +127,15 @@ fn createInlineFormattingContext(
 
     try ifcPushRootInlineBox(layout, box_tree, ifc);
     while (true) {
-        const element = &computer.child_stack.items[computer.child_stack.items.len - 1];
+        const element = computer.getCurrentElement();
         if (layout.inline_box_depth == 0) {
             if (!element.eqlNull()) {
-                const should_terminate = try ifcRunOnce(layout, sc, computer, element, box_tree, ifc);
+                const should_terminate = try ifcRunOnce(layout, sc, computer, box_tree, ifc);
                 if (should_terminate) break;
             } else break;
         } else {
             if (!element.eqlNull()) {
-                const should_terminate = try ifcRunOnce(layout, sc, computer, element, box_tree, ifc);
+                const should_terminate = try ifcRunOnce(layout, sc, computer, box_tree, ifc);
                 assert(!should_terminate);
             } else {
                 try ifcPopInlineBox(layout, computer, box_tree, ifc);
@@ -171,12 +171,10 @@ fn ifcRunOnce(
     layout: *InlineLayoutContext,
     sc: *StackingContexts,
     computer: *StyleComputer,
-    element_ptr: *Element,
     box_tree: *BoxTree,
     ifc: *InlineFormattingContext,
 ) !bool {
-    const element = element_ptr.*;
-    computer.setElementDirectChild(.box_gen, element);
+    const element = computer.getCurrentElement();
 
     const specified = computer.getSpecifiedValue(.box_gen, .box_style);
     const computed = solve.boxStyle(specified, .NonRoot);
@@ -185,11 +183,11 @@ fn ifcRunOnce(
         .text => {
             assert(computer.element_tree_slice.firstChild(element).eqlNull());
             try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .text);
-            element_ptr.* = computer.element_tree_slice.nextSibling(element);
             const text = computer.getText();
             // TODO: Do proper font matching.
             if (ifc.font == hb.hb_font_get_empty()) panic("TODO: Found text, but no font was specified.", .{});
             try ifcAddText(box_tree, ifc, text, ifc.font);
+            computer.advanceElement(.box_gen);
         },
         .@"inline" => {
             const inline_box_index = try ifc.appendInlineBox(box_tree.allocator);
@@ -213,7 +211,6 @@ fn ifcRunOnce(
 
             try ifcAddBoxStart(box_tree, ifc, inline_box_index);
 
-            element_ptr.* = computer.element_tree_slice.nextSibling(element);
             if (!computer.element_tree_slice.firstChild(element).eqlNull()) {
                 layout.inline_box_depth += 1;
                 try layout.index.append(layout.allocator, inline_box_index);
@@ -223,10 +220,10 @@ fn ifcRunOnce(
                 // Optimized path for inline boxes with no children.
                 // It is a shorter version of ifcPopInlineBox.
                 try ifcAddBoxEnd(box_tree, ifc, inline_box_index);
+                computer.advanceElement(.box_gen);
             }
         },
         .inline_block => {
-            element_ptr.* = computer.element_tree_slice.nextSibling(element);
             computer.setComputedValue(.box_gen, .box_style, computed);
 
             const used_sizes = try inlineBlockSolveSizes(computer, layout.containing_block_width, layout.containing_block_height);
@@ -282,7 +279,7 @@ fn ifcRunOnce(
                 //try ifc.glyph_indeces.appendSlice(box_tree.allocator, &.{ 0, undefined });
             }
         },
-        .none => element_ptr.* = computer.element_tree_slice.nextSibling(element),
+        .none => computer.advanceElement(.box_gen),
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 

@@ -45,7 +45,8 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, i
         rootInlineBoxCosmeticLayout(ifc);
     }
 
-    if (computer.root_element.eqlNull()) return;
+    if (inputs.root_element.eqlNull()) return;
+    computer.setRootElement(.cosmetic, inputs.root_element);
 
     var context = Context{ .allocator = allocator };
     defer context.deinit();
@@ -58,43 +59,43 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, i
     }
 
     {
-        const box_type = box_tree.element_to_generated_box.get(computer.root_element) orelse return;
-        computer.setElementDirectChild(.cosmetic, computer.root_element);
+        const root_element = computer.getCurrentElement();
+        const box_type = box_tree.element_to_generated_box.get(root_element) orelse return;
         switch (box_type) {
             .block_box => |block_box| {
                 try blockBoxCosmeticLayout(context, computer, box_tree, inputs, block_box, .Root);
 
-                if (!computer.element_tree_slice.firstChild(computer.root_element).eqlNull()) {
+                // TODO: Temporary jank to set the text color.
+                const computed_color = computer.stage.cosmetic.current_values.color;
+                const used_color = solve.currentColor(computed_color.color);
+                for (box_tree.ifcs.items) |ifc| {
+                    ifc.font_color = used_color;
+                }
+
+                if (!computer.element_tree_slice.firstChild(root_element).eqlNull()) {
                     const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
                     const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
                     try context.mode.append(context.allocator, .Flow);
                     try context.containing_block_size.append(context.allocator, box_offsets.content_size);
                     try computer.pushElement(.cosmetic);
+                } else {
+                    computer.advanceElement(.cosmetic);
                 }
             },
             .inline_box, .text => unreachable,
         }
-
-        // TODO: Temporary jank to set the text color.
-        const computed_color = computer.stage.cosmetic.current_values.color;
-        const used_color = solve.currentColor(computed_color.color);
-        for (box_tree.ifcs.items) |ifc| {
-            ifc.font_color = used_color;
-        }
     }
 
     while (context.mode.items.len > 1) {
-        const element_ptr = &computer.child_stack.items[computer.child_stack.items.len - 1];
-
-        if (!element_ptr.eqlNull()) {
-            const element = element_ptr.*;
-            element_ptr.* = computer.element_tree_slice.nextSibling(element);
-
-            const box_type = box_tree.element_to_generated_box.get(element) orelse continue;
-            computer.setElementDirectChild(.cosmetic, element);
+        const element = computer.getCurrentElement();
+        if (!element.eqlNull()) {
+            const box_type = box_tree.element_to_generated_box.get(element) orelse {
+                computer.advanceElement(.cosmetic);
+                continue;
+            };
             const has_children = !computer.element_tree_slice.firstChild(element).eqlNull();
             switch (box_type) {
-                .text => continue,
+                .text => computer.advanceElement(.cosmetic),
                 .block_box => |block_box| {
                     try blockBoxCosmeticLayout(context, computer, box_tree, inputs, block_box, .NonRoot);
 
@@ -104,6 +105,8 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, i
                         try context.mode.append(context.allocator, .Flow);
                         try context.containing_block_size.append(context.allocator, box_offsets.content_size);
                         try computer.pushElement(.cosmetic);
+                    } else {
+                        computer.advanceElement(.cosmetic);
                     }
                 },
                 .inline_box => |inline_box| {
@@ -113,6 +116,8 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, i
                     if (has_children) {
                         try context.mode.append(context.allocator, .InlineBox);
                         try computer.pushElement(.cosmetic);
+                    } else {
+                        computer.advanceElement(.cosmetic);
                     }
                 },
             }
@@ -130,6 +135,7 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, i
     }
 
     assert(context.mode.pop() == .InitialContainingBlock);
+    computer.popElement(.cosmetic);
 }
 
 fn blockBoxCosmeticLayout(

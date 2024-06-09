@@ -19,6 +19,7 @@ const ZssSize = used_values.ZssSize;
 
 pub const Inputs = struct {
     viewport: ZssSize,
+    root_element: Element,
     images: Images.Slice,
     storage: *const Storage,
 };
@@ -34,7 +35,7 @@ pub const Error = error{
 
 pub fn doLayout(
     element_tree_slice: ElementTree.Slice,
-    root: Element,
+    root_element: Element,
     allocator: Allocator,
     /// The width of the viewport in pixels.
     width: u32,
@@ -44,7 +45,6 @@ pub fn doLayout(
     storage: *const Storage,
 ) Error!BoxTree {
     var computer = StyleComputer{
-        .root_element = root,
         .element_tree_slice = element_tree_slice,
         .stage = undefined,
         .allocator = allocator,
@@ -59,6 +59,7 @@ pub fn doLayout(
             .w = @intCast(width * units_per_pixel),
             .h = @intCast(height * units_per_pixel),
         },
+        .root_element = root_element,
         .images = images,
         .storage = storage,
     };

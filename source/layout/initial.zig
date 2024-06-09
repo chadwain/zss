@@ -2,32 +2,24 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const zss = @import("../zss.zig");
-const root_element = @as(zss.ElementIndex, 0);
-
 const Inputs = zss.layout.Inputs;
+
 const flow = @import("./flow.zig");
 const solve = @import("./solve.zig");
-const inline_layout = @import("./inline.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 const StackingContexts = @import("./StackingContexts.zig");
 
 const used_values = zss.used_values;
-const ZssUnit = used_values.ZssUnit;
-const BlockBoxIndex = used_values.BlockBoxIndex;
-const initial_containing_block = @as(BlockBoxIndex, 0);
 const BlockBox = used_values.BlockBox;
 const BlockBoxSkip = used_values.BlockBoxSkip;
-const SubtreeId = used_values.SubtreeId;
 const BoxTree = used_values.BoxTree;
+const SubtreeId = used_values.SubtreeId;
 
 const hb = @import("mach-harfbuzz").c;
 
 pub const InitialLayoutContext = struct {
     allocator: std.mem.Allocator,
-
     subtree_id: SubtreeId = undefined,
-    width: ZssUnit = undefined,
-    height: ZssUnit = undefined,
 };
 
 pub fn run(layout: *InitialLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree, inputs: Inputs) !void {
@@ -39,7 +31,6 @@ pub fn run(layout: *InitialLayoutContext, sc: *StackingContexts, computer: *Styl
     const subtree = box_tree.blocks.subtree(subtree_id);
 
     const block_index = try subtree.appendBlock(box_tree.allocator);
-    assert(block_index == initial_containing_block);
     const subtree_slice = subtree.slice();
     subtree_slice.items(.type)[block_index] = .{ .block = .{ .stacking_context = null } };
     subtree_slice.items(.box_offsets)[block_index] = .{
@@ -52,17 +43,20 @@ pub fn run(layout: *InitialLayoutContext, sc: *StackingContexts, computer: *Styl
     subtree_slice.items(.margins)[block_index] = .{};
     box_tree.blocks.initial_containing_block = .{ .subtree = subtree_id, .index = block_index };
 
-    layout.width = width;
-    layout.height = height;
-    const skip = try analyzeRootElement(layout, sc, computer, box_tree);
+    const skip = try analyzeRootElement(layout, sc, computer, box_tree, inputs);
     subtree_slice.items(.skip)[block_index] = 1 + skip;
 }
 
-fn analyzeRootElement(layout: *const InitialLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !BlockBoxSkip {
-    if (computer.root_element.eqlNull()) return 0;
-
-    const element = computer.root_element;
-    computer.setElementDirectChild(.box_gen, element);
+fn analyzeRootElement(
+    layout: *const InitialLayoutContext,
+    sc: *StackingContexts,
+    computer: *StyleComputer,
+    box_tree: *BoxTree,
+    inputs: Inputs,
+) !BlockBoxSkip {
+    if (inputs.root_element.eqlNull()) return 0;
+    computer.setRootElement(.box_gen, inputs.root_element);
+    const element = computer.getCurrentElement();
 
     const font = computer.getSpecifiedValue(.box_gen, .font);
     computer.setComputedValue(.box_gen, .font, font);
@@ -82,8 +76,8 @@ fn analyzeRootElement(layout: *const InitialLayoutContext, sc: *StackingContexts
 
     switch (computed.box_style.display) {
         .block => {
-            const used_sizes = try flow.solveAllSizes(computer, layout.width, layout.height);
-            const stacking_context = rootFlowBlockCreateStackingContext(computer);
+            const used_sizes = try flow.solveAllSizes(computer, inputs.viewport.w, inputs.viewport.h);
+            const stacking_context = rootFlowBlockSolveStackingContext(computer);
             try computer.pushElement(.box_gen);
 
             const result = try flow.runFlowLayout(
@@ -96,15 +90,18 @@ fn analyzeRootElement(layout: *const InitialLayoutContext, sc: *StackingContexts
                 used_sizes,
                 stacking_context,
             );
+
             return result.skip;
         },
         .none => return 0,
         .@"inline", .inline_block, .text => unreachable,
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
+
+    computer.popElement(.box_gen);
 }
 
-fn rootFlowBlockCreateStackingContext(
+fn rootFlowBlockSolveStackingContext(
     computer: *StyleComputer,
 ) StackingContexts.Info {
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);

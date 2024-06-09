@@ -71,11 +71,8 @@ const Context = struct {
 };
 
 fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
-    const element_ptr = &computer.child_stack.items[computer.child_stack.items.len - 1];
-    if (!element_ptr.eqlNull()) {
-        const element = element_ptr.*;
-        computer.setElementDirectChild(.box_gen, element);
-
+    const element = computer.getCurrentElement();
+    if (!element.eqlNull()) {
         const specified = .{
             .box_style = computer.getSpecifiedValue(.box_gen, .box_style),
             .font = computer.getSpecifiedValue(.box_gen, .font),
@@ -95,8 +92,6 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                 const stacking_context = createStackingContext(computer, computed_box_style.position);
 
                 try pushBlock(false, ctx, box_tree, sc, element, subtree_index, used_sizes, stacking_context);
-
-                element_ptr.* = computer.element_tree_slice.nextSibling(element);
                 try computer.pushElement(.box_gen);
             },
             .@"inline", .inline_block, .text => {
@@ -133,7 +128,7 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
 
                 advanceFlow(&parent.auto_height, line_split_result.height);
             },
-            .none => element_ptr.* = computer.element_tree_slice.nextSibling(element),
+            .none => computer.advanceElement(.box_gen),
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
     } else {

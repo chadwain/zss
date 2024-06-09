@@ -5,14 +5,11 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
+const null_element = Element.null_element;
 const CascadedValues = zss.CascadedValues;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
-const null_element = Element.null_element;
-const ViewportSize = zss.layout.ViewportSize;
-
-const ElementIndex = undefined; // TODO: What are these???
-const root_element = undefined; // TODO: What are these???
+const Stack = zss.util.Stack;
 
 const hb = @import("mach-harfbuzz").c;
 
@@ -83,18 +80,14 @@ const CosmeticComptutedValueFlags = struct {
     insets: bool = false,
 };
 
-const ThisElement = struct {
+const StackItem = struct {
     element: Element,
     cascaded_values: CascadedValues,
 };
 
-root_element: Element,
+stack: Stack(StackItem) = .{},
 element_tree_slice: ElementTree.Slice,
 allocator: Allocator,
-
-this_element: ThisElement = undefined,
-element_stack: ArrayListUnmanaged(ThisElement) = .{},
-child_stack: ArrayListUnmanaged(Element) = .{},
 
 stage: union {
     box_gen: struct {
@@ -115,13 +108,11 @@ root_font: struct {
 
 // Does not do deinitStage.
 pub fn deinit(self: *Self) void {
-    self.element_stack.deinit(self.allocator);
-    self.child_stack.deinit(self.allocator);
+    self.stack.deinit(self.allocator);
 }
 
 pub fn assertEmptyStage(self: Self, comptime stage: Stage) void {
-    assert(self.element_stack.items.len == 0);
-    assert(self.child_stack.items.len == 0);
+    assert(self.stack.rest.len == 0);
     const current_stage = &@field(self.stage, @tagName(stage));
     inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
         assert(@field(current_stage.value_stack, field_info.name).items.len == 0);
@@ -129,19 +120,19 @@ pub fn assertEmptyStage(self: Self, comptime stage: Stage) void {
 }
 
 pub fn deinitStage(self: *Self, comptime stage: Stage) void {
+    self.stack.top = null;
     const current_stage = &@field(self.stage, @tagName(stage));
     inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
         @field(current_stage.value_stack, field_info.name).deinit(self.allocator);
     }
 }
 
-pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: Element) void {
-    assert(self.element_stack.items.len == 0 or
-        self.element_tree_slice.parent(child).eql(self.element_stack.items[self.element_stack.items.len - 1].element));
-
-    self.this_element = .{
-        .element = child,
-        .cascaded_values = self.element_tree_slice.get(.cascaded_values, child),
+pub fn setRootElement(self: *Self, comptime stage: Stage, root_element: Element) void {
+    assert(!root_element.eqlNull());
+    assert(self.stack.top == null);
+    self.stack.top = .{
+        .element = root_element,
+        .cascaded_values = self.element_tree_slice.get(.cascaded_values, root_element),
     };
 
     const current_stage = &@field(self.stage, @tagName(stage));
@@ -149,42 +140,34 @@ pub fn setElementDirectChild(self: *Self, comptime stage: Stage, child: Element)
     current_stage.current_values = undefined;
 }
 
-// pub fn setElementAny(self: *Self, comptime stage: Stage, child: ElementIndex) !void {
-//     const parent = parent: {
-//         while (self.element_stack.items.len > 0) {
-//             const element = self.element_stack.items[self.element_stack.items.len - 1].index;
-//             if (child >= element + 1 and child < element + self.element_tree_skips[element]) {
-//                 break :parent element;
-//             } else {
-//                 self.popElement(stage);
-//             }
-//         } else {
-//             break :parent root_element;
-//         }
-//     };
-//
-//     var iterator = zss.SkipTreeIterator(ElementIndex).init(parent, self.element_tree_skips);
-//     while (iterator.index != child) : (iterator = iterator.firstChild(self.element_tree_skips).nextParent(child, self.element_tree_skips)) {
-//         assert(!iterator.empty());
-//         self.setElementDirectChild(stage, iterator.index);
-//         try self.computeAndPushElement(stage);
-//     }
-//
-//     assert(iterator.index == child);
-//     self.setElementDirectChild(stage, child);
-// }
+pub fn getCurrentElement(self: Self) Element {
+    return self.stack.top.?.element;
+}
 
 pub fn setComputedValue(self: *Self, comptime stage: Stage, comptime tag: aggregates.Tag, value: tag.Value()) void {
     const current_stage = &@field(self.stage, @tagName(stage));
     const flag = &@field(current_stage.current_flags, @tagName(tag));
-    assert(!flag.*);
     flag.* = true;
     @field(current_stage.current_values, @tagName(tag)) = value;
 }
 
+pub fn advanceElement(self: *Self, comptime stage: Stage) void {
+    const sibling = self.element_tree_slice.nextSibling(self.stack.top.?.element);
+    const cascaded_values = if (sibling.eqlNull()) CascadedValues{} else self.element_tree_slice.get(.cascaded_values, sibling);
+    self.stack.top = .{
+        .element = sibling,
+        .cascaded_values = cascaded_values,
+    };
+
+    const current_stage = &@field(self.stage, @tagName(stage));
+    current_stage.current_flags = .{};
+    current_stage.current_values = undefined;
+}
+
 pub fn pushElement(self: *Self, comptime stage: Stage) !void {
-    try self.element_stack.append(self.allocator, self.this_element);
-    try self.child_stack.append(self.allocator, self.element_tree_slice.firstChild(self.this_element.element));
+    const child = self.element_tree_slice.firstChild(self.stack.top.?.element);
+    const cascaded_values = if (child.eqlNull()) CascadedValues{} else self.element_tree_slice.get(.cascaded_values, child);
+    try self.stack.push(self.allocator, .{ .element = child, .cascaded_values = cascaded_values });
 
     const current_stage = &@field(self.stage, @tagName(stage));
     const values = current_stage.current_values;
@@ -196,33 +179,33 @@ pub fn pushElement(self: *Self, comptime stage: Stage) !void {
         const value = @field(values, field_info.name);
         try @field(current_stage.value_stack, field_info.name).append(self.allocator, value);
     }
-}
 
-pub fn computeAndPushElement(self: *Self, comptime stage: Stage) !void {
-    const current_stage = &@field(self.stage, @tagName(stage));
-    inline for (std.meta.fields(@TypeOf(current_stage.current_values))) |field_info| {
-        @setEvalBranchQuota(10000);
-        const tag = comptime std.meta.stringToEnum(aggregates.Tag, field_info.name).?;
-        const specified = self.getSpecifiedValue(stage, tag);
-        const computed = try self.compute(stage, tag, specified);
-        self.setComputedValue(stage, tag, computed);
-    }
-    try self.pushElement(stage);
+    current_stage.current_flags = .{};
+    current_stage.current_values = undefined;
 }
 
 pub fn popElement(self: *Self, comptime stage: Stage) void {
-    _ = self.element_stack.pop();
-    _ = self.child_stack.pop();
+    _ = self.stack.pop();
+    if (self.stack.top) |*item| {
+        const sibling = self.element_tree_slice.nextSibling(item.element);
+        const cascaded_values = if (sibling.eqlNull()) CascadedValues{} else self.element_tree_slice.get(.cascaded_values, sibling);
+        item.* = .{
+            .element = sibling,
+            .cascaded_values = cascaded_values,
+        };
 
-    const current_stage = &@field(self.stage, @tagName(stage));
+        const current_stage = &@field(self.stage, @tagName(stage));
+        inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
+            _ = @field(current_stage.value_stack, field_info.name).pop();
+        }
 
-    inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
-        _ = @field(current_stage.value_stack, field_info.name).pop();
+        current_stage.current_flags = .{};
+        current_stage.current_values = undefined;
     }
 }
 
 pub fn getText(self: Self) zss.values.types.Text {
-    return self.element_tree_slice.get(.text, self.this_element.element) orelse "";
+    return self.element_tree_slice.get(.text, self.stack.top.?.element) orelse "";
 }
 
 pub fn getSpecifiedValue(
@@ -230,7 +213,8 @@ pub fn getSpecifiedValue(
     comptime stage: Stage,
     comptime tag: aggregates.Tag,
 ) tag.Value() {
-    var cascaded_value = self.this_element.cascaded_values.get(tag);
+    const cascaded_values = self.stack.top.?.cascaded_values;
+    var cascaded_value = cascaded_values.get(tag);
 
     // CSS-COLOR-3§4.4: If the 'currentColor' keyword is set on the 'color' property itself, it is treated as 'color: inherit'.
     if (tag == .color) {
@@ -247,7 +231,7 @@ pub fn getSpecifiedValue(
         // CSS-CASCADE-4§3.2: The all property is a shorthand that resets all CSS properties except direction and unicode-bidi.
         //                    [...] It does not reset custom properties.
         if (tag != .direction and tag != .unicode_bidi and tag != .custom) {
-            if (self.this_element.cascaded_values.all) |all| switch (all) {
+            if (cascaded_values.all) |all| switch (all) {
                 .initial => break :default .initial,
                 .inherit => break :default .inherit,
                 .unset => {},
@@ -311,113 +295,4 @@ fn OptionalInheritedValue(comptime tag: aggregates.Tag) type {
             return self.value.?;
         }
     };
-}
-
-fn compute(self: Self, comptime stage: Stage, comptime tag: aggregates.Tag, specified: tag.Value()) !tag.Value() {
-    {
-        const current_stage = @field(self.stage, @tagName(stage));
-        if (@field(current_stage.current_flags, @tagName(tag))) {
-            return @field(current_stage.current_values, @tagName(tag));
-        }
-    }
-
-    const solve = @import("./solve.zig");
-
-    switch (tag) {
-        .box_style => if (self.this_element.index == root_element) {
-            return solve.boxStyle(specified, .Root);
-        } else {
-            return solve.boxStyle(specified, .NonRoot);
-        },
-        .content_width, .content_height => return aggregates.ContentSize{
-            .size = switch (specified.size) {
-                .px => |value| .{ .px = value },
-                .percentage => |value| .{ .percentage = value },
-                .auto => .auto,
-                .initial, .inherit, .unset, .undeclared => unreachable,
-            },
-            .min_size = switch (specified.min_size) {
-                .px => |value| .{ .px = value },
-                .percentage => |value| .{ .percentage = value },
-                .initial, .inherit, .unset, .undeclared => unreachable,
-            },
-            .max_size = switch (specified.max_size) {
-                .px => |value| .{ .px = value },
-                .percentage => |value| .{ .percentage = value },
-                .none => .none,
-                .initial, .inherit, .unset, .undeclared => unreachable,
-            },
-        },
-        .horizontal_edges, .vertical_edges => {
-            const border_styles = try self.compute(stage, .border_styles, self.getSpecifiedValue(stage, .border_styles));
-            return aggregates.BoxEdges{
-                .padding_start = switch (specified.padding_start) {
-                    .px => |value| .{ .px = value },
-                    .percentage => |value| .{ .percentage = value },
-                    .initial, .inherit, .unset, .undeclared => unreachable,
-                },
-                .padding_end = switch (specified.padding_end) {
-                    .px => |value| .{ .px = value },
-                    .percentage => |value| .{ .percentage = value },
-                    .initial, .inherit, .unset, .undeclared => unreachable,
-                },
-                .border_start = blk: {
-                    const multiplier = solve.borderWidthMultiplier(if (tag == .horizontal_edges) border_styles.left else border_styles.top);
-                    break :blk @as(zss.values.BorderWidth, switch (specified.border_start) {
-                        .px => |value| .{ .px = value },
-                        .thin => .{ .px = solve.borderWidth(.thin) * multiplier },
-                        .medium => .{ .px = solve.borderWidth(.medium) * multiplier },
-                        .thick => .{ .px = solve.borderWidth(.thick) * multiplier },
-                        .initial, .inherit, .unset, .undeclared => unreachable,
-                    });
-                },
-                .border_end = blk: {
-                    const multiplier = solve.borderWidthMultiplier(if (tag == .horizontal_edges) border_styles.right else border_styles.bottom);
-                    break :blk @as(zss.values.BorderWidth, switch (specified.border_end) {
-                        .px => |value| .{ .px = value },
-                        .thin => .{ .px = solve.borderWidth(.thin) * multiplier },
-                        .medium => .{ .px = solve.borderWidth(.medium) * multiplier },
-                        .thick => .{ .px = solve.borderWidth(.thick) * multiplier },
-                        .initial, .inherit, .unset, .undeclared => unreachable,
-                    });
-                },
-                .margin_start = switch (specified.margin_start) {
-                    .px => |value| .{ .px = value },
-                    .percentage => |value| .{ .percentage = value },
-                    .auto => .auto,
-                    .initial, .inherit, .unset, .undeclared => unreachable,
-                },
-                .margin_end = switch (specified.margin_end) {
-                    .px => |value| .{ .px = value },
-                    .percentage => |value| .{ .percentage = value },
-                    .auto => .auto,
-                    .initial, .inherit, .unset, .undeclared => unreachable,
-                },
-            };
-        },
-        .border_styles => return specified,
-        .z_index => return aggregates.ZIndex{
-            .z_index = switch (specified.z_index) {
-                .integer => |value| .{ .integer = value },
-                .auto => .auto,
-                .initial, .inherit, .unset, .undeclared => unreachable,
-            },
-        },
-        .font => return aggregates.Font{
-            .font = switch (specified.font) {
-                .font => |font| .{ .font = font },
-                .zss_default => .zss_default,
-                .initial, .inherit, .unset, .undeclared => unreachable,
-            },
-        },
-        .border_colors,
-        .background1,
-        .background2,
-        .color,
-        .insets,
-        .direction,
-        .unicode_bidi,
-        .custom,
-        => @compileError("TODO: compute(" ++ @typeName(tag.Value()) ++ ")"),
-    }
 }
