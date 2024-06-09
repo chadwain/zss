@@ -14,9 +14,8 @@ const ZssVector = used_values.ZssVector;
 const ZssRect = used_values.ZssRect;
 const BoxOffsets = used_values.BoxOffsets;
 const BlockBoxIndex = used_values.BlockBoxIndex;
-const initial_containing_block = used_values.initial_containing_block;
 const BlockSubtree = used_values.BlockSubtree;
-const BlockSubtreeIndex = used_values.SubtreeIndex;
+const SubtreeId = used_values.SubtreeId;
 const InlineFormattingContextIndex = used_values.InlineFormattingContextIndex;
 const StackingContextIndex = used_values.StackingContext.Index;
 const StackingContextId = used_values.StackingContext.Id;
@@ -174,9 +173,9 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawList {
 
         try draw_list.sub_lists.append(allocator, .{});
 
-        const subtree_slice = box_tree.blocks.subtrees.items[initial_containing_block.subtree].slice();
-        const box_offsets = subtree_slice.items(.box_offsets)[initial_containing_block.index];
-        const insets = subtree_slice.items(.insets)[initial_containing_block.index];
+        const subtree_slice = box_tree.blocks.subtree(box_tree.blocks.initial_containing_block.subtree).slice();
+        const box_offsets = subtree_slice.items(.box_offsets)[box_tree.blocks.initial_containing_block.index];
+        const insets = subtree_slice.items(.insets)[box_tree.blocks.initial_containing_block.index];
         const border_top_left = insets.add(box_offsets.border_pos);
         const content_top_left = border_top_left.add(box_offsets.content_pos);
 
@@ -189,7 +188,7 @@ pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawList {
                 allocator,
                 Drawable{
                     .block_box = .{
-                        .block_box = initial_containing_block,
+                        .block_box = box_tree.blocks.initial_containing_block,
                         .border_top_left = border_top_left,
                     },
                 },
@@ -322,7 +321,7 @@ fn populateSubList(
     }
 
     const root_block_box = slice.items(.block_box)[stacking_context];
-    const root_block_subtree = box_tree.blocks.subtrees.items[root_block_box.subtree];
+    const root_block_subtree = box_tree.blocks.subtree(root_block_box.subtree);
     const root_block_subtree_slice = root_block_subtree.slice();
     const root_box_offsets = root_block_subtree_slice.items(.box_offsets)[root_block_box.index];
     const root_insets = root_block_subtree_slice.items(.insets)[root_block_box.index];
@@ -351,7 +350,7 @@ fn populateSubList(
         var stack = ArrayListUnmanaged(struct {
             begin: BlockBoxIndex,
             end: BlockBoxIndex,
-            subtree_index: BlockSubtreeIndex,
+            subtree_index: SubtreeId,
             subtree: *const BlockSubtree,
             vector: ZssVector,
         }){};
@@ -429,7 +428,7 @@ fn populateSubList(
                     },
                     .subtree_proxy => |proxy_subtree_index| {
                         last.begin += block_skip;
-                        const child_subtree = box_tree.blocks.subtrees.items[proxy_subtree_index];
+                        const child_subtree = box_tree.blocks.subtree(proxy_subtree_index);
                         try stack.append(allocator, .{
                             .begin = 0,
                             .end = child_subtree.size(),

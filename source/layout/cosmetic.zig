@@ -12,8 +12,6 @@ const solve = @import("./solve.zig");
 const types = zss.values.types;
 
 const used_values = zss.used_values;
-const initial_containing_block = @as(used_values.BlockBoxIndex, 0);
-const initial_subtree = @as(used_values.SubtreeIndex, 0);
 const BlockBox = used_values.BlockBox;
 const BoxTree = used_values.BoxTree;
 const InlineBoxIndex = used_values.InlineBoxIndex;
@@ -39,7 +37,8 @@ const Context = struct {
 };
 
 pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, inputs: Inputs) !void {
-    anonymousBlockBoxCosmeticLayout(box_tree, .{ .subtree = initial_subtree, .index = initial_containing_block });
+    const initial_containing_block = box_tree.blocks.initial_containing_block;
+    anonymousBlockBoxCosmeticLayout(box_tree, initial_containing_block);
     // TODO: Also process any anonymous block boxes.
 
     for (box_tree.ifcs.items) |ifc| {
@@ -52,8 +51,8 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, i
     defer context.deinit();
 
     {
-        const initial_containing_block_subtree = box_tree.blocks.subtrees.items[initial_subtree];
-        const box_offsets = initial_containing_block_subtree.slice().items(.box_offsets)[initial_containing_block];
+        const initial_containing_block_subtree = box_tree.blocks.subtree(initial_containing_block.subtree);
+        const box_offsets = initial_containing_block_subtree.slice().items(.box_offsets)[initial_containing_block.index];
         try context.mode.append(context.allocator, .InitialContainingBlock);
         try context.containing_block_size.append(context.allocator, box_offsets.content_size);
     }
@@ -66,7 +65,7 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, i
                 try blockBoxCosmeticLayout(context, computer, box_tree, inputs, block_box, .Root);
 
                 if (!computer.element_tree_slice.firstChild(computer.root_element).eqlNull()) {
-                    const subtree_slice = box_tree.blocks.subtrees.items[block_box.subtree].slice();
+                    const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
                     const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
                     try context.mode.append(context.allocator, .Flow);
                     try context.containing_block_size.append(context.allocator, box_offsets.content_size);
@@ -100,7 +99,7 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, i
                     try blockBoxCosmeticLayout(context, computer, box_tree, inputs, block_box, .NonRoot);
 
                     if (has_children) {
-                        const subtree_slice = box_tree.blocks.subtrees.items[block_box.subtree].slice();
+                        const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
                         const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
                         try context.mode.append(context.allocator, .Flow);
                         try context.containing_block_size.append(context.allocator, box_offsets.content_size);
@@ -151,7 +150,7 @@ fn blockBoxCosmeticLayout(
         .insets = computer.getSpecifiedValue(.cosmetic, .insets),
     };
 
-    const subtree_slice = box_tree.blocks.subtrees.items[block_box.subtree].slice();
+    const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
 
     const computed_box_style = solve.boxStyle(specified.box_style, is_root);
     const current_color = solve.currentColor(specified.color.color);
@@ -387,7 +386,7 @@ fn getBackgroundPropertyArray(inputs: Inputs, ptr_to_value: anytype) []const std
 }
 
 fn anonymousBlockBoxCosmeticLayout(box_tree: *BoxTree, block_box: BlockBox) void {
-    const subtree_slice = box_tree.blocks.subtrees.items[block_box.subtree].slice();
+    const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
     subtree_slice.items(.border_colors)[block_box.index] = .{};
     subtree_slice.items(.background)[block_box.index] = .{};
     subtree_slice.items(.insets)[block_box.index] = .{ .x = 0, .y = 0 };

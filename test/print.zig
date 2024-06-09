@@ -1,7 +1,7 @@
 const zss = @import("zss");
 const BoxTree = zss.used_values.BoxTree;
 const Subtree = zss.used_values.BlockSubtree;
-const SubtreeIndex = zss.used_values.SubtreeIndex;
+const SubtreeId = zss.used_values.SubtreeId;
 const BlockBoxIndex = zss.used_values.BlockBoxIndex;
 
 const std = @import("std");
@@ -46,7 +46,7 @@ pub fn run(tests: []const Test) !void {
 
 fn printBlocks(box_tree: BoxTree, stdout: anytype, allocator: Allocator) !void {
     const SubtreeStackItem = struct {
-        index: SubtreeIndex,
+        index: SubtreeId,
         subtree: *const Subtree,
         index_of_root: usize,
     };
@@ -61,9 +61,9 @@ fn printBlocks(box_tree: BoxTree, stdout: anytype, allocator: Allocator) !void {
     var block_stack = ArrayListUnmanaged(BlockStackItem){};
     defer block_stack.deinit(allocator);
 
-    const subtrees = box_tree.blocks.subtrees.items;
-    try subtree_stack.append(allocator, .{ .index = 0, .subtree = subtrees[0], .index_of_root = 0 });
-    try block_stack.append(allocator, .{ .begin = 0, .end = subtrees[0].size(), .indent = 0 });
+    const icb = box_tree.blocks.initial_containing_block;
+    try subtree_stack.append(allocator, .{ .index = icb.subtree, .subtree = box_tree.blocks.subtree(icb.subtree), .index_of_root = 0 });
+    try block_stack.append(allocator, .{ .begin = icb.index, .end = box_tree.blocks.subtree(icb.subtree).size(), .indent = 0 });
 
     while (block_stack.items.len > 0) {
         const top = &block_stack.items[block_stack.items.len - 1];
@@ -79,7 +79,7 @@ fn printBlocks(box_tree: BoxTree, stdout: anytype, allocator: Allocator) !void {
                     try stdout.writeByteNTimes(' ', top.indent * 4);
                     try stdout.print("subtree index={}\n", .{subtree_index});
 
-                    const new_subtree = subtrees[subtree_index];
+                    const new_subtree = box_tree.blocks.subtree(subtree_index);
                     try subtree_stack.append(allocator, .{ .index = subtree_index, .subtree = new_subtree, .index_of_root = block_stack.items.len });
                     try block_stack.append(allocator, .{ .begin = 0, .end = new_subtree.size(), .indent = top.indent + 1 });
                 },

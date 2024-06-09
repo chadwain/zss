@@ -272,21 +272,4 @@ pub fn unicodeString(data: []const u21) UnicodeString {
     return .{ .data = data };
 }
 
-pub fn DebugOptional(comptime T: type) type {
-    return union {
-        unwrap: T,
-        null: T,
-
-        pub fn init() @This() {
-            return .{ .null = undefined };
-        }
-
-        pub fn set(self: *@This(), value: T) void {
-            self.* = .{ .unwrap = value };
-        }
-
-        pub fn unset(self: *@This()) void {
-            self.* = init();
-        }
-    };
-}
+p

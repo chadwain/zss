@@ -17,8 +17,7 @@ const BlockBoxIndex = used_values.BlockBoxIndex;
 const initial_containing_block = @as(BlockBoxIndex, 0);
 const BlockBox = used_values.BlockBox;
 const BlockBoxSkip = used_values.BlockBoxSkip;
-const BlockSubtreeIndex = used_values.SubtreeIndex;
-const initial_subtree = @as(BlockSubtreeIndex, 0);
+const SubtreeId = used_values.SubtreeId;
 const BoxTree = used_values.BoxTree;
 
 const hb = @import("mach-harfbuzz").c;
@@ -26,6 +25,7 @@ const hb = @import("mach-harfbuzz").c;
 pub const InitialLayoutContext = struct {
     allocator: std.mem.Allocator,
 
+    subtree_id: SubtreeId = undefined,
     width: ZssUnit = undefined,
     height: ZssUnit = undefined,
 };
@@ -34,27 +34,28 @@ pub fn run(layout: *InitialLayoutContext, sc: *StackingContexts, computer: *Styl
     const width = inputs.viewport.w;
     const height = inputs.viewport.h;
 
-    const subtree_index = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = null });
-    assert(subtree_index == initial_subtree);
-    const subtree = box_tree.blocks.subtrees.items[subtree_index];
+    const subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = null });
+    layout.subtree_id = subtree_id;
+    const subtree = box_tree.blocks.subtree(subtree_id);
 
-    const block = try zss.layout.createBlock(box_tree, subtree);
-    assert(block.index == initial_containing_block);
-    block.skip.* = undefined;
-    block.type.* = .{ .block = .{ .stacking_context = null } };
-    block.box_offsets.* = .{
+    const block_index = try subtree.appendBlock(box_tree.allocator);
+    assert(block_index == initial_containing_block);
+    const subtree_slice = subtree.slice();
+    subtree_slice.items(.type)[block_index] = .{ .block = .{ .stacking_context = null } };
+    subtree_slice.items(.box_offsets)[block_index] = .{
         .border_pos = .{ .x = 0, .y = 0 },
         .content_pos = .{ .x = 0, .y = 0 },
         .content_size = .{ .w = width, .h = height },
         .border_size = .{ .w = width, .h = height },
     };
-    block.borders.* = .{};
-    block.margins.* = .{};
+    subtree_slice.items(.borders)[block_index] = .{};
+    subtree_slice.items(.margins)[block_index] = .{};
+    box_tree.blocks.initial_containing_block = .{ .subtree = subtree_id, .index = block_index };
 
     layout.width = width;
     layout.height = height;
     const skip = try analyzeRootElement(layout, sc, computer, box_tree);
-    block.skip.* = 1 + skip;
+    subtree_slice.items(.skip)[block_index] = 1 + skip;
 }
 
 fn analyzeRootElement(layout: *const InitialLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !BlockBoxSkip {
@@ -81,11 +82,6 @@ fn analyzeRootElement(layout: *const InitialLayoutContext, sc: *StackingContexts
 
     switch (computed.box_style.display) {
         .block => {
-            const subtree = box_tree.blocks.subtrees.items[initial_subtree];
-            const block = try zss.layout.createBlock(box_tree, subtree);
-            const block_box = BlockBox{ .subtree = initial_subtree, .index = block.index };
-            try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .{ .block_box = block_box });
-
             const used_sizes = try flow.solveAllSizes(computer, layout.width, layout.height);
             const stacking_context = rootFlowBlockCreateStackingContext(computer);
             try computer.pushElement(.box_gen);
@@ -95,8 +91,8 @@ fn analyzeRootElement(layout: *const InitialLayoutContext, sc: *StackingContexts
                 box_tree,
                 sc,
                 computer,
-                initial_subtree,
-                block.index,
+                element,
+                layout.subtree_id,
                 used_sizes,
                 stacking_context,
             );

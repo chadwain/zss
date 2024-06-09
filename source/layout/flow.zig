@@ -6,6 +6,7 @@ const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
+const Element = zss.ElementTree.Element;
 const Stack = zss.util.Stack;
 
 const solve = @import("./solve.zig");
@@ -17,7 +18,7 @@ const used_values = zss.used_values;
 const BlockBox = used_values.BlockBox;
 const BlockBoxIndex = used_values.BlockBoxIndex;
 const BlockBoxSkip = used_values.BlockBoxSkip;
-const BlockSubtreeIndex = used_values.SubtreeIndex;
+const SubtreeId = used_values.SubtreeId;
 const BoxTree = used_values.BoxTree;
 const StackingContext = used_values.StackingContext;
 const SubtreeSlice = used_values.BlockSubtree.Slice;
@@ -25,6 +26,7 @@ const ZssUnit = used_values.ZssUnit;
 
 pub const Result = struct {
     skip: BlockBoxSkip,
+    index: BlockBoxIndex,
 };
 
 pub fn runFlowLayout(
@@ -32,27 +34,29 @@ pub fn runFlowLayout(
     box_tree: *BoxTree,
     sc: *StackingContexts,
     computer: *StyleComputer,
-    subtree_index: BlockSubtreeIndex,
-    block_box_index: BlockBoxIndex,
+    element: Element,
+    subtree_index: SubtreeId,
     used_sizes: BlockUsedSizes,
     stacking_context: StackingContexts.Info,
 ) !Result {
     var ctx = Context{ .allocator = allocator };
     defer ctx.deinit();
 
-    try pushBlock(true, &ctx, box_tree, sc, subtree_index, block_box_index, used_sizes, stacking_context);
-    while (ctx.result == null) {
+    try pushBlock(true, &ctx, box_tree, sc, element, subtree_index, used_sizes, stacking_context);
+    while (ctx.stack.top) |_| {
         try analyzeElement(&ctx, sc, computer, box_tree);
-    } else return ctx.result.?;
+    }
+
+    return ctx.result;
 }
 
 const Context = struct {
     allocator: Allocator,
-    result: ?Result = null,
+    result: Result = undefined,
     stack: Stack(StackItem) = .{},
 
     const StackItem = struct {
-        subtree: BlockSubtreeIndex,
+        subtree: SubtreeId,
         index: BlockBoxIndex,
         skip: BlockBoxSkip,
 
@@ -80,30 +84,24 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
         computer.setComputedValue(.box_gen, .box_style, computed_box_style);
         computer.setComputedValue(.box_gen, .font, specified.font);
 
-        const parent = &ctx.stack.top.unwrap;
+        const parent = &ctx.stack.top.?;
         const subtree_index = parent.subtree;
         const containing_block_width = parent.width;
         const containing_block_height = parent.heights.height;
 
         switch (computed_box_style.display) {
             .block => {
-                // TODO: Move the actual block creation to pushBlock
-                const subtree = box_tree.blocks.subtrees.items[subtree_index];
-                const block = try zss.layout.createBlock(box_tree, subtree);
-                const block_box = BlockBox{ .subtree = subtree_index, .index = block.index };
-                try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .{ .block_box = block_box });
-
                 const used_sizes = try solveAllSizes(computer, containing_block_width, containing_block_height);
                 const stacking_context = createStackingContext(computer, computed_box_style.position);
 
-                try pushBlock(false, ctx, box_tree, sc, subtree_index, block.index, used_sizes, stacking_context);
+                try pushBlock(false, ctx, box_tree, sc, element, subtree_index, used_sizes, stacking_context);
 
                 element_ptr.* = computer.element_tree_slice.nextSibling(element);
                 try computer.pushElement(.box_gen);
             },
             .@"inline", .inline_block, .text => {
-                const subtree = box_tree.blocks.subtrees.items[subtree_index];
-                const ifc_container = try zss.layout.createBlock(box_tree, subtree);
+                const subtree = box_tree.blocks.subtree(subtree_index);
+                const ifc_container_index = try subtree.appendBlock(box_tree.allocator);
 
                 const result = try inline_layout.makeInlineFormattingContext(
                     ctx.allocator,
@@ -118,12 +116,13 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                 const ifc = box_tree.ifcs.items[result.ifc_index];
                 const line_split_result =
                     try inline_layout.splitIntoLineBoxes(ctx.allocator, box_tree, subtree, ifc, containing_block_width);
-                ifc.parent_block = .{ .subtree = subtree_index, .index = ifc_container.index };
+                ifc.parent_block = .{ .subtree = subtree_index, .index = ifc_container_index };
 
+                const subtree_slice = subtree.slice();
                 const skip = 1 + result.total_inline_block_skip;
-                ifc_container.type.* = .{ .ifc_container = result.ifc_index };
-                ifc_container.skip.* = skip;
-                ifc_container.box_offsets.* = .{
+                subtree_slice.items(.type)[ifc_container_index] = .{ .ifc_container = result.ifc_index };
+                subtree_slice.items(.skip)[ifc_container_index] = skip;
+                subtree_slice.items(.box_offsets)[ifc_container_index] = .{
                     .border_pos = .{ .x = 0, .y = parent.auto_height },
                     .border_size = .{ .w = containing_block_width, .h = line_split_result.height },
                     .content_pos = .{ .x = 0, .y = 0 },
@@ -148,48 +147,52 @@ fn pushBlock(
     ctx: *Context,
     box_tree: *BoxTree,
     sc: *StackingContexts,
-    subtree_index: BlockSubtreeIndex,
-    block_box_index: BlockBoxIndex,
+    element: Element,
+    subtree_index: SubtreeId,
     used_sizes: BlockUsedSizes,
     stacking_context: StackingContexts.Info,
 ) !void {
+    const subtree = box_tree.blocks.subtree(subtree_index);
+    const block_index = try subtree.appendBlock(box_tree.allocator);
+    const block_box = BlockBox{ .subtree = subtree_index, .index = block_index };
+    try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .{ .block_box = block_box });
+
+    // The allocations here must have corresponding deallocations in popBlock.
     const stack_item = Context.StackItem{
         .subtree = subtree_index,
-        .index = block_box_index,
+        .index = block_index,
         .skip = 1,
         .width = used_sizes.get(.inline_size).?,
         .auto_height = 0,
         .heights = used_sizes.getUsedContentHeight(),
     };
-
-    // The allocations here must have corresponding deallocations in popBlock.
     if (initial_push) {
-        ctx.stack.top.set(stack_item);
+        ctx.stack.top = stack_item;
     } else {
         try ctx.stack.push(ctx.allocator, stack_item);
     }
-    const stacking_context_id = try sc.push(stacking_context, box_tree, .{ .subtree = subtree_index, .index = block_box_index });
+    const stacking_context_id = try sc.push(stacking_context, box_tree, block_box);
 
-    const subtree_slice = box_tree.blocks.subtrees.items[subtree_index].slice();
-    writeBlockDataPart1(subtree_slice, block_box_index, used_sizes, stacking_context_id);
+    writeBlockDataPart1(subtree.slice(), block_index, used_sizes, stacking_context_id);
 }
 
 fn popBlock(ctx: *Context, sc: *StackingContexts, box_tree: *BoxTree) void {
     // The deallocations here must correspond to allocations in pushBlock.
-    const stack_empty = ctx.stack.rest.len == 0;
     const this = ctx.stack.pop();
     sc.pop(box_tree);
 
-    const subtree_slice = box_tree.blocks.subtrees.items[this.subtree].slice();
+    const subtree_slice = box_tree.blocks.subtree(this.subtree).slice();
     assert(subtree_slice.items(.box_offsets)[this.index].content_size.w == this.width);
     writeBlockDataPart2(subtree_slice, this.index, this.skip, this.heights, this.auto_height);
 
-    if (!stack_empty) {
-        const parent = &ctx.stack.top.unwrap;
+    if (ctx.stack.top) |*parent| {
         parent.skip += this.skip;
         addBlockToFlow(subtree_slice, this.index, &parent.auto_height);
     } else {
-        ctx.result = .{ .skip = this.skip };
+        ctx.result = .{
+            .skip = this.skip,
+            .index = this.index,
+        };
     }
 }
 

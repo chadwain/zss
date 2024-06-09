@@ -509,7 +509,7 @@ pub fn drawBoxTree(
             .block_box => |block_box| {
                 const border_top_left = block_box.border_top_left;
 
-                const subtree_slice = box_tree.blocks.subtrees.items[block_box.block_box.subtree].slice();
+                const subtree_slice = box_tree.blocks.subtree(block_box.block_box.subtree).slice();
                 const index = block_box.block_box.index;
 
                 const box_offsets = subtree_slice.items(.box_offsets)[index];

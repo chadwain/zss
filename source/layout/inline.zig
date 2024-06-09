@@ -27,7 +27,7 @@ const BlockBoxIndex = used_values.BlockBoxIndex;
 const BlockBox = used_values.BlockBox;
 const BlockBoxSkip = used_values.BlockBoxSkip;
 const BlockSubtree = used_values.BlockSubtree;
-const BlockSubtreeIndex = used_values.SubtreeIndex;
+const SubtreeId = used_values.SubtreeId;
 const BlockBoxTree = used_values.BlockBoxTree;
 const StackingContextIndex = used_values.StackingContextIndex;
 const StackingContextRef = used_values.StackingContextRef;
@@ -45,7 +45,7 @@ pub const InlineLayoutContext = struct {
     const Self = @This();
 
     allocator: Allocator,
-    subtree_index: BlockSubtreeIndex,
+    subtree_id: SubtreeId,
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
     percentage_base_unit: ZssUnit,
@@ -72,7 +72,7 @@ pub fn makeInlineFormattingContext(
     sc: *StackingContexts,
     computer: *StyleComputer,
     box_tree: *BoxTree,
-    subtree_index: BlockSubtreeIndex,
+    subtree_id: SubtreeId,
     mode: enum { Normal, ShrinkToFit },
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
@@ -102,7 +102,7 @@ pub fn makeInlineFormattingContext(
 
     var inline_layout = InlineLayoutContext{
         .allocator = allocator,
-        .subtree_index = subtree_index,
+        .subtree_id = subtree_id,
         .containing_block_width = containing_block_width,
         .containing_block_height = containing_block_height,
         .percentage_base_unit = percentage_base_unit,
@@ -145,7 +145,7 @@ fn createInlineFormattingContext(
     try ifcPopRootInlineBox(layout, box_tree, ifc);
 
     try ifc.metrics.resize(box_tree.allocator, ifc.glyph_indeces.items.len);
-    const subtree = box_tree.blocks.subtrees.items[layout.subtree_index];
+    const subtree = box_tree.blocks.subtree(layout.subtree_id);
     ifcSolveMetrics(ifc, subtree);
 }
 
@@ -229,11 +229,6 @@ fn ifcRunOnce(
             element_ptr.* = computer.element_tree_slice.nextSibling(element);
             computer.setComputedValue(.box_gen, .box_style, computed);
 
-            const subtree = box_tree.blocks.subtrees.items[layout.subtree_index];
-            const block = try zss.layout.createBlock(box_tree, subtree);
-            const block_box = BlockBox{ .subtree = layout.subtree_index, .index = block.index };
-            try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .{ .block_box = block_box });
-
             const used_sizes = try inlineBlockSolveSizes(computer, layout.containing_block_width, layout.containing_block_height);
             const stacking_context = inlineBlockCreateStackingContext(computer, computed.position);
 
@@ -249,12 +244,13 @@ fn ifcRunOnce(
                     box_tree,
                     sc,
                     computer,
-                    layout.subtree_index,
-                    block.index,
+                    element,
+                    layout.subtree_id,
                     used_sizes,
                     stacking_context,
                 );
                 layout.result.total_inline_block_skip += result.skip;
+                try ifcAddInlineBlock(box_tree, ifc, result.index);
             } else {
                 const available_width_unclamped = layout.containing_block_width -
                     (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
@@ -269,15 +265,14 @@ fn ifcRunOnce(
                     sc,
                     computer,
                     element,
-                    block_box,
+                    layout.subtree_id,
                     used_sizes,
                     stacking_context,
                     available_width,
                 );
                 layout.result.total_inline_block_skip += result.skip;
+                try ifcAddInlineBlock(box_tree, ifc, result.index);
             }
-
-            try ifcAddInlineBlock(box_tree, ifc, block_box.index);
         },
         .block => {
             if (layout.inline_box_depth == 0) {

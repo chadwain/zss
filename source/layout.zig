@@ -27,7 +27,6 @@ pub const Error = error{
     InvalidValue, // TODO: Remove this error. Layout should never fail for this reason.
     OutOfMemory,
     OutOfRefs,
-    TooManyBlockSubtrees,
     TooManyBlocks,
     TooManyIfcs,
     TooManyInlineBoxes,
@@ -91,27 +90,4 @@ fn cosmeticLayout(computer: *StyleComputer, box_tree: *BoxTree, allocator: Alloc
     try cosmetic.run(computer, box_tree, allocator, inputs);
 
     computer.assertEmptyStage(.cosmetic);
-}
-
-pub const Block = struct {
-    index: used_values.BlockBoxIndex,
-    skip: *used_values.BlockBoxSkip,
-    type: *used_values.BlockType,
-    box_offsets: *used_values.BoxOffsets,
-    borders: *used_values.Borders,
-    margins: *used_values.Margins,
-};
-
-// TODO: Make this return only the index
-pub fn createBlock(box_tree: *BoxTree, subtree: *used_values.BlockSubtree) !Block {
-    const index = try subtree.appendBlock(box_tree.allocator);
-    const slice = subtree.slice();
-    return Block{
-        .index = index,
-        .skip = &slice.items(.skip)[index],
-        .type = &slice.items(.type)[index],
-        .box_offsets = &slice.items(.box_offsets)[index],
-        .borders = &slice.items(.borders)[index],
-        .margins = &slice.items(.margins)[index],
-    };
 }

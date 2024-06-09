@@ -194,19 +194,14 @@ pub const BlockType = union(enum) {
         stacking_context: ?StackingContext.Id,
     },
     ifc_container: InlineFormattingContextIndex,
-    subtree_proxy: SubtreeIndex,
+    subtree_proxy: SubtreeId,
 };
 
-pub const SubtreeIndex = u16;
+pub const SubtreeId = enum(u16) { _ };
 pub const BlockBoxIndex = u16;
 pub const BlockBox = struct {
-    subtree: SubtreeIndex,
+    subtree: SubtreeId,
     index: BlockBoxIndex,
-};
-
-pub const initial_containing_block = BlockBox{
-    .subtree = 0,
-    .index = 0,
 };
 
 pub const BlockBoxSkip = BlockBoxIndex;
@@ -252,23 +247,28 @@ pub const BlockSubtree = struct {
 
 pub const BlockBoxTree = struct {
     subtrees: ArrayListUnmanaged(*BlockSubtree) = .{},
+    initial_containing_block: BlockBox = undefined,
 
-    fn deinit(tree: *BlockBoxTree, allocator: Allocator) void {
-        for (tree.subtrees.items) |subtree| {
-            subtree.deinit(allocator);
-            allocator.destroy(subtree);
+    fn deinit(blocks: *BlockBoxTree, allocator: Allocator) void {
+        for (blocks.subtrees.items) |tree| {
+            tree.deinit(allocator);
+            allocator.destroy(tree);
         }
-        tree.subtrees.deinit(allocator);
+        blocks.subtrees.deinit(allocator);
     }
 
-    pub fn makeSubtree(blocks: *BlockBoxTree, allocator: Allocator, value: BlockSubtree) !SubtreeIndex {
-        const new_size = std.math.add(SubtreeIndex, @intCast(blocks.subtrees.items.len), 1) catch return error.TooManyBlockSubtrees;
-        const entry = try blocks.subtrees.addOne(allocator);
+    pub fn subtree(blocks: BlockBoxTree, id: SubtreeId) *BlockSubtree {
+        return blocks.subtrees.items[@intFromEnum(id)];
+    }
+
+    pub fn makeSubtree(blocks: *BlockBoxTree, allocator: Allocator, value: BlockSubtree) !SubtreeId {
+        const id: SubtreeId = @enumFromInt(blocks.subtrees.items.len);
+        const tree_ptr = try blocks.subtrees.addOne(allocator);
         errdefer _ = blocks.subtrees.pop();
-        const subtree = try allocator.create(BlockSubtree);
-        entry.* = subtree;
-        subtree.* = value;
-        return new_size - 1;
+        const tree = try allocator.create(BlockSubtree);
+        tree_ptr.* = tree;
+        tree.* = value;
+        return id;
     }
 };
 
