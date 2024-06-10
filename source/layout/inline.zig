@@ -124,6 +124,7 @@ fn createInlineFormattingContext(
     ifc: *InlineFormattingContext,
 ) !void {
     ifc.font = computer.root_font.font;
+    computer.resetElement(.box_gen);
 
     try ifcPushRootInlineBox(layout, box_tree, ifc);
     while (true) {
@@ -191,7 +192,7 @@ fn ifcRunOnce(
         },
         .@"inline" => {
             const inline_box_index = try ifc.appendInlineBox(box_tree.allocator);
-            try inlineBoxSetData(layout, computer, ifc, inline_box_index);
+            inlineBoxSetData(layout, computer, ifc, inline_box_index);
 
             const generated_box = GeneratedBox{ .inline_box = .{ .ifc_index = layout.result.ifc_index, .index = inline_box_index } };
             try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
@@ -226,7 +227,7 @@ fn ifcRunOnce(
         .inline_block => {
             computer.setComputedValue(.box_gen, .box_style, computed);
 
-            const used_sizes = try inlineBlockSolveSizes(computer, layout.containing_block_width, layout.containing_block_height);
+            const used_sizes = inlineBlockSolveSizes(computer, layout.containing_block_width, layout.containing_block_height);
             const stacking_context = inlineBlockCreateStackingContext(computer, computed.position);
 
             // TODO: Grabbing useless data to satisfy inheritance...
@@ -393,7 +394,7 @@ fn rootInlineBoxSetData(ifc: *const InlineFormattingContext, inline_box_index: I
     ifc_slice.items(.margins)[inline_box_index] = .{};
 }
 
-fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
+fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
     const specified = .{
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
@@ -440,12 +441,12 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
             .px => |value| {
                 const width = value * multiplier;
                 computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = try solve.positiveLength(.px, width);
+                used.border_inline_start = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
+                used.border_inline_start = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -453,11 +454,11 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
     switch (specified.horizontal_edges.padding_left) {
         .px => |value| {
             computed.horizontal_edges.padding_left = .{ .px = value };
-            used.padding_inline_start = try solve.positiveLength(.px, value);
+            used.padding_inline_start = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_left = .{ .percentage = value };
-            used.padding_inline_start = try solve.positivePercentage(value, layout.percentage_base_unit);
+            used.padding_inline_start = solve.positivePercentage(value, layout.percentage_base_unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -482,12 +483,12 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
             .px => |value| {
                 const width = value * multiplier;
                 computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = try solve.positiveLength(.px, width);
+                used.border_inline_end = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
+                used.border_inline_end = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -495,11 +496,11 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
     switch (specified.horizontal_edges.padding_right) {
         .px => |value| {
             computed.horizontal_edges.padding_right = .{ .px = value };
-            used.padding_inline_end = try solve.positiveLength(.px, value);
+            used.padding_inline_end = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_right = .{ .percentage = value };
-            used.padding_inline_end = try solve.positivePercentage(value, layout.percentage_base_unit);
+            used.padding_inline_end = solve.positivePercentage(value, layout.percentage_base_unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -510,12 +511,12 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
             .px => |value| {
                 const width = value * multiplier;
                 computed.vertical_edges.border_top = .{ .px = width };
-                used.border_block_start = try solve.positiveLength(.px, width);
+                used.border_block_start = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.vertical_edges.border_top = .{ .px = width };
-                used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
+                used.border_block_start = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -523,11 +524,11 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
     switch (specified.vertical_edges.padding_top) {
         .px => |value| {
             computed.vertical_edges.padding_top = .{ .px = value };
-            used.padding_block_start = try solve.positiveLength(.px, value);
+            used.padding_block_start = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.vertical_edges.padding_top = .{ .percentage = value };
-            used.padding_block_start = try solve.positivePercentage(value, layout.percentage_base_unit);
+            used.padding_block_start = solve.positivePercentage(value, layout.percentage_base_unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -537,12 +538,12 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
             .px => |value| {
                 const width = value * multiplier;
                 computed.vertical_edges.border_bottom = .{ .px = width };
-                used.border_block_end = try solve.positiveLength(.px, width);
+                used.border_block_end = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.vertical_edges.border_bottom = .{ .px = width };
-                used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
+                used.border_block_end = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -550,11 +551,11 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
     switch (specified.vertical_edges.padding_bottom) {
         .px => |value| {
             computed.vertical_edges.padding_bottom = .{ .px = value };
-            used.padding_block_end = try solve.positiveLength(.px, value);
+            used.padding_block_end = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.vertical_edges.padding_bottom = .{ .percentage = value };
-            used.padding_block_end = try solve.positivePercentage(value, layout.percentage_base_unit);
+            used.padding_block_end = solve.positivePercentage(value, layout.percentage_base_unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -578,7 +579,7 @@ fn inlineBlockSolveSizes(
     computer: *StyleComputer,
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
-) !BlockUsedSizes {
+) BlockUsedSizes {
     assert(containing_block_width >= 0);
     if (containing_block_height) |h| assert(h >= 0);
 
@@ -600,12 +601,12 @@ fn inlineBlockSolveSizes(
             .px => |value| {
                 const width = value * multiplier;
                 computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = try solve.positiveLength(.px, width);
+                used.border_inline_start = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
+                used.border_inline_start = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -616,12 +617,12 @@ fn inlineBlockSolveSizes(
             .px => |value| {
                 const width = value * multiplier;
                 computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = try solve.positiveLength(.px, width);
+                used.border_inline_end = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
+                used.border_inline_end = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -629,22 +630,22 @@ fn inlineBlockSolveSizes(
     switch (specified.horizontal_edges.padding_left) {
         .px => |value| {
             computed.horizontal_edges.padding_left = .{ .px = value };
-            used.padding_inline_start = try solve.positiveLength(.px, value);
+            used.padding_inline_start = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_left = .{ .percentage = value };
-            used.padding_inline_start = try solve.positivePercentage(value, containing_block_width);
+            used.padding_inline_start = solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.padding_right) {
         .px => |value| {
             computed.horizontal_edges.padding_right = .{ .px = value };
-            used.padding_inline_end = try solve.positiveLength(.px, value);
+            used.padding_inline_end = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_right = .{ .percentage = value };
-            used.padding_inline_end = try solve.positivePercentage(value, containing_block_width);
+            used.padding_inline_end = solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -681,22 +682,22 @@ fn inlineBlockSolveSizes(
     switch (specified.content_width.min_width) {
         .px => |value| {
             computed.content_width.min_width = .{ .px = value };
-            used.min_inline_size = try solve.positiveLength(.px, value);
+            used.min_inline_size = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.content_width.min_width = .{ .percentage = value };
-            used.min_inline_size = try solve.positivePercentage(value, containing_block_width);
+            used.min_inline_size = solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_width.max_width) {
         .px => |value| {
             computed.content_width.max_width = .{ .px = value };
-            used.max_inline_size = try solve.positiveLength(.px, value);
+            used.max_inline_size = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.content_width.max_width = .{ .percentage = value };
-            used.max_inline_size = try solve.positivePercentage(value, containing_block_width);
+            used.max_inline_size = solve.positivePercentage(value, containing_block_width);
         },
         .none => {
             computed.content_width.max_width = .none;
@@ -708,11 +709,11 @@ fn inlineBlockSolveSizes(
     switch (specified.content_width.width) {
         .px => |value| {
             computed.content_width.width = .{ .px = value };
-            used.set(.inline_size, try solve.positiveLength(.px, value));
+            used.set(.inline_size, solve.positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.content_width.width = .{ .percentage = value };
-            used.set(.inline_size, try solve.positivePercentage(value, containing_block_width));
+            used.set(.inline_size, solve.positivePercentage(value, containing_block_width));
         },
         .auto => {
             computed.content_width.width = .auto;
@@ -727,12 +728,12 @@ fn inlineBlockSolveSizes(
             .px => |value| {
                 const width = value * multiplier;
                 computed.vertical_edges.border_top = .{ .px = width };
-                used.border_block_start = try solve.positiveLength(.px, width);
+                used.border_block_start = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.vertical_edges.border_top = .{ .px = width };
-                used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
+                used.border_block_start = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -743,12 +744,12 @@ fn inlineBlockSolveSizes(
             .px => |value| {
                 const width = value * multiplier;
                 computed.vertical_edges.border_bottom = .{ .px = width };
-                used.border_block_end = try solve.positiveLength(.px, width);
+                used.border_block_end = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.vertical_edges.border_bottom = .{ .px = width };
-                used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
+                used.border_block_end = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -756,22 +757,22 @@ fn inlineBlockSolveSizes(
     switch (specified.vertical_edges.padding_top) {
         .px => |value| {
             computed.vertical_edges.padding_top = .{ .px = value };
-            used.padding_block_start = try solve.positiveLength(.px, value);
+            used.padding_block_start = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.vertical_edges.padding_top = .{ .percentage = value };
-            used.padding_block_start = try solve.positivePercentage(value, containing_block_width);
+            used.padding_block_start = solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.padding_bottom) {
         .px => |value| {
             computed.vertical_edges.padding_bottom = .{ .px = value };
-            used.padding_block_end = try solve.positiveLength(.px, value);
+            used.padding_block_end = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.vertical_edges.padding_bottom = .{ .percentage = value };
-            used.padding_block_end = try solve.positivePercentage(value, containing_block_width);
+            used.padding_block_end = solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -808,12 +809,12 @@ fn inlineBlockSolveSizes(
     switch (specified.content_height.min_height) {
         .px => |value| {
             computed.content_height.min_height = .{ .px = value };
-            used.min_block_size = try solve.positiveLength(.px, value);
+            used.min_block_size = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.content_height.min_height = .{ .percentage = value };
             used.min_block_size = if (containing_block_height) |h|
-                try solve.positivePercentage(value, h)
+                solve.positivePercentage(value, h)
             else
                 0;
         },
@@ -822,12 +823,12 @@ fn inlineBlockSolveSizes(
     switch (specified.content_height.max_height) {
         .px => |value| {
             computed.content_height.max_height = .{ .px = value };
-            used.max_block_size = try solve.positiveLength(.px, value);
+            used.max_block_size = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.content_height.max_height = .{ .percentage = value };
             used.max_block_size = if (containing_block_height) |h|
-                try solve.positivePercentage(value, h)
+                solve.positivePercentage(value, h)
             else
                 std.math.maxInt(ZssUnit);
         },
@@ -840,12 +841,12 @@ fn inlineBlockSolveSizes(
     switch (specified.content_height.height) {
         .px => |value| {
             computed.content_height.height = .{ .px = value };
-            used.set(.block_size, try solve.positiveLength(.px, value));
+            used.set(.block_size, solve.positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.content_height.height = .{ .percentage = value };
             if (containing_block_height) |h|
-                used.set(.block_size, try solve.positivePercentage(value, h))
+                used.set(.block_size, solve.positivePercentage(value, h))
             else
                 used.setAuto(.block_size);
         },

@@ -178,7 +178,7 @@ fn flowObject(
         switch (computed.display) {
             .block => {
                 var used: BlockUsedSizes = undefined;
-                try solveBlockSizes(computer, &used, parent.height);
+                solveBlockSizes(computer, &used, parent.height);
                 const stacking_context = flowBlockCreateStackingContext(computer, computed.position);
 
                 { // TODO: Delete this
@@ -545,7 +545,7 @@ fn solveBlockSizes(
     computer: *StyleComputer,
     used: *BlockUsedSizes,
     containing_block_height: ?ZssUnit,
-) !void {
+) void {
     const specified = .{
         .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
         .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
@@ -555,10 +555,10 @@ fn solveBlockSizes(
     };
     var computed: BlockComputedSizes = undefined;
 
-    try flowBlockSolveContentWidth(specified.content_width, &computed.content_width, used);
-    try flowBlockSolveHorizontalEdges(specified.horizontal_edges, specified.border_styles, &computed.horizontal_edges, used);
-    try flow.solveContentHeight(specified.content_height, containing_block_height, &computed.content_height, used);
-    try flow.solveVerticalEdges(specified.vertical_edges, 0, specified.border_styles, &computed.vertical_edges, used);
+    flowBlockSolveContentWidth(specified.content_width, &computed.content_width, used);
+    flowBlockSolveHorizontalEdges(specified.horizontal_edges, specified.border_styles, &computed.horizontal_edges, used);
+    flow.solveContentHeight(specified.content_height, containing_block_height, &computed.content_height, used);
+    flow.solveVerticalEdges(specified.vertical_edges, 0, specified.border_styles, &computed.vertical_edges, used);
 
     computer.setComputedValue(.box_gen, .content_width, computed.content_width);
     computer.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
@@ -571,11 +571,11 @@ fn flowBlockSolveContentWidth(
     specified: aggregates.ContentWidth,
     computed: *aggregates.ContentWidth,
     used: *BlockUsedSizes,
-) !void {
+) void {
     switch (specified.min_width) {
         .px => |value| {
             computed.min_width = .{ .px = value };
-            used.min_inline_size = try solve.positiveLength(.px, value);
+            used.min_inline_size = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.min_width = .{ .percentage = value };
@@ -586,7 +586,7 @@ fn flowBlockSolveContentWidth(
     switch (specified.max_width) {
         .px => |value| {
             computed.max_width = .{ .px = value };
-            used.max_inline_size = try solve.positiveLength(.px, value);
+            used.max_inline_size = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.max_width = .{ .percentage = value };
@@ -602,7 +602,7 @@ fn flowBlockSolveContentWidth(
     switch (specified.width) {
         .px => |value| {
             computed.width = .{ .px = value };
-            used.set(.inline_size, try solve.positiveLength(.px, value));
+            used.set(.inline_size, solve.positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.width = .{ .percentage = value };
@@ -621,19 +621,19 @@ fn flowBlockSolveHorizontalEdges(
     border_styles: aggregates.BorderStyles,
     computed: *aggregates.HorizontalEdges,
     used: *BlockUsedSizes,
-) !void {
+) void {
     {
         const multiplier = solve.borderWidthMultiplier(border_styles.left);
         switch (specified.border_left) {
             .px => |value| {
                 const width = value * multiplier;
                 computed.border_left = .{ .px = width };
-                used.border_inline_start = try solve.positiveLength(.px, width);
+                used.border_inline_start = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
+                used.border_inline_start = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -644,12 +644,12 @@ fn flowBlockSolveHorizontalEdges(
             .px => |value| {
                 const width = value * multiplier;
                 computed.border_right = .{ .px = width };
-                used.border_inline_end = try solve.positiveLength(.px, width);
+                used.border_inline_end = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
+                used.border_inline_end = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -658,7 +658,7 @@ fn flowBlockSolveHorizontalEdges(
     switch (specified.padding_left) {
         .px => |value| {
             computed.padding_left = .{ .px = value };
-            used.padding_inline_start = try solve.positiveLength(.px, value);
+            used.padding_inline_start = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.padding_left = .{ .percentage = value };
@@ -669,7 +669,7 @@ fn flowBlockSolveHorizontalEdges(
     switch (specified.padding_right) {
         .px => |value| {
             computed.padding_right = .{ .px = value };
-            used.padding_inline_end = try solve.positiveLength(.px, value);
+            used.padding_inline_end = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.padding_right = .{ .percentage = value };

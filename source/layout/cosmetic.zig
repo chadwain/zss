@@ -365,7 +365,7 @@ fn blockBoxBackgrounds(
             .initial, .inherit, .unset, .undeclared => unreachable,
         };
         const dimensions = inputs.images.items(.dimensions)[@intFromEnum(image_handle)];
-        dest.* = try solve.backgroundImage(
+        dest.* = solve.backgroundImage(
             image_handle,
             dimensions,
             .{

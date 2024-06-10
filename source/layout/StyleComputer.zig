@@ -13,7 +13,7 @@ const Stack = zss.util.Stack;
 
 const hb = @import("mach-harfbuzz").c;
 
-const Self = @This();
+const StyleComputer = @This();
 
 pub const Stage = enum { box_gen, cosmetic };
 
@@ -107,11 +107,11 @@ root_font: struct {
 } = undefined,
 
 // Does not do deinitStage.
-pub fn deinit(self: *Self) void {
+pub fn deinit(self: *StyleComputer) void {
     self.stack.deinit(self.allocator);
 }
 
-pub fn assertEmptyStage(self: Self, comptime stage: Stage) void {
+pub fn assertEmptyStage(self: StyleComputer, comptime stage: Stage) void {
     assert(self.stack.rest.len == 0);
     const current_stage = &@field(self.stage, @tagName(stage));
     inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
@@ -119,7 +119,7 @@ pub fn assertEmptyStage(self: Self, comptime stage: Stage) void {
     }
 }
 
-pub fn deinitStage(self: *Self, comptime stage: Stage) void {
+pub fn deinitStage(self: *StyleComputer, comptime stage: Stage) void {
     self.stack.top = null;
     const current_stage = &@field(self.stage, @tagName(stage));
     inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
@@ -127,7 +127,7 @@ pub fn deinitStage(self: *Self, comptime stage: Stage) void {
     }
 }
 
-pub fn setRootElement(self: *Self, comptime stage: Stage, root_element: Element) void {
+pub fn setRootElement(self: *StyleComputer, comptime stage: Stage, root_element: Element) void {
     assert(!root_element.eqlNull());
     assert(self.stack.top == null);
     self.stack.top = .{
@@ -135,36 +135,38 @@ pub fn setRootElement(self: *Self, comptime stage: Stage, root_element: Element)
         .cascaded_values = self.element_tree_slice.get(.cascaded_values, root_element),
     };
 
+    self.resetElement(stage);
+}
+
+pub fn getCurrentElement(self: StyleComputer) Element {
+    return self.stack.top.?.element;
+}
+
+pub fn setComputedValue(self: *StyleComputer, comptime stage: Stage, comptime tag: aggregates.Tag, value: tag.Value()) void {
+    const current_stage = &@field(self.stage, @tagName(stage));
+    const flag = &@field(current_stage.current_flags, @tagName(tag));
+    assert(!flag.*);
+    flag.* = true;
+    @field(current_stage.current_values, @tagName(tag)) = value;
+}
+
+pub fn resetElement(self: *StyleComputer, comptime stage: Stage) void {
     const current_stage = &@field(self.stage, @tagName(stage));
     current_stage.current_flags = .{};
     current_stage.current_values = undefined;
 }
 
-pub fn getCurrentElement(self: Self) Element {
-    return self.stack.top.?.element;
-}
-
-pub fn setComputedValue(self: *Self, comptime stage: Stage, comptime tag: aggregates.Tag, value: tag.Value()) void {
-    const current_stage = &@field(self.stage, @tagName(stage));
-    const flag = &@field(current_stage.current_flags, @tagName(tag));
-    flag.* = true;
-    @field(current_stage.current_values, @tagName(tag)) = value;
-}
-
-pub fn advanceElement(self: *Self, comptime stage: Stage) void {
+pub fn advanceElement(self: *StyleComputer, comptime stage: Stage) void {
     const sibling = self.element_tree_slice.nextSibling(self.stack.top.?.element);
     const cascaded_values = if (sibling.eqlNull()) CascadedValues{} else self.element_tree_slice.get(.cascaded_values, sibling);
     self.stack.top = .{
         .element = sibling,
         .cascaded_values = cascaded_values,
     };
-
-    const current_stage = &@field(self.stage, @tagName(stage));
-    current_stage.current_flags = .{};
-    current_stage.current_values = undefined;
+    self.resetElement(stage);
 }
 
-pub fn pushElement(self: *Self, comptime stage: Stage) !void {
+pub fn pushElement(self: *StyleComputer, comptime stage: Stage) !void {
     const child = self.element_tree_slice.firstChild(self.stack.top.?.element);
     const cascaded_values = if (child.eqlNull()) CascadedValues{} else self.element_tree_slice.get(.cascaded_values, child);
     try self.stack.push(self.allocator, .{ .element = child, .cascaded_values = cascaded_values });
@@ -180,11 +182,10 @@ pub fn pushElement(self: *Self, comptime stage: Stage) !void {
         try @field(current_stage.value_stack, field_info.name).append(self.allocator, value);
     }
 
-    current_stage.current_flags = .{};
-    current_stage.current_values = undefined;
+    self.resetElement(stage);
 }
 
-pub fn popElement(self: *Self, comptime stage: Stage) void {
+pub fn popElement(self: *StyleComputer, comptime stage: Stage) void {
     _ = self.stack.pop();
     if (self.stack.top) |*item| {
         const sibling = self.element_tree_slice.nextSibling(item.element);
@@ -199,17 +200,16 @@ pub fn popElement(self: *Self, comptime stage: Stage) void {
             _ = @field(current_stage.value_stack, field_info.name).pop();
         }
 
-        current_stage.current_flags = .{};
-        current_stage.current_values = undefined;
+        self.resetElement(stage);
     }
 }
 
-pub fn getText(self: Self) zss.values.types.Text {
+pub fn getText(self: StyleComputer) zss.values.types.Text {
     return self.element_tree_slice.get(.text, self.stack.top.?.element) orelse "";
 }
 
 pub fn getSpecifiedValue(
-    self: Self,
+    self: StyleComputer,
     comptime stage: Stage,
     comptime tag: aggregates.Tag,
 ) tag.Value() {
@@ -282,7 +282,7 @@ fn OptionalInheritedValue(comptime tag: aggregates.Tag) type {
     return struct {
         value: ?Aggregate = null,
 
-        fn get(self: *@This(), computer: Self, comptime stage: Stage) Aggregate {
+        fn get(self: *@This(), computer: StyleComputer, comptime stage: Stage) Aggregate {
             if (self.value) |value| return value;
 
             const current_stage = @field(computer.stage, @tagName(stage));

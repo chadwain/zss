@@ -15,9 +15,8 @@ pub fn length(comptime unit: LengthUnit, value: f32) ZssUnit {
     };
 }
 
-pub fn positiveLength(comptime unit: LengthUnit, value: f32) !ZssUnit {
-    // TODO: This check isn't good enough. Must check what class of floating point value this belongs to.
-    if (value < 0) return error.InvalidValue;
+pub fn positiveLength(comptime unit: LengthUnit, value: f32) ZssUnit {
+    if (!std.math.isNormal(value) or value < 0.0) return 0.0;
     return length(unit, value);
 }
 
@@ -25,9 +24,8 @@ pub fn percentage(value: f32, unit: ZssUnit) ZssUnit {
     return @as(ZssUnit, @intFromFloat(@round(@as(f32, @floatFromInt(unit)) * value)));
 }
 
-pub fn positivePercentage(value: f32, unit: ZssUnit) !ZssUnit {
-    // TODO: This check isn't good enough. Must check what class of floating point value this belongs to.
-    if (value < 0) return error.InvalidValue;
+pub fn positivePercentage(value: f32, unit: ZssUnit) ZssUnit {
+    if (!std.math.isNormal(value) or value < 0.0) return 0.0;
     return percentage(value, unit);
 }
 
@@ -161,7 +159,7 @@ pub fn backgroundImage(
     },
     box_offsets: *const used_values.BoxOffsets,
     borders: *const used_values.Borders,
-) !used_values.BackgroundImage {
+) used_values.BackgroundImage {
     // TODO: Handle background-attachment
 
     const NaturalSize = struct {
@@ -171,8 +169,8 @@ pub fn backgroundImage(
     };
 
     const natural_size: NaturalSize = blk: {
-        const width = try positiveLength(.px, @floatFromInt(dimensions.width_px));
-        const height = try positiveLength(.px, @floatFromInt(dimensions.height_px));
+        const width = positiveLength(.px, @floatFromInt(dimensions.width_px));
+        const height = positiveLength(.px, @floatFromInt(dimensions.height_px));
         break :blk .{
             .width = width,
             .height = height,
@@ -199,16 +197,16 @@ pub fn backgroundImage(
     var size: used_values.BackgroundImage.Size = switch (specified.size) {
         .size => |size| .{
             .w = switch (size.width) {
-                .px => |val| try positiveLength(.px, val),
-                .percentage => |p| try positivePercentage(p, positioning_area.width),
+                .px => |val| positiveLength(.px, val),
+                .percentage => |p| positivePercentage(p, positioning_area.width),
                 .auto => blk: {
                     width_was_auto = true;
                     break :blk 0;
                 },
             },
             .h = switch (size.height) {
-                .px => |val| try positiveLength(.px, val),
-                .percentage => |p| try positivePercentage(p, positioning_area.height),
+                .px => |val| positiveLength(.px, val),
+                .percentage => |p| positivePercentage(p, positioning_area.height),
                 .auto => blk: {
                     height_was_auto = true;
                     break :blk 0;

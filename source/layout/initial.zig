@@ -76,7 +76,7 @@ fn analyzeRootElement(
 
     switch (computed.box_style.display) {
         .block => {
-            const used_sizes = try flow.solveAllSizes(computer, inputs.viewport.w, inputs.viewport.h);
+            const used_sizes = flow.solveAllSizes(computer, inputs.viewport.w, inputs.viewport.h);
             const stacking_context = rootFlowBlockSolveStackingContext(computer);
             try computer.pushElement(.box_gen);
 

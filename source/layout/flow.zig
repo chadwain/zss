@@ -88,8 +88,8 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
 
         switch (computed_box_style.display) {
             .block => {
-                const used_sizes = try solveAllSizes(computer, containing_block_width, containing_block_height);
-                const stacking_context = createStackingContext(computer, computed_box_style.position);
+                const used_sizes = solveAllSizes(computer, containing_block_width, containing_block_height);
+                const stacking_context = solveStackingContext(computer, computed_box_style.position);
 
                 try pushBlock(false, ctx, box_tree, sc, element, subtree_index, used_sizes, stacking_context);
                 try computer.pushElement(.box_gen);
@@ -277,7 +277,7 @@ pub fn solveAllSizes(
     computer: *StyleComputer,
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
-) !BlockUsedSizes {
+) BlockUsedSizes {
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     const specified_sizes = BlockComputedSizes{
         .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
@@ -288,16 +288,9 @@ pub fn solveAllSizes(
 
     var computed_sizes: BlockComputedSizes = undefined;
     var used_sizes: BlockUsedSizes = undefined;
-    try solveWidths(specified_sizes, containing_block_width, border_styles, &computed_sizes, &used_sizes);
-
-    try solveContentHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &used_sizes);
-    try solveVerticalEdges(
-        specified_sizes.vertical_edges,
-        containing_block_width,
-        border_styles,
-        &computed_sizes.vertical_edges,
-        &used_sizes,
-    );
+    solveWidths(specified_sizes, containing_block_width, border_styles, &computed_sizes, &used_sizes);
+    solveContentHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &used_sizes);
+    solveVerticalEdges(specified_sizes.vertical_edges, containing_block_width, border_styles, &computed_sizes.vertical_edges, &used_sizes);
     adjustWidthAndMargins(&used_sizes, containing_block_width);
 
     computer.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
@@ -316,7 +309,7 @@ pub fn solveWidths(
     border_styles: aggregates.BorderStyles,
     computed: *BlockComputedSizes,
     used: *BlockUsedSizes,
-) !void {
+) void {
     // TODO: Also use the logical properties ('inline-size', 'border-inline-start', etc.) to determine lengths.
 
     assert(containing_block_width >= 0);
@@ -327,12 +320,12 @@ pub fn solveWidths(
             .px => |value| {
                 const width = value * multiplier;
                 computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = try solve.positiveLength(.px, width);
+                used.border_inline_start = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width) catch unreachable;
+                used.border_inline_start = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -343,12 +336,12 @@ pub fn solveWidths(
             .px => |value| {
                 const width = value * multiplier;
                 computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = try solve.positiveLength(.px, width);
+                used.border_inline_end = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width) catch unreachable;
+                used.border_inline_end = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -356,22 +349,22 @@ pub fn solveWidths(
     switch (specified.horizontal_edges.padding_left) {
         .px => |value| {
             computed.horizontal_edges.padding_left = .{ .px = value };
-            used.padding_inline_start = try solve.positiveLength(.px, value);
+            used.padding_inline_start = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_left = .{ .percentage = value };
-            used.padding_inline_start = try solve.positivePercentage(value, containing_block_width);
+            used.padding_inline_start = solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.padding_right) {
         .px => |value| {
             computed.horizontal_edges.padding_right = .{ .px = value };
-            used.padding_inline_end = try solve.positiveLength(.px, value);
+            used.padding_inline_end = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_right = .{ .percentage = value };
-            used.padding_inline_end = try solve.positivePercentage(value, containing_block_width);
+            used.padding_inline_end = solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -379,22 +372,22 @@ pub fn solveWidths(
     switch (specified.content_width.min_width) {
         .px => |value| {
             computed.content_width.min_width = .{ .px = value };
-            used.min_inline_size = try solve.positiveLength(.px, value);
+            used.min_inline_size = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.content_width.min_width = .{ .percentage = value };
-            used.min_inline_size = try solve.positivePercentage(value, containing_block_width);
+            used.min_inline_size = solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_width.max_width) {
         .px => |value| {
             computed.content_width.max_width = .{ .px = value };
-            used.max_inline_size = try solve.positiveLength(.px, value);
+            used.max_inline_size = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.content_width.max_width = .{ .percentage = value };
-            used.max_inline_size = try solve.positivePercentage(value, containing_block_width);
+            used.max_inline_size = solve.positivePercentage(value, containing_block_width);
         },
         .none => {
             computed.content_width.max_width = .none;
@@ -406,11 +399,11 @@ pub fn solveWidths(
     switch (specified.content_width.width) {
         .px => |value| {
             computed.content_width.width = .{ .px = value };
-            used.set(.inline_size, try solve.positiveLength(.px, value));
+            used.set(.inline_size, solve.positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.content_width.width = .{ .percentage = value };
-            used.set(.inline_size, try solve.positivePercentage(value, containing_block_width));
+            used.set(.inline_size, solve.positivePercentage(value, containing_block_width));
         },
         .auto => {
             computed.content_width.width = .auto;
@@ -455,19 +448,19 @@ pub fn solveContentHeight(
     containing_block_height: ?ZssUnit,
     computed: *aggregates.ContentHeight,
     used: *BlockUsedSizes,
-) !void {
+) void {
     if (containing_block_height) |h| assert(h >= 0);
 
     switch (specified.min_height) {
         .px => |value| {
             computed.min_height = .{ .px = value };
-            used.min_block_size = try solve.positiveLength(.px, value);
+            used.min_block_size = solve.positiveLength(.px, value);
         },
 
         .percentage => |value| {
             computed.min_height = .{ .percentage = value };
             used.min_block_size = if (containing_block_height) |s|
-                try solve.positivePercentage(value, s)
+                solve.positivePercentage(value, s)
             else
                 0;
         },
@@ -476,12 +469,12 @@ pub fn solveContentHeight(
     switch (specified.max_height) {
         .px => |value| {
             computed.max_height = .{ .px = value };
-            used.max_block_size = try solve.positiveLength(.px, value);
+            used.max_block_size = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.max_height = .{ .percentage = value };
             used.max_block_size = if (containing_block_height) |s|
-                try solve.positivePercentage(value, s)
+                solve.positivePercentage(value, s)
             else
                 std.math.maxInt(ZssUnit);
         },
@@ -494,12 +487,12 @@ pub fn solveContentHeight(
     switch (specified.height) {
         .px => |value| {
             computed.height = .{ .px = value };
-            used.set(.block_size, try solve.positiveLength(.px, value));
+            used.set(.block_size, solve.positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.height = .{ .percentage = value };
             if (containing_block_height) |h|
-                used.set(.block_size, try solve.positivePercentage(value, h))
+                used.set(.block_size, solve.positivePercentage(value, h))
             else
                 used.setAuto(.block_size);
         },
@@ -518,7 +511,7 @@ pub fn solveVerticalEdges(
     border_styles: aggregates.BorderStyles,
     computed: *aggregates.VerticalEdges,
     used: *BlockUsedSizes,
-) !void {
+) void {
     // TODO: Also use the logical properties ('block-size', 'border-block-start', etc.) to determine lengths.
 
     assert(containing_block_width >= 0);
@@ -529,12 +522,12 @@ pub fn solveVerticalEdges(
             .px => |value| {
                 const width = value * multiplier;
                 computed.border_top = .{ .px = width };
-                used.border_block_start = try solve.positiveLength(.px, width);
+                used.border_block_start = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.border_top = .{ .px = width };
-                used.border_block_start = solve.positiveLength(.px, width) catch unreachable;
+                used.border_block_start = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -545,12 +538,12 @@ pub fn solveVerticalEdges(
             .px => |value| {
                 const width = value * multiplier;
                 computed.border_bottom = .{ .px = width };
-                used.border_block_end = try solve.positiveLength(.px, width);
+                used.border_block_end = solve.positiveLength(.px, width);
             },
             inline .thin, .medium, .thick => |_, tag| {
                 const width = solve.borderWidth(tag) * multiplier;
                 computed.border_bottom = .{ .px = width };
-                used.border_block_end = solve.positiveLength(.px, width) catch unreachable;
+                used.border_block_end = solve.positiveLength(.px, width);
             },
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
@@ -558,22 +551,22 @@ pub fn solveVerticalEdges(
     switch (specified.padding_top) {
         .px => |value| {
             computed.padding_top = .{ .px = value };
-            used.padding_block_start = try solve.positiveLength(.px, value);
+            used.padding_block_start = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.padding_top = .{ .percentage = value };
-            used.padding_block_start = try solve.positivePercentage(value, containing_block_width);
+            used.padding_block_start = solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.padding_bottom) {
         .px => |value| {
             computed.padding_bottom = .{ .px = value };
-            used.padding_block_end = try solve.positiveLength(.px, value);
+            used.padding_block_end = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
             computed.padding_bottom = .{ .percentage = value };
-            used.padding_block_end = try solve.positivePercentage(value, containing_block_width);
+            used.padding_block_end = solve.positivePercentage(value, containing_block_width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -639,7 +632,7 @@ pub fn adjustWidthAndMargins(used: *BlockUsedSizes, containing_block_width: ZssU
     }
 }
 
-fn createStackingContext(
+fn solveStackingContext(
     computer: *StyleComputer,
     position: zss.values.types.Position,
 ) StackingContexts.Info {
