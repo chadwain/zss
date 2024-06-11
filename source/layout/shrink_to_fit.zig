@@ -546,164 +546,100 @@ fn solveBlockSizes(
     used: *BlockUsedSizes,
     containing_block_height: ?ZssUnit,
 ) void {
-    const specified = .{
+    const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
+    const specified = BlockComputedSizes{
         .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
         .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
         .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
-        .border_styles = computer.getSpecifiedValue(.box_gen, .border_styles),
     };
     var computed: BlockComputedSizes = undefined;
 
-    flowBlockSolveContentWidth(specified.content_width, &computed.content_width, used);
-    flowBlockSolveHorizontalEdges(specified.horizontal_edges, specified.border_styles, &computed.horizontal_edges, used);
-    flow.solveContentHeight(specified.content_height, containing_block_height, &computed.content_height, used);
-    flow.solveVerticalEdges(specified.vertical_edges, 0, specified.border_styles, &computed.vertical_edges, used);
+    flowBlockSolveWidthAndHorizontalMargins(specified, &computed, used);
+    flow.solveHorizontalEdges(specified.horizontal_edges, 0, border_styles, &computed.horizontal_edges, used);
+    flow.solveHeight(specified.content_height, containing_block_height, &computed.content_height, used);
+    flow.solveVerticalEdges(specified.vertical_edges, 0, border_styles, &computed.vertical_edges, used);
 
     computer.setComputedValue(.box_gen, .content_width, computed.content_width);
     computer.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
     computer.setComputedValue(.box_gen, .content_height, computed.content_height);
     computer.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
-    computer.setComputedValue(.box_gen, .border_styles, specified.border_styles);
+    computer.setComputedValue(.box_gen, .border_styles, border_styles);
 }
 
-fn flowBlockSolveContentWidth(
-    specified: aggregates.ContentWidth,
-    computed: *aggregates.ContentWidth,
+fn flowBlockSolveWidthAndHorizontalMargins(
+    specified: BlockComputedSizes,
+    computed: *BlockComputedSizes,
     used: *BlockUsedSizes,
 ) void {
-    switch (specified.min_width) {
+    switch (specified.content_width.min_width) {
         .px => |value| {
-            computed.min_width = .{ .px = value };
+            computed.content_width.min_width = .{ .px = value };
             used.min_inline_size = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.min_width = .{ .percentage = value };
+            computed.content_width.min_width = .{ .percentage = value };
             used.min_inline_size = 0;
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.max_width) {
+    switch (specified.content_width.max_width) {
         .px => |value| {
-            computed.max_width = .{ .px = value };
+            computed.content_width.max_width = .{ .px = value };
             used.max_inline_size = solve.positiveLength(.px, value);
         },
         .percentage => |value| {
-            computed.max_width = .{ .percentage = value };
+            computed.content_width.max_width = .{ .percentage = value };
             used.max_inline_size = std.math.maxInt(ZssUnit);
         },
         .none => {
-            computed.max_width = .none;
+            computed.content_width.max_width = .none;
             used.max_inline_size = std.math.maxInt(ZssUnit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
-    switch (specified.width) {
+    switch (specified.content_width.width) {
         .px => |value| {
-            computed.width = .{ .px = value };
+            computed.content_width.width = .{ .px = value };
             used.set(.inline_size, solve.positiveLength(.px, value));
         },
         .percentage => |value| {
-            computed.width = .{ .percentage = value };
+            computed.content_width.width = .{ .percentage = value };
             used.setAuto(.inline_size);
         },
         .auto => {
-            computed.width = .auto;
+            computed.content_width.width = .auto;
             used.setAuto(.inline_size);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-}
-
-fn flowBlockSolveHorizontalEdges(
-    specified: aggregates.HorizontalEdges,
-    border_styles: aggregates.BorderStyles,
-    computed: *aggregates.HorizontalEdges,
-    used: *BlockUsedSizes,
-) void {
-    {
-        const multiplier = solve.borderWidthMultiplier(border_styles.left);
-        switch (specified.border_left) {
-            .px => |value| {
-                const width = value * multiplier;
-                computed.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width);
-            },
-            inline .thin, .medium, .thick => |_, tag| {
-                const width = solve.borderWidth(tag) * multiplier;
-                computed.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width);
-            },
-            .initial, .inherit, .unset, .undeclared => unreachable,
-        }
-    }
-    {
-        const multiplier = solve.borderWidthMultiplier(border_styles.right);
-        switch (specified.border_right) {
-            .px => |value| {
-                const width = value * multiplier;
-                computed.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width);
-            },
-            inline .thin, .medium, .thick => |_, tag| {
-                const width = solve.borderWidth(tag) * multiplier;
-                computed.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width);
-            },
-            .initial, .inherit, .unset, .undeclared => unreachable,
-        }
-    }
-
-    switch (specified.padding_left) {
+    switch (specified.horizontal_edges.margin_left) {
         .px => |value| {
-            computed.padding_left = .{ .px = value };
-            used.padding_inline_start = solve.positiveLength(.px, value);
-        },
-        .percentage => |value| {
-            computed.padding_left = .{ .percentage = value };
-            used.padding_inline_start = 0;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
-    switch (specified.padding_right) {
-        .px => |value| {
-            computed.padding_right = .{ .px = value };
-            used.padding_inline_end = solve.positiveLength(.px, value);
-        },
-        .percentage => |value| {
-            computed.padding_right = .{ .percentage = value };
-            used.padding_inline_end = 0;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
-
-    switch (specified.margin_left) {
-        .px => |value| {
-            computed.margin_left = .{ .px = value };
+            computed.horizontal_edges.margin_left = .{ .px = value };
             used.set(.margin_inline_start, solve.length(.px, value));
         },
         .percentage => |value| {
-            computed.margin_left = .{ .percentage = value };
+            computed.horizontal_edges.margin_left = .{ .percentage = value };
             used.setAuto(.margin_inline_start);
         },
         .auto => {
-            computed.margin_left = .auto;
+            computed.horizontal_edges.margin_left = .auto;
             used.setAuto(.margin_inline_start);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-    switch (specified.margin_right) {
+    switch (specified.horizontal_edges.margin_right) {
         .px => |value| {
-            computed.margin_right = .{ .px = value };
+            computed.horizontal_edges.margin_right = .{ .px = value };
             used.set(.margin_inline_end, solve.length(.px, value));
         },
         .percentage => |value| {
-            computed.margin_right = .{ .percentage = value };
+            computed.horizontal_edges.margin_right = .{ .percentage = value };
             used.setAuto(.margin_inline_end);
         },
         .auto => {
-            computed.margin_right = .auto;
+            computed.horizontal_edges.margin_right = .auto;
             used.setAuto(.margin_inline_end);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,

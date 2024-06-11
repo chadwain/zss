@@ -35,14 +35,14 @@ pub fn runFlowLayout(
     sc: *StackingContexts,
     computer: *StyleComputer,
     element: Element,
-    subtree_index: SubtreeId,
+    subtree_id: SubtreeId,
     used_sizes: BlockUsedSizes,
     stacking_context: StackingContexts.Info,
 ) !Result {
-    var ctx = Context{ .allocator = allocator };
+    var ctx = Context{ .allocator = allocator, .subtree_id = subtree_id };
     defer ctx.deinit();
 
-    try pushBlock(true, &ctx, box_tree, sc, element, subtree_index, used_sizes, stacking_context);
+    try pushBlock(true, &ctx, box_tree, sc, element, subtree_id, used_sizes, stacking_context);
     while (ctx.stack.top) |_| {
         try analyzeElement(&ctx, sc, computer, box_tree);
     }
@@ -52,11 +52,11 @@ pub fn runFlowLayout(
 
 const Context = struct {
     allocator: Allocator,
+    subtree_id: SubtreeId,
     result: Result = undefined,
     stack: Stack(StackItem) = .{},
 
     const StackItem = struct {
-        subtree: SubtreeId,
         index: BlockBoxIndex,
         skip: BlockBoxSkip,
 
@@ -82,7 +82,6 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
         computer.setComputedValue(.box_gen, .font, specified.font);
 
         const parent = &ctx.stack.top.?;
-        const subtree_index = parent.subtree;
         const containing_block_width = parent.width;
         const containing_block_height = parent.heights.height;
 
@@ -91,11 +90,11 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                 const used_sizes = solveAllSizes(computer, containing_block_width, containing_block_height);
                 const stacking_context = solveStackingContext(computer, computed_box_style.position);
 
-                try pushBlock(false, ctx, box_tree, sc, element, subtree_index, used_sizes, stacking_context);
+                try pushBlock(false, ctx, box_tree, sc, element, ctx.subtree_id, used_sizes, stacking_context);
                 try computer.pushElement(.box_gen);
             },
             .@"inline", .inline_block, .text => {
-                const subtree = box_tree.blocks.subtree(subtree_index);
+                const subtree = box_tree.blocks.subtree(ctx.subtree_id);
                 const ifc_container_index = try subtree.appendBlock(box_tree.allocator);
 
                 const result = try inline_layout.makeInlineFormattingContext(
@@ -103,7 +102,7 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                     sc,
                     computer,
                     box_tree,
-                    subtree_index,
+                    ctx.subtree_id,
                     .Normal,
                     containing_block_width,
                     containing_block_height,
@@ -111,7 +110,7 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                 const ifc = box_tree.ifcs.items[result.ifc_index];
                 const line_split_result =
                     try inline_layout.splitIntoLineBoxes(ctx.allocator, box_tree, subtree, ifc, containing_block_width);
-                ifc.parent_block = .{ .subtree = subtree_index, .index = ifc_container_index };
+                ifc.parent_block = .{ .subtree = ctx.subtree_id, .index = ifc_container_index };
 
                 const subtree_slice = subtree.slice();
                 const skip = 1 + result.total_inline_block_skip;
@@ -143,18 +142,17 @@ fn pushBlock(
     box_tree: *BoxTree,
     sc: *StackingContexts,
     element: Element,
-    subtree_index: SubtreeId,
+    subtree_id: SubtreeId,
     used_sizes: BlockUsedSizes,
     stacking_context: StackingContexts.Info,
 ) !void {
-    const subtree = box_tree.blocks.subtree(subtree_index);
+    const subtree = box_tree.blocks.subtree(ctx.subtree_id);
     const block_index = try subtree.appendBlock(box_tree.allocator);
-    const block_box = BlockBox{ .subtree = subtree_index, .index = block_index };
+    const block_box = BlockBox{ .subtree = subtree_id, .index = block_index };
     try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .{ .block_box = block_box });
 
     // The allocations here must have corresponding deallocations in popBlock.
     const stack_item = Context.StackItem{
-        .subtree = subtree_index,
         .index = block_index,
         .skip = 1,
         .width = used_sizes.get(.inline_size).?,
@@ -176,7 +174,7 @@ fn popBlock(ctx: *Context, sc: *StackingContexts, box_tree: *BoxTree) void {
     const this = ctx.stack.pop();
     sc.pop(box_tree);
 
-    const subtree_slice = box_tree.blocks.subtree(this.subtree).slice();
+    const subtree_slice = box_tree.blocks.subtree(ctx.subtree_id).slice();
     assert(subtree_slice.items(.box_offsets)[this.index].content_size.w == this.width);
     writeBlockDataPart2(subtree_slice, this.index, this.skip, this.heights, this.auto_height);
 
@@ -288,8 +286,9 @@ pub fn solveAllSizes(
 
     var computed_sizes: BlockComputedSizes = undefined;
     var used_sizes: BlockUsedSizes = undefined;
-    solveWidths(specified_sizes, containing_block_width, border_styles, &computed_sizes, &used_sizes);
-    solveContentHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &used_sizes);
+    solveWidthAndHorizontalMargins(specified_sizes, containing_block_width, &computed_sizes, &used_sizes);
+    solveHorizontalEdges(specified_sizes.horizontal_edges, containing_block_width, border_styles, &computed_sizes.horizontal_edges, &used_sizes);
+    solveHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &used_sizes);
     solveVerticalEdges(specified_sizes.vertical_edges, containing_block_width, border_styles, &computed_sizes.vertical_edges, &used_sizes);
     adjustWidthAndMargins(&used_sizes, containing_block_width);
 
@@ -302,72 +301,17 @@ pub fn solveAllSizes(
     return used_sizes;
 }
 
-/// This is an implementation of CSS2§10.2, CSS2§10.3.3, and CSS2§10.4.
-pub fn solveWidths(
+/// Solves the following list of properties according to CSS2§10.2, CSS2§10.3.3, and CSS2§10.4.
+/// Properties: 'min-width', 'max-width', 'width', 'margin-left', 'margin-right'
+fn solveWidthAndHorizontalMargins(
     specified: BlockComputedSizes,
     containing_block_width: ZssUnit,
-    border_styles: aggregates.BorderStyles,
     computed: *BlockComputedSizes,
     used: *BlockUsedSizes,
 ) void {
     // TODO: Also use the logical properties ('inline-size', 'border-inline-start', etc.) to determine lengths.
 
     assert(containing_block_width >= 0);
-
-    {
-        const multiplier = solve.borderWidthMultiplier(border_styles.left);
-        switch (specified.horizontal_edges.border_left) {
-            .px => |value| {
-                const width = value * multiplier;
-                computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width);
-            },
-            inline .thin, .medium, .thick => |_, tag| {
-                const width = solve.borderWidth(tag) * multiplier;
-                computed.horizontal_edges.border_left = .{ .px = width };
-                used.border_inline_start = solve.positiveLength(.px, width);
-            },
-            .initial, .inherit, .unset, .undeclared => unreachable,
-        }
-    }
-    {
-        const multiplier = solve.borderWidthMultiplier(border_styles.right);
-        switch (specified.horizontal_edges.border_right) {
-            .px => |value| {
-                const width = value * multiplier;
-                computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width);
-            },
-            inline .thin, .medium, .thick => |_, tag| {
-                const width = solve.borderWidth(tag) * multiplier;
-                computed.horizontal_edges.border_right = .{ .px = width };
-                used.border_inline_end = solve.positiveLength(.px, width);
-            },
-            .initial, .inherit, .unset, .undeclared => unreachable,
-        }
-    }
-    switch (specified.horizontal_edges.padding_left) {
-        .px => |value| {
-            computed.horizontal_edges.padding_left = .{ .px = value };
-            used.padding_inline_start = solve.positiveLength(.px, value);
-        },
-        .percentage => |value| {
-            computed.horizontal_edges.padding_left = .{ .percentage = value };
-            used.padding_inline_start = solve.positivePercentage(value, containing_block_width);
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
-    switch (specified.horizontal_edges.padding_right) {
-        .px => |value| {
-            computed.horizontal_edges.padding_right = .{ .px = value };
-            used.padding_inline_end = solve.positiveLength(.px, value);
-        },
-        .percentage => |value| {
-            computed.horizontal_edges.padding_right = .{ .percentage = value };
-            used.padding_inline_end = solve.positivePercentage(value, containing_block_width);
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
 
     switch (specified.content_width.min_width) {
         .px => |value| {
@@ -443,7 +387,73 @@ pub fn solveWidths(
     }
 }
 
-pub fn solveContentHeight(
+pub fn solveHorizontalEdges(
+    specified: aggregates.HorizontalEdges,
+    containing_block_width: ZssUnit,
+    border_styles: aggregates.BorderStyles,
+    computed: *aggregates.HorizontalEdges,
+    used: *BlockUsedSizes,
+) void {
+    assert(containing_block_width >= 0);
+
+    {
+        const multiplier = solve.borderWidthMultiplier(border_styles.left);
+        switch (specified.border_left) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.border_left = .{ .px = width };
+                used.border_inline_start = solve.positiveLength(.px, width);
+            },
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
+                computed.border_left = .{ .px = width };
+                used.border_inline_start = solve.positiveLength(.px, width);
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
+    }
+    {
+        const multiplier = solve.borderWidthMultiplier(border_styles.right);
+        switch (specified.border_right) {
+            .px => |value| {
+                const width = value * multiplier;
+                computed.border_right = .{ .px = width };
+                used.border_inline_end = solve.positiveLength(.px, width);
+            },
+            inline .thin, .medium, .thick => |_, tag| {
+                const width = solve.borderWidth(tag) * multiplier;
+                computed.border_right = .{ .px = width };
+                used.border_inline_end = solve.positiveLength(.px, width);
+            },
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        }
+    }
+
+    switch (specified.padding_left) {
+        .px => |value| {
+            computed.padding_left = .{ .px = value };
+            used.padding_inline_start = solve.positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.padding_left = .{ .percentage = value };
+            used.padding_inline_start = solve.positivePercentage(value, containing_block_width);
+        },
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    }
+    switch (specified.padding_right) {
+        .px => |value| {
+            computed.padding_right = .{ .px = value };
+            used.padding_inline_end = solve.positiveLength(.px, value);
+        },
+        .percentage => |value| {
+            computed.padding_right = .{ .percentage = value };
+            used.padding_inline_end = solve.positivePercentage(value, containing_block_width);
+        },
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    }
+}
+
+pub fn solveHeight(
     specified: aggregates.ContentHeight,
     containing_block_height: ?ZssUnit,
     computed: *aggregates.ContentHeight,
