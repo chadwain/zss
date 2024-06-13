@@ -2,21 +2,18 @@ const std = @import("std");
 const assert = std.debug.assert;
 const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
+const BlockComputedSizes = zss.layout.BlockComputedSizes;
+const BlockUsedSizes = zss.layout.BlockUsedSizes;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Stack = zss.util.Stack;
 
 const flow = @import("./flow.zig");
-const BlockComputedSizes = flow.BlockComputedSizes;
-const BlockUsedSizes = flow.BlockUsedSizes;
-
 const inline_layout = @import("./inline.zig");
-
 const solve = @import("./solve.zig");
 const StackingContexts = @import("./StackingContexts.zig");
 const StyleComputer = @import("./StyleComputer.zig");
@@ -398,7 +395,7 @@ fn realizeObjects(
                 const subtree_slice = subtree.slice();
                 // TODO: Should we call flow.adjustWidthAndMargins?
                 // Maybe. It depends on the outer context.
-                flow.writeBlockDataPart1(subtree_slice, block_index, used_sizes, data.stacking_context_id);
+                flow.writeBlockDataPart1(subtree_slice, block_index, used_sizes, used_sizes.get(.inline_size).?, data.stacking_context_id);
 
                 ctx.stack.top = .{
                     .object_index = 0,
@@ -518,8 +515,7 @@ fn popFlowBlock(ctx: *RealizeObjectsContext, object_tree_slice: ObjectTree.Slice
     const data = object_tree_slice.items(.data)[this.object_index].flow_stf;
     const used_sizes = data.used;
     const subtree_slice = subtree.slice();
-    const used_heights = used_sizes.getUsedContentHeight();
-    const height = flow.solveUsedHeight(used_heights.height, used_heights.min_height, used_heights.max_height, this.auto_height);
+    const height = flow.solveUsedHeight(used_sizes.get(.block_size), used_sizes.min_block_size, used_sizes.max_block_size, this.auto_height);
     flow.writeBlockDataPart2(subtree_slice, this.index, this.skip, height);
 
     if (ctx.stack.top) |*parent| {

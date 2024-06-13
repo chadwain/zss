@@ -22,12 +22,12 @@ pub const InitialLayoutContext = struct {
     subtree_id: SubtreeId = undefined,
 };
 
-pub fn run(layout: *InitialLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree, inputs: Inputs) !void {
+pub fn run(ctx: *InitialLayoutContext, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree, inputs: Inputs) !void {
     const width = inputs.viewport.w;
     const height = inputs.viewport.h;
 
     const subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = null });
-    layout.subtree_id = subtree_id;
+    ctx.subtree_id = subtree_id;
     const subtree = box_tree.blocks.subtree(subtree_id);
 
     const block_index = try subtree.appendBlock(box_tree.allocator);
@@ -43,12 +43,12 @@ pub fn run(layout: *InitialLayoutContext, sc: *StackingContexts, computer: *Styl
     subtree_slice.items(.margins)[block_index] = .{};
     box_tree.blocks.initial_containing_block = .{ .subtree = subtree_id, .index = block_index };
 
-    const skip = try analyzeRootElement(layout, sc, computer, box_tree, inputs);
+    const skip = try analyzeRootElement(ctx, sc, computer, box_tree, inputs);
     subtree_slice.items(.skip)[block_index] = 1 + skip;
 }
 
 fn analyzeRootElement(
-    layout: *const InitialLayoutContext,
+    ctx: *const InitialLayoutContext,
     sc: *StackingContexts,
     computer: *StyleComputer,
     box_tree: *BoxTree,
@@ -81,19 +81,22 @@ fn analyzeRootElement(
             try computer.pushElement(.box_gen);
 
             const result = try flow.runFlowLayout(
-                layout.allocator,
+                ctx.allocator,
                 box_tree,
                 sc,
                 computer,
                 element,
-                layout.subtree_id,
+                ctx.subtree_id,
                 used_sizes,
                 stacking_context,
             );
 
             return result.skip;
         },
-        .none => return 0,
+        .none => {
+            computer.advanceElement(.box_gen);
+            return 0;
+        },
         .@"inline", .inline_block, .text => unreachable,
         .initial, .inherit, .unset, .undeclared => unreachable,
     }

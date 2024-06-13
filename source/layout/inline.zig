@@ -6,18 +6,16 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
+const BlockComputedSizes = zss.layout.BlockComputedSizes;
+const BlockUsedSizes = zss.layout.BlockUsedSizes;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
-const StyleComputer = @import("./StyleComputer.zig");
 
 const flow = @import("./flow.zig");
-const BlockComputedSizes = flow.BlockComputedSizes;
-const BlockUsedSizes = flow.BlockUsedSizes;
-
 const stf = @import("./shrink_to_fit.zig");
-
 const solve = @import("./solve.zig");
 const StackingContexts = @import("./StackingContexts.zig");
+const StyleComputer = @import("./StyleComputer.zig");
 
 const used_values = zss.used_values;
 const ZssUnit = used_values.ZssUnit;
@@ -100,7 +98,7 @@ pub fn makeInlineFormattingContext(
         .ShrinkToFit => 0,
     };
 
-    var inline_layout = InlineLayoutContext{
+    var ctx = InlineLayoutContext{
         .allocator = allocator,
         .subtree_id = subtree_id,
         .containing_block_width = containing_block_width,
@@ -110,14 +108,14 @@ pub fn makeInlineFormattingContext(
             .ifc_index = ifc_index,
         },
     };
-    defer inline_layout.deinit();
+    defer ctx.deinit();
 
-    try createInlineFormattingContext(&inline_layout, sc, computer, box_tree, ifc);
-    return inline_layout.result;
+    try createInlineFormattingContext(&ctx, sc, computer, box_tree, ifc);
+    return ctx.result;
 }
 
 fn createInlineFormattingContext(
-    layout: *InlineLayoutContext,
+    ctx: *InlineLayoutContext,
     sc: *StackingContexts,
     computer: *StyleComputer,
     box_tree: *BoxTree,
@@ -126,50 +124,50 @@ fn createInlineFormattingContext(
     ifc.font = computer.root_font.font;
     computer.resetElement(.box_gen);
 
-    try ifcPushRootInlineBox(layout, box_tree, ifc);
+    try ifcPushRootInlineBox(ctx, box_tree, ifc);
     while (true) {
         const element = computer.getCurrentElement();
-        if (layout.inline_box_depth == 0) {
+        if (ctx.inline_box_depth == 0) {
             if (!element.eqlNull()) {
-                const should_terminate = try ifcRunOnce(layout, sc, computer, box_tree, ifc);
+                const should_terminate = try ifcRunOnce(ctx, sc, computer, box_tree, ifc);
                 if (should_terminate) break;
             } else break;
         } else {
             if (!element.eqlNull()) {
-                const should_terminate = try ifcRunOnce(layout, sc, computer, box_tree, ifc);
+                const should_terminate = try ifcRunOnce(ctx, sc, computer, box_tree, ifc);
                 assert(!should_terminate);
             } else {
-                try ifcPopInlineBox(layout, computer, box_tree, ifc);
+                try ifcPopInlineBox(ctx, computer, box_tree, ifc);
             }
         }
     }
-    try ifcPopRootInlineBox(layout, box_tree, ifc);
+    try ifcPopRootInlineBox(ctx, box_tree, ifc);
 
     try ifc.metrics.resize(box_tree.allocator, ifc.glyph_indeces.items.len);
-    const subtree = box_tree.blocks.subtree(layout.subtree_id);
+    const subtree = box_tree.blocks.subtree(ctx.subtree_id);
     ifcSolveMetrics(ifc, subtree);
 }
 
-fn ifcPushRootInlineBox(layout: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
-    assert(layout.inline_box_depth == 0);
+fn ifcPushRootInlineBox(ctx: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
+    assert(ctx.inline_box_depth == 0);
     const root_inline_box_index = try ifc.appendInlineBox(box_tree.allocator);
     rootInlineBoxSetData(ifc, root_inline_box_index);
     try ifcAddBoxStart(box_tree, ifc, root_inline_box_index);
-    try layout.index.append(layout.allocator, root_inline_box_index);
-    try layout.skip.append(layout.allocator, 1);
+    try ctx.index.append(ctx.allocator, root_inline_box_index);
+    try ctx.skip.append(ctx.allocator, 1);
 }
 
-fn ifcPopRootInlineBox(layout: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
-    assert(layout.inline_box_depth == 0);
-    const root_inline_box_index = layout.index.pop();
-    const skip = layout.skip.pop();
+fn ifcPopRootInlineBox(ctx: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
+    assert(ctx.inline_box_depth == 0);
+    const root_inline_box_index = ctx.index.pop();
+    const skip = ctx.skip.pop();
     ifc.slice().items(.skip)[root_inline_box_index] = skip;
     try ifcAddBoxEnd(box_tree, ifc, root_inline_box_index);
 }
 
 /// A return value of true means that a terminating element was encountered.
 fn ifcRunOnce(
-    layout: *InlineLayoutContext,
+    ctx: *InlineLayoutContext,
     sc: *StackingContexts,
     computer: *StyleComputer,
     box_tree: *BoxTree,
@@ -192,9 +190,9 @@ fn ifcRunOnce(
         },
         .@"inline" => {
             const inline_box_index = try ifc.appendInlineBox(box_tree.allocator);
-            inlineBoxSetData(layout, computer, ifc, inline_box_index);
+            inlineBoxSetData(ctx, computer, ifc, inline_box_index);
 
-            const generated_box = GeneratedBox{ .inline_box = .{ .ifc_index = layout.result.ifc_index, .index = inline_box_index } };
+            const generated_box = GeneratedBox{ .inline_box = .{ .ifc_index = ctx.result.ifc_index, .index = inline_box_index } };
             try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
             computer.setComputedValue(.box_gen, .box_style, computed);
             { // TODO: Grabbing useless data to satisfy inheritance...
@@ -213,9 +211,9 @@ fn ifcRunOnce(
             try ifcAddBoxStart(box_tree, ifc, inline_box_index);
 
             if (!computer.element_tree_slice.firstChild(element).eqlNull()) {
-                layout.inline_box_depth += 1;
-                try layout.index.append(layout.allocator, inline_box_index);
-                try layout.skip.append(layout.allocator, 1);
+                ctx.inline_box_depth += 1;
+                try ctx.index.append(ctx.allocator, inline_box_index);
+                try ctx.skip.append(ctx.allocator, 1);
                 try computer.pushElement(.box_gen);
             } else {
                 // Optimized path for inline boxes with no children.
@@ -227,7 +225,7 @@ fn ifcRunOnce(
         .inline_block => {
             computer.setComputedValue(.box_gen, .box_style, computed);
 
-            const used_sizes = inlineBlockSolveSizes(computer, layout.containing_block_width, layout.containing_block_height);
+            const used_sizes = inlineBlockSolveSizes(computer, ctx.containing_block_width, ctx.containing_block_height);
             const stacking_context = inlineBlockCreateStackingContext(computer, computed.position);
 
             // TODO: Grabbing useless data to satisfy inheritance...
@@ -238,19 +236,19 @@ fn ifcRunOnce(
             if (!used_sizes.isFieldAuto(.inline_size)) {
                 // TODO: Recursive call here
                 const result = try flow.runFlowLayout(
-                    layout.allocator,
+                    ctx.allocator,
                     box_tree,
                     sc,
                     computer,
                     element,
-                    layout.subtree_id,
+                    ctx.subtree_id,
                     used_sizes,
                     stacking_context,
                 );
-                layout.result.total_inline_block_skip += result.skip;
+                ctx.result.total_inline_block_skip += result.skip;
                 try ifcAddInlineBlock(box_tree, ifc, result.index);
             } else {
-                const available_width_unclamped = layout.containing_block_width -
+                const available_width_unclamped = ctx.containing_block_width -
                     (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
                     used_sizes.border_inline_start + used_sizes.border_inline_end +
                     used_sizes.padding_inline_start + used_sizes.padding_inline_end);
@@ -258,22 +256,22 @@ fn ifcRunOnce(
 
                 // TODO: Recursive call here
                 const result = try stf.runShrinkToFitLayout(
-                    layout.allocator,
+                    ctx.allocator,
                     box_tree,
                     sc,
                     computer,
                     element,
-                    layout.subtree_id,
+                    ctx.subtree_id,
                     used_sizes,
                     stacking_context,
                     available_width,
                 );
-                layout.result.total_inline_block_skip += result.skip;
+                ctx.result.total_inline_block_skip += result.skip;
                 try ifcAddInlineBlock(box_tree, ifc, result.index);
             }
         },
         .block => {
-            if (layout.inline_box_depth == 0) {
+            if (ctx.inline_box_depth == 0) {
                 return true;
             } else {
                 panic("TODO: Blocks within inline contexts", .{});
@@ -287,13 +285,13 @@ fn ifcRunOnce(
     return false;
 }
 
-fn ifcPopInlineBox(layout: *InlineLayoutContext, computer: *StyleComputer, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
-    layout.inline_box_depth -= 1;
-    const inline_box_index = layout.index.pop();
-    const skip = layout.skip.pop();
+fn ifcPopInlineBox(ctx: *InlineLayoutContext, computer: *StyleComputer, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
+    ctx.inline_box_depth -= 1;
+    const inline_box_index = ctx.index.pop();
+    const skip = ctx.skip.pop();
     ifc.slice().items(.skip)[inline_box_index] = skip;
     try ifcAddBoxEnd(box_tree, ifc, inline_box_index);
-    layout.skip.items[layout.skip.items.len - 1] += skip;
+    ctx.skip.items[ctx.skip.items.len - 1] += skip;
     computer.popElement(.box_gen);
 }
 
@@ -394,7 +392,7 @@ fn rootInlineBoxSetData(ifc: *const InlineFormattingContext, inline_box_index: I
     ifc_slice.items(.margins)[inline_box_index] = .{};
 }
 
-fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
+fn inlineBoxSetData(ctx: *InlineLayoutContext, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
     const specified = .{
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
@@ -427,7 +425,7 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_left = .{ .percentage = value };
-            used.margin_inline_start = solve.percentage(value, layout.percentage_base_unit);
+            used.margin_inline_start = solve.percentage(value, ctx.percentage_base_unit);
         },
         .auto => {
             computed.horizontal_edges.margin_left = .auto;
@@ -458,7 +456,7 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_left = .{ .percentage = value };
-            used.padding_inline_start = solve.positivePercentage(value, layout.percentage_base_unit);
+            used.padding_inline_start = solve.positivePercentage(value, ctx.percentage_base_unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -469,7 +467,7 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_right = .{ .percentage = value };
-            used.margin_inline_end = solve.percentage(value, layout.percentage_base_unit);
+            used.margin_inline_end = solve.percentage(value, ctx.percentage_base_unit);
         },
         .auto => {
             computed.horizontal_edges.margin_right = .auto;
@@ -500,7 +498,7 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_right = .{ .percentage = value };
-            used.padding_inline_end = solve.positivePercentage(value, layout.percentage_base_unit);
+            used.padding_inline_end = solve.positivePercentage(value, ctx.percentage_base_unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -528,7 +526,7 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
         },
         .percentage => |value| {
             computed.vertical_edges.padding_top = .{ .percentage = value };
-            used.padding_block_start = solve.positivePercentage(value, layout.percentage_base_unit);
+            used.padding_block_start = solve.positivePercentage(value, ctx.percentage_base_unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -555,7 +553,7 @@ fn inlineBoxSetData(layout: *InlineLayoutContext, computer: *StyleComputer, ifc:
         },
         .percentage => |value| {
             computed.vertical_edges.padding_bottom = .{ .percentage = value };
-            used.padding_block_end = solve.positivePercentage(value, layout.percentage_base_unit);
+            used.padding_block_end = solve.positivePercentage(value, ctx.percentage_base_unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }

@@ -6,6 +6,8 @@ const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
+const BlockComputedSizes = zss.layout.BlockComputedSizes;
+const BlockUsedSizes = zss.layout.BlockUsedSizes;
 const Element = zss.ElementTree.Element;
 const Stack = zss.util.Stack;
 
@@ -164,7 +166,7 @@ fn pushBlock(
     }
     const stacking_context_id = try sc.push(stacking_context, box_tree, block_box);
 
-    writeBlockDataPart1(subtree.slice(), block_index, used_sizes, stacking_context_id);
+    writeBlockDataPart1(subtree.slice(), block_index, used_sizes, used_sizes.get(.inline_size).?, stacking_context_id);
 }
 
 fn popBlock(ctx: *Context, sc: *StackingContexts, box_tree: *BoxTree) void {
@@ -187,92 +189,6 @@ fn popBlock(ctx: *Context, sc: *StackingContexts, box_tree: *BoxTree) void {
         };
     }
 }
-
-pub const UsedContentHeight = struct {
-    height: ?ZssUnit,
-    min_height: ZssUnit,
-    max_height: ZssUnit,
-};
-
-pub const BlockComputedSizes = struct {
-    content_width: aggregates.ContentWidth,
-    horizontal_edges: aggregates.HorizontalEdges,
-    content_height: aggregates.ContentHeight,
-    vertical_edges: aggregates.VerticalEdges,
-};
-
-pub const BlockUsedSizes = struct {
-    border_inline_start: ZssUnit,
-    border_inline_end: ZssUnit,
-    padding_inline_start: ZssUnit,
-    padding_inline_end: ZssUnit,
-    margin_inline_start_untagged: ZssUnit,
-    margin_inline_end_untagged: ZssUnit,
-    inline_size_untagged: ZssUnit,
-    min_inline_size: ZssUnit,
-    max_inline_size: ZssUnit,
-
-    border_block_start: ZssUnit,
-    border_block_end: ZssUnit,
-    padding_block_start: ZssUnit,
-    padding_block_end: ZssUnit,
-    margin_block_start: ZssUnit,
-    margin_block_end: ZssUnit,
-    block_size_untagged: ZssUnit,
-    min_block_size: ZssUnit,
-    max_block_size: ZssUnit,
-
-    auto_bitfield: u4,
-
-    pub const PossiblyAutoField = enum(u4) {
-        inline_size = 1,
-        margin_inline_start = 2,
-        margin_inline_end = 4,
-        block_size = 8,
-    };
-
-    pub fn set(self: *BlockUsedSizes, comptime field: PossiblyAutoField, value: ZssUnit) void {
-        self.auto_bitfield &= (~@intFromEnum(field));
-        const clamped_value = switch (field) {
-            .inline_size => solve.clampSize(value, self.min_inline_size, self.max_inline_size),
-            .margin_inline_start, .margin_inline_end => value,
-            .block_size => solve.clampSize(value, self.min_block_size, self.max_block_size),
-        };
-        @field(self, @tagName(field) ++ "_untagged") = clamped_value;
-    }
-
-    pub fn setOnly(self: *BlockUsedSizes, comptime field: PossiblyAutoField) void {
-        self.auto_bitfield &= (~@intFromEnum(field));
-    }
-
-    pub fn setAuto(self: *BlockUsedSizes, comptime field: PossiblyAutoField) void {
-        self.auto_bitfield |= @intFromEnum(field);
-        @field(self, @tagName(field) ++ "_untagged") = 0;
-    }
-
-    pub fn get(self: BlockUsedSizes, comptime field: PossiblyAutoField) ?ZssUnit {
-        return if (self.isFieldAuto(field)) null else @field(self, @tagName(field) ++ "_untagged");
-    }
-
-    pub fn inlineSizeAndMarginsAreAllNotAuto(self: BlockUsedSizes) bool {
-        const mask = @intFromEnum(PossiblyAutoField.inline_size) |
-            @intFromEnum(PossiblyAutoField.margin_inline_start) |
-            @intFromEnum(PossiblyAutoField.margin_inline_end);
-        return self.auto_bitfield & mask == 0;
-    }
-
-    pub fn isFieldAuto(self: BlockUsedSizes, comptime field: PossiblyAutoField) bool {
-        return self.auto_bitfield & @intFromEnum(field) != 0;
-    }
-
-    pub fn getUsedContentHeight(self: BlockUsedSizes) UsedContentHeight {
-        return UsedContentHeight{
-            .height = self.get(.block_size),
-            .min_height = self.min_block_size,
-            .max_height = self.max_block_size,
-        };
-    }
-};
 
 const BlockUsedSizesSlim = struct {
     inline_size_clamped: ZssUnit,
@@ -681,27 +597,41 @@ fn solveStackingContext(
     }
 }
 
+/// Writes all of a flow block's data to the BoxTree.
+pub fn writeBlockData(
+    subtree_slice: SubtreeSlice,
+    index: BlockBoxIndex,
+    used: BlockUsedSizes,
+    skip: BlockBoxSkip,
+    auto_width: ZssUnit,
+    auto_height: ZssUnit,
+    stacking_context: ?StackingContext.Id,
+) void {
+    writeBlockDataPart1(subtree_slice, index, used, auto_width, stacking_context);
+    writeBlockDataPart2(subtree_slice, index, skip, auto_height);
+}
+
 /// Partially writes a flow block's data to the BoxTree.
 /// Must eventually be followed by a call to writeBlockDataPart2.
 pub fn writeBlockDataPart1(
     subtree_slice: SubtreeSlice,
     index: BlockBoxIndex,
     used: BlockUsedSizes,
+    auto_width: ZssUnit,
     stacking_context: ?StackingContext.Id,
 ) void {
-    const @"type" = &subtree_slice.items(.type)[index];
     const box_offsets = &subtree_slice.items(.box_offsets)[index];
     const borders = &subtree_slice.items(.borders)[index];
     const margins = &subtree_slice.items(.margins)[index];
 
-    @"type".* = .{ .block = .{
+    subtree_slice.items(.type)[index] = .{ .block = .{
         .stacking_context = stacking_context,
     } };
 
     // Horizontal sizes
     box_offsets.border_pos.x = used.get(.margin_inline_start).?;
     box_offsets.content_pos.x = used.border_inline_start + used.padding_inline_start;
-    box_offsets.content_size.w = used.get(.inline_size).?;
+    box_offsets.content_size.w = auto_width;
     box_offsets.border_size.w = box_offsets.content_pos.x + box_offsets.content_size.w + used.padding_inline_end + used.border_inline_end;
 
     borders.left = used.border_inline_start;
