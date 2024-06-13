@@ -9,6 +9,7 @@ pub const tests = [_]TestInfo{
     .{ "two nested inline blocks", twoNestedInlineBlocks },
     .{ "inline block text", inlineBlockText },
     .{ "inline block with fixed width child", inlineBlockWithFixedWidthChild },
+    .{ "inline block with child", inlineBlockWithChild },
 };
 
 fn inlineBlock(t: *Test) void {
@@ -47,4 +48,13 @@ fn inlineBlockWithFixedWidthChild(t: *Test) void {
     t.set(.box_style, inline_block, .{ .display = .inline_block });
     t.set(.box_style, block, .{ .display = .block });
     t.set(.content_width, block, .{ .width = .{ .px = 50 } });
+}
+
+fn inlineBlockWithChild(t: *Test) void {
+    const root = t.createRoot();
+    const inline_block = t.appendChild(root, .normal);
+    const block = t.appendChild(inline_block, .normal);
+
+    t.set(.box_style, inline_block, .{ .display = .inline_block });
+    t.set(.box_style, block, .{ .display = .block });
 }
