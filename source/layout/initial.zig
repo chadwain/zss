@@ -26,7 +26,7 @@ pub fn run(ctx: *InitialLayoutContext, sc: *StackingContexts, computer: *StyleCo
     const width = inputs.viewport.w;
     const height = inputs.viewport.h;
 
-    const subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, .{ .parent = null });
+    const subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, null);
     ctx.subtree_id = subtree_id;
     const subtree = box_tree.blocks.subtree(subtree_id);
 

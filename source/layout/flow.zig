@@ -222,7 +222,7 @@ pub fn solveAllSizes(
     var computed_sizes: BlockComputedSizes = undefined;
     var used_sizes: BlockUsedSizes = undefined;
     solveWidthAndHorizontalMargins(specified_sizes, containing_block_width, &computed_sizes, &used_sizes);
-    solveHorizontalEdges(specified_sizes.horizontal_edges, containing_block_width, border_styles, &computed_sizes.horizontal_edges, &used_sizes);
+    solveHorizontalBorderPadding(specified_sizes.horizontal_edges, containing_block_width, border_styles, &computed_sizes.horizontal_edges, &used_sizes);
     solveHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &used_sizes);
     solveVerticalEdges(specified_sizes.vertical_edges, containing_block_width, border_styles, &computed_sizes.vertical_edges, &used_sizes);
     adjustWidthAndMargins(&used_sizes, containing_block_width);
@@ -322,7 +322,7 @@ fn solveWidthAndHorizontalMargins(
     }
 }
 
-pub fn solveHorizontalEdges(
+pub fn solveHorizontalBorderPadding(
     specified: aggregates.HorizontalEdges,
     containing_block_width: ZssUnit,
     border_styles: aggregates.BorderStyles,
@@ -603,12 +603,12 @@ pub fn writeBlockData(
     index: BlockBoxIndex,
     used: BlockUsedSizes,
     skip: BlockBoxSkip,
-    auto_width: ZssUnit,
-    auto_height: ZssUnit,
+    width: ZssUnit,
+    height: ZssUnit,
     stacking_context: ?StackingContext.Id,
 ) void {
-    writeBlockDataPart1(subtree_slice, index, used, auto_width, stacking_context);
-    writeBlockDataPart2(subtree_slice, index, skip, auto_height);
+    writeBlockDataPart1(subtree_slice, index, used, width, stacking_context);
+    writeBlockDataPart2(subtree_slice, index, skip, height);
 }
 
 /// Partially writes a flow block's data to the BoxTree.
@@ -617,7 +617,7 @@ pub fn writeBlockDataPart1(
     subtree_slice: SubtreeSlice,
     index: BlockBoxIndex,
     used: BlockUsedSizes,
-    auto_width: ZssUnit,
+    width: ZssUnit,
     stacking_context: ?StackingContext.Id,
 ) void {
     const box_offsets = &subtree_slice.items(.box_offsets)[index];
@@ -631,7 +631,7 @@ pub fn writeBlockDataPart1(
     // Horizontal sizes
     box_offsets.border_pos.x = used.get(.margin_inline_start).?;
     box_offsets.content_pos.x = used.border_inline_start + used.padding_inline_start;
-    box_offsets.content_size.w = auto_width;
+    box_offsets.content_size.w = width;
     box_offsets.border_size.w = box_offsets.content_pos.x + box_offsets.content_size.w + used.padding_inline_end + used.border_inline_end;
 
     borders.left = used.border_inline_start;
