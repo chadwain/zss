@@ -578,7 +578,7 @@ pub fn adjustWidthAndMargins(used: *BlockUsedSizes, containing_block_width: ZssU
     }
 }
 
-fn solveStackingContext(
+pub fn solveStackingContext(
     computer: *StyleComputer,
     position: zss.values.types.Position,
 ) StackingContexts.Info {

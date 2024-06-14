@@ -72,11 +72,11 @@ const Object = struct {
 
     const Data = union {
         flow_stf: struct {
+            width: ZssUnit,
             used: BlockUsedSizes,
             stacking_context_id: ?StackingContext.Id,
         },
         flow_normal: struct {
-            margins: UsedMargins,
             subtree_id: SubtreeId,
             index: BlockBoxIndex,
         },
@@ -90,39 +90,6 @@ const Object = struct {
 };
 
 const ObjectTree = MultiArrayList(Object);
-
-const UsedMargins = struct {
-    inline_start_untagged: ZssUnit,
-    inline_end_untagged: ZssUnit,
-    auto_bitfield: u2,
-
-    const Field = enum(u2) {
-        inline_start = 1,
-        inline_end = 2,
-    };
-
-    fn isFieldAuto(self: UsedMargins, comptime field: Field) bool {
-        return self.auto_bitfield & @intFromEnum(field) != 0;
-    }
-
-    fn set(self: *UsedMargins, comptime field: Field, value: ZssUnit) void {
-        self.auto_bitfield &= (~@intFromEnum(field));
-        @field(self, @tagName(field) ++ "_untagged") = value;
-    }
-
-    fn get(self: UsedMargins, comptime field: Field) ?ZssUnit {
-        return if (self.isFieldAuto(field)) null else @field(self, @tagName(field) ++ "_untagged");
-    }
-
-    fn fromBlockUsedSizes(sizes: BlockUsedSizes) UsedMargins {
-        return UsedMargins{
-            .inline_start_untagged = sizes.margin_inline_start_untagged,
-            .inline_end_untagged = sizes.margin_inline_end_untagged,
-            .auto_bitfield = (@as(u2, @intFromBool(sizes.isFieldAuto(.margin_inline_end))) << 1) |
-                @as(u2, @intFromBool(sizes.isFieldAuto(.margin_inline_start))),
-        };
-    }
-};
 
 pub const BuildObjectTreeContext = struct {
     stack: Stack(StackItem) = .{},
@@ -177,7 +144,7 @@ fn flowObject(
             .block => {
                 var used: BlockUsedSizes = undefined;
                 solveBlockSizes(computer, &used, parent.height);
-                const stacking_context = flowBlockCreateStackingContext(computer, computed.position);
+                const stacking_context = flow.solveStackingContext(computer, computed.position);
 
                 { // TODO: Delete this
                     const stuff = .{
@@ -212,7 +179,6 @@ fn flowObject(
                         .tag = .flow_normal,
                         .element = element,
                         .data = .{ .flow_normal = .{
-                            .margins = UsedMargins.fromBlockUsedSizes(used),
                             .subtree_id = new_subtree_id,
                             .index = result.index,
                         } },
@@ -303,6 +269,7 @@ fn pushFlowObject(
         .tag = .flow_stf,
         .element = element,
         .data = .{ .flow_stf = .{
+            .width = undefined,
             .used = used_sizes,
             .stacking_context_id = id,
         } },
@@ -316,16 +283,16 @@ fn popFlowObject(ctx: *BuildObjectTreeContext, object_tree: *ObjectTree, box_tre
 
     const object_tree_slice = object_tree.slice();
     object_tree_slice.items(.skip)[this.object_index] = this.object_skip;
-    const data = &object_tree_slice.items(.data)[this.object_index].flow_stf;
 
-    const used = &data.used;
-    used.set(.inline_size, solve.clampSize(this.auto_width, used.min_inline_size, used.max_inline_size));
+    const data = &object_tree_slice.items(.data)[this.object_index].flow_stf;
+    const used = data.used;
+    data.width = solve.clampSize(this.auto_width, used.min_inline_size, used.max_inline_size);
 
     if (ctx.stack.top) |*parent| {
         const parent_object_tag = object_tree_slice.items(.tag)[parent.object_index];
         switch (parent_object_tag) {
             .flow_stf => {
-                const full_width = used.inline_size_untagged +
+                const full_width = data.width +
                     used.padding_inline_start + used.padding_inline_end +
                     used.border_inline_start + used.border_inline_end +
                     used.margin_inline_start_untagged + used.margin_inline_end_untagged;
@@ -380,12 +347,13 @@ fn realizeObjects(
     defer ctx.deinit(allocator);
 
     {
-        const object_skip = object_skips[0];
-        const object_tag = object_tags[0];
-        const element = elements[0];
+        const object_index: Object.Index = 0;
+        const object_skip = object_skips[object_index];
+        const object_tag = object_tags[object_index];
+        const element = elements[object_index];
         switch (object_tag) {
             .flow_stf => {
-                const data = datas[0].flow_stf;
+                const data = datas[object_index].flow_stf;
 
                 const block_index = try subtree.appendBlock(box_tree.allocator);
                 const generated_box = GeneratedBox{ .block_box = .{ .subtree = main_subtree_id, .index = block_index } };
@@ -398,7 +366,7 @@ fn realizeObjects(
 
                     .index = block_index,
                     .skip = 1,
-                    .width = data.used.get(.inline_size).?,
+                    .width = data.width,
                     .height = data.used.get(.block_size),
                     .auto_height = 0,
                 };
@@ -420,14 +388,11 @@ fn realizeObjects(
                 switch (object_tag) {
                     .flow_stf => {
                         const data = &datas[object_index].flow_stf;
-
                         flow.adjustWidthAndMargins(&data.used, containing_block_width);
 
                         const block_index = try subtree.appendBlock(box_tree.allocator);
                         const generated_box = GeneratedBox{ .block_box = .{ .subtree = main_subtree_id, .index = block_index } };
                         try box_tree.mapElementToBox(element, generated_box);
-                        flowBlockSetData(box_tree, generated_box.block_box, data.used, data.stacking_context_id);
-                        flowBlockFixStackingContext(box_tree, generated_box.block_box, data.stacking_context_id);
 
                         try ctx.stack.push(allocator, .{
                             .object_index = object_index,
@@ -436,7 +401,7 @@ fn realizeObjects(
 
                             .index = block_index,
                             .skip = 1,
-                            .width = data.used.get(.inline_size).?,
+                            .width = data.width,
                             .height = data.used.get(.block_size),
                             .auto_height = 0,
                         });
@@ -505,23 +470,23 @@ fn popFlowBlock(ctx: *RealizeObjectsContext, box_tree: *BoxTree, object_tree_sli
     const used_sizes = data.used;
     const subtree_slice = subtree.slice();
     const height = flow.solveUsedHeight(used_sizes.get(.block_size), used_sizes.min_block_size, used_sizes.max_block_size, this.auto_height);
+    flow.writeBlockData(subtree_slice, this.index, used_sizes, this.skip, data.width, height, data.stacking_context_id);
+    flowBlockFixStackingContext(box_tree, .{ .subtree = subtree.id, .index = this.index }, data.stacking_context_id);
 
-    if (ctx.stack.top) |*parent| {
-        flow.writeBlockDataPart2(subtree_slice, this.index, this.skip, height);
-        switch (parent.object_tag) {
-            .flow_stf => {
-                parent.skip += this.skip;
-                flow.addBlockToFlow(subtree_slice, this.index, &parent.auto_height);
-            },
-            .flow_normal, .ifc => unreachable,
-        }
-    } else {
-        flow.writeBlockData(subtree_slice, this.index, used_sizes, this.skip, used_sizes.get(.inline_size).?, height, data.stacking_context_id);
-        flowBlockFixStackingContext(box_tree, .{ .subtree = subtree.id, .index = this.index }, data.stacking_context_id);
+    const parent = if (ctx.stack.top) |*top| top else {
         ctx.result = .{
             .skip = this.skip,
             .index = this.index,
         };
+        return;
+    };
+
+    switch (parent.object_tag) {
+        .flow_stf => {
+            parent.skip += this.skip;
+            flow.addBlockToFlow(subtree_slice, this.index, &parent.auto_height);
+        },
+        .flow_normal, .ifc => unreachable,
     }
 }
 
@@ -626,48 +591,6 @@ fn flowBlockSolveWidthAndHorizontalMargins(
             computed.horizontal_edges.margin_right = .auto;
             used.setAuto(.margin_inline_end);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
-}
-
-/// Changes the used sizes of a flow block that is in normal flow.
-/// Uses the assumption that inline-size is not auto.
-/// This implements the constraints described in CSS2.2§10.3.3.
-fn flowBlockAdjustMargins(margins: *UsedMargins, available_margin_space: ZssUnit) void {
-    const start = margins.isFieldAuto(.inline_start);
-    const end = margins.isFieldAuto(.inline_end);
-    if (!start and !end) {
-        // None of the values were auto, so one of the margins must be set according to the other values.
-        // TODO the margin that gets set is determined by the 'direction' property
-        margins.set(.inline_end, available_margin_space - margins.inline_start_untagged);
-    } else {
-        // 'inline-size' is not auto, but at least one of 'margin-inline-start' and 'margin-inline-end' is.
-        // If there is only one "auto", then that value gets the remaining margin space.
-        // Else, there are 2 "auto"s, and both values get half the remaining margin space.
-        const shr_amount = @intFromBool(start and end);
-        const leftover_margin = @max(0, available_margin_space - (margins.inline_start_untagged + margins.inline_end_untagged));
-        // TODO the margin that gets the extra 1 unit shall be determined by the 'direction' property
-        if (start) margins.set(.inline_start, leftover_margin >> shr_amount);
-        if (end) margins.set(.inline_end, (leftover_margin >> shr_amount) + @mod(leftover_margin, 2));
-    }
-}
-
-fn flowBlockCreateStackingContext(
-    computer: *StyleComputer,
-    position: zss.values.types.Position,
-) StackingContexts.Info {
-    const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
-    computer.setComputedValue(.box_gen, .z_index, z_index);
-
-    switch (position) {
-        .static => return .none,
-        // TODO: Position the block using the values of the 'inset' family of properties.
-        .relative => switch (z_index.z_index) {
-            .integer => |integer| return .{ .is_parent = integer },
-            .auto => return .{ .is_non_parent = 0 },
-            .initial, .inherit, .unset, .undeclared => unreachable,
-        },
-        .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
