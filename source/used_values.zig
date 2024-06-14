@@ -6,6 +6,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("zss.zig");
+const Element = zss.ElementTree.Element;
 const ElementHashMap = zss.util.ElementHashMap;
 
 /// The smallest unit of space in the zss coordinate system.
@@ -541,6 +542,10 @@ pub const BoxTree = struct {
         self.stacking_contexts.deinit(self.allocator);
         self.element_to_generated_box.deinit(self.allocator);
         self.background_images.deinit(self.allocator);
+    }
+
+    pub fn mapElementToBox(box_tree: *BoxTree, element: Element, generated_box: GeneratedBox) !void {
+        try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
     }
 };
 

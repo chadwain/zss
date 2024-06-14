@@ -22,6 +22,7 @@ const BlockBoxIndex = used_values.BlockBoxIndex;
 const BlockBoxSkip = used_values.BlockBoxSkip;
 const SubtreeId = used_values.SubtreeId;
 const BoxTree = used_values.BoxTree;
+const GeneratedBox = used_values.GeneratedBox;
 const StackingContext = used_values.StackingContext;
 const SubtreeSlice = used_values.BlockSubtree.Slice;
 const ZssUnit = used_values.ZssUnit;
@@ -149,8 +150,8 @@ fn pushBlock(
 ) !void {
     const subtree = box_tree.blocks.subtree(ctx.subtree_id);
     const block_index = try subtree.appendBlock(box_tree.allocator);
-    const block_box = BlockBox{ .subtree = subtree_id, .index = block_index };
-    try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .{ .block_box = block_box });
+    const generated_box = GeneratedBox{ .block_box = .{ .subtree = subtree_id, .index = block_index } };
+    try box_tree.mapElementToBox(element, generated_box);
 
     // The allocations here must have corresponding deallocations in popBlock.
     const stack_item = Context.StackItem{
@@ -164,7 +165,7 @@ fn pushBlock(
     } else {
         try ctx.stack.push(ctx.allocator, stack_item);
     }
-    const stacking_context_id = try sc.push(stacking_context, box_tree, block_box);
+    const stacking_context_id = try sc.push(stacking_context, box_tree, generated_box.block_box);
 
     writeBlockDataPart1(subtree.slice(), block_index, used_sizes, used_sizes.get(.inline_size).?, stacking_context_id);
 }

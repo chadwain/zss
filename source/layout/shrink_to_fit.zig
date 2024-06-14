@@ -19,15 +19,15 @@ const StackingContexts = @import("./StackingContexts.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 
 const used_values = zss.used_values;
-const ZssUnit = used_values.ZssUnit;
+const BoxTree = used_values.BoxTree;
+const BlockBox = used_values.BlockBox;
 const BlockBoxIndex = used_values.BlockBoxIndex;
 const BlockBoxSkip = used_values.BlockBoxSkip;
 const BlockSubtree = used_values.BlockSubtree;
-const SubtreeId = used_values.SubtreeId;
-const BlockBox = used_values.BlockBox;
-const StackingContext = used_values.StackingContext;
 const GeneratedBox = used_values.GeneratedBox;
-const BoxTree = used_values.BoxTree;
+const StackingContext = used_values.StackingContext;
+const SubtreeId = used_values.SubtreeId;
+const ZssUnit = used_values.ZssUnit;
 
 pub const Result = struct {
     skip: BlockBoxSkip,
@@ -388,9 +388,8 @@ fn realizeObjects(
                 const data = datas[0].flow_stf;
 
                 const block_index = try subtree.appendBlock(box_tree.allocator);
-                const block_box = BlockBox{ .subtree = main_subtree_id, .index = block_index };
-                const generated_box = GeneratedBox{ .block_box = block_box };
-                try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
+                const generated_box = GeneratedBox{ .block_box = .{ .subtree = main_subtree_id, .index = block_index } };
+                try box_tree.mapElementToBox(element, generated_box);
 
                 ctx.stack.top = .{
                     .object_index = 0,
@@ -425,11 +424,10 @@ fn realizeObjects(
                         flow.adjustWidthAndMargins(&data.used, containing_block_width);
 
                         const block_index = try subtree.appendBlock(box_tree.allocator);
-                        const block_box = BlockBox{ .subtree = main_subtree_id, .index = block_index };
-                        const generated_box = GeneratedBox{ .block_box = block_box };
-                        try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
-                        flowBlockSetData(box_tree, block_box, data.used, data.stacking_context_id);
-                        flowBlockFixStackingContext(box_tree, block_box, data.stacking_context_id);
+                        const generated_box = GeneratedBox{ .block_box = .{ .subtree = main_subtree_id, .index = block_index } };
+                        try box_tree.mapElementToBox(element, generated_box);
+                        flowBlockSetData(box_tree, generated_box.block_box, data.used, data.stacking_context_id);
+                        flowBlockFixStackingContext(box_tree, generated_box.block_box, data.stacking_context_id);
 
                         try ctx.stack.push(allocator, .{
                             .object_index = object_index,

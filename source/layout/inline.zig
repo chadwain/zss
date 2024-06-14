@@ -181,7 +181,7 @@ fn ifcRunOnce(
     switch (computed.display) {
         .text => {
             assert(computer.element_tree_slice.firstChild(element).eqlNull());
-            try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, .text);
+            try box_tree.mapElementToBox(element, .text);
             const text = computer.getText();
             // TODO: Do proper font matching.
             if (ifc.font == hb.hb_font_get_empty()) panic("TODO: Found text, but no font was specified.", .{});
@@ -193,7 +193,7 @@ fn ifcRunOnce(
             inlineBoxSetData(ctx, computer, ifc, inline_box_index);
 
             const generated_box = GeneratedBox{ .inline_box = .{ .ifc_index = ctx.result.ifc_index, .index = inline_box_index } };
-            try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
+            try box_tree.mapElementToBox(element, generated_box);
             computer.setComputedValue(.box_gen, .box_style, computed);
             { // TODO: Grabbing useless data to satisfy inheritance...
                 const data = .{
