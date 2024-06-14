@@ -231,23 +231,19 @@ fn ifcRunOnce(
             // TODO: Grabbing useless data to satisfy inheritance...
             const font = computer.getSpecifiedValue(.box_gen, .font);
             computer.setComputedValue(.box_gen, .font, font);
-            try computer.pushElement(.box_gen);
 
-            if (!used_sizes.isFieldAuto(.inline_size)) {
+            const subtree = box_tree.blocks.subtree(ctx.subtree_id);
+            const block_index = try subtree.appendBlock(box_tree.allocator);
+            const generated_box = GeneratedBox{ .block_box = .{ .subtree = ctx.subtree_id, .index = block_index } };
+            try box_tree.mapElementToBox(element, generated_box);
+
+            const stacking_context_id = try sc.push(stacking_context, box_tree, generated_box.block_box);
+            try computer.pushElement(.box_gen);
+            const skip_of_children, const width_unclamped, const auto_height = if (used_sizes.get(.inline_size)) |inline_size| blk: {
                 // TODO: Recursive call here
-                const result = try flow.runFlowLayout(
-                    ctx.allocator,
-                    box_tree,
-                    sc,
-                    computer,
-                    element,
-                    ctx.subtree_id,
-                    used_sizes,
-                    stacking_context,
-                );
-                ctx.result.total_inline_block_skip += result.skip;
-                try ifcAddInlineBlock(box_tree, ifc, result.index);
-            } else {
+                const result = try flow.runFlowLayout(ctx.allocator, box_tree, sc, computer, ctx.subtree_id, used_sizes);
+                break :blk .{ result.skip_of_children, inline_size, result.auto_height };
+            } else blk: {
                 const available_width_unclamped = ctx.containing_block_width -
                     (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
                     used_sizes.border_inline_start + used_sizes.border_inline_end +
@@ -255,20 +251,20 @@ fn ifcRunOnce(
                 const available_width = solve.clampSize(available_width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
 
                 // TODO: Recursive call here
-                const result = try stf.runShrinkToFitLayout(
-                    ctx.allocator,
-                    box_tree,
-                    sc,
-                    computer,
-                    element,
-                    ctx.subtree_id,
-                    used_sizes,
-                    stacking_context,
-                    available_width,
-                );
-                ctx.result.total_inline_block_skip += result.skip;
-                try ifcAddInlineBlock(box_tree, ifc, result.index);
-            }
+                const result = try stf.runShrinkToFitLayout(ctx.allocator, box_tree, sc, computer, ctx.subtree_id, used_sizes, available_width);
+                break :blk .{ result.skip_of_children, result.width, result.auto_height };
+            };
+
+            sc.pop(box_tree);
+            computer.popElement(.box_gen);
+
+            const skip = 1 + skip_of_children;
+            const width = flow.solveUsedWidth(width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
+            const height = flow.solveUsedHeight(used_sizes.get(.block_size), used_sizes.min_block_size, used_sizes.max_block_size, auto_height);
+            flow.writeBlockData(subtree.slice(), block_index, used_sizes, skip, width, height, stacking_context_id);
+
+            ctx.result.total_inline_block_skip += skip;
+            try ifcAddInlineBlock(box_tree, ifc, block_index);
         },
         .block => {
             if (ctx.inline_box_depth == 0) {

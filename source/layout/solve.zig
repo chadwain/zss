@@ -16,7 +16,7 @@ pub fn length(comptime unit: LengthUnit, value: f32) ZssUnit {
 }
 
 pub fn positiveLength(comptime unit: LengthUnit, value: f32) ZssUnit {
-    if (!std.math.isNormal(value) or value < 0.0) return 0.0;
+    if (value < 0.0 or !std.math.isNormal(value)) return 0.0;
     return length(unit, value);
 }
 
@@ -25,7 +25,7 @@ pub fn percentage(value: f32, unit: ZssUnit) ZssUnit {
 }
 
 pub fn positivePercentage(value: f32, unit: ZssUnit) ZssUnit {
-    if (!std.math.isNormal(value) or value < 0.0) return 0.0;
+    if (value < 0.0 or !std.math.isNormal(value)) return 0.0;
     return percentage(value, unit);
 }
 

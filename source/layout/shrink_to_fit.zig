@@ -30,8 +30,9 @@ const SubtreeId = used_values.SubtreeId;
 const ZssUnit = used_values.ZssUnit;
 
 pub const Result = struct {
-    skip: BlockBoxSkip,
-    index: BlockBoxIndex,
+    skip_of_children: BlockBoxSkip,
+    width: ZssUnit,
+    auto_height: ZssUnit,
 };
 
 pub fn runShrinkToFitLayout(
@@ -39,10 +40,8 @@ pub fn runShrinkToFitLayout(
     box_tree: *BoxTree,
     sc: *StackingContexts,
     computer: *StyleComputer,
-    element: Element,
     subtree_id: SubtreeId,
     used_sizes: BlockUsedSizes,
-    stacking_context_info: StackingContexts.Info,
     available_width: ZssUnit,
 ) !Result {
     var object_tree = ObjectTree{};
@@ -50,7 +49,8 @@ pub fn runShrinkToFitLayout(
 
     var ctx = BuildObjectTreeContext{};
     defer ctx.deinit(allocator);
-    try pushFlowObject(true, &ctx, &object_tree, allocator, box_tree, sc, element, used_sizes, available_width, stacking_context_info);
+
+    try pushMainObject(&ctx, &object_tree, allocator, used_sizes, available_width);
     try buildObjectTree(&ctx, &object_tree, allocator, sc, computer, box_tree);
     return try realizeObjects(object_tree.slice(), allocator, box_tree, subtree_id);
 }
@@ -152,7 +152,6 @@ fn flowObject(
                     };
                     computer.setComputedValue(.box_gen, .font, stuff.font);
                 }
-                try computer.pushElement(.box_gen);
 
                 const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
                     used.border_inline_start + used.border_inline_end +
@@ -160,17 +159,22 @@ fn flowObject(
 
                 if (used.get(.inline_size)) |inline_size| {
                     const new_subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, undefined);
+                    const subtree = box_tree.blocks.subtree(new_subtree_id);
+                    const block_index = try subtree.appendBlock(box_tree.allocator);
+                    const generated_box = GeneratedBox{ .block_box = .{ .subtree = new_subtree_id, .index = block_index } };
+                    try box_tree.mapElementToBox(element, generated_box);
+
+                    const stacking_context_id = try sc.push(stacking_context, box_tree, generated_box.block_box);
+                    try computer.pushElement(.box_gen);
                     // TODO: Recursive call here
-                    const result = try flow.runFlowLayout(
-                        allocator,
-                        box_tree,
-                        sc,
-                        computer,
-                        element,
-                        new_subtree_id,
-                        used,
-                        stacking_context,
-                    );
+                    const result = try flow.runFlowLayout(allocator, box_tree, sc, computer, new_subtree_id, used);
+                    sc.pop(box_tree);
+                    computer.popElement(.box_gen);
+
+                    const skip = 1 + result.skip_of_children;
+                    const width = flow.solveUsedWidth(inline_size, used.min_inline_size, used.max_inline_size);
+                    const height = flow.solveUsedHeight(used.get(.block_size), used.min_block_size, used.max_block_size, result.auto_height);
+                    flow.writeBlockData(subtree.slice(), block_index, used, skip, width, height, stacking_context_id);
 
                     parent.object_skip += 1;
                     parent.auto_width = @max(parent.auto_width, inline_size + edge_width);
@@ -180,12 +184,12 @@ fn flowObject(
                         .element = element,
                         .data = .{ .flow_normal = .{
                             .subtree_id = new_subtree_id,
-                            .index = result.index,
+                            .index = block_index,
                         } },
                     });
                 } else {
                     const available_width = solve.clampSize(parent.available_width - edge_width, used.min_inline_size, used.max_inline_size);
-                    try pushFlowObject(false, ctx, object_tree, allocator, box_tree, sc, element, used, available_width, stacking_context);
+                    try pushFlowObject(ctx, object_tree, allocator, computer, box_tree, sc, element, used, available_width, stacking_context);
                 }
             },
             .none => computer.advanceElement(.box_gen),
@@ -232,16 +236,42 @@ fn flowObject(
             .initial, .inherit, .unset, .undeclared => unreachable,
         }
     } else {
-        popFlowObject(ctx, object_tree, box_tree, sc);
-        computer.popElement(.box_gen);
+        popFlowObject(ctx, object_tree, computer, box_tree, sc);
     }
 }
 
-fn pushFlowObject(
-    comptime initial_push: bool,
+fn pushMainObject(
     ctx: *BuildObjectTreeContext,
     object_tree: *ObjectTree,
     allocator: Allocator,
+    used_sizes: BlockUsedSizes,
+    available_width: ZssUnit,
+) !void {
+    // The allocations here must have corresponding deallocations in popFlowObject.
+    ctx.stack.top = .{
+        .object_index = @intCast(object_tree.len),
+        .object_skip = 1,
+        .auto_width = 0,
+        .available_width = available_width,
+        .height = used_sizes.get(.block_size),
+    };
+    try object_tree.append(allocator, .{
+        .skip = undefined,
+        .tag = .flow_stf,
+        .element = undefined,
+        .data = .{ .flow_stf = .{
+            .width = undefined,
+            .used = used_sizes,
+            .stacking_context_id = undefined,
+        } },
+    });
+}
+
+fn pushFlowObject(
+    ctx: *BuildObjectTreeContext,
+    object_tree: *ObjectTree,
+    allocator: Allocator,
+    computer: *StyleComputer,
     box_tree: *BoxTree,
     sc: *StackingContexts,
     element: Element,
@@ -250,19 +280,15 @@ fn pushFlowObject(
     stacking_context: StackingContexts.Info,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowObject.
-    const stack_item = BuildObjectTreeContext.StackItem{
+    try ctx.stack.push(allocator, .{
         .object_index = @intCast(object_tree.len),
         .object_skip = 1,
         .auto_width = 0,
         .available_width = available_width,
         .height = used_sizes.get(.block_size),
-    };
-    if (initial_push) {
-        ctx.stack.top = stack_item;
-    } else {
-        try ctx.stack.push(allocator, stack_item);
-    }
-    const id = try sc.push(stacking_context, box_tree, undefined);
+    });
+    const stacking_context_id = try sc.push(stacking_context, box_tree, undefined);
+    try computer.pushElement(.box_gen);
 
     try object_tree.append(allocator, .{
         .skip = undefined,
@@ -271,37 +297,36 @@ fn pushFlowObject(
         .data = .{ .flow_stf = .{
             .width = undefined,
             .used = used_sizes,
-            .stacking_context_id = id,
+            .stacking_context_id = stacking_context_id,
         } },
     });
 }
 
-fn popFlowObject(ctx: *BuildObjectTreeContext, object_tree: *ObjectTree, box_tree: *BoxTree, sc: *StackingContexts) void {
+fn popFlowObject(ctx: *BuildObjectTreeContext, object_tree: *ObjectTree, computer: *StyleComputer, box_tree: *BoxTree, sc: *StackingContexts) void {
     // The deallocations here must correspond to allocations in pushFlowObject.
     const this = ctx.stack.pop();
-    sc.pop(box_tree);
-
     const object_tree_slice = object_tree.slice();
     object_tree_slice.items(.skip)[this.object_index] = this.object_skip;
-
     const data = &object_tree_slice.items(.data)[this.object_index].flow_stf;
     const used = data.used;
     data.width = solve.clampSize(this.auto_width, used.min_inline_size, used.max_inline_size);
 
-    if (ctx.stack.top) |*parent| {
-        const parent_object_tag = object_tree_slice.items(.tag)[parent.object_index];
-        switch (parent_object_tag) {
-            .flow_stf => {
-                const full_width = data.width +
-                    used.padding_inline_start + used.padding_inline_end +
-                    used.border_inline_start + used.border_inline_end +
-                    used.margin_inline_start_untagged + used.margin_inline_end_untagged;
-                parent.auto_width = @max(parent.auto_width, full_width);
-            },
-            .flow_normal, .ifc => unreachable,
-        }
-        parent.object_skip += this.object_skip;
+    const parent = if (ctx.stack.top) |*top| top else return;
+    sc.pop(box_tree);
+    computer.popElement(.box_gen);
+
+    const parent_object_tag = object_tree_slice.items(.tag)[parent.object_index];
+    switch (parent_object_tag) {
+        .flow_stf => {
+            const full_width = data.width +
+                used.padding_inline_start + used.padding_inline_end +
+                used.border_inline_start + used.border_inline_end +
+                used.margin_inline_start_untagged + used.margin_inline_end_untagged;
+            parent.auto_width = @max(parent.auto_width, full_width);
+        },
+        .flow_normal, .ifc => unreachable,
     }
+    parent.object_skip += this.object_skip;
 }
 
 const RealizeObjectsContext = struct {
@@ -321,7 +346,6 @@ const RealizeObjectsContext = struct {
         index: BlockBoxIndex,
         skip: BlockBoxSkip,
         width: ZssUnit,
-        height: ?ZssUnit,
         auto_height: ZssUnit,
     };
 
@@ -350,24 +374,17 @@ fn realizeObjects(
         const object_index: Object.Index = 0;
         const object_skip = object_skips[object_index];
         const object_tag = object_tags[object_index];
-        const element = elements[object_index];
         switch (object_tag) {
             .flow_stf => {
                 const data = datas[object_index].flow_stf;
-
-                const block_index = try subtree.appendBlock(box_tree.allocator);
-                const generated_box = GeneratedBox{ .block_box = .{ .subtree = main_subtree_id, .index = block_index } };
-                try box_tree.mapElementToBox(element, generated_box);
-
                 ctx.stack.top = .{
                     .object_index = 0,
                     .object_tag = object_tag,
                     .object_interval = .{ .begin = 1, .end = object_skip },
 
-                    .index = block_index,
-                    .skip = 1,
+                    .index = undefined,
+                    .skip = 0,
                     .width = data.width,
-                    .height = data.used.get(.block_size),
                     .auto_height = 0,
                 };
             },
@@ -402,7 +419,6 @@ fn realizeObjects(
                             .index = block_index,
                             .skip = 1,
                             .width = data.width,
-                            .height = data.used.get(.block_size),
                             .auto_height = 0,
                         });
                     },
@@ -465,21 +481,22 @@ fn realizeObjects(
 
 fn popFlowBlock(ctx: *RealizeObjectsContext, box_tree: *BoxTree, object_tree_slice: ObjectTree.Slice, subtree: *BlockSubtree) void {
     const this = ctx.stack.pop();
-
     const data = object_tree_slice.items(.data)[this.object_index].flow_stf;
-    const used_sizes = data.used;
-    const subtree_slice = subtree.slice();
-    const height = flow.solveUsedHeight(used_sizes.get(.block_size), used_sizes.min_block_size, used_sizes.max_block_size, this.auto_height);
-    flow.writeBlockData(subtree_slice, this.index, used_sizes, this.skip, data.width, height, data.stacking_context_id);
-    flowBlockFixStackingContext(box_tree, .{ .subtree = subtree.id, .index = this.index }, data.stacking_context_id);
-
     const parent = if (ctx.stack.top) |*top| top else {
         ctx.result = .{
-            .skip = this.skip,
-            .index = this.index,
+            .skip_of_children = this.skip,
+            .width = this.width,
+            .auto_height = this.auto_height,
         };
         return;
     };
+
+    const used_sizes = data.used;
+    const subtree_slice = subtree.slice();
+    const width = flow.solveUsedWidth(data.width, used_sizes.min_inline_size, used_sizes.max_inline_size);
+    const height = flow.solveUsedHeight(used_sizes.get(.block_size), used_sizes.min_block_size, used_sizes.max_block_size, this.auto_height);
+    flow.writeBlockData(subtree_slice, this.index, used_sizes, this.skip, width, height, data.stacking_context_id);
+    flowBlockFixStackingContext(box_tree, .{ .subtree = subtree.id, .index = this.index }, data.stacking_context_id);
 
     switch (parent.object_tag) {
         .flow_stf => {
@@ -593,47 +610,6 @@ fn flowBlockSolveWidthAndHorizontalMargins(
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
-}
-
-fn flowBlockSetData(
-    box_tree: *BoxTree,
-    block_box: BlockBox,
-    used: BlockUsedSizes,
-    stacking_context: ?StackingContext.Id,
-) void {
-    const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
-    const @"type" = &subtree_slice.items(.type)[block_box.index];
-    const box_offsets = &subtree_slice.items(.box_offsets)[block_box.index];
-    const borders = &subtree_slice.items(.borders)[block_box.index];
-    const margins = &subtree_slice.items(.margins)[block_box.index];
-
-    @"type".* = .{ .block = .{
-        .stacking_context = stacking_context,
-    } };
-
-    // horizontal
-    box_offsets.border_pos.x = used.get(.margin_inline_start).?;
-    box_offsets.content_pos.x = used.border_inline_start + used.padding_inline_start;
-    box_offsets.content_size.w = used.get(.inline_size).?;
-    box_offsets.border_size.w = box_offsets.content_pos.x + box_offsets.content_size.w + used.padding_inline_end + used.border_inline_end;
-
-    borders.left = used.border_inline_start;
-    borders.right = used.border_inline_end;
-
-    margins.left = used.get(.margin_inline_start).?;
-    margins.right = used.get(.margin_inline_end).?;
-
-    // vertical
-    box_offsets.border_pos.y = used.margin_block_start;
-    box_offsets.content_pos.y = used.border_block_start + used.padding_block_start;
-    box_offsets.content_size.h = undefined;
-    box_offsets.border_size.h = box_offsets.content_pos.y + used.padding_block_end + used.border_block_end;
-
-    borders.top = used.border_block_start;
-    borders.bottom = used.border_block_end;
-
-    margins.top = used.margin_block_start;
-    margins.bottom = used.margin_block_end;
 }
 
 fn flowBlockFixStackingContext(

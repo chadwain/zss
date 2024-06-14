@@ -28,9 +28,8 @@ const SubtreeSlice = used_values.BlockSubtree.Slice;
 const ZssUnit = used_values.ZssUnit;
 
 pub const Result = struct {
-    skip: BlockBoxSkip,
-    index: BlockBoxIndex,
-    height: ZssUnit,
+    skip_of_children: BlockBoxSkip,
+    auto_height: ZssUnit,
 };
 
 pub fn runFlowLayout(
@@ -38,15 +37,13 @@ pub fn runFlowLayout(
     box_tree: *BoxTree,
     sc: *StackingContexts,
     computer: *StyleComputer,
-    element: Element,
     subtree_id: SubtreeId,
     used_sizes: BlockUsedSizes,
-    stacking_context: StackingContexts.Info,
 ) !Result {
     var ctx = Context{ .allocator = allocator, .subtree_id = subtree_id };
     defer ctx.deinit();
 
-    try pushBlock(true, &ctx, box_tree, sc, element, subtree_id, used_sizes, stacking_context);
+    pushMainBlock(&ctx, used_sizes);
     while (ctx.stack.top) |_| {
         try analyzeElement(&ctx, sc, computer, box_tree);
     }
@@ -74,121 +71,125 @@ const Context = struct {
 
 fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
     const element = computer.getCurrentElement();
-    if (!element.eqlNull()) {
-        const specified = .{
-            .box_style = computer.getSpecifiedValue(.box_gen, .box_style),
-            .font = computer.getSpecifiedValue(.box_gen, .font),
-        };
-        const computed_box_style = solve.boxStyle(specified.box_style, .NonRoot);
-        computer.setComputedValue(.box_gen, .box_style, computed_box_style);
-        computer.setComputedValue(.box_gen, .font, specified.font);
+    if (element.eqlNull()) {
+        return popBlock(ctx, computer, sc, box_tree);
+    }
 
-        const parent = &ctx.stack.top.?;
-        const containing_block_width = parent.used.inline_size_clamped;
-        const containing_block_height = parent.used.block_size;
+    const specified = .{
+        .box_style = computer.getSpecifiedValue(.box_gen, .box_style),
+        .font = computer.getSpecifiedValue(.box_gen, .font),
+    };
+    const computed_box_style = solve.boxStyle(specified.box_style, .NonRoot);
+    computer.setComputedValue(.box_gen, .box_style, computed_box_style);
+    computer.setComputedValue(.box_gen, .font, specified.font);
 
-        switch (computed_box_style.display) {
-            .block => {
-                const used_sizes = solveAllSizes(computer, containing_block_width, containing_block_height);
-                const stacking_context = solveStackingContext(computer, computed_box_style.position);
+    const parent = &ctx.stack.top.?;
+    const containing_block_width = parent.used.inline_size_clamped;
+    const containing_block_height = parent.used.block_size;
 
-                try pushBlock(false, ctx, box_tree, sc, element, ctx.subtree_id, used_sizes, stacking_context);
-                try computer.pushElement(.box_gen);
-            },
-            .@"inline", .inline_block, .text => {
-                const subtree = box_tree.blocks.subtree(ctx.subtree_id);
-                const ifc_container_index = try subtree.appendBlock(box_tree.allocator);
+    switch (computed_box_style.display) {
+        .block => {
+            const used_sizes = solveAllSizes(computer, containing_block_width, containing_block_height);
+            const stacking_context = solveStackingContext(computer, computed_box_style.position);
+            try pushBlock(ctx, computer, box_tree, sc, element, used_sizes, stacking_context);
+        },
+        .@"inline", .inline_block, .text => {
+            const subtree = box_tree.blocks.subtree(ctx.subtree_id);
+            const ifc_container_index = try subtree.appendBlock(box_tree.allocator);
 
-                const result = try inline_layout.makeInlineFormattingContext(
-                    ctx.allocator,
-                    sc,
-                    computer,
-                    box_tree,
-                    ctx.subtree_id,
-                    .Normal,
-                    containing_block_width,
-                    containing_block_height,
-                );
-                const ifc = box_tree.ifcs.items[result.ifc_index];
-                const line_split_result =
-                    try inline_layout.splitIntoLineBoxes(ctx.allocator, box_tree, subtree, ifc, containing_block_width);
-                ifc.parent_block = .{ .subtree = ctx.subtree_id, .index = ifc_container_index };
+            const result = try inline_layout.makeInlineFormattingContext(
+                ctx.allocator,
+                sc,
+                computer,
+                box_tree,
+                ctx.subtree_id,
+                .Normal,
+                containing_block_width,
+                containing_block_height,
+            );
+            const ifc = box_tree.ifcs.items[result.ifc_index];
+            const line_split_result =
+                try inline_layout.splitIntoLineBoxes(ctx.allocator, box_tree, subtree, ifc, containing_block_width);
+            ifc.parent_block = .{ .subtree = ctx.subtree_id, .index = ifc_container_index };
 
-                const subtree_slice = subtree.slice();
-                const skip = 1 + result.total_inline_block_skip;
-                subtree_slice.items(.type)[ifc_container_index] = .{ .ifc_container = result.ifc_index };
-                subtree_slice.items(.skip)[ifc_container_index] = skip;
-                subtree_slice.items(.box_offsets)[ifc_container_index] = .{
-                    .border_pos = .{ .x = 0, .y = parent.auto_height },
-                    .border_size = .{ .w = containing_block_width, .h = line_split_result.height },
-                    .content_pos = .{ .x = 0, .y = 0 },
-                    .content_size = .{ .w = containing_block_width, .h = line_split_result.height },
-                };
+            const subtree_slice = subtree.slice();
+            const skip = 1 + result.total_inline_block_skip;
+            subtree_slice.items(.type)[ifc_container_index] = .{ .ifc_container = result.ifc_index };
+            subtree_slice.items(.skip)[ifc_container_index] = skip;
+            subtree_slice.items(.box_offsets)[ifc_container_index] = .{
+                .border_pos = .{ .x = 0, .y = parent.auto_height },
+                .border_size = .{ .w = containing_block_width, .h = line_split_result.height },
+                .content_pos = .{ .x = 0, .y = 0 },
+                .content_size = .{ .w = containing_block_width, .h = line_split_result.height },
+            };
 
-                parent.skip += skip;
+            parent.skip += skip;
 
-                advanceFlow(&parent.auto_height, line_split_result.height);
-            },
-            .none => computer.advanceElement(.box_gen),
-            .initial, .inherit, .unset, .undeclared => unreachable,
-        }
-    } else {
-        popBlock(ctx, sc, box_tree);
-        computer.popElement(.box_gen);
+            advanceFlow(&parent.auto_height, line_split_result.height);
+        },
+        .none => computer.advanceElement(.box_gen),
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
 
+fn pushMainBlock(ctx: *Context, used_sizes: BlockUsedSizes) void {
+    // The allocations here must have corresponding deallocations in popBlock.
+    ctx.stack.top = .{
+        .index = undefined,
+        .skip = 0,
+        .used = BlockUsedSizesSlim.fromFull(used_sizes),
+        .auto_height = 0,
+    };
+}
+
 fn pushBlock(
-    comptime initial_push: bool,
     ctx: *Context,
+    computer: *StyleComputer,
     box_tree: *BoxTree,
     sc: *StackingContexts,
     element: Element,
-    subtree_id: SubtreeId,
     used_sizes: BlockUsedSizes,
     stacking_context: StackingContexts.Info,
 ) !void {
     const subtree = box_tree.blocks.subtree(ctx.subtree_id);
     const block_index = try subtree.appendBlock(box_tree.allocator);
-    const generated_box = GeneratedBox{ .block_box = .{ .subtree = subtree_id, .index = block_index } };
+    const generated_box = GeneratedBox{ .block_box = .{ .subtree = ctx.subtree_id, .index = block_index } };
     try box_tree.mapElementToBox(element, generated_box);
 
     // The allocations here must have corresponding deallocations in popBlock.
-    const stack_item = Context.StackItem{
+    try ctx.stack.push(ctx.allocator, .{
         .index = block_index,
         .skip = 1,
         .used = BlockUsedSizesSlim.fromFull(used_sizes),
         .auto_height = 0,
-    };
-    if (initial_push) {
-        ctx.stack.top = stack_item;
-    } else {
-        try ctx.stack.push(ctx.allocator, stack_item);
-    }
+    });
     const stacking_context_id = try sc.push(stacking_context, box_tree, generated_box.block_box);
+    try computer.pushElement(.box_gen);
 
-    writeBlockDataPart1(subtree.slice(), block_index, used_sizes, used_sizes.get(.inline_size).?, stacking_context_id);
+    const width = solveUsedWidth(used_sizes.get(.inline_size).?, used_sizes.min_inline_size, used_sizes.max_inline_size);
+    writeBlockDataPart1(subtree.slice(), block_index, used_sizes, width, stacking_context_id);
 }
 
-fn popBlock(ctx: *Context, sc: *StackingContexts, box_tree: *BoxTree) void {
+fn popBlock(ctx: *Context, computer: *StyleComputer, sc: *StackingContexts, box_tree: *BoxTree) void {
     // The deallocations here must correspond to allocations in pushBlock.
     const this = ctx.stack.pop();
+    const parent = if (ctx.stack.top) |*top| top else {
+        ctx.result = .{
+            .skip_of_children = this.skip,
+            .auto_height = this.auto_height,
+        };
+        return;
+    };
+
     sc.pop(box_tree);
+    computer.popElement(.box_gen);
 
     const subtree_slice = box_tree.blocks.subtree(ctx.subtree_id).slice();
     const height = solveUsedHeight(this.used.block_size, this.used.min_block_size, this.used.max_block_size, this.auto_height);
     writeBlockDataPart2(subtree_slice, this.index, this.skip, height);
 
-    if (ctx.stack.top) |*parent| {
-        parent.skip += this.skip;
-        addBlockToFlow(subtree_slice, this.index, &parent.auto_height);
-    } else {
-        ctx.result = .{
-            .skip = this.skip,
-            .index = this.index,
-            .height = height,
-        };
-    }
+    parent.skip += this.skip;
+    addBlockToFlow(subtree_slice, this.index, &parent.auto_height);
 }
 
 const BlockUsedSizesSlim = struct {
@@ -652,6 +653,10 @@ pub fn writeBlockDataPart1(
 
     margins.top = used.margin_block_start;
     margins.bottom = used.margin_block_end;
+}
+
+pub fn solveUsedWidth(width: ZssUnit, min_width: ZssUnit, max_width: ZssUnit) ZssUnit {
+    return solve.clampSize(width, min_width, max_width);
 }
 
 pub fn solveUsedHeight(height: ?ZssUnit, min_height: ZssUnit, max_height: ZssUnit, auto_height: ZssUnit) ZssUnit {
