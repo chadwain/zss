@@ -18,7 +18,6 @@ const Category = enum {
     validation,
     memory,
     opengl,
-    // sdl,
     print,
 };
 
@@ -52,7 +51,6 @@ pub fn main() !void {
             .validation => try @import("./validation.zig").run(&tests),
             .memory => try @import("./memory.zig").run(&tests),
             .opengl => try @import("./opengl.zig").run(&tests),
-            // .sdl => try @import("./sdl.zig").run(&tests),
             .print => try @import("./print.zig").run(&tests),
         }
         if (i + 1 < categories.len) {

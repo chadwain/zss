@@ -7,73 +7,44 @@ const ResolvedTarget = Build.ResolvedTarget;
 pub fn build(b: *Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
-    const mods = getModules(b, optimize, target);
 
+    _ = b.addModule("zss", .{
+        .root_source_file = b.path("source/zss.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const mods = getModules(b, optimize, target);
     addTests(b, optimize, target, mods);
     addDemo(b, optimize, target, mods);
     addExamples(b, optimize, target, mods);
 }
 
 const Modules = struct {
-    zss: *Module,
     mach_glfw: *Module,
     mach_harfbuzz: *Module,
-    // sdl2: *Module,
     zgl: *Module,
     zigimg: *Module,
 };
 
 fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules {
-    var mods: Modules = undefined;
-
     const mach_freetype_dep = b.dependency("mach-freetype", .{
         .optimize = optimize,
         .target = target,
     });
-    mods.mach_harfbuzz = mach_freetype_dep.module("mach-harfbuzz");
-
-    // mods.sdl2 = b.createModule(.{
-    //     .root_source_file = b.path("dependencies/SDL2.zig"),
-    //     .target = target,
-    // });
-    // mods.sdl2.linkSystemLibrary("SDL2", .{});
-    // if (target.result.os.tag == .windows) {
-    //     mods.sdl2.linkSystemLibrary("gdi32", .{});
-    //     mods.sdl2.linkSystemLibrary("imm32", .{});
-    //     mods.sdl2.linkSystemLibrary("ole32", .{});
-    //     mods.sdl2.linkSystemLibrary("oleaut32", .{});
-    //     mods.sdl2.linkSystemLibrary("setupapi", .{});
-    //     mods.sdl2.linkSystemLibrary("version", .{});
-    //     mods.sdl2.linkSystemLibrary("winmm", .{});
-    // }
-
-    const zgl_dep = b.dependency("zgl", .{});
-    mods.zgl = zgl_dep.module("zgl");
-
-    const zigimg_dep = b.dependency("zigimg", .{});
-    mods.zigimg = zigimg_dep.module("zigimg");
-
     const mach_glfw_dep = b.dependency("mach-glfw", .{
         .optimize = optimize,
         .target = target,
     });
-    mods.mach_glfw = mach_glfw_dep.module("mach-glfw");
+    const zigimg_dep = b.dependency("zigimg", .{});
+    const zgl_dep = b.dependency("zgl", .{});
 
-    mods.zss = b.addModule("zss", .{
-        .root_source_file = b.path("source/zss.zig"),
-        .imports = &.{
-            .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
-            .{ .name = "mach-glfw", .module = mods.mach_glfw },
-            // TODO: Only import SDL2 if necessary
-            // TODO: Only import zgl if necessary
-            // .{ .name = "SDL2", .module = mods.sdl2 },
-            .{ .name = "zgl", .module = mods.zgl },
-        },
-        .target = target,
-        .optimize = optimize,
-    });
-
-    return mods;
+    return .{
+        .mach_harfbuzz = mach_freetype_dep.module("mach-harfbuzz"),
+        .mach_glfw = mach_glfw_dep.module("mach-glfw"),
+        .zgl = zgl_dep.module("zgl"),
+        .zigimg = zigimg_dep.module("zigimg"),
+    };
 }
 
 fn addTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) void {
@@ -100,12 +71,19 @@ fn addTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Mod
         .target = target,
         .optimize = optimize,
     });
-    test_suite.root_module.addImport("zss", mods.zss);
+    test_suite.root_module.addAnonymousImport("zss", .{
+        .root_source_file = b.path("source/zss.zig"),
+        .imports = &.{
+            .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
+            .{ .name = "zgl", .module = mods.zgl },
+        },
+        .target = target,
+        .optimize = optimize,
+    });
     test_suite.root_module.addImport("mach-glfw", mods.mach_glfw);
     test_suite.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
     test_suite.root_module.addImport("zgl", mods.zgl);
     test_suite.root_module.addImport("zigimg", mods.zigimg);
-    // test_suite.root_module.addImport("SDL2", mods.sdl2);
     b.installArtifact(test_suite);
 
     const test_category_filter = b.option([]const []const u8, "tests", "List of test categories to run");
@@ -125,30 +103,13 @@ fn addTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Mod
 }
 
 fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) void {
-    // const demo = b.addExecutable(.{
-    //     .name = "demo",
-    //     .root_source_file = b.path("demo/demo.zig"),
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
-    // demo.root_module.addImport("zss", mods.zss);
-    // demo.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
-    // demo.root_module.addImport("SDL2", mods.sdl2);
-    // demo.linkSystemLibrary("SDL2_image");
-    // b.installArtifact(demo);
-
-    // const demo_step = b.step("demo", "Run a graphical demo program");
-    // const run_demo = b.addRunArtifact(demo);
-    // demo_step.dependOn(&run_demo.step);
-    // if (b.args) |args| run_demo.addArgs(args);
-
-    const demo_opengl = b.addExecutable(.{
-        .name = "demo-opengl",
-        .root_source_file = b.path("demo/demo_opengl.zig"),
+    const demo = b.addExecutable(.{
+        .name = "demo",
+        .root_source_file = b.path("demo/demo.zig"),
         .target = target,
         .optimize = optimize,
     });
-    demo_opengl.root_module.addAnonymousImport("zss", .{
+    demo.root_module.addAnonymousImport("zss", .{
         .root_source_file = b.path("source/zss.zig"),
         .imports = &.{
             .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
@@ -157,28 +118,36 @@ fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modu
         .target = target,
         .optimize = optimize,
     });
-    demo_opengl.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
-    demo_opengl.root_module.addImport("zgl", mods.zgl);
-    demo_opengl.root_module.addImport("zigimg", mods.zigimg);
-    demo_opengl.root_module.addImport("mach-glfw", mods.mach_glfw);
-    b.installArtifact(demo_opengl);
+    demo.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
+    demo.root_module.addImport("zgl", mods.zgl);
+    demo.root_module.addImport("zigimg", mods.zigimg);
+    demo.root_module.addImport("mach-glfw", mods.mach_glfw);
+    b.installArtifact(demo);
 
-    const demo_opengl_step = b.step("demo-opengl", "Run a graphical demo program");
-    const run_demo_opengl = b.addRunArtifact(demo_opengl);
-    demo_opengl_step.dependOn(&run_demo_opengl.step);
-    if (b.args) |args| run_demo_opengl.addArgs(args);
+    const demo_step = b.step("demo", "Run a graphical demo program");
+    const run_demo = b.addRunArtifact(demo);
+    demo_step.dependOn(&run_demo.step);
+    if (b.args) |args| run_demo.addArgs(args);
 }
 
 fn addExamples(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) void {
-    addExample(b, optimize, target, mods, "parse", "examples/parse.zig", "Run a parser program");
-    addExample(b, optimize, target, mods, "usage", "examples/usage.zig", "Run an example usage program");
+    const zss_mod = b.createModule(.{
+        .root_source_file = b.path("source/zss.zig"),
+        .imports = &.{
+            .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
+        },
+        .target = target,
+        .optimize = optimize,
+    });
+    addExample(b, optimize, target, zss_mod, "parse", "examples/parse.zig", "Run an example parser program");
+    addExample(b, optimize, target, zss_mod, "usage", "examples/usage.zig", "Run an example usage program");
 }
 
 fn addExample(
     b: *Build,
     optimize: OptimizeMode,
     target: ResolvedTarget,
-    mods: Modules,
+    zss_mod: *Module,
     name: []const u8,
     path: []const u8,
     description: []const u8,
@@ -189,7 +158,7 @@ fn addExample(
         .target = target,
         .optimize = optimize,
     });
-    exe.root_module.addImport("zss", mods.zss);
+    exe.root_module.addImport("zss", zss_mod);
     b.installArtifact(exe);
 
     const step = b.step(name, description);
