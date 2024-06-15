@@ -17,7 +17,7 @@ pub fn Stack(comptime T: type) type {
         }
 
         /// Pushes the current value of `stack.top`, and replaces it with `new_top`.
-        /// Before calling this function, you must have given `stack.top` a value.
+        /// `stack.top` must be set before calling this function.
         pub fn push(stack: *Self, allocator: Allocator, new_top: T) !void {
             try stack.rest.append(allocator, stack.top.?);
             stack.top = new_top;

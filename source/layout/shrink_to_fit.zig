@@ -133,110 +133,110 @@ fn flowObject(
     box_tree: *BoxTree,
 ) !void {
     const element = computer.getCurrentElement();
-    if (!element.eqlNull()) {
-        const specified = computer.getSpecifiedValue(.box_gen, .box_style);
-        const computed = solve.boxStyle(specified, .NonRoot);
-        computer.setComputedValue(.box_gen, .box_style, computed);
+    if (element.eqlNull()) {
+        return popFlowObject(ctx, object_tree, computer, box_tree, sc);
+    }
 
-        const parent = &ctx.stack.top.?;
+    const specified = computer.getSpecifiedValue(.box_gen, .box_style);
+    const computed = solve.boxStyle(specified, .NonRoot);
+    computer.setComputedValue(.box_gen, .box_style, computed);
 
-        switch (computed.display) {
-            .block => {
-                var used: BlockUsedSizes = undefined;
-                solveBlockSizes(computer, &used, parent.height);
-                const stacking_context = flow.solveStackingContext(computer, computed.position);
+    const parent = &ctx.stack.top.?;
 
-                { // TODO: Delete this
-                    const stuff = .{
-                        .font = computer.getSpecifiedValue(.box_gen, .font),
-                    };
-                    computer.setComputedValue(.box_gen, .font, stuff.font);
-                }
+    switch (computed.display) {
+        .block => {
+            var used: BlockUsedSizes = undefined;
+            solveBlockSizes(computer, &used, parent.height);
+            const stacking_context = flow.solveStackingContext(computer, computed.position);
 
-                const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
-                    used.border_inline_start + used.border_inline_end +
-                    used.padding_inline_start + used.padding_inline_end;
+            { // TODO: Delete this
+                const stuff = .{
+                    .font = computer.getSpecifiedValue(.box_gen, .font),
+                };
+                computer.setComputedValue(.box_gen, .font, stuff.font);
+            }
 
-                if (used.get(.inline_size)) |inline_size| {
-                    const new_subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, undefined);
-                    const subtree = box_tree.blocks.subtree(new_subtree_id);
-                    const block_index = try subtree.appendBlock(box_tree.allocator);
-                    const generated_box = GeneratedBox{ .block_box = .{ .subtree = new_subtree_id, .index = block_index } };
-                    try box_tree.mapElementToBox(element, generated_box);
+            const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
+                used.border_inline_start + used.border_inline_end +
+                used.padding_inline_start + used.padding_inline_end;
 
-                    const stacking_context_id = try sc.push(stacking_context, box_tree, generated_box.block_box);
-                    try computer.pushElement(.box_gen);
-                    // TODO: Recursive call here
-                    const result = try flow.runFlowLayout(allocator, box_tree, sc, computer, new_subtree_id, used);
-                    sc.pop(box_tree);
-                    computer.popElement(.box_gen);
-
-                    const skip = 1 + result.skip_of_children;
-                    const width = flow.solveUsedWidth(inline_size, used.min_inline_size, used.max_inline_size);
-                    const height = flow.solveUsedHeight(used.get(.block_size), used.min_block_size, used.max_block_size, result.auto_height);
-                    flow.writeBlockData(subtree.slice(), block_index, used, skip, width, height, stacking_context_id);
-
-                    parent.object_skip += 1;
-                    parent.auto_width = @max(parent.auto_width, inline_size + edge_width);
-                    try object_tree.append(allocator, .{
-                        .skip = 1,
-                        .tag = .flow_normal,
-                        .element = element,
-                        .data = .{ .flow_normal = .{
-                            .subtree_id = new_subtree_id,
-                            .index = block_index,
-                        } },
-                    });
-                } else {
-                    const available_width = solve.clampSize(parent.available_width - edge_width, used.min_inline_size, used.max_inline_size);
-                    try pushFlowObject(ctx, object_tree, allocator, computer, box_tree, sc, element, used, available_width, stacking_context);
-                }
-            },
-            .none => computer.advanceElement(.box_gen),
-            .@"inline", .inline_block, .text => {
+            if (used.get(.inline_size)) |inline_size| {
                 const new_subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, undefined);
-                const new_subtree = box_tree.blocks.subtree(new_subtree_id);
-                const new_ifc_container_index = try new_subtree.appendBlock(box_tree.allocator);
+                const subtree = box_tree.blocks.subtree(new_subtree_id);
+                const block_index = try subtree.appendBlock(box_tree.allocator);
+                const generated_box = GeneratedBox{ .block_box = .{ .subtree = new_subtree_id, .index = block_index } };
+                try box_tree.mapElementToBox(element, generated_box);
 
-                const result = try inline_layout.makeInlineFormattingContext(
-                    allocator,
-                    sc,
-                    computer,
-                    box_tree,
-                    new_subtree_id,
-                    .ShrinkToFit,
-                    parent.available_width,
-                    parent.height,
-                );
-                const ifc = box_tree.ifcs.items[result.ifc_index];
-                const line_split_result = try inline_layout.splitIntoLineBoxes(
-                    allocator,
-                    box_tree,
-                    new_subtree,
-                    ifc,
-                    parent.available_width,
-                );
+                const stacking_context_id = try sc.push(stacking_context, box_tree, generated_box.block_box);
+                try computer.pushElement(.box_gen);
+                // TODO: Recursive call here
+                const result = try flow.runFlowLayout(allocator, box_tree, sc, computer, new_subtree_id, used);
+                sc.pop(box_tree);
+                computer.popElement(.box_gen);
 
-                parent.auto_width = @max(parent.auto_width, line_split_result.longest_line_box_length);
+                const skip = 1 + result.skip_of_children;
+                const width = flow.solveUsedWidth(inline_size, used.min_inline_size, used.max_inline_size);
+                const height = flow.solveUsedHeight(used.get(.block_size), used.min_block_size, used.max_block_size, result.auto_height);
+                flow.writeBlockData(subtree.slice(), block_index, used, skip, width, height, stacking_context_id);
 
-                // TODO: Store the IFC index as the element
                 parent.object_skip += 1;
+                parent.auto_width = @max(parent.auto_width, inline_size + edge_width);
                 try object_tree.append(allocator, .{
                     .skip = 1,
-                    .tag = .ifc,
-                    .element = undefined,
-                    .data = .{ .ifc = .{
+                    .tag = .flow_normal,
+                    .element = element,
+                    .data = .{ .flow_normal = .{
                         .subtree_id = new_subtree_id,
-                        .subtree_root_index = new_ifc_container_index,
-                        .layout_result = result,
-                        .line_split_result = line_split_result,
+                        .index = block_index,
                     } },
                 });
-            },
-            .initial, .inherit, .unset, .undeclared => unreachable,
-        }
-    } else {
-        popFlowObject(ctx, object_tree, computer, box_tree, sc);
+            } else {
+                const available_width = solve.clampSize(parent.available_width - edge_width, used.min_inline_size, used.max_inline_size);
+                try pushFlowObject(ctx, object_tree, allocator, computer, box_tree, sc, element, used, available_width, stacking_context);
+            }
+        },
+        .none => computer.advanceElement(.box_gen),
+        .@"inline", .inline_block, .text => {
+            const new_subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, undefined);
+            const new_subtree = box_tree.blocks.subtree(new_subtree_id);
+            const new_ifc_container_index = try new_subtree.appendBlock(box_tree.allocator);
+
+            const result = try inline_layout.makeInlineFormattingContext(
+                allocator,
+                sc,
+                computer,
+                box_tree,
+                new_subtree_id,
+                .ShrinkToFit,
+                parent.available_width,
+                parent.height,
+            );
+            const ifc = box_tree.ifcs.items[result.ifc_index];
+            const line_split_result = try inline_layout.splitIntoLineBoxes(
+                allocator,
+                box_tree,
+                new_subtree,
+                ifc,
+                parent.available_width,
+            );
+
+            parent.auto_width = @max(parent.auto_width, line_split_result.longest_line_box_length);
+
+            // TODO: Store the IFC index as the element
+            parent.object_skip += 1;
+            try object_tree.append(allocator, .{
+                .skip = 1,
+                .tag = .ifc,
+                .element = undefined,
+                .data = .{ .ifc = .{
+                    .subtree_id = new_subtree_id,
+                    .subtree_root_index = new_ifc_container_index,
+                    .layout_result = result,
+                    .line_split_result = line_split_result,
+                } },
+            });
+        },
+        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
 

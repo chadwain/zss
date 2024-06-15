@@ -239,6 +239,7 @@ fn ifcRunOnce(
 
             const stacking_context_id = try sc.push(stacking_context, box_tree, generated_box.block_box);
             try computer.pushElement(.box_gen);
+
             const skip_of_children, const width_unclamped, const auto_height = if (used_sizes.get(.inline_size)) |inline_size| blk: {
                 // TODO: Recursive call here
                 const result = try flow.runFlowLayout(ctx.allocator, box_tree, sc, computer, ctx.subtree_id, used_sizes);

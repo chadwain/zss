@@ -615,7 +615,7 @@ pub fn writeBlockData(
 
 /// Partially writes a flow block's data to the BoxTree.
 /// Must eventually be followed by a call to writeBlockDataPart2.
-pub fn writeBlockDataPart1(
+fn writeBlockDataPart1(
     subtree_slice: SubtreeSlice,
     index: BlockBoxIndex,
     used: BlockUsedSizes,
@@ -664,7 +664,7 @@ pub fn solveUsedHeight(height: ?ZssUnit, min_height: ZssUnit, max_height: ZssUni
 }
 
 /// Writes data to the BoxTree that was left out during writeBlockDataPart1.
-pub fn writeBlockDataPart2(
+fn writeBlockDataPart2(
     subtree_slice: SubtreeSlice,
     index: BlockBoxIndex,
     skip: BlockBoxSkip,
