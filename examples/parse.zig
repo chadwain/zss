@@ -35,7 +35,7 @@ pub fn main() !u8 {
     } else if (std.mem.eql(u8, args[1], "tokens")) {
         const source = try tokenize.Source.init(string);
 
-        var location = tokenize.Source.Location{};
+        var location: tokenize.Source.Location = .start;
         var i: usize = 0;
         while (true) {
             const next = try zss.syntax.tokenize.nextToken(source, location);

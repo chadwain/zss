@@ -18,18 +18,13 @@ const eof_codepoint: u21 = std.math.maxInt(u21);
 pub const Source = struct {
     data: []const u8,
 
-    pub const Location = struct {
-        value: Value = 0,
-
-        const Value = u32;
-
-        fn eql(lhs: Location, rhs: Location) bool {
-            return lhs.value == rhs.value;
-        }
+    pub const Location = enum(u32) {
+        start = 0,
+        _,
     };
 
     pub fn init(string: Utf8String) !Source {
-        if (string.data.len > std.math.maxInt(Location.Value)) return error.SourceStringTooLong;
+        if (string.data.len > std.math.maxInt(std.meta.Tag(Location))) return error.SourceStringTooLong;
         return Source{ .data = string.data };
     }
 
@@ -59,7 +54,7 @@ pub const Source = struct {
     pub fn urlTokenIterator(source: Source, start: Location) UrlTokenIterator {
         var next_4: [4]u21 = undefined;
         var location = source.read(start, &next_4) catch unreachable;
-        assert(std.meta.eql(next_4, [4]u21{ 'u', 'r', 'l', '(' }));
+        assert(std.mem.eql(u21, &next_4, &[4]u21{ 'u', 'r', 'l', '(' }));
         location = consumeWhitespace(source, location) catch unreachable;
         return UrlTokenIterator{ .location = location };
     }
@@ -67,9 +62,9 @@ pub const Source = struct {
     const Next = struct { next_location: Location, codepoint: u21 };
 
     fn next(source: Source, location: Location) !Next {
-        if (location.value == source.data.len) return Next{ .next_location = location, .codepoint = eof_codepoint };
+        if (@intFromEnum(location) == source.data.len) return Next{ .next_location = location, .codepoint = eof_codepoint };
 
-        var next_location = location.value;
+        var next_location = @intFromEnum(location);
         const unprocessed_codepoint = blk: {
             const len = try std.unicode.utf8ByteSequenceLength(source.data[next_location]);
             if (source.data.len - next_location < len) return error.Utf8CodepointTruncated;
@@ -90,10 +85,10 @@ pub const Source = struct {
             },
             0x0C => '\n',
             0x110000...u21_max => unreachable,
-            else => |c| c,
+            else => unprocessed_codepoint,
         };
 
-        return Next{ .next_location = .{ .value = next_location }, .codepoint = codepoint };
+        return Next{ .next_location = @enumFromInt(next_location), .codepoint = codepoint };
     }
 
     fn read(source: Source, start: Location, buffer: []u21) !Location {
@@ -186,7 +181,7 @@ pub const UrlTokenIterator = struct {
 
 pub fn stringIsIdentSequence(string: Utf8String) bool {
     const source = Source.init(string) catch return false;
-    var location = Source.Location{};
+    var location: Source.Location = .start;
     var first_3: [3]u21 = undefined;
     _ = source.read(location, &first_3) catch return false;
     if (!codepointsStartAnIdentSequence(first_3)) return false;
@@ -285,7 +280,7 @@ pub fn nextToken(source: Source, location: Source.Location) !NextToken {
         '-' => {
             var next_3 = [3]u21{ '-', undefined, undefined };
             const after_cdc = try source.read(next.next_location, next_3[1..3]);
-            if (next_3[1] == '-' and next_3[2] == '>') {
+            if (std.mem.eql(u21, next_3[1..3], &[2]u21{ '-', '>' })) {
                 return NextToken{ .token = .token_cdc, .next_location = after_cdc };
             }
 
@@ -302,7 +297,7 @@ pub fn nextToken(source: Source, location: Source.Location) !NextToken {
         '<' => {
             var next_3: [3]u21 = undefined;
             const after_cdo = try source.read(next.next_location, &next_3);
-            if (next_3[0] == '!' and next_3[1] == '-' and next_3[2] == '-') {
+            if (std.mem.eql(u21, &next_3, &[3]u21{ '!', '-', '-' })) {
                 return NextToken{ .token = .token_cdo, .next_location = after_cdo };
             } else {
                 return NextToken{ .token = .{ .token_delim = next.codepoint }, .next_location = next.next_location };
@@ -628,7 +623,7 @@ fn consumeNumber(source: Source, start: Source.Location) !ConsumeNumber {
             '0'...'9' => {
                 number_type = .number;
                 buffer.append('e');
-                if (!location2.eql(e.next_location)) {
+                if (location2 != e.next_location) {
                     // There was an exponent sign
                     buffer.append(@intCast(exponent_sign.codepoint));
                 }
@@ -1000,7 +995,7 @@ test "tokenization" {
         .token_eof,
     };
 
-    var location = Source.Location{};
+    var location: Source.Location = .start;
     var i: usize = 0;
     while (true) {
         if (i >= expected.len) return error.TestFailure;

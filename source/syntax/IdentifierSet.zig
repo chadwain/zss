@@ -19,7 +19,6 @@ string_data: SegmentedList(u8, 0) = .{},
 /// The maximum number of identifiers this set can hold.
 max_size: usize,
 /// Choose how to compare identifiers.
-// TODO: We may want to have identifiers that are compared either case-insensitively or case-sensitively in the same set.
 case: Case,
 
 pub const Case = enum { sensitive, insensitive };

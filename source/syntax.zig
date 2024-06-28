@@ -333,7 +333,7 @@ pub const ComponentTree = struct {
                     const component = c.get(index);
                     const indent = (stack.items.len - 1) * 4;
                     try writer.writeByteNTimes(' ', indent);
-                    try writer.print("{} {s} {} ", .{ index, @tagName(component.tag), component.location.value });
+                    try writer.print("{} {s} {} ", .{ index, @tagName(component.tag), @intFromEnum(component.location) });
                     try printExtra(writer, component.tag, component.extra);
                     try writer.writeAll("\n");
 

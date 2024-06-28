@@ -121,6 +121,7 @@ pub const Iterator = struct {
     }
 };
 
+// TODO: With normal tuples and destructuring, this is no longer needed
 fn Pair(comptime First: type) type {
     return std.meta.Tuple(&[2]type{ First, Iterator });
 }
