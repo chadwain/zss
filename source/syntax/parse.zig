@@ -188,7 +188,6 @@ const Parser = struct {
             qualified_rule: QualifiedRule,
             at_rule: AtRule,
             simple_block: SimpleBlock,
-            function,
         };
 
         const ListOfRules = struct {
@@ -310,7 +309,10 @@ const Parser = struct {
             .location = location,
             .extra = Extra.make(0),
         });
-        try parser.stack.append(parser.allocator, .{ .index = index, .data = .function });
+        try parser.stack.append(parser.allocator, .{
+            .index = index,
+            .data = .{ .simple_block = .{ .ending_token = .token_right_paren } },
+        });
     }
 
     /// `location` must be the location of a <{-token>, <[-token>, or <(-token>.
@@ -454,6 +456,18 @@ const Parser = struct {
     }
 };
 
+fn nextSimpleBlockToken(parser: *Parser, location: *Source.Location, ending_token: Component.Tag) !?Token {
+    const tag = try parser.source.next(location);
+    if (tag == ending_token) {
+        return null;
+    } else if (tag == .token_eof) {
+        // NOTE: Parse error
+        return null;
+    } else {
+        return tag;
+    }
+}
+
 fn loop(parser: *Parser, location: *Source.Location) !void {
     while (parser.stack.items.len > 1) {
         const frame = &parser.stack.items[parser.stack.items.len - 1];
@@ -467,7 +481,6 @@ fn loop(parser: *Parser, location: *Source.Location) !void {
             .style_block              => |*style_block|       try consumeStyleBlockContents(parser, location, style_block),
             .declaration_value        => |*declaration_value| try consumeDeclarationValue(parser, location, declaration_value),
             .simple_block             => |*simple_block|      try consumeSimpleBlock(parser, location, simple_block),
-            .function                 =>                      try consumeFunction(parser, location),
         }
         // zig fmt: on
     }
@@ -575,14 +588,11 @@ fn consumeQualifiedRule(parser: *Parser, location: *Source.Location, data: *Pars
 fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location, data: *Parser.Frame.StyleBlock) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = try parser.source.next(location);
+        const tag = (try nextSimpleBlockToken(parser, location, .token_right_curly)) orelse {
+            parser.popStyleBlock();
+            return;
+        };
         switch (tag) {
-            .token_right_curly, .token_eof => {
-                // NOTE: This prong replicates the behavior of consumeSimpleBlock (because style blocks are simple blocks)
-                // NOTE: Parse error, if it's an <EOF-token>
-                parser.popStyleBlock();
-                return;
-            },
             .token_whitespace, .token_semicolon => {},
             .token_at_keyword => {
                 try parser.pushAtRule(saved_location);
@@ -734,65 +744,37 @@ fn ignoreComponentValue(parser: *Parser, first_tag: Component.Tag, location: *So
         else => return,
     }
 
-    const initial_len = parser.stack.items.len;
-    defer assert(parser.stack.items.len == initial_len);
+    const allocator = parser.allocator;
+    var block_stack = ArrayListUnmanaged(Component.Tag){};
+    defer block_stack.deinit(allocator);
 
     var tag = first_tag;
-    while (true) {
+    while (true) : (tag = try parser.source.next(location)) {
         switch (tag) {
             .token_left_curly, .token_left_square, .token_left_paren, .token_function => {
-                try parser.stack.append(parser.allocator, .{
-                    .index = undefined,
-                    .data = .{ .simple_block = .{ .ending_token = mirrorToken(tag) } },
-                });
+                try block_stack.append(allocator, mirrorToken(tag));
             },
             .token_right_curly, .token_right_square, .token_right_paren => {
-                if (parser.stack.items[parser.stack.items.len - 1].data.simple_block.ending_token == tag) {
-                    _ = parser.stack.pop();
-                    if (parser.stack.items.len == initial_len) return;
+                if (block_stack.items[block_stack.items.len - 1] == tag) {
+                    _ = block_stack.pop();
+                    if (block_stack.items.len == 0) return;
                 }
             },
-            .token_eof => {
-                parser.stack.shrinkRetainingCapacity(initial_len);
-                return;
-            },
+            .token_eof => return,
             else => {},
         }
-        tag = try parser.source.next(location);
     }
 }
 
 fn consumeSimpleBlock(parser: *Parser, location: *Source.Location, data: *const Parser.Frame.SimpleBlock) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = try parser.source.next(location);
-        if (tag == data.ending_token) {
+        const tag = (try nextSimpleBlockToken(parser, location, data.ending_token)) orelse {
             return parser.popComponent();
-        } else if (tag == .token_eof) {
-            // NOTE: Parse error
-            return parser.popComponent();
-        } else {
-            const must_suspend = try consumeComponentValue(parser, tag, saved_location);
-            if (must_suspend) return;
-        }
-    }
-}
+        };
 
-fn consumeFunction(parser: *Parser, location: *Source.Location) !void {
-    while (true) {
-        const saved_location = location.*;
-        const tag = try parser.source.next(location);
-        switch (tag) {
-            .token_right_paren => return parser.popComponent(),
-            .token_eof => {
-                // NOTE: Parse error
-                return parser.popComponent();
-            },
-            else => {
-                const must_suspend = try consumeComponentValue(parser, tag, saved_location);
-                if (must_suspend) return;
-            },
-        }
+        const must_suspend = try consumeComponentValue(parser, tag, saved_location);
+        if (must_suspend) return;
     }
 }
 
@@ -814,7 +796,7 @@ test "parse a stylesheet" {
         \\
         \\root {
         \\    prop: value;
-        \\    prop2: !important
+        \\    prop2: func(abc) !important
         \\}
         \\
         \\other {}
@@ -827,25 +809,27 @@ test "parse a stylesheet" {
     defer tree.deinit(allocator);
 
     // zig fmt: off
-    const expected = [18]Component{
-        .{ .next_sibling = 18, .tag = .rule_list,             .location = @enumFromInt(0),  .extra = Extra.make(0)  },
+    const expected = [20]Component{
+        .{ .next_sibling = 20, .tag = .rule_list,             .location = @enumFromInt(0),  .extra = Extra.make(0)  },
         .{ .next_sibling = 4,  .tag = .at_rule,               .location = @enumFromInt(0),  .extra = Extra.make(0)  },
         .{ .next_sibling = 3,  .tag = .token_whitespace,      .location = @enumFromInt(8),  .extra = Extra.make(0)  },
         .{ .next_sibling = 4,  .tag = .token_string,          .location = @enumFromInt(9),  .extra = Extra.make(0)  },
         .{ .next_sibling = 7,  .tag = .at_rule,               .location = @enumFromInt(18), .extra = Extra.make(6)  },
         .{ .next_sibling = 6,  .tag = .token_whitespace,      .location = @enumFromInt(27), .extra = Extra.make(0)  },
         .{ .next_sibling = 7,  .tag = .simple_block_curly,    .location = @enumFromInt(28), .extra = Extra.make(0)  },
-        .{ .next_sibling = 14, .tag = .qualified_rule,        .location = @enumFromInt(32), .extra = Extra.make(10) },
+        .{ .next_sibling = 16, .tag = .qualified_rule,        .location = @enumFromInt(32), .extra = Extra.make(10) },
         .{ .next_sibling = 9,  .tag = .token_ident,           .location = @enumFromInt(32), .extra = Extra.make(0)  },
         .{ .next_sibling = 10, .tag = .token_whitespace,      .location = @enumFromInt(36), .extra = Extra.make(0)  },
-        .{ .next_sibling = 14, .tag = .style_block,           .location = @enumFromInt(37), .extra = Extra.make(13) },
+        .{ .next_sibling = 16, .tag = .style_block,           .location = @enumFromInt(37), .extra = Extra.make(13) },
         .{ .next_sibling = 13, .tag = .declaration_normal,    .location = @enumFromInt(43), .extra = Extra.make(0)  },
         .{ .next_sibling = 13, .tag = .token_ident,           .location = @enumFromInt(49), .extra = Extra.make(0)  },
-        .{ .next_sibling = 14, .tag = .declaration_important, .location = @enumFromInt(60), .extra = Extra.make(11) },
-        .{ .next_sibling = 18, .tag = .qualified_rule,        .location = @enumFromInt(81), .extra = Extra.make(17) },
-        .{ .next_sibling = 16, .tag = .token_ident,           .location = @enumFromInt(81), .extra = Extra.make(0)  },
-        .{ .next_sibling = 17, .tag = .token_whitespace,      .location = @enumFromInt(86), .extra = Extra.make(0)  },
-        .{ .next_sibling = 18, .tag = .style_block,           .location = @enumFromInt(87), .extra = Extra.make(0)  },
+        .{ .next_sibling = 16, .tag = .declaration_important, .location = @enumFromInt(60), .extra = Extra.make(11) },
+        .{ .next_sibling = 16, .tag = .function,              .location = @enumFromInt(67), .extra = Extra.make(0)  },
+        .{ .next_sibling = 16, .tag = .token_ident,           .location = @enumFromInt(72), .extra = Extra.make(0)  },
+        .{ .next_sibling = 20, .tag = .qualified_rule,        .location = @enumFromInt(91), .extra = Extra.make(19) },
+        .{ .next_sibling = 18, .tag = .token_ident,           .location = @enumFromInt(91), .extra = Extra.make(0)  },
+        .{ .next_sibling = 19, .tag = .token_whitespace,      .location = @enumFromInt(96), .extra = Extra.make(0)  },
+        .{ .next_sibling = 20, .tag = .style_block,           .location = @enumFromInt(97), .extra = Extra.make(0)  },
     };
     // zig fmt: on
 
