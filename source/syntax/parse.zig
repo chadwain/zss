@@ -9,6 +9,7 @@ const tokenize = syntax.tokenize;
 const Component = syntax.Component;
 const ComponentTree = syntax.ComponentTree;
 const Extra = Component.Extra;
+const Stack = zss.util.Stack;
 const Token = tokenize.Token;
 const Utf8String = zss.util.Utf8String;
 
@@ -146,11 +147,11 @@ pub const UrlTokenIterator = struct {
 /// Creates a ComponentTree with a root node with tag `rule_list`
 /// Implements CSS Syntax Level 3 Section 9 "Parse a CSS stylesheet"
 pub fn parseCssStylesheet(source: Source, allocator: Allocator) !ComponentTree {
-    var parser = try Parser.init(source, allocator);
+    var parser: Parser = .{ .source = source, .allocator = allocator };
     defer parser.deinit();
 
     var location: Source.Location = .start;
-    try parser.pushListOfRules(location, true);
+    try parser.initListOfRules(location, true);
     try loop(&parser, &location);
 
     return parser.finish();
@@ -159,19 +160,19 @@ pub fn parseCssStylesheet(source: Source, allocator: Allocator) !ComponentTree {
 /// Creates a ComponentTree with a root node with tag `component_list`
 /// Implements CSS Syntax Level 3 Section 5.3.10 "Parse a list of component values"
 pub fn parseListOfComponentValues(source: Source, allocator: Allocator) !ComponentTree {
-    var parser = try Parser.init(source, allocator);
+    var parser: Parser = .{ .source = source, .allocator = allocator };
     defer parser.deinit();
 
     var location: Source.Location = .start;
-    try parser.pushListOfComponentValues(location);
+    try parser.initListOfComponentValues(location);
     try loop(&parser, &location);
 
     return parser.finish();
 }
 
 const Parser = struct {
-    stack: ArrayListUnmanaged(Frame),
-    tree: ComponentTree,
+    stack: Stack(Frame) = .{},
+    tree: ComponentTree = .{},
     source: Source,
     allocator: Allocator,
 
@@ -180,7 +181,6 @@ const Parser = struct {
         data: Data,
 
         const Data = union(enum) {
-            root,
             list_of_rules: ListOfRules,
             list_of_component_values,
             style_block: StyleBlock,
@@ -219,21 +219,32 @@ const Parser = struct {
         };
     };
 
-    fn init(source: Source, allocator: Allocator) !Parser {
-        var stack = ArrayListUnmanaged(Frame){};
-        try stack.append(allocator, .{ .index = undefined, .data = .root });
-
-        return Parser{
-            .stack = stack,
-            .tree = .{},
-            .source = source,
-            .allocator = allocator,
-        };
-    }
-
     fn deinit(parser: *Parser) void {
         parser.stack.deinit(parser.allocator);
         parser.tree.deinit(parser.allocator);
+    }
+
+    fn initListOfRules(parser: *Parser, location: Source.Location, top_level: bool) !void {
+        const index = try parser.newComponent(.{
+            .next_sibling = undefined,
+            .tag = .rule_list,
+            .location = location,
+            .extra = Extra.make(0),
+        });
+        parser.stack.top = .{
+            .index = index,
+            .data = .{ .list_of_rules = .{ .top_level = top_level } },
+        };
+    }
+
+    fn initListOfComponentValues(parser: *Parser, location: Source.Location) !void {
+        const index = try parser.newComponent(.{
+            .next_sibling = undefined,
+            .tag = .component_list,
+            .location = location,
+            .extra = Extra.make(0),
+        });
+        parser.stack.top = .{ .index = index, .data = .list_of_component_values };
     }
 
     fn finish(parser: *Parser) ComponentTree {
@@ -243,17 +254,24 @@ const Parser = struct {
     }
 
     /// Returns the index of the new component
-    fn appendComponent(parser: *Parser, component: Component) !ComponentTree.Size {
+    fn newComponent(parser: *Parser, component: Component) !ComponentTree.Size {
         if (parser.tree.components.len == std.math.maxInt(ComponentTree.Size)) return error.Overflow;
         const index = @as(ComponentTree.Size, @intCast(parser.tree.components.len));
         try parser.tree.components.append(parser.allocator, component);
         return index;
     }
 
+    fn pushFrame(parser: *Parser, frame: Frame) !void {
+        try parser.stack.push(parser.allocator, frame);
+        // This error forces the current stack frame being evaluated to stop executing.
+        // This error will then be caught in the `loop` function.
+        return error.ControlFlowSuspend;
+    }
+
     /// Appends any object that can be represented with a single component
-    fn appendBasicComponent(parser: *Parser, tag: Component.Tag, location: Source.Location, extra: Component.Extra) !void {
+    fn appendComponentValue(parser: *Parser, tag: Component.Tag, location: Source.Location, extra: Component.Extra) !void {
         const index = @as(ComponentTree.Size, @intCast(parser.tree.components.len));
-        _ = try parser.appendComponent(.{
+        _ = try parser.newComponent(.{
             .next_sibling = index + 1,
             .tag = tag,
             .location = location,
@@ -264,13 +282,13 @@ const Parser = struct {
     fn appendDimension(parser: *Parser, location: Source.Location, dimension: Token.Dimension) !void {
         // TODO: Using two components for a dimension is overkill. Find a way to make it just one.
         const index = @as(ComponentTree.Size, @intCast(parser.tree.components.len));
-        _ = try parser.appendComponent(.{
+        _ = try parser.newComponent(.{
             .next_sibling = index + 2,
             .tag = .token_dimension,
             .location = location,
             .extra = Extra.make(@bitCast(dimension.number)),
         });
-        _ = try parser.appendComponent(.{
+        _ = try parser.newComponent(.{
             .next_sibling = index + 2,
             .tag = .token_unit,
             .location = dimension.unit_location,
@@ -278,38 +296,15 @@ const Parser = struct {
         });
     }
 
-    fn pushListOfRules(parser: *Parser, location: Source.Location, top_level: bool) !void {
-        const index = try parser.appendComponent(.{
-            .next_sibling = undefined,
-            .tag = .rule_list,
-            .location = location,
-            .extra = Extra.make(0),
-        });
-        try parser.stack.append(parser.allocator, .{
-            .index = index,
-            .data = .{ .list_of_rules = .{ .top_level = top_level } },
-        });
-    }
-
-    fn pushListOfComponentValues(parser: *Parser, location: Source.Location) !void {
-        const index = try parser.appendComponent(.{
-            .next_sibling = undefined,
-            .tag = .component_list,
-            .location = location,
-            .extra = Extra.make(0),
-        });
-        try parser.stack.append(parser.allocator, .{ .index = index, .data = .list_of_component_values });
-    }
-
     /// `location` must be the location of a <function-token>.
     fn pushFunction(parser: *Parser, location: Source.Location) !void {
-        const index = try parser.appendComponent(.{
+        const index = try parser.newComponent(.{
             .next_sibling = undefined,
             .tag = .function,
             .location = location,
             .extra = Extra.make(0),
         });
-        try parser.stack.append(parser.allocator, .{
+        try parser.pushFrame(.{
             .index = index,
             .data = .{ .simple_block = .{ .ending_token = .token_right_paren } },
         });
@@ -323,13 +318,13 @@ const Parser = struct {
             .token_left_paren => .simple_block_paren,
             else => unreachable,
         };
-        const index = try parser.appendComponent(.{
+        const index = try parser.newComponent(.{
             .next_sibling = undefined,
             .tag = component_tag,
             .location = location,
             .extra = Extra.make(0),
         });
-        try parser.stack.append(parser.allocator, .{
+        try parser.pushFrame(.{
             .index = index,
             .data = .{ .simple_block = .{ .ending_token = mirrorToken(tag) } },
         });
@@ -350,13 +345,13 @@ const Parser = struct {
     /// `location` must be the location of the first token of the at-rule (i.e. the <at-keyword-token>).
     /// To finish this component, use `popAtRule`.
     fn pushAtRule(parser: *Parser, location: Source.Location) !void {
-        const index = try parser.appendComponent(.{
+        const index = try parser.newComponent(.{
             .next_sibling = undefined,
             .tag = .at_rule,
             .location = location,
             .extra = undefined,
         });
-        try parser.stack.append(parser.allocator, .{ .index = index, .data = .{ .at_rule = .{} } });
+        try parser.pushFrame(.{ .index = index, .data = .{ .at_rule = .{} } });
     }
 
     fn popAtRule(parser: *Parser) void {
@@ -368,13 +363,13 @@ const Parser = struct {
     /// `location` must be the location of the first token of the qualified rule.
     /// To finish this component, use either `popQualifiedRule` or `discardQualifiedRule`.
     fn pushQualifiedRule(parser: *Parser, location: Source.Location, is_style_rule: bool) !void {
-        const index = try parser.appendComponent(.{
+        const index = try parser.newComponent(.{
             .next_sibling = undefined,
             .tag = .qualified_rule,
             .location = location,
             .extra = undefined,
         });
-        try parser.stack.append(parser.allocator, .{ .index = index, .data = .{ .qualified_rule = .{ .is_style_rule = is_style_rule } } });
+        try parser.pushFrame(.{ .index = index, .data = .{ .qualified_rule = .{ .is_style_rule = is_style_rule } } });
     }
 
     fn popQualifiedRule(parser: *Parser) void {
@@ -392,13 +387,13 @@ const Parser = struct {
     /// `location` must be the location of a <{-token>.
     /// To finish this component, use `popStyleBlock`.
     fn pushStyleBlock(parser: *Parser, location: Source.Location) !void {
-        const index = try parser.appendComponent(.{
+        const index = try parser.newComponent(.{
             .next_sibling = undefined,
             .tag = .style_block,
             .location = location,
             .extra = undefined,
         });
-        try parser.stack.append(parser.allocator, .{ .index = index, .data = .{ .style_block = .{} } });
+        try parser.pushFrame(.{ .index = index, .data = .{ .style_block = .{} } });
     }
 
     fn popStyleBlock(parser: *Parser) void {
@@ -414,14 +409,14 @@ const Parser = struct {
         style_block: *Frame.StyleBlock,
         previous_declaration: ComponentTree.Size,
     ) !void {
-        const index = try parser.appendComponent(.{
+        const index = try parser.newComponent(.{
             .next_sibling = undefined,
             .tag = undefined,
             .location = location,
             .extra = Extra.make(previous_declaration),
         });
         style_block.index_of_last_declaration = index;
-        try parser.stack.append(parser.allocator, .{ .index = index, .data = .{ .declaration_value = .{} } });
+        try parser.pushFrame(.{ .index = index, .data = .{ .declaration_value = .{} } });
     }
 
     fn popDeclarationValue(parser: *Parser) void {
@@ -469,20 +464,23 @@ fn nextSimpleBlockToken(parser: *Parser, location: *Source.Location, ending_toke
 }
 
 fn loop(parser: *Parser, location: *Source.Location) !void {
-    while (parser.stack.items.len > 1) {
-        const frame = &parser.stack.items[parser.stack.items.len - 1];
+    while (parser.stack.top) |*frame| {
         // zig fmt: off
-        switch (frame.data) {
-            .root                     =>                      unreachable,
-            .list_of_rules            => |*list_of_rules|     try consumeListOfRules(parser, location, list_of_rules),
-            .list_of_component_values =>                      try consumeListOfComponentValues(parser, location),
-            .qualified_rule           => |*qualified_rule|    try consumeQualifiedRule(parser, location, qualified_rule),
-            .at_rule                  => |*at_rule|           try consumeAtRule(parser, location, at_rule),
-            .style_block              => |*style_block|       try consumeStyleBlockContents(parser, location, style_block),
-            .declaration_value        => |*declaration_value| try consumeDeclarationValue(parser, location, declaration_value),
-            .simple_block             => |*simple_block|      try consumeSimpleBlock(parser, location, simple_block),
-        }
+        const result = switch (frame.data) {
+            // NOTE: `parser` and `&frame.data` alias
+            .list_of_rules            =>     |*list_of_rules| consumeListOfRules(parser, location, list_of_rules),
+            .list_of_component_values =>                      consumeListOfComponentValues(parser, location),
+            .qualified_rule           =>    |*qualified_rule| consumeQualifiedRule(parser, location, qualified_rule),
+            .at_rule                  =>           |*at_rule| consumeAtRule(parser, location, at_rule),
+            .style_block              =>       |*style_block| consumeStyleBlockContents(parser, location, style_block),
+            .declaration_value        => |*declaration_value| consumeDeclarationValue(parser, location, declaration_value),
+            .simple_block             =>      |*simple_block| consumeSimpleBlock(parser, location, simple_block),
+        };
         // zig fmt: on
+        result catch |err| switch (err) {
+            error.ControlFlowSuspend => {},
+            else => |e| return e,
+        };
     }
 }
 
@@ -501,13 +499,11 @@ fn consumeListOfRules(parser: *Parser, location: *Source.Location, data: *const 
                 }
             },
             .token_at_keyword => {
-                try parser.pushAtRule(saved_location);
-                return;
+                return parser.pushAtRule(saved_location);
             },
             else => {
                 location.* = saved_location;
-                try parser.pushQualifiedRule(saved_location, data.top_level);
-                return;
+                return parser.pushQualifiedRule(saved_location, data.top_level);
             },
         }
     }
@@ -519,10 +515,7 @@ fn consumeListOfComponentValues(parser: *Parser, location: *Source.Location) !vo
         const tag = try parser.source.next(location);
         switch (tag) {
             .token_eof => return parser.popComponent(),
-            else => {
-                const must_suspend = try consumeComponentValue(parser, tag, saved_location);
-                if (must_suspend) return;
-            },
+            else => try consumeComponentValue(parser, tag, saved_location),
         }
     }
 }
@@ -544,13 +537,9 @@ fn consumeAtRule(parser: *Parser, location: *Source.Location, data: *Parser.Fram
             },
             .token_left_curly => {
                 data.index_of_block = @intCast(parser.tree.components.len);
-                try parser.pushSimpleBlock(tag, saved_location);
-                return;
+                return parser.pushSimpleBlock(tag, saved_location);
             },
-            else => {
-                const must_suspend = try consumeComponentValue(parser, tag, saved_location);
-                if (must_suspend) return;
-            },
+            else => try consumeComponentValue(parser, tag, saved_location),
         }
     }
 }
@@ -575,12 +564,8 @@ fn consumeQualifiedRule(parser: *Parser, location: *Source.Location, data: *Pars
                     false => try parser.pushSimpleBlock(tag, saved_location),
                     true => try parser.pushStyleBlock(saved_location),
                 }
-                return;
             },
-            else => {
-                const must_suspend = try consumeComponentValue(parser, tag, saved_location);
-                if (must_suspend) return;
-            },
+            else => try consumeComponentValue(parser, tag, saved_location),
         }
     }
 }
@@ -596,18 +581,12 @@ fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location, data: 
             .token_whitespace, .token_semicolon => {},
             .token_at_keyword => {
                 try parser.pushAtRule(saved_location);
-                return;
             },
-            .token_ident => {
-                if (try consumeDeclarationStart(parser, location, data, saved_location, data.index_of_last_declaration)) {
-                    return;
-                }
-            },
+            .token_ident => try consumeDeclarationStart(parser, location, data, saved_location, data.index_of_last_declaration),
             else => {
                 if (tag == .token_delim and tag.token_delim == '&') {
                     location.* = saved_location;
                     try parser.pushQualifiedRule(saved_location, false);
-                    return;
                 } else {
                     // NOTE: Parse error
                     location.* = saved_location;
@@ -633,14 +612,14 @@ fn seekToEndOfDeclaration(parser: *Parser, location: *Source.Location) !void {
     }
 }
 
-/// If a declaration's start can be successfully parsed, this pushes a new frame onto the parser's stack and returns `true`.
+/// If a declaration's start can be successfully parsed, this pushes a new frame onto the parser's stack.
 fn consumeDeclarationStart(
     parser: *Parser,
     location: *Source.Location,
     style_block: *Parser.Frame.StyleBlock,
     name_location: Source.Location,
     previous_declaration: ComponentTree.Size,
-) !bool {
+) !void {
     while (true) {
         const saved_location = location.*;
         const tag = try parser.source.next(location);
@@ -650,7 +629,7 @@ fn consumeDeclarationStart(
             else => {
                 // NOTE: Parse error
                 location.* = saved_location;
-                return false;
+                return;
             },
         }
     }
@@ -663,7 +642,6 @@ fn consumeDeclarationStart(
             else => {
                 location.* = saved_location;
                 try parser.pushDeclarationValue(name_location, style_block, previous_declaration);
-                return true;
             },
         }
     }
@@ -684,7 +662,7 @@ fn consumeDeclarationValue(parser: *Parser, location: *Source.Location, data: *P
                 return;
             },
             .token_whitespace => {
-                try parser.appendBasicComponent(tag, saved_location, Extra.make(0));
+                try parser.appendComponentValue(tag, saved_location, Extra.make(0));
             },
             else => {
                 data.index_of_last_three_non_whitespace_components[0] = data.index_of_last_three_non_whitespace_components[1];
@@ -692,50 +670,28 @@ fn consumeDeclarationValue(parser: *Parser, location: *Source.Location, data: *P
                 data.index_of_last_three_non_whitespace_components[2] = @intCast(parser.tree.components.len);
                 data.num_non_whitespace_components +|= 1;
 
-                const must_suspend = try consumeComponentValue(parser, tag, saved_location);
-                if (must_suspend) return;
+                try consumeComponentValue(parser, tag, saved_location);
             },
         }
     }
 }
 
-/// Returns true if the component is "complex".
-/// A component is complex if it pushes a new frame onto the parser's stack.
-fn consumeComponentValue(parser: *Parser, tag: Token, location: Source.Location) !bool {
+fn consumeComponentValue(parser: *Parser, tag: Token, location: Source.Location) !void {
+    // zig fmt: off
     switch (tag) {
-        .token_left_curly, .token_left_square, .token_left_paren => {
-            try parser.pushSimpleBlock(tag, location);
-            return true;
-        },
-        .token_function => {
-            try parser.pushFunction(location);
-            return true;
-        },
-        .token_delim => |codepoint| {
-            try parser.appendBasicComponent(.token_delim, location, Extra.make(codepoint));
-            return false;
-        },
-        .token_integer => |integer| {
-            try parser.appendBasicComponent(.token_integer, location, Extra.make(@bitCast(integer)));
-            return false;
-        },
-        .token_number => |number| {
-            try parser.appendBasicComponent(.token_number, location, Extra.make(@bitCast(number)));
-            return false;
-        },
-        .token_percentage => |number| {
-            try parser.appendBasicComponent(.token_percentage, location, Extra.make(@bitCast(number)));
-            return false;
-        },
-        .token_dimension => |dimension| {
-            try parser.appendDimension(location, dimension);
-            return false;
-        },
-        else => {
-            try parser.appendBasicComponent(tag, location, Extra.make(0));
-            return false;
-        },
+        .token_left_curly,
+        .token_left_square,
+        .token_left_paren,
+        =>                               try parser.pushSimpleBlock(tag, location),
+        .token_function   =>             try parser.pushFunction(location),
+        .token_delim      => |codepoint| try parser.appendComponentValue(.token_delim, location, Extra.make(codepoint)),
+        .token_integer    =>   |integer| try parser.appendComponentValue(.token_integer, location, Extra.make(@bitCast(integer))),
+        .token_number     =>    |number| try parser.appendComponentValue(.token_number, location, Extra.make(@bitCast(number))),
+        .token_percentage =>    |number| try parser.appendComponentValue(.token_percentage, location, Extra.make(@bitCast(number))),
+        .token_dimension  => |dimension| try parser.appendDimension(location, dimension),
+        else              =>             try parser.appendComponentValue(tag, location, Extra.make(0)),
     }
+    // zig fmt: on
 }
 
 fn ignoreComponentValue(parser: *Parser, first_tag: Component.Tag, location: *Source.Location) !void {
@@ -772,9 +728,7 @@ fn consumeSimpleBlock(parser: *Parser, location: *Source.Location, data: *const 
         const tag = (try nextSimpleBlockToken(parser, location, data.ending_token)) orelse {
             return parser.popComponent();
         };
-
-        const must_suspend = try consumeComponentValue(parser, tag, saved_location);
-        if (must_suspend) return;
+        try consumeComponentValue(parser, tag, saved_location);
     }
 }
 
