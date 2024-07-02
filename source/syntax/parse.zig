@@ -420,8 +420,8 @@ const Parser = struct {
             .location = location,
             .extra = Extra.make(previous_declaration),
         });
-        try parser.stack.append(parser.allocator, .{ .index = index, .data = .{ .declaration_value = .{} } });
         style_block.index_of_last_declaration = index;
+        try parser.stack.append(parser.allocator, .{ .index = index, .data = .{ .declaration_value = .{} } });
     }
 
     fn popDeclarationValue(parser: *Parser) void {
