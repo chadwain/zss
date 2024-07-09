@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
+const zss = @import("zss.zig");
 const comptime_identifier_map = @import("syntax/comptime_identifier_map.zig");
 pub const tokenize = @import("syntax/tokenize.zig");
 pub const parse = @import("syntax/parse.zig");
@@ -17,9 +18,111 @@ comptime {
     }
 }
 
-pub const Unit = enum {
-    unrecognized,
-    px,
+/// The doc comment on each field contains:
+///     1: A description of what the token represents
+///     2: Where the token's `location` points to
+pub const Token = union(enum) {
+    /// The end of a sequence of tokens
+    /// location: The end of the source document
+    token_eof,
+    /// A sequence of one or more comment blocks
+    /// location: The opening '/' of the first comment block
+    token_comments,
+    /// An identifier
+    /// location: The first codepoint of the identifier
+    token_ident,
+    /// An identifier + a '(' codepoint
+    /// location: The first codepoint of the identifier
+    token_function,
+    /// An '@' codepoint + an identifier
+    /// location: The '@' codepoint
+    token_at_keyword,
+    /// A '#' codepoint + an identifier that does not form a valid ID selector
+    /// location: The '#' codepoint
+    token_hash_unrestricted,
+    /// A '#' codepoint + an identifier that forms a valid ID selector
+    /// location: The '#' codepoint
+    token_hash_id,
+    /// A quoted string
+    /// location: The beginning '\'' or '"' codepoint
+    token_string,
+    /// A quoted string with an unescaped newline in it
+    /// location: The beginning '\'' or '"' codepoint
+    token_bad_string,
+    /// The identifier "url" + a '(' codepoint + a sequence of codepoints + a ')' codepoint
+    /// location: The 'u' of "url"
+    token_url,
+    /// Identical to `token_url`, but the sequence contains invalid codepoints
+    /// location: The 'u' of "url"
+    token_bad_url,
+    /// A single codepoint
+    /// location: The codepoint
+    token_delim: u21,
+    /// An optional '+' or '-' codepoint + a sequence of digits
+    /// location: The +/- sign or the first digit
+    token_integer: i32,
+    /// A numeric value (integral or floating point)
+    /// location: The first codepoint of the number
+    token_number: f32,
+    /// A numeric value (integral or floating point) + a '%' codepoint
+    /// location: The first codepoint of the number
+    token_percentage: f32,
+    /// A numeric value (integral or floating point) + an identifier
+    /// location: The first codepoint of the number
+    token_dimension: Dimension,
+    /// A series of one or more whitespace codepoints
+    /// location: The first whitespace codepoint
+    token_whitespace,
+    /// The sequence "<!--"
+    /// location: The '<' of the sequence
+    token_cdo,
+    /// The sequence "-->"
+    /// location: The first '-' of the sequence
+    token_cdc,
+    /// A ':' codepoint
+    /// location: The codepoint
+    token_colon,
+    /// A ';' codepoint
+    /// location: The codepoint
+    token_semicolon,
+    /// A ',' codepoint
+    /// location: The codepoint
+    token_comma,
+    /// A '[' codepoint
+    /// location: The codepoint
+    token_left_square,
+    /// A ']' codepoint
+    /// location: The codepoint
+    token_right_square,
+    /// A '(' codepoint
+    /// location: The codepoint
+    token_left_paren,
+    /// A ')' codepoint
+    /// location: The codepoint
+    token_right_paren,
+    /// A '{' codepoint
+    /// location: The codepoint
+    token_left_curly,
+    /// A '}' codepoint
+    /// location: The codepoint
+    token_right_curly,
+
+    pub const Unit = enum {
+        unrecognized,
+        px,
+    };
+
+    pub const Dimension = struct {
+        number: f32,
+        unit: Unit,
+        unit_location: tokenize.Source.Location,
+    };
+
+    pub fn cast(token: Token, comptime Derived: type) Derived {
+        comptime zss.util.ensureCompatibleEnums(std.meta.Tag(Token), Derived);
+        @setRuntimeSafety(false);
+        return @enumFromInt(@intFromEnum(token));
+    }
 };
 
 /// Corresponds to what CSS calls a "component value".
@@ -59,175 +162,118 @@ pub const Component = struct {
             return @bitCast(extra);
         }
 
-        pub fn unit(extra: Extra) Unit {
+        pub fn unit(extra: Extra) Token.Unit {
             return @enumFromInt(@as(u32, @bitCast(extra)));
         }
     };
 
+    /// This enum is derived from `Token`.
     pub const Tag = enum {
-        /// The end of a sequence of tokens
-        /// location: The end of the stylesheet
         token_eof,
-        /// A sequence of one or more comment blocks
-        /// location: The opening '/' of the first comment block
         token_comments,
-
-        /// An identifier
-        /// location: The first codepoint of the identifier
         token_ident,
-        /// An identifier + a '(' codepoint
-        /// location: The first codepoint of the identifier
         token_function,
-        /// An '@' codepoint + an identifier
-        /// location: The '@' codepoint
         token_at_keyword,
-        /// A '#' codepoint + an identifier that does not form a valid ID selector
-        /// location: The '#' codepoint
         token_hash_unrestricted,
-        /// A '#' codepoint + an identifier that forms a valid ID selector
-        /// location: The '#' codepoint
         token_hash_id,
-        /// A quoted string
-        /// location: The beginning '\'' or '"' codepoint
         token_string,
-        /// A quoted string with an unescaped newline in it
-        /// location: The beginning '\'' or '"' codepoint
         token_bad_string,
-        /// The identifier "url" + a '(' codepoint + a sequence of codepoints + a ')' codepoint
-        /// location: The 'u' of "url"
         token_url,
-        /// Identical to `token_url`, but the sequence contains invalid codepoints
-        /// location: The 'u' of "url"
         token_bad_url,
-        /// A single codepoint
-        /// location: The codepoint
-        /// extra: Use `extra.codepoint()` to get the value of the codepoint
+        /// extra: Use `extra.codepoint()` to get the value of the codepoint as a `u21`
         token_delim,
-        /// An optional '+' or '-' codepoint + a sequence of digits
-        /// location: The +/- sign or the first digit
         /// extra: Use `extra.integer()` to get the integer as an `i32`
         token_integer,
-        /// A numeric value (integral or floating point)
-        /// location: The first codepoint of the number
         /// extra: Use `extra.number()` to get the number as an `f32`
         token_number,
-        /// A numeric value (integral or floating point) + a '%' codepoint
-        /// location: The first codepoint of the number
         /// extra: Use `extra.number()` to get the number as an `f32`
         token_percentage,
-        /// A numeric value (integral or floating point) + an identifier
-        /// children: The unit (a `token_unit`)
-        /// location: The first codepoint of the number
-        /// extra: Use `extra.number()` to get the number as an `f32`
+        /// children: The dimension's unit (a `unit`)
+        /// extra:    Use `extra.number()` to get the number as an `f32`
         token_dimension,
-        /// A dimension's unit (an identifier)
-        /// location: The first codepoint of the unit identifier
-        /// extra: Use `extra.unit()` to get the unit
-        token_unit,
-        /// A series of one or more whitespace codepoints
-        /// location: The first whitespace codepoint
         token_whitespace,
-        /// The sequence "<!--"
-        /// location: The '<' of the sequence
         token_cdo,
-        /// The sequence "-->"
-        /// location: The first '-' of the sequence
         token_cdc,
-        /// A ':' codepoint
-        /// location: The codepoint
         token_colon,
-        /// A ';' codepoint
-        /// location: The codepoint
         token_semicolon,
-        /// A ',' codepoint
-        /// location: The codepoint
         token_comma,
-        /// A '[' codepoint
-        /// location: The codepoint
         token_left_square,
-        /// A ']' codepoint
-        /// location: The codepoint
         token_right_square,
-        /// A '(' codepoint
-        /// location: The codepoint
         token_left_paren,
-        /// A ')' codepoint
-        /// location: The codepoint
         token_right_paren,
-        /// A '{' codepoint
-        /// location: The codepoint
         token_left_curly,
-        /// A '}' codepoint
-        /// location: The codepoint
         token_right_curly,
 
+        /// A dimension's unit (an identifier)
+        /// location: The first codepoint of the unit identifier
+        /// extra:    Use `extra.unit()` to get the unit as a `Token.Unit`
+        unit,
         /// An at-rule
         /// children: A prelude (an arbitrary sequence of components) + optionally, a `simple_block_curly`
         /// location: The location of the <at-keyword-token> that started this rule
-        /// extra: Use `extra.index()` to get a component tree index.
-        ///        Then, if the value is 0, the at-rule does not have an associated <{}-block>.
-        ///        Otherwise, the at-rule does have a <{}-block>, and the value is the index of that block (with tag = `simple_block_curly`).
+        /// extra:    Use `extra.index()` to get a component tree index.
+        ///           Then, if the value is 0, the at-rule does not have an associated <{}-block>.
+        ///           Otherwise, the at-rule does have a <{}-block>, and the value is the index of that block (with tag = `simple_block_curly`).
         at_rule,
         /// A qualified rule
-        /// children: A prelude (an arbitrary sequence of components) + a `simple_block_curly` or `style_block`
         /// location: The location of the first token of the prelude
-        /// extra: Use `extra.index()` to get a component tree index.
-        ///        The value is the index of the qualified rule's associated <{}-block> (with tag = `simple_block_curly` or `style_block`).
+        /// children: A prelude (an arbitrary sequence of components) + a `simple_block_curly` or `style_block`
+        /// extra:    Use `extra.index()` to get a component tree index.
+        ///           The value is the index of the qualified rule's associated <{}-block> (with tag = `simple_block_curly` or `style_block`).
         qualified_rule,
         /// A '{}-block' containing style rules
+        /// location: The location of the <{-token> that opens this block
         /// children: A sequence of `declaration_normal`, `declaration_important`, `qualified_rule`, and `at_rule`
         ///           (Note: This sequence will match the order that each component appeared in the stylesheet.
         ///           However, logically, it must be treated as if all of the declarations appear first, followed by the rules.
         ///           See CSS Syntax Level 3 section 5.4.4 "Consume a style block's contents".)
-        /// location: The location of the <{-token> that opens this block
-        /// extra: Use `extra.index()` to get a component tree index.
-        ///        Then, if the value is 0, the style block does not contain any declarations.
-        ///        Otherwise, the value is the index of the *last* declaration in the style block
-        ///        (with tag = `declaration_normal` or `declaration_important`).
+        /// extra:    Use `extra.index()` to get a component tree index.
+        ///           Then, if the value is 0, the style block does not contain any declarations.
+        ///           Otherwise, the value is the index of the *last* declaration in the style block
+        ///           (with tag = `declaration_normal` or `declaration_important`).
         style_block,
         /// A CSS property declaration that does not end with "!important"
+        /// location: The location of the <ident-token> that is the name for this declaration
         /// children: The declaration's value (an arbitrary sequence of components)
         ///           Trailing and leading <whitespace-token>s are not included
-        /// location: The location of the <ident-token> that is the name for this declaration
-        /// extra: Use `extra.index()` to get a component tree index.
-        ///        Then, if the value is 0, the declaration is the first declaration in its containing style block.
-        ///        Otherwise, the value is the index of the declaration that appeared just before this one
-        ///        (with tag = `declaration_normal` or `declaration_important`).
+        /// extra:    Use `extra.index()` to get a component tree index.
+        ///           Then, if the value is 0, the declaration is the first declaration in its containing style block.
+        ///           Otherwise, the value is the index of the declaration that appeared just before this one
+        ///           (with tag = `declaration_normal` or `declaration_important`).
         declaration_normal,
         /// A CSS property declaration that ends with "!important"
+        /// location: The location of the <ident-token> that is the name for this declaration
         /// children: The declaration's value (an arbitrary sequence of components)
         ///           Trailing and leading <whitespace-token>s are not included
         ///           The <delim-token> and <ident-token> that make up "!important" are not included
-        /// location: The location of the <ident-token> that is the name for this declaration
-        /// extra: Use `extra.index()` to get a component tree index.
-        ///        Then, if the value is 0, the declaration is the first declaration in its containing style block.
-        ///        Otherwise, the value is the index of the declaration that appeared just before this one
-        ///        (with tag = `declaration_normal` or `declaration_important`).
+        /// extra:    Use `extra.index()` to get a component tree index.
+        ///           Then, if the value is 0, the declaration is the first declaration in its containing style block.
+        ///           Otherwise, the value is the index of the declaration that appeared just before this one
+        ///           (with tag = `declaration_normal` or `declaration_important`).
         declaration_important,
         /// A function
         /// children: The function's arguments (an arbitrary sequence of components)
         /// location: The location of the <function-token> that created this component
         function,
         /// A '[]-block'
-        /// children: An arbitrary sequence of components
         /// location: The location of the <[-token> that opens this block
+        /// children: An arbitrary sequence of components
         simple_block_square,
         /// A '{}-block'
-        /// children: An arbitrary sequence of components
         /// location: The location of the <{-token> that opens this block
+        /// children: An arbitrary sequence of components
         simple_block_curly,
         /// A '()-block'
-        /// children: An arbitrary sequence of components
         /// location: The location of the <(-token> that opens this block
+        /// children: An arbitrary sequence of components
         simple_block_paren,
-
         /// A list of at-rules and qualified rules
-        /// children: A sequence of `at_rule` and `qualified_rule`
         /// location: The beginning of the stylesheet
+        /// children: A sequence of `at_rule` and `qualified_rule`
         rule_list,
         /// A list of component values
-        /// children: An arbitrary sequence of components
         /// location: The beginning of the stylesheet
+        /// children: An arbitrary sequence of components
         component_list,
     };
 };
@@ -352,7 +398,7 @@ pub const ComponentTree = struct {
                 .token_delim => try writer.print("U+{X}", .{extra.codepoint()}),
                 .token_integer => try writer.print("{}", .{extra.integer()}),
                 .token_number, .token_dimension => try writer.print("{d}", .{extra.number()}),
-                .token_unit => try writer.print("{s}", .{@tagName(extra.unit())}),
+                .unit => try writer.print("{s}", .{@tagName(extra.unit())}),
                 .token_percentage => try writer.print("{d}%", .{extra.number()}),
                 else => try writer.print("{}", .{@as(u32, @bitCast(extra))}),
             }

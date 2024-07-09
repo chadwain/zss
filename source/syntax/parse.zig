@@ -10,7 +10,7 @@ const Component = syntax.Component;
 const ComponentTree = syntax.ComponentTree;
 const Extra = Component.Extra;
 const Stack = zss.util.Stack;
-const Token = tokenize.Token;
+const Token = syntax.Token;
 const Utf8String = zss.util.Utf8String;
 
 /// A source of `Token`.
@@ -215,7 +215,7 @@ const Parser = struct {
         };
 
         const SimpleBlock = struct {
-            ending_token: Component.Tag,
+            ending_tag: Component.Tag,
         };
     };
 
@@ -290,7 +290,7 @@ const Parser = struct {
         });
         _ = try parser.newComponent(.{
             .next_sibling = index + 2,
-            .tag = .token_unit,
+            .tag = .unit,
             .location = dimension.unit_location,
             .extra = Extra.make(@intFromEnum(dimension.unit)),
         });
@@ -306,7 +306,7 @@ const Parser = struct {
         });
         try parser.pushFrame(.{
             .index = index,
-            .data = .{ .simple_block = .{ .ending_token = .token_right_paren } },
+            .data = .{ .simple_block = .{ .ending_tag = .token_right_paren } },
         });
     }
 
@@ -326,7 +326,7 @@ const Parser = struct {
         });
         try parser.pushFrame(.{
             .index = index,
-            .data = .{ .simple_block = .{ .ending_token = mirrorToken(tag) } },
+            .data = .{ .simple_block = .{ .ending_tag = mirrorTag(tag) } },
         });
     }
 
@@ -451,15 +451,15 @@ const Parser = struct {
     }
 };
 
-fn nextSimpleBlockToken(parser: *Parser, location: *Source.Location, ending_token: Component.Tag) !?Token {
-    const tag = try parser.source.next(location);
-    if (tag == ending_token) {
+fn nextSimpleBlockToken(parser: *Parser, location: *Source.Location, ending_tag: Component.Tag) !?Token {
+    const token = try parser.source.next(location);
+    if (token.cast(Component.Tag) == ending_tag) {
         return null;
-    } else if (tag == .token_eof) {
+    } else if (token == .token_eof) {
         // NOTE: Parse error
         return null;
     } else {
-        return tag;
+        return token;
     }
 }
 
@@ -487,8 +487,8 @@ fn loop(parser: *Parser, location: *Source.Location) !void {
 fn consumeListOfRules(parser: *Parser, location: *Source.Location, data: *const Parser.Frame.ListOfRules) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = try parser.source.next(location);
-        switch (tag) {
+        const token = try parser.source.next(location);
+        switch (token) {
             .token_whitespace => {},
             .token_eof => return parser.popComponent(),
             .token_cdo, .token_cdc => {
@@ -512,10 +512,10 @@ fn consumeListOfRules(parser: *Parser, location: *Source.Location, data: *const 
 fn consumeListOfComponentValues(parser: *Parser, location: *Source.Location) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = try parser.source.next(location);
-        switch (tag) {
+        const token = try parser.source.next(location);
+        switch (token) {
             .token_eof => return parser.popComponent(),
-            else => try consumeComponentValue(parser, tag, saved_location),
+            else => try consumeComponentValue(parser, token, saved_location),
         }
     }
 }
@@ -528,8 +528,8 @@ fn consumeAtRule(parser: *Parser, location: *Source.Location, data: *Parser.Fram
 
     while (true) {
         const saved_location = location.*;
-        const tag = try parser.source.next(location);
-        switch (tag) {
+        const token = try parser.source.next(location);
+        switch (token) {
             .token_semicolon => return parser.popAtRule(),
             .token_eof => {
                 // NOTE: Parse error
@@ -537,9 +537,9 @@ fn consumeAtRule(parser: *Parser, location: *Source.Location, data: *Parser.Fram
             },
             .token_left_curly => {
                 data.index_of_block = @intCast(parser.tree.components.len);
-                return parser.pushSimpleBlock(tag, saved_location);
+                return parser.pushSimpleBlock(.token_left_curly, saved_location);
             },
-            else => try consumeComponentValue(parser, tag, saved_location),
+            else => try consumeComponentValue(parser, token, saved_location),
         }
     }
 }
@@ -552,8 +552,8 @@ fn consumeQualifiedRule(parser: *Parser, location: *Source.Location, data: *Pars
 
     while (true) {
         const saved_location = location.*;
-        const tag = try parser.source.next(location);
-        switch (tag) {
+        const token = try parser.source.next(location);
+        switch (token) {
             .token_eof => {
                 // NOTE: Parse error
                 return parser.discardQualifiedRule();
@@ -561,11 +561,11 @@ fn consumeQualifiedRule(parser: *Parser, location: *Source.Location, data: *Pars
             .token_left_curly => {
                 data.index_of_block = @intCast(parser.tree.components.len);
                 switch (data.is_style_rule) {
-                    false => try parser.pushSimpleBlock(tag, saved_location),
+                    false => try parser.pushSimpleBlock(.token_left_curly, saved_location),
                     true => try parser.pushStyleBlock(saved_location),
                 }
             },
-            else => try consumeComponentValue(parser, tag, saved_location),
+            else => try consumeComponentValue(parser, token, saved_location),
         }
     }
 }
@@ -573,18 +573,18 @@ fn consumeQualifiedRule(parser: *Parser, location: *Source.Location, data: *Pars
 fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location, data: *Parser.Frame.StyleBlock) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = (try nextSimpleBlockToken(parser, location, .token_right_curly)) orelse {
+        const token = (try nextSimpleBlockToken(parser, location, .token_right_curly)) orelse {
             parser.popStyleBlock();
             return;
         };
-        switch (tag) {
+        switch (token) {
             .token_whitespace, .token_semicolon => {},
             .token_at_keyword => {
                 try parser.pushAtRule(saved_location);
             },
             .token_ident => try consumeDeclarationStart(parser, location, data, saved_location, data.index_of_last_declaration),
             else => {
-                if (tag == .token_delim and tag.token_delim == '&') {
+                if (token == .token_delim and token.token_delim == '&') {
                     location.* = saved_location;
                     try parser.pushQualifiedRule(saved_location, false);
                 } else {
@@ -600,14 +600,14 @@ fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location, data: 
 fn seekToEndOfDeclaration(parser: *Parser, location: *Source.Location) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = try parser.source.next(location);
-        switch (tag) {
+        const token = try parser.source.next(location);
+        switch (token) {
             .token_semicolon, .token_eof => break,
             .token_right_curly => {
                 location.* = saved_location;
                 break;
             },
-            else => try ignoreComponentValue(parser, tag, location),
+            else => try ignoreComponentValue(parser, token, location),
         }
     }
 }
@@ -622,8 +622,8 @@ fn consumeDeclarationStart(
 ) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = try parser.source.next(location);
-        switch (tag) {
+        const token = try parser.source.next(location);
+        switch (token) {
             .token_whitespace => {},
             .token_colon => break,
             else => {
@@ -636,8 +636,8 @@ fn consumeDeclarationStart(
 
     while (true) {
         const saved_location = location.*;
-        const tag = try parser.source.next(location);
-        switch (tag) {
+        const token = try parser.source.next(location);
+        switch (token) {
             .token_whitespace => {},
             else => {
                 location.* = saved_location;
@@ -650,8 +650,8 @@ fn consumeDeclarationStart(
 fn consumeDeclarationValue(parser: *Parser, location: *Source.Location, data: *Parser.Frame.DeclarationValue) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = try parser.source.next(location);
-        switch (tag) {
+        const token = try parser.source.next(location);
+        switch (token) {
             .token_semicolon, .token_eof => {
                 parser.popDeclarationValue();
                 return;
@@ -662,7 +662,7 @@ fn consumeDeclarationValue(parser: *Parser, location: *Source.Location, data: *P
                 return;
             },
             .token_whitespace => {
-                try parser.appendComponentValue(tag, saved_location, Extra.make(0));
+                try parser.appendComponentValue(.token_whitespace, saved_location, Extra.make(0));
             },
             else => {
                 data.index_of_last_three_non_whitespace_components[0] = data.index_of_last_three_non_whitespace_components[1];
@@ -670,32 +670,32 @@ fn consumeDeclarationValue(parser: *Parser, location: *Source.Location, data: *P
                 data.index_of_last_three_non_whitespace_components[2] = @intCast(parser.tree.components.len);
                 data.num_non_whitespace_components +|= 1;
 
-                try consumeComponentValue(parser, tag, saved_location);
+                try consumeComponentValue(parser, token, saved_location);
             },
         }
     }
 }
 
-fn consumeComponentValue(parser: *Parser, tag: Token, location: Source.Location) !void {
+fn consumeComponentValue(parser: *Parser, token: Token, location: Source.Location) !void {
     // zig fmt: off
-    switch (tag) {
+    switch (token) {
         .token_left_curly,
         .token_left_square,
         .token_left_paren,
-        =>                               try parser.pushSimpleBlock(tag, location),
+        =>                               try parser.pushSimpleBlock(token.cast(Component.Tag), location),
         .token_function   =>             try parser.pushFunction(location),
         .token_delim      => |codepoint| try parser.appendComponentValue(.token_delim, location, Extra.make(codepoint)),
         .token_integer    =>   |integer| try parser.appendComponentValue(.token_integer, location, Extra.make(@bitCast(integer))),
         .token_number     =>    |number| try parser.appendComponentValue(.token_number, location, Extra.make(@bitCast(number))),
         .token_percentage =>    |number| try parser.appendComponentValue(.token_percentage, location, Extra.make(@bitCast(number))),
         .token_dimension  => |dimension| try parser.appendDimension(location, dimension),
-        else              =>             try parser.appendComponentValue(tag, location, Extra.make(0)),
+        else              =>             try parser.appendComponentValue(token.cast(Component.Tag), location, Extra.make(0)),
     }
     // zig fmt: on
 }
 
-fn ignoreComponentValue(parser: *Parser, first_tag: Component.Tag, location: *Source.Location) !void {
-    switch (first_tag) {
+fn ignoreComponentValue(parser: *Parser, first_token: Token, location: *Source.Location) !void {
+    switch (first_token) {
         .token_left_curly, .token_left_square, .token_left_paren, .token_function => {},
         else => return,
     }
@@ -704,14 +704,14 @@ fn ignoreComponentValue(parser: *Parser, first_tag: Component.Tag, location: *So
     var block_stack = ArrayListUnmanaged(Component.Tag){};
     defer block_stack.deinit(allocator);
 
-    var tag = first_tag;
-    while (true) : (tag = try parser.source.next(location)) {
-        switch (tag) {
+    var token = first_token;
+    while (true) : (token = try parser.source.next(location)) {
+        switch (token) {
             .token_left_curly, .token_left_square, .token_left_paren, .token_function => {
-                try block_stack.append(allocator, mirrorToken(tag));
+                try block_stack.append(allocator, mirrorTag(token.cast(Component.Tag)));
             },
             .token_right_curly, .token_right_square, .token_right_paren => {
-                if (block_stack.items[block_stack.items.len - 1] == tag) {
+                if (block_stack.items[block_stack.items.len - 1] == token.cast(Component.Tag)) {
                     _ = block_stack.pop();
                     if (block_stack.items.len == 0) return;
                 }
@@ -725,16 +725,16 @@ fn ignoreComponentValue(parser: *Parser, first_tag: Component.Tag, location: *So
 fn consumeSimpleBlock(parser: *Parser, location: *Source.Location, data: *const Parser.Frame.SimpleBlock) !void {
     while (true) {
         const saved_location = location.*;
-        const tag = (try nextSimpleBlockToken(parser, location, data.ending_token)) orelse {
+        const token = (try nextSimpleBlockToken(parser, location, data.ending_tag)) orelse {
             return parser.popComponent();
         };
-        try consumeComponentValue(parser, tag, saved_location);
+        try consumeComponentValue(parser, token, saved_location);
     }
 }
 
-/// Given a token that opens a block, return the token that would close the block.
-fn mirrorToken(token: Component.Tag) Component.Tag {
-    return switch (token) {
+/// Given a component that opens a block, return the component that would close the block.
+fn mirrorTag(tag: Component.Tag) Component.Tag {
+    return switch (tag) {
         .token_left_square => .token_right_square,
         .token_left_curly => .token_right_curly,
         .token_left_paren, .token_function => .token_right_paren,

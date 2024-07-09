@@ -6,7 +6,7 @@ const types = zss.values.types;
 const Component = zss.syntax.Component;
 const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;
-const Unit = zss.syntax.Unit;
+const Unit = zss.syntax.Token.Unit;
 const Utf8String = zss.util.Utf8String;
 
 /// A source of primitive CSS values.

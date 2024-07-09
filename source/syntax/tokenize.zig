@@ -8,7 +8,8 @@ const hexDigitToNumber = zss.util.unicode.hexDigitToNumber;
 const toLowercase = zss.util.unicode.toLowercase;
 const CheckedInt = zss.util.CheckedInt;
 const Component = zss.syntax.Component;
-const Unit = zss.syntax.Unit;
+const Token = zss.syntax.Token;
+const Unit = Token.Unit;
 const Utf8String = zss.util.Utf8String;
 
 const u21_max = std.math.maxInt(u21);
@@ -189,58 +190,6 @@ pub fn stringIsIdentSequence(string: Utf8String) bool {
     const final = source.next(location) catch return false;
     return final.codepoint == eof_codepoint;
 }
-
-pub const Token = union(Component.Tag) {
-    token_eof,
-    token_comments,
-
-    token_ident,
-    token_function,
-    token_at_keyword,
-    token_hash_unrestricted,
-    token_hash_id,
-    token_string,
-    token_bad_string,
-    token_url,
-    token_bad_url,
-    token_delim: u21,
-    token_integer: i32,
-    token_number: f32,
-    token_percentage: f32,
-    token_dimension: Dimension,
-    token_unit,
-    token_whitespace,
-    token_cdo,
-    token_cdc,
-    token_colon,
-    token_semicolon,
-    token_comma,
-    token_left_square,
-    token_right_square,
-    token_left_paren,
-    token_right_paren,
-    token_left_curly,
-    token_right_curly,
-
-    at_rule,
-    qualified_rule,
-    style_block,
-    declaration_normal,
-    declaration_important,
-    function,
-    simple_block_square,
-    simple_block_curly,
-    simple_block_paren,
-
-    rule_list,
-    component_list,
-
-    pub const Dimension = struct {
-        number: f32,
-        unit: Unit,
-        unit_location: Source.Location,
-    };
-};
 
 pub const NextToken = struct {
     token: Token,
@@ -961,7 +910,7 @@ test "tokenization" {
         \\end
     ;
     const source = try Source.init(Utf8String{ .data = input });
-    const expected = [_]Component.Tag{
+    const expected = [_]Token{
         .token_at_keyword,
         .token_whitespace,
         .token_string,
@@ -1001,7 +950,7 @@ test "tokenization" {
         if (i >= expected.len) return error.TestFailure;
         const next = try nextToken(source, location);
         const token = next.token;
-        try std.testing.expectEqual(expected[i], @as(Component.Tag, token));
+        try std.testing.expectEqual(expected[i], token);
         if (token == .token_eof) break;
         location = next.next_location;
         i += 1;
