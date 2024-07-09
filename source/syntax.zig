@@ -4,15 +4,12 @@ const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("zss.zig");
-const comptime_identifier_map = @import("syntax/comptime_identifier_map.zig");
 pub const tokenize = @import("syntax/tokenize.zig");
 pub const parse = @import("syntax/parse.zig");
-pub const ComptimeIdentifierMap = comptime_identifier_map.ComptimeIdentifierMap;
 pub const IdentifierSet = @import("syntax/IdentifierSet.zig");
 
 comptime {
     if (@import("builtin").is_test) {
-        _ = comptime_identifier_map;
         _ = tokenize;
         _ = parse;
     }
@@ -405,3 +402,38 @@ pub const ComponentTree = struct {
         }
     };
 };
+
+pub fn ComptimeIdentifierMap(comptime V: type) type {
+    return struct {
+        map: Map,
+
+        const Self = @This();
+        const Map = std.StaticStringMapWithEql(V, stringEql);
+
+        fn stringEql(key: []const u8, str: []const u8) bool {
+            for (key, str) |k, s| {
+                const lowercase = switch (s) {
+                    'A'...'Z' => s - 'A' + 'a',
+                    else => s,
+                };
+                if (k != lowercase) return false;
+            }
+            return true;
+        }
+
+        pub fn init(kvs_list: anytype) Self {
+            comptime for (kvs_list) |kv| {
+                for (kv[0]) |c| switch (c) {
+                    // NOTE: This could be extended to support underscores and digits, but for now it is not needed.
+                    'a'...'z', '-' => {},
+                    else => @compileError("key must contain only lowercase letters and dashes, got " ++ kv[0]),
+                };
+            };
+            return .{ .map = Map.initComptime(kvs_list) };
+        }
+
+        pub fn get(self: Self, str: []const u8) ?V {
+            return self.map.get(str);
+        }
+    };
+}

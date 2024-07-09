@@ -664,7 +664,7 @@ fn consumeUnit(source: Source, start: Source.Location) !ConsumeUnit {
             kvs[i] = .{ name, unit };
             i += 1;
         }
-        const map = zss.syntax.ComptimeIdentifierMap(Unit, kvs);
+        const map = zss.syntax.ComptimeIdentifierMap(Unit).init(kvs);
         assert(map.get("unrecognized") == null);
         break :blk map;
     };
