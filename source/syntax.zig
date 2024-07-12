@@ -233,6 +233,7 @@ pub const Component = struct {
         /// location: The location of the <ident-token> that is the name for this declaration
         /// children: The declaration's value (an arbitrary sequence of components)
         ///           Trailing and leading <whitespace-token>s are not included
+        ///           The ending <semicolon-token> (if it exists) is not included
         /// extra:    Use `extra.index()` to get a component tree index.
         ///           Then, if the value is 0, the declaration is the first declaration in its containing style block.
         ///           Otherwise, the value is the index of the declaration that appeared just before this one
@@ -242,6 +243,7 @@ pub const Component = struct {
         /// location: The location of the <ident-token> that is the name for this declaration
         /// children: The declaration's value (an arbitrary sequence of components)
         ///           Trailing and leading <whitespace-token>s are not included
+        ///           The ending <semicolon-token> (if it exists) is not included
         ///           The <delim-token> and <ident-token> that make up "!important" are not included
         /// extra:    Use `extra.index()` to get a component tree index.
         ///           Then, if the value is 0, the declaration is the first declaration in its containing style block.

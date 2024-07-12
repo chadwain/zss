@@ -16,6 +16,10 @@ pub fn Stack(comptime T: type) type {
             stack.rest.deinit(allocator);
         }
 
+        pub fn len(stack: Self) usize {
+            return @intFromBool(stack.top != null) + stack.rest.len;
+        }
+
         /// Pushes the current value of `stack.top`, and replaces it with `new_top`.
         /// `stack.top` must be set before calling this function.
         pub fn push(stack: *Self, allocator: Allocator, new_top: T) !void {

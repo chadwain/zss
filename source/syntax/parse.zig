@@ -27,7 +27,7 @@ pub const Source = struct {
         return Source{ .inner = inner };
     }
 
-    /// Returns the next component tag, ignoring comments.
+    /// Returns the next token, ignoring comments.
     pub fn next(source: Source, location: *Location) !Token {
         var next_location = location.*;
         while (true) {

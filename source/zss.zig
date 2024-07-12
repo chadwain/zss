@@ -6,6 +6,7 @@ pub const syntax = @import("syntax.zig");
 pub const used_values = @import("used_values.zig");
 pub const util = @import("util.zig");
 pub const values = @import("values.zig");
+pub const zml = @import("zml.zig");
 
 pub const CascadedValues = @import("environment/CascadedValues.zig");
 pub const ElementTree = @import("environment/ElementTree.zig");
