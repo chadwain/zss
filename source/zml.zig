@@ -179,7 +179,7 @@ pub const Ast = struct {
 };
 
 test "parse" {
-    const input = "id/*comment*/[abc] (display: block   ! important; position: nowhere ({ blocks )})){}";
+    const input = "id/*comment*/[abc] (display: block   ! important; position: nowhere ({ blocks )})) {}";
     const source = try Source.init(zss.util.Utf8String{ .data = input });
     const allocator = std.testing.allocator;
 
@@ -188,27 +188,79 @@ test "parse" {
 
     var parser = Parser.init(source, allocator);
     defer parser.deinit();
-    try parser.parse(&ast, allocator);
-    // const stderr = std.io.getStdErr().writer();
-    // try Ast.debug.print(ast, allocator, stderr);
+    parser.parse(&ast, allocator) catch |err| switch (err) {
+        error.ParseError => std.log.err(
+            "zml parse error: location = {}, msg = {s}",
+            .{ @intFromEnum(parser.failure.location), parser.failure.cause.errMsg() },
+        ),
+        else => |e| return e,
+    };
 }
 
 const Parser = struct {
-    ast: Ast = .{},
-    location: Location = .start,
     source: Source,
+    location: Location,
     allocator: Allocator,
     element_stack: ArrayListUnmanaged(struct {
         element_index: Ast.Size,
         block_index: Ast.Size,
-    }) = .{},
+    }),
     block_stack: Stack(struct {
         ending_tag: Ast.Tag,
         node_index: Ast.Size,
-    }) = .{},
+    }),
+    failure: Failure,
+
+    pub const Failure = struct {
+        cause: Cause,
+        location: Location,
+
+        pub const Cause = enum {
+            block_depth_limit_reached,
+            element_depth_limit_reached,
+            element_with_no_features,
+            empty_with_other_features,
+            empty_declaration_value,
+            empty_inline_style_block,
+            expected_colon,
+            expected_identifier,
+            inline_style_block_before_features,
+            invalid_feature,
+            invalid_token,
+            missing_space_between_features,
+            multiple_inline_style_blocks,
+            unexpected_eof,
+
+            pub fn errMsg(cause: Cause) []const u8 {
+                return switch (cause) {
+                    .block_depth_limit_reached => "block depth limit reached",
+                    .element_depth_limit_reached => "element depth limit reached",
+                    .element_with_no_features => "element must have at least one feature",
+                    .empty_with_other_features => "'*' cannot appear with other features",
+                    .empty_declaration_value => "empty declaration value",
+                    .empty_inline_style_block => "empty inline style block",
+                    .expected_colon => "expected ':'",
+                    .expected_identifier => "expected identifier",
+                    .inline_style_block_before_features => "inline style block must appear after all features",
+                    .invalid_feature => "invalid feature",
+                    .invalid_token => "invalid token",
+                    .missing_space_between_features => "features must be separated with whitespace or comments",
+                    .multiple_inline_style_blocks => "only one inline style block is allowed",
+                    .unexpected_eof => "unexpected end-of-file",
+                };
+            }
+        };
+    };
 
     pub fn init(source: Source, allocator: Allocator) Parser {
-        return .{ .source = source, .allocator = allocator };
+        return .{
+            .source = source,
+            .location = .start,
+            .allocator = allocator,
+            .element_stack = .{},
+            .block_stack = .{},
+            .failure = undefined,
+        };
     }
 
     pub fn deinit(parser: *Parser) void {
@@ -228,9 +280,9 @@ const Parser = struct {
         managed.finishComplexNode(document_index);
     }
 
-    fn fail(parser: *Parser, msg: []const u8) error{ParseError} {
-        _ = parser;
-        @panic(msg);
+    fn fail(parser: *Parser, cause: Failure.Cause, location: Location) error{ParseError} {
+        parser.failure = .{ .cause = cause, .location = location };
+        return error.ParseError;
     }
 
     fn nextTokenAllowEof(parser: *Parser) !struct { Token, Location } {
@@ -241,13 +293,13 @@ const Parser = struct {
 
     fn nextToken(parser: *Parser) !struct { Token, Location } {
         const next_token = try parser.nextTokenAllowEof();
-        if (next_token[0] == .token_eof) return parser.fail("unexpected end-of-file");
+        if (next_token[0] == .token_eof) return parser.fail(.unexpected_eof, next_token[1]);
         return next_token;
     }
 
     fn pushElement(parser: *Parser, ast: AstManaged, element_index: Ast.Size, block_location: Location) !void {
         const max_element_depth = std.math.maxInt(u16);
-        if (parser.element_stack.items.len == max_element_depth) return parser.fail("element depth limit reached");
+        if (parser.element_stack.items.len == max_element_depth) return parser.fail(.element_depth_limit_reached, block_location);
         const block_index = try ast.createNode(.{
             .next_sibling = undefined,
             .tag = .children,
@@ -368,7 +420,7 @@ const AstManaged = struct {
             true => .{ .declaration_important, 3 },
             false => .{ .declaration_normal, 1 },
         };
-        if (last_3.len < min_required_nodes) return parser.fail("empty declaration value");
+        if (last_3.len < min_required_nodes) return parser.fail(.empty_declaration_value, nodes.items(.location)[declaration_index]);
         nodes.items(.tag)[declaration_index] = tag;
         const last_node = last_3.nodes[3 - min_required_nodes];
         const next_sibling = nodes.items(.next_sibling)[last_node];
@@ -403,11 +455,11 @@ fn nextTokenSkipWhitespace(parser: *Parser) !struct { Token, Location } {
 
 fn consumeUntilEof(parser: *Parser) !void {
     while (true) {
-        const token, _ = try parser.nextTokenAllowEof();
+        const token, const location = try parser.nextTokenAllowEof();
         switch (token) {
             .token_whitespace, .token_comments => {},
             .token_eof => return,
-            else => return parser.fail("invalid token"),
+            else => return parser.fail(.invalid_token, location),
         }
     }
 }
@@ -420,7 +472,7 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
         .token_eof => {
             const is_root_element = (parser.element_stack.items.len == 0);
             if (is_root_element) return;
-            return parser.fail("unexpected end-of-file");
+            return parser.fail(.unexpected_eof, main_location);
         },
         .token_right_curly => return parser.popElement(ast),
         else => parser.location = main_location,
@@ -436,24 +488,26 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
         const token, const location = try parser.nextToken();
 
         if (token == .token_left_curly) {
-            if (!parsed_any_features) return parser.fail("element must have at least one feature");
+            if (!parsed_any_features) return parser.fail(.element_with_no_features, main_location);
             if (!parsed_inline_styles) ast.finishComplexNode(features_index);
             return parser.pushElement(ast, element_index, location);
         }
 
-        if (!has_preceding_whitespace) return parser.fail("features must be separated with whitespace or comments");
+        if (!has_preceding_whitespace) return parser.fail(.missing_space_between_features, location);
 
         if (token == .token_left_paren) {
             ast.finishComplexNode(features_index);
             try parseInlineStyleBlock(parser, ast, location);
-            if (!parsed_any_features) return parser.fail("at least one feature is required before an inline style block");
-            if (parsed_inline_styles) return parser.fail("only one inline style block is allowed");
+            if (!parsed_any_features) return parser.fail(.inline_style_block_before_features, location);
+            if (parsed_inline_styles) return parser.fail(.multiple_inline_style_blocks, location);
             parsed_inline_styles = true;
             continue;
         }
 
+        if (parsed_inline_styles) return parser.fail(.inline_style_block_before_features, location);
+
         if (token == .token_delim and token.token_delim == '*') {
-            if (parsed_any_features) return parser.fail("'*' cannot appear with other features");
+            if (parsed_any_features) return parser.fail(.empty_with_other_features, location);
             _ = try ast.addBasicNode(.empty, location);
             parsed_any_features = true;
             parsed_star = true;
@@ -461,45 +515,53 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
         }
 
         try parseFeature(parser, ast, token, location);
-        if (parsed_star) return parser.fail("'*' cannot appear with other features");
+        if (parsed_star) return parser.fail(.empty_with_other_features, location);
         parsed_any_features = true;
     }
 }
 
 fn parseFeature(parser: *Parser, ast: AstManaged, main_token: Token, main_location: Location) !void {
     switch (main_token) {
-        .token_delim => |codepoint| switch (codepoint) {
-            '.' => {
-                const identifier, _ = try parser.nextToken();
-                if (identifier != .token_ident) return parser.fail("invalid feature: expected identifier");
-                _ = try ast.addBasicNode(.class, main_location);
-            },
-            else => return parser.fail("invalid feature"),
-        },
-        .token_ident => _ = try ast.addBasicNode(.type, main_location),
-        .token_hash_id => _ = try ast.addBasicNode(.id, main_location),
-        .token_left_square => {
-            blk: {
-                const name, const name_location = try nextTokenSkipWhitespace(parser);
-                if (name != .token_ident) break :blk;
-
-                const after_name, _ = try nextTokenSkipWhitespace(parser);
-                if (after_name == .token_right_square) return ast.addAttributeWithoutValue(main_location, name_location);
-
-                const value, const value_location = try nextTokenSkipWhitespace(parser);
-                const right_bracket, _ = try nextTokenSkipWhitespace(parser);
-                if ((after_name == .token_delim and after_name.token_delim == '=') and
-                    (value == .token_ident or value == .token_string) and
-                    (right_bracket == .token_right_square))
-                {
-                    return ast.addAttributeWithValue(main_location, name_location, value.cast(Ast.Tag), value_location);
-                }
+        .token_delim => |codepoint| blk: {
+            switch (codepoint) {
+                '.' => {
+                    const identifier, _ = try parser.nextToken();
+                    if (identifier != .token_ident) break :blk;
+                    _ = try ast.addBasicNode(.class, main_location);
+                    return;
+                },
+                else => {},
             }
-
-            return parser.fail("invalid attribute feature");
         },
-        else => return parser.fail("invalid feature"),
+        .token_ident => {
+            _ = try ast.addBasicNode(.type, main_location);
+            return;
+        },
+        .token_hash_id => {
+            _ = try ast.addBasicNode(.id, main_location);
+            return;
+        },
+        .token_left_square => blk: {
+            const name, const name_location = try nextTokenSkipWhitespace(parser);
+            if (name != .token_ident) break :blk;
+
+            const after_name, _ = try nextTokenSkipWhitespace(parser);
+            if (after_name == .token_right_square) return ast.addAttributeWithoutValue(main_location, name_location);
+
+            const value, const value_location = try nextTokenSkipWhitespace(parser);
+            const right_bracket, _ = try nextTokenSkipWhitespace(parser);
+            if ((after_name == .token_delim and after_name.token_delim == '=') and
+                (value == .token_ident or value == .token_string) and
+                (right_bracket == .token_right_square))
+            {
+                return ast.addAttributeWithValue(main_location, name_location, value.cast(Ast.Tag), value_location);
+            }
+        },
+
+        else => {},
     }
+
+    return parser.fail(.invalid_feature, main_location);
 }
 
 /// Used to help keep track of the last 3 non-whitespace nodes in a declaration's value.
@@ -525,7 +587,7 @@ fn parseInlineStyleBlock(parser: *Parser, ast: AstManaged, main_location: Locati
     {
         const token, const location = try nextTokenSkipWhitespace(parser);
         if (token == .token_right_paren)
-            return parser.fail("empty inline style block")
+            return parser.fail(.empty_inline_style_block, main_location)
         else
             parser.location = location;
     }
@@ -534,9 +596,9 @@ fn parseInlineStyleBlock(parser: *Parser, ast: AstManaged, main_location: Locati
         parser.block_stack.top = .{ .ending_tag = .token_right_paren, .node_index = undefined };
 
         const name, const name_location = try parser.nextToken();
-        if (name != .token_ident) return parser.fail("invalid declaration");
-        const colon, _ = try parser.nextToken();
-        if (colon != .token_colon) return parser.fail("expected ':'");
+        if (name != .token_ident) return parser.fail(.expected_identifier, name_location);
+        const colon, const colon_location = try parser.nextToken();
+        if (colon != .token_colon) return parser.fail(.expected_colon, colon_location);
         const declaration_index = try ast.addDeclaration(name_location);
 
         _ = try consumeWhitespace(parser);
@@ -545,11 +607,11 @@ fn parseInlineStyleBlock(parser: *Parser, ast: AstManaged, main_location: Locati
             const token, const location = try parser.nextToken();
             switch (token) {
                 .token_semicolon => if (parser.block_stack.rest.len == 0) break,
-                .token_eof => return parser.fail("unexpected end-of-file"),
                 .token_whitespace => _ = try ast.addBasicNode(.token_whitespace, location),
                 .token_left_curly, .token_left_paren, .token_left_square, .token_function => {
+                    // TODO: detect if the block is empty
                     const max_block_depth = 32;
-                    if (parser.block_stack.len() == max_block_depth) return parser.fail("max block depth limit reached");
+                    if (parser.block_stack.len() == max_block_depth) return parser.fail(.block_depth_limit_reached, location);
                     // zig fmt: off
                     const element_tag: Ast.Tag, const ending_tag: Ast.Tag = switch (token) {
                         .token_left_curly =>  .{ .simple_block_curly,  .token_right_curly  },
