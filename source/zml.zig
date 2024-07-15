@@ -178,8 +178,17 @@ pub const Ast = struct {
     };
 };
 
-test "parse" {
-    const input = "id/*comment*/[abc] (display: block   ! important; position: nowhere ({ blocks )})) {}";
+test "parse a zml document" {
+    const input =
+        \\* {
+        \\   p1 {}
+        \\   * {}
+        \\   p2 (decl: value) {
+        \\       /*comment*/p3/*comment*/[a=b] #id {}
+        \\   }
+        \\   p3 (decl: func({} [ {} {1}] };)) {}
+        \\}
+    ;
     const source = try Source.init(zss.util.Utf8String{ .data = input });
     const allocator = std.testing.allocator;
 
@@ -190,8 +199,8 @@ test "parse" {
     defer parser.deinit();
     parser.parse(&ast, allocator) catch |err| switch (err) {
         error.ParseError => std.log.err(
-            "zml parse error: location = {}, msg = {s}",
-            .{ @intFromEnum(parser.failure.location), parser.failure.cause.errMsg() },
+            "zml parse error: location = {}, char = '{c}' msg = {s}",
+            .{ @intFromEnum(parser.failure.location), input[@intFromEnum(parser.failure.location)], parser.failure.cause.errMsg() },
         ),
         else => |e| return e,
     };
@@ -299,23 +308,10 @@ const Parser = struct {
         return next_token;
     }
 
-    fn pushElement(parser: *Parser, ast: AstManaged, element_index: Ast.Size, block_location: Location) !void {
+    fn pushElement(parser: *Parser, element_index: Ast.Size, block_index: Ast.Size, block_location: Location) !void {
         const max_element_depth = std.math.maxInt(u16);
         if (parser.element_stack.items.len == max_element_depth) return parser.fail(.element_depth_limit_reached, block_location);
-        const block_index = try ast.createNode(.{
-            .next_sibling = undefined,
-            .tag = .children,
-            .location = block_location,
-        });
         try parser.element_stack.append(parser.allocator, .{ .element_index = element_index, .block_index = block_index });
-    }
-
-    fn popElement(parser: *Parser, ast: AstManaged) void {
-        const item = parser.element_stack.pop();
-        const nodes = ast.unmanaged.nodes.slice();
-        const next_sibling = ast.len();
-        nodes.items(.next_sibling)[item.element_index] = next_sibling;
-        nodes.items(.next_sibling)[item.block_index] = next_sibling;
     }
 };
 
@@ -429,6 +425,13 @@ const AstManaged = struct {
         nodes.items(.next_sibling)[declaration_index] = next_sibling;
         ast.unmanaged.nodes.shrinkRetainingCapacity(next_sibling);
     }
+
+    fn finishElement(ast: AstManaged, element_index: Ast.Size, block_index: Ast.Size) void {
+        const nodes = ast.unmanaged.nodes.slice();
+        const next_sibling = ast.len();
+        nodes.items(.next_sibling)[element_index] = next_sibling;
+        nodes.items(.next_sibling)[block_index] = next_sibling;
+    }
 };
 
 fn consumeWhitespace(parser: *Parser) !bool {
@@ -476,7 +479,11 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
             if (is_root_element) return;
             return parser.fail(.unexpected_eof, main_location);
         },
-        .token_right_curly => return parser.popElement(ast),
+        .token_right_curly => {
+            const item = parser.element_stack.pop();
+            ast.finishElement(item.element_index, item.block_index);
+            return;
+        },
         else => parser.location = main_location,
     }
 
@@ -493,7 +500,16 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
         if (token == .token_left_curly) {
             if (!parsed_any_features) return parser.fail(.element_with_no_features, main_location);
             if (parsed_inline_styles == null) ast.finishComplexNode(features_index);
-            return parser.pushElement(ast, element_index, location);
+
+            const block_index = try ast.addComplexNode(.children, location);
+            const after_left_curly, const after_left_curly_location = try nextTokenSkipWhitespace(parser);
+            if (after_left_curly == .token_right_curly) {
+                ast.finishElement(element_index, block_index);
+            } else {
+                parser.location = after_left_curly_location;
+                try parser.pushElement(element_index, block_index, location);
+            }
+            return;
         }
 
         if (!has_preceding_whitespace) return parser.fail(.missing_space_between_features, location);
@@ -610,9 +626,6 @@ fn parseInlineStyleBlock(parser: *Parser, ast: AstManaged, main_location: Locati
                 .token_semicolon => if (parser.block_stack.rest.len == 0) break,
                 .token_whitespace => _ = try ast.addBasicNode(.token_whitespace, location),
                 .token_left_curly, .token_left_paren, .token_left_square, .token_function => {
-                    // TODO: detect if the block is empty
-                    const max_block_depth = 32;
-                    if (parser.block_stack.len() == max_block_depth) return parser.fail(.block_depth_limit_reached, location);
                     // zig fmt: off
                     const element_tag: Ast.Tag, const ending_tag: Ast.Tag = switch (token) {
                         .token_left_curly =>  .{ .simple_block_curly,  .token_right_curly  },
@@ -622,8 +635,17 @@ fn parseInlineStyleBlock(parser: *Parser, ast: AstManaged, main_location: Locati
                         else => unreachable,
                     };
                     // zig fmt: on
+
                     const node_index = try ast.addComplexNode(element_tag, location);
-                    try parser.block_stack.push(parser.allocator, .{ .ending_tag = ending_tag, .node_index = node_index });
+                    const after_open, const after_open_location = try nextTokenSkipWhitespace(parser);
+                    if (after_open.cast(Ast.Tag) == ending_tag) {
+                        ast.finishComplexNode(node_index);
+                    } else {
+                        parser.location = after_open_location;
+                        const max_block_depth = 32;
+                        if (parser.block_stack.len() == max_block_depth) return parser.fail(.block_depth_limit_reached, location);
+                        try parser.block_stack.push(parser.allocator, .{ .ending_tag = ending_tag, .node_index = node_index });
+                    }
                     last_3.append(node_index);
                 },
                 .token_right_curly, .token_right_paren, .token_right_square => {
