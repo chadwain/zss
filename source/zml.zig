@@ -228,6 +228,7 @@ const Parser = struct {
             invalid_feature,
             invalid_token,
             missing_space_between_features,
+            multiple_types,
             multiple_inline_style_blocks,
             unexpected_eof,
 
@@ -245,6 +246,7 @@ const Parser = struct {
                     .invalid_feature => "invalid feature",
                     .invalid_token => "invalid token",
                     .missing_space_between_features => "features must be separated with whitespace or comments",
+                    .multiple_types => "only one type feature is allowed on an element",
                     .multiple_inline_style_blocks => "only one inline style block is allowed",
                     .unexpected_eof => "unexpected end-of-file",
                 };
@@ -482,14 +484,15 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
     const features_index = try ast.addComplexNode(.features, main_location);
     var has_preceding_whitespace = true;
     var parsed_any_features = false;
-    var parsed_inline_styles = false;
+    var parsed_type = false;
+    var parsed_inline_styles: ?Location = null;
     var parsed_star = false;
     while (true) : (has_preceding_whitespace = try consumeWhitespace(parser)) {
         const token, const location = try parser.nextToken();
 
         if (token == .token_left_curly) {
             if (!parsed_any_features) return parser.fail(.element_with_no_features, main_location);
-            if (!parsed_inline_styles) ast.finishComplexNode(features_index);
+            if (parsed_inline_styles == null) ast.finishComplexNode(features_index);
             return parser.pushElement(ast, element_index, location);
         }
 
@@ -499,42 +502,40 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
             ast.finishComplexNode(features_index);
             try parseInlineStyleBlock(parser, ast, location);
             if (!parsed_any_features) return parser.fail(.inline_style_block_before_features, location);
-            if (parsed_inline_styles) return parser.fail(.multiple_inline_style_blocks, location);
-            parsed_inline_styles = true;
+            if (parsed_inline_styles) |loc| return parser.fail(.multiple_inline_style_blocks, loc);
+            parsed_inline_styles = location;
             continue;
         }
-
-        if (parsed_inline_styles) return parser.fail(.inline_style_block_before_features, location);
 
         if (token == .token_delim and token.token_delim == '*') {
-            if (parsed_any_features) return parser.fail(.empty_with_other_features, location);
             _ = try ast.addBasicNode(.empty, location);
-            parsed_any_features = true;
+            if (parsed_any_features) return parser.fail(.empty_with_other_features, location);
             parsed_star = true;
-            continue;
+        } else {
+            try parseFeature(parser, ast, token, location, &parsed_type);
+            if (parsed_star) return parser.fail(.empty_with_other_features, location);
+            parsed_any_features = true;
         }
 
-        try parseFeature(parser, ast, token, location);
-        if (parsed_star) return parser.fail(.empty_with_other_features, location);
+        if (parsed_inline_styles) |loc| return parser.fail(.inline_style_block_before_features, loc);
         parsed_any_features = true;
     }
 }
 
-fn parseFeature(parser: *Parser, ast: AstManaged, main_token: Token, main_location: Location) !void {
+fn parseFeature(parser: *Parser, ast: AstManaged, main_token: Token, main_location: Location, parsed_type: *bool) !void {
     switch (main_token) {
         .token_delim => |codepoint| blk: {
-            switch (codepoint) {
-                '.' => {
-                    const identifier, _ = try parser.nextToken();
-                    if (identifier != .token_ident) break :blk;
-                    _ = try ast.addBasicNode(.class, main_location);
-                    return;
-                },
-                else => {},
+            if (codepoint == '.') {
+                const identifier, _ = try parser.nextToken();
+                if (identifier != .token_ident) break :blk;
+                _ = try ast.addBasicNode(.class, main_location);
+                return;
             }
         },
         .token_ident => {
             _ = try ast.addBasicNode(.type, main_location);
+            if (parsed_type.*) return parser.fail(.multiple_types, main_location);
+            parsed_type.* = true;
             return;
         },
         .token_hash_id => {
