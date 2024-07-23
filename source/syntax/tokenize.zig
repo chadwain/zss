@@ -60,6 +60,18 @@ pub const Source = struct {
         return UrlTokenIterator{ .location = location };
     }
 
+    /// Given that `location` is the location of an <ident-token>, check if the identifier is equal to `ascii_string`
+    /// using case-insensitive matching.
+    pub fn identifierEqlIgnoreCase(source: Source, location: Location, ascii_string: []const u8) bool {
+        var it = identTokenIterator(source, location);
+        for (ascii_string) |string_codepoint| {
+            assert(string_codepoint <= 0x7F);
+            const it_codepoint = it.next(source) orelse return false;
+            if (toLowercase(string_codepoint) != toLowercase(it_codepoint)) return false;
+        }
+        return it.next(source) == null;
+    }
+
     const Next = struct { next_location: Location, codepoint: u21 };
 
     fn next(source: Source, location: Location) !Next {

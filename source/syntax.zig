@@ -15,9 +15,9 @@ comptime {
     }
 }
 
-/// The doc comment on each field contains:
-///     1: A description of what the token represents
-///     2: Where the token's `location` points to
+/// Each field has the following information:
+///     description: A basic description of the component
+///        location: What the component's `location` field represents
 pub const Token = union(enum) {
     /// description: The end of a sequence of tokens
     ///    location: The end of the source document
@@ -164,7 +164,21 @@ pub const Component = struct {
         }
     };
 
+    /// Each field has the following information:
+    ///     description: A basic description of the component
+    ///        location: What the component's `location` field represents
+    ///        children: The children that the component is allowed to have.
+    ///                  If not specified, then the component cannot have any children.
+    ///           extra: What the component's `extra` field represents.
+    ///                  If not specified, then the `extra` field is meaningless.
+    ///
+    /// Components that represent tokens begin with `token_`. More documentation for these can be found by looking at `Token`.
+    /// Components that represent constructs from zml begin with `zml_`.
     /// This enum is derived from `Token`.
+    ///
+    /// Unless otherwise specified, whitespace (`token_whitespace`) and comments (`token_comments`) may appear
+    /// at any position within a sequence of components.
+    /// For example, "a sequence of `token_ident`" is really "a sequence of `token_ident`, `token_whitespace`, and `token_comments`".
     pub const Tag = enum {
         token_eof,
         token_comments,
@@ -276,6 +290,48 @@ pub const Component = struct {
         ///    location: The beginning of the stylesheet
         ///    children: An arbitrary sequence of components
         component_list,
+
+        /// description: A zml empty feature (a '*' codepoint)
+        ///    location: The '*' codepoint
+        zml_empty,
+        /// description: A zml element type (an identifier)
+        ///    location: The identifier's first codepoint
+        zml_type,
+        /// description: A zml element id (a '#' codepoint + an identifier)
+        ///    location: The '#' codepoint
+        zml_id,
+        /// description: A zml element class (a '.' codepoint + an identifier)
+        ///    location: The '.' codepoint
+        zml_class,
+        /// description: A zml element attribute (a '[]-block' containing an attribute name + optionally, a '=' codepoint and an attribute value)
+        ///    location: The location of the <[-token> that opens the block
+        ///    children: The attribute name (a `token_ident`) + optionally, the attribute value (a `token_ident` or `token_string`)
+        zml_attribute,
+        /// description: A zml element's features
+        ///    location: The location of the element's first feature
+        ///    children: either a single `zml_empty`, or
+        ///              a non-empty sequence of `zml_type`, `zml_id`, `zml_class`, and `zml_attribute` (at most one `zml_type` is allowed)
+        zml_features,
+        /// description: A zml element's inline style declarations (a '()-block' containing declarations)
+        ///    location: The location of the <(-token> that opens the block
+        ///    children: A non-empty sequence of `declaration_normal` and `declaration_important`
+        ///       extra: Use `extra.index()` to get the component index of the *last* declaration in the inline style block
+        ///              (with tag = `declaration_normal` or `declaration_important`).
+        zml_styles,
+        /// description: A '{}-block' containing a zml element's children
+        ///    location: The location of the <{-token> that opens the block
+        ///    children: A sequence of `zml_element`
+        zml_children,
+        /// description: A zml element
+        ///    location: The location of the `zml_features`
+        ///    children: The element's features (a `zml_features`) +
+        ///              optionally, the element's inline style declarations (a `zml_styles`) +
+        ///              the element's children (a `zml_children`)
+        zml_element,
+        /// description: A zml document
+        ///    location: The beginning of the source document
+        ///    children: Optionally, a single `zml_element`
+        zml_document,
     };
 };
 

@@ -13,178 +13,19 @@ const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("zss.zig");
 const tokenize = zss.syntax.tokenize;
+const Ast = zss.syntax.Ast;
+const Component = zss.syntax.Component;
 const Source = tokenize.Source;
 const Location = Source.Location;
 const Stack = zss.util.Stack;
 const Token = zss.syntax.Token;
-
-pub const Ast = struct {
-    pub const Size = u32;
-    pub const Tag = enum {
-        token_eof,
-        token_comments,
-        token_ident,
-        token_function,
-        token_at_keyword,
-        token_hash_unrestricted,
-        token_hash_id,
-        token_string,
-        token_bad_string,
-        token_url,
-        token_bad_url,
-        token_delim,
-        token_integer,
-        token_number,
-        token_percentage,
-        token_dimension,
-        token_whitespace,
-        token_cdo,
-        token_cdc,
-        token_colon,
-        token_semicolon,
-        token_comma,
-        token_left_square,
-        token_right_square,
-        token_left_paren,
-        token_right_paren,
-        token_left_curly,
-        token_right_curly,
-
-        /// A function
-        /// children: The function's arguments (an arbitrary sequence of components)
-        /// location: The location of the <function-token> that created this component
-        function,
-        /// A '[]-block'
-        /// location: The location of the <[-token> that opens this block
-        /// children: An arbitrary sequence of components
-        simple_block_square,
-        /// A '{}-block'
-        /// location: The location of the <{-token> that opens this block
-        /// children: An arbitrary sequence of components
-        simple_block_curly,
-        /// A '()-block'
-        /// location: The location of the <(-token> that opens this block
-        /// children: An arbitrary sequence of components
-        simple_block_paren,
-
-        /// A CSS property declaration that does not end with "!important"
-        /// location: The location of the <ident-token> that is the name for this declaration
-        /// children: The declaration's value (an arbitrary sequence of nodes)
-        ///           Trailing and leading <whitespace-token>s are not included
-        ///           The ending <semicolon-token> (if it exists) is not included
-        ///    extra: Use `extra.index()` to get a node index.
-        ///           Then, if the value is 0, this declaration is the first declaration in the sequence containing it.
-        ///           Otherwise, the value is the index of the declaration that appeared just before this one
-        ///           (with tag = `declaration_normal` or `declaration_important`).
-        declaration_normal,
-        /// A CSS property declaration that ends with "!important"
-        /// location: The location of the <ident-token> that is the name for this declaration
-        /// children: The declaration's value (an arbitrary sequence of nodes)
-        ///           Trailing and leading <whitespace-token>s are not included
-        ///           The ending <semicolon-token> (if it exists) is not included
-        ///           The <delim-token> and <ident-token> that make up "!important" are not included
-        ///    extra: Use `extra.index()` to get a node index.
-        ///           Then, if the value is 0, this declaration is the first declaration in the sequence containing it.
-        ///           Otherwise, the value is the index of the declaration that appeared just before this one
-        ///           (with tag = `declaration_normal` or `declaration_important`).
-        declaration_important,
-
-        /// description: The empty feature (a '*' codepoint)
-        ///    location: The '*' codepoint
-        empty,
-        /// description: A zml element type (an identifier)
-        ///    location: The identifier's first codepoint
-        type,
-        /// description: A zml element id (a '#' codepoint + an identifier)
-        ///    location: The '#' codepoint
-        id,
-        /// description: A zml element class (a '.' codepoint + an identifier)
-        ///    location: The '.' codepoint
-        class,
-        /// description: A zml element attribute (a '[]-block' containing an attribute name + optionally, a '=' codepoint and an attribute value)
-        ///    location: The location of the <[-token> that opens the block
-        ///    children: The attribute name (a `token_ident`) + optionally, the attribute value (a `token_ident` or `token_string`)
-        attribute,
-        /// description: A zml element's features
-        ///    location: The location of the element's first feature
-        ///    children: either a single `empty`, or a non-empty sequence of `type`, `id`, `class`, and `attribute` (at most one `type` is allowed)
-        features,
-        /// description: A zml element's inline style declarations (a '()-block' containing declarations)
-        ///    location: The location of the <(-token> that opens the block
-        ///    children: A non-empty sequence of `declaration_normal` and `declaration_important`
-        ///       extra: Use `extra.index()` to get the node index of the *last* declaration in the inline style block
-        ///              (with tag = `declaration_normal` or `declaration_important`).
-        styles,
-        /// description: A '{}-block' containing a zml element's children
-        ///    location: The location of the <{-token> that opens the block
-        ///    children: A sequence of `element`
-        children,
-        /// description: A zml element
-        ///    location: The location of the `features`
-        ///    children: The element's features (a `features`) +
-        ///              optionally, the element's inline style declarations (a `styles`) +
-        ///              the element's children (a `children`)
-        element,
-        /// description: A zml document
-        ///    location: The beginning of the source document
-        ///    children: Optionally, a single `element`
-        document,
-    };
-
-    pub const Node = struct {
-        next_sibling: Size,
-        tag: Tag,
-        location: Location,
-    };
-
-    nodes: MultiArrayList(Node) = .{},
-
-    pub fn deinit(ast: *Ast, allocator: Allocator) void {
-        ast.nodes.deinit(allocator);
-    }
-
-    pub const debug = struct {
-        pub fn print(ast: Ast, allocator: Allocator, writer: anytype) !void {
-            const nodes = ast.nodes.slice();
-            try writer.print("Zdf Ast (index, tag, location)\narray len {}\n", .{nodes.len});
-            if (nodes.len == 0) return;
-            try writer.print("ast size {}\n", .{nodes.items(.next_sibling)[0]});
-
-            const Item = struct {
-                current: Size,
-                end: Size,
-            };
-            var stack = Stack(Item){};
-            defer stack.deinit(allocator);
-            stack.top = .{ .current = 0, .end = nodes.items(.next_sibling)[0] };
-
-            while (stack.top) |*top| {
-                if (top.current == top.end) {
-                    _ = stack.pop();
-                    continue;
-                }
-
-                const index = top.current;
-                const node = nodes.get(index);
-                const indent = (stack.len() - 1) * 4;
-                try writer.writeByteNTimes(' ', indent);
-                try writer.print("{} {s} {}\n", .{ index, @tagName(node.tag), @intFromEnum(node.location) });
-
-                top.current = node.next_sibling;
-                if (index + 1 != node.next_sibling) {
-                    try stack.push(allocator, .{ .current = index + 1, .end = node.next_sibling });
-                }
-            }
-        }
-    };
-};
 
 test "parse a zml document" {
     const input =
         \\* {
         \\   p1 {}
         \\   * {}
-        \\   p2 (decl: value) {
+        \\   p2 (decl: value !important; decl: asdf) {
         \\       /*comment*/p3/*comment*/[a=b] #id {}
         \\   }
         \\   p3 (decl: func({} [ {} {1}] };)) {}
@@ -218,8 +59,8 @@ const Parser = struct {
         block_index: Ast.Size,
     }),
     block_stack: Stack(struct {
-        ending_tag: Ast.Tag,
-        node_index: Ast.Size,
+        ending_tag: Component.Tag,
+        component_index: Ast.Size,
     }),
     failure: Failure,
 
@@ -285,13 +126,13 @@ const Parser = struct {
     pub fn parse(parser: *Parser, ast: *Ast, allocator: Allocator) !void {
         const managed = AstManaged{ .unmanaged = ast, .allocator = allocator };
 
-        const document_index = try managed.addComplexNode(.document, parser.location);
+        const document_index = try managed.addComplexComponent(.zml_document, parser.location);
         try parseElement(parser, managed);
         while (parser.element_stack.items.len > 0) {
             try parseElement(parser, managed);
         }
         try parser.consumeUntilEof();
-        managed.finishComplexNode(document_index);
+        managed.finishComplexComponent(document_index);
     }
 
     fn fail(parser: *Parser, cause: Failure.Cause, location: Location) error{ParseError} {
@@ -358,49 +199,87 @@ const AstManaged = struct {
     allocator: Allocator,
 
     fn len(ast: AstManaged) Ast.Size {
-        return @intCast(ast.unmanaged.nodes.len);
+        return @intCast(ast.unmanaged.components.len);
     }
 
-    fn createNode(ast: AstManaged, node: Ast.Node) !Ast.Size {
+    fn createComponent(ast: AstManaged, component: Component) !Ast.Size {
         const index = ast.len();
         if (index == std.math.maxInt(Ast.Size)) return error.Overflow;
-        try ast.unmanaged.nodes.append(ast.allocator, node);
+        try ast.unmanaged.components.append(ast.allocator, component);
         return index;
     }
 
-    fn addBasicNode(ast: AstManaged, tag: Ast.Tag, location: Location) !Ast.Size {
+    fn addBasicComponent(ast: AstManaged, tag: Component.Tag, location: Location) !Ast.Size {
+        return ast.addBasicComponentExtra(tag, location, 0);
+    }
+
+    fn addBasicComponentExtra(ast: AstManaged, tag: Component.Tag, location: Location, extra: u32) !Ast.Size {
         const next_sibling = try std.math.add(Ast.Size, 1, ast.len());
-        return ast.createNode(.{
+        return ast.createComponent(.{
             .next_sibling = next_sibling,
             .tag = tag,
             .location = location,
+            .extra = Component.Extra.make(extra),
         });
     }
 
-    fn addComplexNode(ast: AstManaged, tag: Ast.Tag, location: Location) !Ast.Size {
-        return ast.createNode(.{
+    fn addComplexComponent(ast: AstManaged, tag: Component.Tag, location: Location) !Ast.Size {
+        return ast.createComponent(.{
             .next_sibling = undefined,
             .tag = tag,
             .location = location,
+            .extra = Component.Extra.make(0),
         });
     }
 
-    fn finishComplexNode(ast: AstManaged, node_index: Ast.Size) void {
+    fn finishComplexComponent(ast: AstManaged, component_index: Ast.Size) void {
         const next_sibling: Ast.Size = ast.len();
-        ast.unmanaged.nodes.items(.next_sibling)[node_index] = next_sibling;
+        ast.unmanaged.components.items(.next_sibling)[component_index] = next_sibling;
+    }
+
+    fn addToken(ast: AstManaged, token: Token, location: Location) !Ast.Size {
+        // zig fmt: off
+        switch (token) {
+            .token_delim      => |codepoint| return ast.addBasicComponentExtra(.token_delim, location, codepoint),
+            .token_integer    =>   |integer| return ast.addBasicComponentExtra(.token_integer, location, @bitCast(integer)),
+            .token_number     =>    |number| return ast.addBasicComponentExtra(.token_number, location, @bitCast(number)),
+            .token_percentage =>    |number| return ast.addBasicComponentExtra(.token_percentage, location, @bitCast(number)),
+            .token_dimension  => |dimension| return ast.addDimension(location, dimension),
+            else              =>             return ast.addBasicComponent(token.cast(Component.Tag), location),
+        }
+        // zig fmt: on
+    }
+
+    fn addDimension(ast: AstManaged, location: Location, dimension: Token.Dimension) !Ast.Size {
+        const next_sibling = try std.math.add(Ast.Size, 2, ast.len());
+        const dimension_index = try ast.createComponent(.{
+            .next_sibling = next_sibling,
+            .tag = .token_dimension,
+            .location = location,
+            .extra = Component.Extra.make(@bitCast(dimension.number)),
+        });
+        _ = try ast.createComponent(.{
+            .next_sibling = next_sibling,
+            .tag = .unit,
+            .location = dimension.unit_location,
+            .extra = Component.Extra.make(@intFromEnum(dimension.unit)),
+        });
+        return dimension_index;
     }
 
     fn addAttribute(ast: AstManaged, main_location: Location, name_location: Location) !void {
         const next_sibling = try std.math.add(Ast.Size, 2, ast.len());
-        _ = try ast.createNode(.{
+        _ = try ast.createComponent(.{
             .next_sibling = next_sibling,
-            .tag = .attribute,
+            .tag = .zml_attribute,
             .location = main_location,
+            .extra = Component.Extra.make(0),
         });
-        _ = try ast.createNode(.{
+        _ = try ast.createComponent(.{
             .next_sibling = next_sibling,
             .tag = .token_ident,
             .location = name_location,
+            .extra = Component.Extra.make(0),
         });
     }
 
@@ -408,67 +287,74 @@ const AstManaged = struct {
         ast: AstManaged,
         main_location: Location,
         name_location: Location,
-        value_tag: Ast.Tag,
+        value_tag: Component.Tag,
         value_location: Location,
     ) !void {
         const next_sibling = try std.math.add(Ast.Size, 3, ast.len());
-        _ = try ast.createNode(.{
+        _ = try ast.createComponent(.{
             .next_sibling = next_sibling,
-            .tag = .attribute,
+            .tag = .zml_attribute,
             .location = main_location,
+            .extra = Component.Extra.make(0),
         });
-        _ = try ast.createNode(.{
+        _ = try ast.createComponent(.{
             .next_sibling = next_sibling - 1,
             .tag = .token_ident,
             .location = name_location,
+            .extra = Component.Extra.make(0),
         });
-        _ = try ast.createNode(.{
+        _ = try ast.createComponent(.{
             .next_sibling = next_sibling,
             .tag = value_tag,
             .location = value_location,
+            .extra = Component.Extra.make(0),
         });
     }
 
-    const finishInlineStyleBlock = finishComplexNode;
+    fn finishInlineStyleBlock(ast: AstManaged, style_block_index: Ast.Size, last_declaration: Ast.Size) void {
+        const next_sibling: Ast.Size = ast.len();
+        ast.unmanaged.components.items(.next_sibling)[style_block_index] = next_sibling;
+        ast.unmanaged.components.items(.extra)[style_block_index] = Component.Extra.make(last_declaration);
+    }
 
-    fn addDeclaration(ast: AstManaged, main_location: Location) !Ast.Size {
-        return ast.createNode(.{
+    fn addDeclaration(ast: AstManaged, main_location: Location, previous_declaration: Ast.Size) !Ast.Size {
+        return ast.createComponent(.{
             .next_sibling = undefined,
             .tag = undefined,
             .location = main_location,
+            .extra = Component.Extra.make(previous_declaration),
         });
     }
 
-    fn finishDeclaration(ast: AstManaged, parser: *Parser, declaration_index: Ast.Size, last_3: Last3NonWhitespaceNodes) !void {
-        const nodes = ast.unmanaged.nodes.slice();
-        const is_important = false; // TODO
-        // const is_important = blk: {
-        //     if (last_3.len < 2) break :blk false;
-        //     const exclamation = last_3.nodes[1];
-        //     const important_string = last_3.nodes[2];
-        //     break :blk slice.items(.tag)[exclamation] == .token_delim and
-        //         slice.items(.extra)[exclamation].codepoint() == '!' and
-        //         slice.items(.tag)[important_string] == .token_ident and
-        //         parser.source.mapIdentifier(slice.items(.location)[important_string], void, &.{.{ "important", {} }}) != null;
-        // };
+    fn finishDeclaration(ast: AstManaged, parser: *Parser, declaration_index: Ast.Size, last_3: Last3NonWhitespaceComponents) !void {
+        const components = ast.unmanaged.components.slice();
+        const is_important = blk: {
+            if (last_3.len < 2) break :blk false;
+            const exclamation = last_3.components[1];
+            const important_string = last_3.components[2];
+            break :blk components.items(.tag)[exclamation] == .token_delim and
+                components.items(.extra)[exclamation].codepoint() == '!' and
+                components.items(.tag)[important_string] == .token_ident and
+                parser.source.identifierEqlIgnoreCase(components.items(.location)[important_string], "important");
+        };
 
-        const tag: Ast.Tag, const min_required_nodes: u2 = switch (is_important) {
+        const tag: Component.Tag, const min_required_components: u2 = switch (is_important) {
             true => .{ .declaration_important, 3 },
             false => .{ .declaration_normal, 1 },
         };
-        if (last_3.len < min_required_nodes) return parser.fail(.empty_declaration_value, nodes.items(.location)[declaration_index]);
-        nodes.items(.tag)[declaration_index] = tag;
-        const last_node = last_3.nodes[3 - min_required_nodes];
-        const next_sibling = nodes.items(.next_sibling)[last_node];
-        nodes.items(.next_sibling)[declaration_index] = next_sibling;
-        ast.unmanaged.nodes.shrinkRetainingCapacity(next_sibling);
+        if (last_3.len < min_required_components) return parser.fail(.empty_declaration_value, components.items(.location)[declaration_index]);
+        components.items(.tag)[declaration_index] = tag;
+        const last_component = last_3.components[3 - min_required_components];
+        const next_sibling = components.items(.next_sibling)[last_component];
+        components.items(.next_sibling)[declaration_index] = next_sibling;
+        ast.unmanaged.components.shrinkRetainingCapacity(next_sibling);
     }
 
     fn finishElement(ast: AstManaged, element_index: Ast.Size, block_index: Ast.Size) void {
-        const nodes = ast.unmanaged.nodes.slice();
+        const components = ast.unmanaged.components.slice();
         const next_sibling = ast.len();
-        nodes.items(.next_sibling)[element_index] = next_sibling;
-        nodes.items(.next_sibling)[block_index] = next_sibling;
+        components.items(.next_sibling)[element_index] = next_sibling;
+        components.items(.next_sibling)[block_index] = next_sibling;
     }
 };
 
@@ -490,8 +376,8 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
         else => parser.location = main_location,
     }
 
-    const element_index = try ast.addComplexNode(.element, main_location);
-    const features_index = try ast.addComplexNode(.features, main_location);
+    const element_index = try ast.addComplexComponent(.zml_element, main_location);
+    const features_index = try ast.addComplexComponent(.zml_features, main_location);
     var has_preceding_whitespace = true;
     var parsed_any_features = false;
     var parsed_type = false;
@@ -502,9 +388,9 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
 
         if (token == .token_left_curly) {
             if (!parsed_any_features) return parser.fail(.element_with_no_features, main_location);
-            if (parsed_inline_styles == null) ast.finishComplexNode(features_index);
+            if (parsed_inline_styles == null) ast.finishComplexComponent(features_index);
 
-            const block_index = try ast.addComplexNode(.children, location);
+            const block_index = try ast.addComplexComponent(.zml_children, location);
             const after_left_curly, const after_left_curly_location = try parser.nextTokenSkipWhitespace();
             if (after_left_curly == .token_right_curly) {
                 ast.finishElement(element_index, block_index);
@@ -518,7 +404,7 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
         if (!has_preceding_whitespace) return parser.fail(.missing_space_between_features, location);
 
         if (token == .token_left_paren) {
-            ast.finishComplexNode(features_index);
+            ast.finishComplexComponent(features_index);
             try parseInlineStyleBlock(parser, ast, location);
             if (!parsed_any_features) return parser.fail(.inline_style_block_before_features, location);
             if (parsed_inline_styles) |loc| return parser.fail(.multiple_inline_style_blocks, loc);
@@ -527,7 +413,7 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
         }
 
         if (token == .token_delim and token.token_delim == '*') {
-            _ = try ast.addBasicNode(.empty, location);
+            _ = try ast.addBasicComponent(.zml_empty, location);
             if (parsed_any_features) return parser.fail(.empty_with_other_features, location);
             parsed_star = true;
         } else {
@@ -546,18 +432,18 @@ fn parseFeature(parser: *Parser, ast: AstManaged, main_token: Token, main_locati
             if (codepoint == '.') {
                 const identifier, _ = try parser.nextToken();
                 if (identifier != .token_ident) break :blk;
-                _ = try ast.addBasicNode(.class, main_location);
+                _ = try ast.addBasicComponent(.zml_class, main_location);
                 return;
             }
         },
         .token_ident => {
-            _ = try ast.addBasicNode(.type, main_location);
+            _ = try ast.addBasicComponent(.zml_type, main_location);
             if (parsed_type.*) return parser.fail(.multiple_types, main_location);
             parsed_type.* = true;
             return;
         },
         .token_hash_id => {
-            _ = try ast.addBasicNode(.id, main_location);
+            _ = try ast.addBasicComponent(.zml_id, main_location);
             return;
         },
         .token_left_square => blk: {
@@ -573,7 +459,7 @@ fn parseFeature(parser: *Parser, ast: AstManaged, main_token: Token, main_locati
                 (value == .token_ident or value == .token_string) and
                 (right_bracket == .token_right_square))
             {
-                return ast.addAttributeWithValue(main_location, name_location, value.cast(Ast.Tag), value_location);
+                return ast.addAttributeWithValue(main_location, name_location, value.cast(Component.Tag), value_location);
             }
         },
 
@@ -583,34 +469,34 @@ fn parseFeature(parser: *Parser, ast: AstManaged, main_token: Token, main_locati
     return parser.fail(.invalid_feature, main_location);
 }
 
-/// Helps to keep track of the last 3 non-whitespace nodes in a declaration's value.
+/// Helps to keep track of the last 3 non-whitespace components in a declaration's value.
 /// This is used to trim whitespace and to detect "!important" at the end of a value.
-const Last3NonWhitespaceNodes = struct {
-    /// A queue of the indeces of the last 3 non-whitespace nodes.
-    /// Note that this queue grows starting from the end (the newest node index will be at index 2).
-    nodes: [3]Ast.Size = undefined,
+const Last3NonWhitespaceComponents = struct {
+    /// A queue of the indeces of the last 3 non-whitespace components.
+    /// Note that this queue grows starting from the end (the newest component index will be at index 2).
+    components: [3]Ast.Size = undefined,
     len: u2 = 0,
 
-    fn append(last_3: *Last3NonWhitespaceNodes, node_index: Ast.Size) void {
-        last_3.nodes[0] = last_3.nodes[1];
-        last_3.nodes[1] = last_3.nodes[2];
-        last_3.nodes[2] = node_index;
+    fn append(last_3: *Last3NonWhitespaceComponents, component_index: Ast.Size) void {
+        last_3.components[0] = last_3.components[1];
+        last_3.components[1] = last_3.components[2];
+        last_3.components[2] = component_index;
         last_3.len +|= 1;
     }
 };
 
 fn parseInlineStyleBlock(parser: *Parser, ast: AstManaged, main_location: Location) !void {
-    const style_block_index = try ast.addComplexNode(.styles, main_location);
+    const style_block_index = try ast.addComplexComponent(.zml_styles, main_location);
 
-    var parsed_any_declarations = false;
-    parser.block_stack.top = .{ .ending_tag = .token_right_paren, .node_index = undefined };
+    var previous_declaration: ?Ast.Size = null;
+    parser.block_stack.top = .{ .ending_tag = .token_right_paren, .component_index = undefined };
     while (parser.block_stack.top != null) {
         assert(parser.block_stack.rest.len == 0);
 
         {
             const token, const location = try parser.nextTokenSkipWhitespace();
             if (token == .token_right_paren) {
-                if (!parsed_any_declarations) return parser.fail(.empty_inline_style_block, main_location);
+                if (previous_declaration == null) return parser.fail(.empty_inline_style_block, main_location);
                 break;
             } else {
                 parser.location = location;
@@ -621,23 +507,23 @@ fn parseInlineStyleBlock(parser: *Parser, ast: AstManaged, main_location: Locati
         if (name != .token_ident) return parser.fail(.expected_identifier, name_location);
         const colon, const colon_location = try parser.nextToken();
         if (colon != .token_colon) return parser.fail(.expected_colon, colon_location);
-        const declaration_index = try ast.addDeclaration(name_location);
+        const declaration_index = try ast.addDeclaration(name_location, previous_declaration orelse 0);
 
         _ = try parser.consumeWhitespace();
-        var last_3 = Last3NonWhitespaceNodes{};
+        var last_3 = Last3NonWhitespaceComponents{};
         while (true) {
             const token, const location = try parser.nextToken();
             switch (token) {
                 .token_semicolon => {
                     if (parser.block_stack.rest.len == 0) break;
-                    const node_index = try ast.addBasicNode(.token_semicolon, location);
-                    last_3.append(node_index);
+                    const component_index = try ast.addBasicComponent(.token_semicolon, location);
+                    last_3.append(component_index);
                 },
                 // TODO: handle comments
-                .token_whitespace => _ = try ast.addBasicNode(.token_whitespace, location),
+                .token_whitespace => _ = try ast.addBasicComponent(.token_whitespace, location),
                 .token_left_curly, .token_left_paren, .token_left_square, .token_function => {
                     // zig fmt: off
-                    const node_tag: Ast.Tag, const ending_tag: Ast.Tag = switch (token) {
+                    const component_tag: Component.Tag, const ending_tag: Component.Tag = switch (token) {
                         .token_left_curly =>  .{ .simple_block_curly,  .token_right_curly  },
                         .token_left_square => .{ .simple_block_square, .token_right_square },
                         .token_left_paren =>  .{ .simple_block_paren,  .token_right_paren  },
@@ -646,41 +532,39 @@ fn parseInlineStyleBlock(parser: *Parser, ast: AstManaged, main_location: Locati
                     };
                     // zig fmt: on
 
-                    const node_index = try ast.addComplexNode(node_tag, location);
+                    const component_index = try ast.addComplexComponent(component_tag, location);
                     const after_open, const after_open_location = try parser.nextTokenSkipWhitespace();
-                    if (after_open.cast(Ast.Tag) == ending_tag) {
-                        ast.finishComplexNode(node_index);
+                    if (after_open.cast(Component.Tag) == ending_tag) {
+                        ast.finishComplexComponent(component_index);
                     } else {
                         parser.location = after_open_location;
                         const max_block_depth = 32;
                         if (parser.block_stack.len() == max_block_depth) return parser.fail(.block_depth_limit_reached, location);
-                        try parser.block_stack.push(parser.allocator, .{ .ending_tag = ending_tag, .node_index = node_index });
+                        try parser.block_stack.push(parser.allocator, .{ .ending_tag = ending_tag, .component_index = component_index });
                     }
-                    last_3.append(node_index);
+                    last_3.append(component_index);
                 },
                 .token_right_curly, .token_right_paren, .token_right_square => {
-                    const tag = token.cast(Ast.Tag);
+                    const tag = token.cast(Component.Tag);
                     if (tag == parser.block_stack.top.?.ending_tag) {
                         const item = parser.block_stack.pop();
                         if (parser.block_stack.top == null) break;
-                        ast.finishComplexNode(item.node_index);
+                        ast.finishComplexComponent(item.component_index);
                     } else {
-                        const node_index = try ast.addBasicNode(tag, location);
-                        last_3.append(node_index);
+                        const component_index = try ast.addBasicComponent(tag, location);
+                        last_3.append(component_index);
                     }
                 },
                 else => {
-                    const node_index = switch (token) {
-                        else => try ast.addBasicNode(token.cast(Ast.Tag), location),
-                    };
-                    last_3.append(node_index);
+                    const component_index = try ast.addToken(token, location);
+                    last_3.append(component_index);
                 },
             }
         }
 
         try ast.finishDeclaration(parser, declaration_index, last_3);
-        parsed_any_declarations = true;
+        previous_declaration = declaration_index;
     }
 
-    ast.finishInlineStyleBlock(style_block_index);
+    ast.finishInlineStyleBlock(style_block_index, previous_declaration.?);
 }
