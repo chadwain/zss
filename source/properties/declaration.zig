@@ -1,6 +1,6 @@
 const zss = @import("../zss.zig");
+const Ast = zss.syntax.Ast;
 const CascadedValues = zss.CascadedValues;
-const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;
 const PropertyName = zss.properties.definitions.PropertyName;
 const Utf8String = zss.util.Utf8String;
@@ -18,9 +18,9 @@ pub const ParsedDeclarations = struct {
 
 pub fn parseStyleBlockDeclarations(
     arena: *ArenaAllocator,
-    components: ComponentTree.Slice,
+    components: Ast.Slice,
     parser_source: ParserSource,
-    style_block: ComponentTree.Size,
+    style_block: Ast.Size,
 ) Allocator.Error!ParsedDeclarations {
     assert(components.tag(style_block) == .style_block);
 
@@ -58,10 +58,10 @@ pub fn parseStyleBlockDeclarations(
 fn parseDeclaration(
     cascaded: *CascadedValues,
     arena: *ArenaAllocator,
-    components: ComponentTree.Slice,
+    components: Ast.Slice,
     parser_source: ParserSource,
     value_source: *ValueSource,
-    declaration_index: ComponentTree.Size,
+    declaration_index: Ast.Size,
 ) !void {
     if (cascaded.all != null) return;
 
@@ -108,9 +108,9 @@ fn parseDeclaration(
 }
 
 fn parsePropertyName(
-    components: ComponentTree.Slice,
+    components: Ast.Slice,
     parser_source: ParserSource,
-    declaration_index: ComponentTree.Size,
+    declaration_index: Ast.Size,
 ) ?PropertyName {
     const map = comptime blk: {
         const names = std.meta.fields(PropertyName);
@@ -182,7 +182,7 @@ test {
     defer components.deinit(allocator);
     const slice = components.slice();
 
-    const qualified_rule: ComponentTree.Size = 1;
+    const qualified_rule: Ast.Size = 1;
     assert(slice.tag(qualified_rule) == .qualified_rule);
     const style_block = slice.extra(qualified_rule).index();
     assert(slice.tag(style_block) == .style_block);

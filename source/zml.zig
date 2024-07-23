@@ -111,7 +111,7 @@ pub const Ast = struct {
         features,
         /// description: A zml element's inline style declarations (a '()-block' containing declarations)
         ///    location: The location of the <(-token> that opens the block
-        ///    children: a non-empty sequence of `declaration_normal` and `declaration_important`
+        ///    children: A non-empty sequence of `declaration_normal` and `declaration_important`
         ///       extra: Use `extra.index()` to get the node index of the *last* declaration in the inline style block
         ///              (with tag = `declaration_normal` or `declaration_important`).
         styles,

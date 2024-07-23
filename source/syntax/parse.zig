@@ -6,8 +6,8 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const zss = @import("../zss.zig");
 const syntax = zss.syntax;
 const tokenize = syntax.tokenize;
+const Ast = syntax.Ast;
 const Component = syntax.Component;
-const ComponentTree = syntax.ComponentTree;
 const Extra = Component.Extra;
 const Stack = zss.util.Stack;
 const Token = syntax.Token;
@@ -15,8 +15,8 @@ const Utf8String = zss.util.Utf8String;
 
 /// A source of `Token`.
 
-// TODO: After parsing, this struct "lingers around" because it is used to get information that isn't stored in `ComponentTree`.
-//       A possibly better approach is to store said information into `ComponentTree` (by copying it), eliminating the need for this object.
+// TODO: After parsing, this struct "lingers around" because it is used to get information that isn't stored in `Ast`.
+//       A possibly better approach is to store said information into `Ast` (by copying it), eliminating the need for this object.
 pub const Source = struct {
     inner: tokenize.Source,
 
@@ -144,9 +144,9 @@ pub const UrlTokenIterator = struct {
     }
 };
 
-/// Creates a ComponentTree with a root node with tag `rule_list`
+/// Creates a Ast with a root node with tag `rule_list`
 /// Implements CSS Syntax Level 3 Section 9 "Parse a CSS stylesheet"
-pub fn parseCssStylesheet(source: Source, allocator: Allocator) !ComponentTree {
+pub fn parseCssStylesheet(source: Source, allocator: Allocator) !Ast {
     var parser: Parser = .{ .source = source, .allocator = allocator };
     defer parser.deinit();
 
@@ -157,9 +157,9 @@ pub fn parseCssStylesheet(source: Source, allocator: Allocator) !ComponentTree {
     return parser.finish();
 }
 
-/// Creates a ComponentTree with a root node with tag `component_list`
+/// Creates a Ast with a root node with tag `component_list`
 /// Implements CSS Syntax Level 3 Section 5.3.10 "Parse a list of component values"
-pub fn parseListOfComponentValues(source: Source, allocator: Allocator) !ComponentTree {
+pub fn parseListOfComponentValues(source: Source, allocator: Allocator) !Ast {
     var parser: Parser = .{ .source = source, .allocator = allocator };
     defer parser.deinit();
 
@@ -172,12 +172,12 @@ pub fn parseListOfComponentValues(source: Source, allocator: Allocator) !Compone
 
 const Parser = struct {
     stack: Stack(Frame) = .{},
-    tree: ComponentTree = .{},
+    tree: Ast = .{},
     source: Source,
     allocator: Allocator,
 
     const Frame = struct {
-        index: ComponentTree.Size,
+        index: Ast.Size,
         data: Data,
 
         const Data = union(enum) {
@@ -195,23 +195,23 @@ const Parser = struct {
         };
 
         const QualifiedRule = struct {
-            index_of_block: ?ComponentTree.Size = null,
+            index_of_block: ?Ast.Size = null,
             is_style_rule: bool,
         };
 
         const AtRule = struct {
-            index_of_block: ?ComponentTree.Size = null,
+            index_of_block: ?Ast.Size = null,
         };
 
         const DeclarationValue = struct {
             /// A queue of the 3 most recent non-whitespace components.
             /// The most recent component is at the end (index 2).
-            index_of_last_three_non_whitespace_components: [3]ComponentTree.Size = undefined,
+            index_of_last_three_non_whitespace_components: [3]Ast.Size = undefined,
             num_non_whitespace_components: u2 = 0,
         };
 
         const StyleBlock = struct {
-            index_of_last_declaration: ComponentTree.Size = 0,
+            index_of_last_declaration: Ast.Size = 0,
         };
 
         const SimpleBlock = struct {
@@ -247,16 +247,16 @@ const Parser = struct {
         parser.stack.top = .{ .index = index, .data = .list_of_component_values };
     }
 
-    fn finish(parser: *Parser) ComponentTree {
+    fn finish(parser: *Parser) Ast {
         const tree = parser.tree;
         parser.tree = .{};
         return tree;
     }
 
     /// Returns the index of the new component
-    fn newComponent(parser: *Parser, component: Component) !ComponentTree.Size {
-        if (parser.tree.components.len == std.math.maxInt(ComponentTree.Size)) return error.Overflow;
-        const index = @as(ComponentTree.Size, @intCast(parser.tree.components.len));
+    fn newComponent(parser: *Parser, component: Component) !Ast.Size {
+        if (parser.tree.components.len == std.math.maxInt(Ast.Size)) return error.Overflow;
+        const index = @as(Ast.Size, @intCast(parser.tree.components.len));
         try parser.tree.components.append(parser.allocator, component);
         return index;
     }
@@ -270,7 +270,7 @@ const Parser = struct {
 
     /// Appends any object that can be represented with a single component
     fn appendComponentValue(parser: *Parser, tag: Component.Tag, location: Source.Location, extra: Component.Extra) !void {
-        const index = @as(ComponentTree.Size, @intCast(parser.tree.components.len));
+        const index = @as(Ast.Size, @intCast(parser.tree.components.len));
         _ = try parser.newComponent(.{
             .next_sibling = index + 1,
             .tag = tag,
@@ -281,7 +281,7 @@ const Parser = struct {
 
     fn appendDimension(parser: *Parser, location: Source.Location, dimension: Token.Dimension) !void {
         // TODO: Using two components for a dimension is overkill. Find a way to make it just one.
-        const index = @as(ComponentTree.Size, @intCast(parser.tree.components.len));
+        const index = @as(Ast.Size, @intCast(parser.tree.components.len));
         _ = try parser.newComponent(.{
             .next_sibling = index + 2,
             .tag = .token_dimension,
@@ -407,7 +407,7 @@ const Parser = struct {
         parser: *Parser,
         location: Source.Location,
         style_block: *Frame.StyleBlock,
-        previous_declaration: ComponentTree.Size,
+        previous_declaration: Ast.Size,
     ) !void {
         const index = try parser.newComponent(.{
             .next_sibling = undefined,
@@ -618,7 +618,7 @@ fn consumeDeclarationStart(
     location: *Source.Location,
     style_block: *Parser.Frame.StyleBlock,
     name_location: Source.Location,
-    previous_declaration: ComponentTree.Size,
+    previous_declaration: Ast.Size,
 ) !void {
     while (true) {
         const saved_location = location.*;

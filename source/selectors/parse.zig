@@ -4,8 +4,8 @@ const Environment = zss.Environment;
 const NamespaceId = Environment.NamespaceId;
 const NameId = Environment.NameId;
 const syntax = zss.syntax;
+const Ast = zss.syntax.Ast;
 const Component = zss.syntax.Component;
-const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = syntax.parse.Source;
 
 const std = @import("std");
@@ -18,8 +18,8 @@ pub const Context = struct {
     env: *Environment,
     arena: Allocator,
     source: ParserSource,
-    slice: ComponentTree.Slice,
-    end: ComponentTree.Size,
+    slice: Ast.Slice,
+    end: Ast.Size,
     unspecified_namespace: NamespaceId,
 
     specificity: selectors.Specificity = undefined,
@@ -28,8 +28,8 @@ pub const Context = struct {
         env: *Environment,
         arena: *ArenaAllocator,
         source: ParserSource,
-        slice: ComponentTree.Slice,
-        end: ComponentTree.Size,
+        slice: Ast.Slice,
+        end: Ast.Size,
     ) Context {
         return Context{
             .env = env,
@@ -42,7 +42,7 @@ pub const Context = struct {
     }
 
     const Next = struct {
-        index: ComponentTree.Size,
+        index: Ast.Size,
         tag: Component.Tag,
         location: ParserSource.Location,
         extra: Component.Extra,
@@ -114,9 +114,9 @@ pub const Context = struct {
 };
 
 pub const Iterator = struct {
-    index: ComponentTree.Size,
+    index: Ast.Size,
 
-    pub fn init(start: ComponentTree.Size) Iterator {
+    pub fn init(start: Ast.Size) Iterator {
         return .{ .index = start };
     }
 };
@@ -548,7 +548,7 @@ fn pseudoSelector(context: *Context, it: Iterator) ?Pair(selectors.PseudoName) {
 }
 
 // `start` must be the index of a function or a block
-fn anyValue(context: *Context, start: ComponentTree.Size) bool {
+fn anyValue(context: *Context, start: Ast.Size) bool {
     var index = start + 1;
     const end = context.slice.nextSibling(start);
     while (index < end) {

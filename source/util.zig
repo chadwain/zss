@@ -274,7 +274,7 @@ pub fn unicodeString(data: []const u21) UnicodeString {
 
 /// Two enums `Base` and `Derived` are compatible if, for every field of `Base`, there is a field in `Derived` with the same name and value.
 pub fn ensureCompatibleEnums(comptime Base: type, comptime Derived: type) void {
-    @setEvalBranchQuota(std.meta.fields(Derived).len * 800);
+    @setEvalBranchQuota(std.meta.fields(Derived).len * 1000);
     for (std.meta.fields(Base)) |field_info| {
         const derived_field = std.meta.stringToEnum(Derived, field_info.name) orelse
             @compileError(@typeName(Derived) ++ " has no field named " ++ field_info.name);

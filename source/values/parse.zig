@@ -3,22 +3,22 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
 const types = zss.values.types;
+const Ast = zss.syntax.Ast;
 const Component = zss.syntax.Component;
-const ComponentTree = zss.syntax.ComponentTree;
 const ParserSource = zss.syntax.parse.Source;
 const Unit = zss.syntax.Token.Unit;
 const Utf8String = zss.util.Utf8String;
 
 /// A source of primitive CSS values.
 pub const Source = struct {
-    components: ComponentTree.Slice,
+    components: Ast.Slice,
     parser_source: ParserSource,
     arena: Allocator,
     range: ComponentRange,
 
     pub const ComponentRange = struct {
-        index: ComponentTree.Size,
-        end: ComponentTree.Size,
+        index: Ast.Size,
+        end: Ast.Size,
     };
 
     pub const Value = union(enum) {
@@ -39,11 +39,11 @@ pub const Source = struct {
     pub const Type = std.meta.Tag(Value);
 
     pub const Item = struct {
-        index: ComponentTree.Size,
+        index: Ast.Size,
         type: Type,
     };
 
-    fn getType(source: Source, tag: Component.Tag, index: ComponentTree.Size) Type {
+    fn getType(source: Source, tag: Component.Tag, index: Ast.Size) Type {
         return switch (tag) {
             .token_ident => .keyword,
             .token_integer => .integer,
@@ -61,7 +61,7 @@ pub const Source = struct {
         };
     }
 
-    fn nextComponent(source: *Source) ?struct { tag: Component.Tag, index: ComponentTree.Size } {
+    fn nextComponent(source: *Source) ?struct { tag: Component.Tag, index: Ast.Size } {
         const index = &source.range.index;
         while (index.* < source.range.end) {
             defer index.* = source.components.nextSibling(index.*);
@@ -91,7 +91,7 @@ pub const Source = struct {
         }
     }
 
-    pub fn value(source: *Source, comptime @"type": Type, index: ComponentTree.Size) std.meta.fieldInfo(Value, @"type").type {
+    pub fn value(source: *Source, comptime @"type": Type, index: Ast.Size) std.meta.fieldInfo(Value, @"type").type {
         const tag = source.components.tag(index);
         std.debug.assert(source.getType(tag, index) == @"type");
         switch (comptime @"type") {
@@ -134,7 +134,7 @@ pub const Source = struct {
 
     /// Given that `index` belongs to a keyword value, map that keyword to the value given in `kvs`,
     /// using case-insensitive matching. If there was no match, null is returned.
-    pub fn mapKeyword(source: Source, index: ComponentTree.Size, comptime ResultType: type, kvs: []const ParserSource.KV(ResultType)) ?ResultType {
+    pub fn mapKeyword(source: Source, index: Ast.Size, comptime ResultType: type, kvs: []const ParserSource.KV(ResultType)) ?ResultType {
         const tag = source.components.tag(index);
         std.debug.assert(source.getType(tag, index) == .keyword);
         const location = source.components.location(index);
@@ -397,10 +397,10 @@ pub fn genericLengthPercentage(comptime Type: type, value: anytype) !Type {
 }
 
 pub fn cssWideKeyword(
-    components: zss.syntax.ComponentTree.Slice,
+    components: zss.syntax.Ast.Slice,
     parser_source: zss.syntax.parse.Source,
-    declaration_index: ComponentTree.Size,
-    declaration_end: ComponentTree.Size,
+    declaration_index: Ast.Size,
+    declaration_end: Ast.Size,
 ) ?types.CssWideKeyword {
     if (declaration_end - declaration_index == 2) {
         if (components.tag(declaration_index + 1) == .token_ident) {
@@ -644,7 +644,7 @@ pub fn backgroundPosition(source: *Source) !types.BackgroundPosition {
     errdefer source.range.index = reset;
 
     var items: [4]Source.Item = undefined;
-    var resets: [4]ComponentTree.Size = undefined;
+    var resets: [4]Ast.Size = undefined;
     for (&items, &resets) |*item, *r| {
         item.* = source.next() orelse .{ .type = .unknown, .index = undefined };
         r.* = source.range.index;

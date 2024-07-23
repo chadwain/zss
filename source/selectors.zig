@@ -1,6 +1,6 @@
 const zss = @import("zss.zig");
+const Ast = zss.syntax.Ast;
 const ClassId = Environment.ClassId;
-const ComponentTree = zss.syntax.ComponentTree;
 const Element = ElementTree.Element;
 const ElementTree = zss.ElementTree;
 const Environment = zss.Environment;
@@ -277,7 +277,7 @@ pub const AttributeSelector = struct {
     pub const Complex = struct {
         operator: Operator,
         /// The index of an <ident-token> or a <string-token>
-        value: ComponentTree.Size,
+        value: Ast.Size,
         case: Case,
     };
 
@@ -290,9 +290,9 @@ pub fn parseSelectorList(
     env: *Environment,
     arena: *ArenaAllocator,
     source: ParserSource,
-    slice: ComponentTree.Slice,
-    start: ComponentTree.Size,
-    end: ComponentTree.Size,
+    slice: Ast.Slice,
+    start: Ast.Size,
+    end: Ast.Size,
 ) !?ComplexSelectorList {
     var parse_context = parse.Context.init(env, arena, source, slice, end);
     const iterator = parse.Iterator.init(start);
@@ -377,8 +377,8 @@ fn stringToSelectorList(input: []const u8, env: *Environment, arena: *ArenaAlloc
     defer tree.deinit(env.allocator);
     const slice = tree.slice();
     std.debug.assert(slice.tag(0) == .component_list);
-    const start: ComponentTree.Size = 0 + 1;
-    const end: ComponentTree.Size = slice.nextSibling(0);
+    const start: Ast.Size = 0 + 1;
+    const end: Ast.Size = slice.nextSibling(0);
 
     return parseSelectorList(env, arena, source, slice, start, end);
 }
