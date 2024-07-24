@@ -208,7 +208,16 @@ pub const NextToken = struct {
     next_location: Source.Location,
 };
 
-pub fn nextToken(source: Source, location: Source.Location) !NextToken {
+pub const Error = error{
+    Utf8ExpectedContinuation,
+    Utf8OverlongEncoding,
+    Utf8EncodesSurrogateHalf,
+    Utf8CodepointTooLarge,
+    Utf8InvalidStartByte,
+    Utf8CodepointTruncated,
+};
+
+pub fn nextToken(source: Source, location: Source.Location) Error!NextToken {
     const next = try source.next(location);
     switch (next.codepoint) {
         '/' => {
