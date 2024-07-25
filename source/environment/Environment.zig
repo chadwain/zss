@@ -2,7 +2,7 @@ const Environment = @This();
 
 const zss = @import("../zss.zig");
 const syntax = zss.syntax;
-const ParserSource = syntax.parse.Source;
+const TokenSource = syntax.tokenize.Source;
 const Stylesheet = zss.Stylesheet;
 const IdentifierSet = syntax.IdentifierSet;
 
@@ -30,7 +30,7 @@ pub fn deinit(env: *Environment) void {
     env.stylesheets.deinit(env.allocator);
 }
 
-pub fn addStylesheet(env: *Environment, source: ParserSource) !void {
+pub fn addStylesheet(env: *Environment, source: TokenSource) !void {
     var components = try syntax.parse.parseCssStylesheet(source, env.allocator);
     defer components.deinit(env.allocator);
     const slice = components.slice();
@@ -57,7 +57,7 @@ pub const NameId = enum(u24) {
     _,
 };
 
-pub fn addTypeOrAttributeName(env: *Environment, identifier: ParserSource.Location, source: ParserSource) !NameId {
+pub fn addTypeOrAttributeName(env: *Environment, identifier: TokenSource.Location, source: TokenSource) !NameId {
     const index = try env.type_or_attribute_names.getOrPutFromSource(env.allocator, source, source.identTokenIterator(identifier));
     return @enumFromInt(@as(NameId.Value, @intCast(index)));
 }
@@ -85,12 +85,12 @@ comptime {
     assert(IdId.max_value == ClassId.max_value);
 }
 
-pub fn addIdName(env: *Environment, hash_id: ParserSource.Location, source: ParserSource) !IdId {
+pub fn addIdName(env: *Environment, hash_id: TokenSource.Location, source: TokenSource) !IdId {
     const index = try env.id_or_class_names.getOrPutFromSource(env.allocator, source, source.hashIdTokenIterator(hash_id));
     return @enumFromInt(@as(IdId.Value, @intCast(index)));
 }
 
-pub fn addClassName(env: *Environment, identifier: ParserSource.Location, source: ParserSource) !ClassId {
+pub fn addClassName(env: *Environment, identifier: TokenSource.Location, source: TokenSource) !ClassId {
     const index = try env.id_or_class_names.getOrPutFromSource(env.allocator, source, source.identTokenIterator(identifier));
     return @enumFromInt(@as(ClassId.Value, @intCast(index)));
 }

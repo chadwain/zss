@@ -5,14 +5,14 @@ const zss = @import("../zss.zig");
 const types = zss.values.types;
 const Ast = zss.syntax.Ast;
 const Component = zss.syntax.Component;
-const ParserSource = zss.syntax.parse.Source;
+const TokenSource = zss.syntax.tokenize.Source;
 const Unit = zss.syntax.Token.Unit;
 const Utf8String = zss.util.Utf8String;
 
 /// A source of primitive CSS values.
 pub const Source = struct {
     components: Ast.Slice,
-    parser_source: ParserSource,
+    token_source: TokenSource,
     arena: Allocator,
     range: ComponentRange,
 
@@ -52,7 +52,7 @@ pub const Source = struct {
             .token_url => .url,
             .function => blk: {
                 const location = source.components.location(index);
-                if (source.parser_source.identifierEqlIgnoreCase(location, "url"))
+                if (source.token_source.identifierEqlIgnoreCase(location, "url"))
                     break :blk .url
                 else
                     break :blk .function;
@@ -108,7 +108,7 @@ pub const Source = struct {
                 switch (tag) {
                     .token_url => {
                         const location = source.components.location(index);
-                        return try source.parser_source.copyUrl(location, source.arena);
+                        return try source.token_source.copyUrl(location, source.arena);
                     },
                     .function => {
                         const saved_range = source.range;
@@ -123,7 +123,7 @@ pub const Source = struct {
                         }
 
                         const location = source.components.location(string.index);
-                        return try source.parser_source.copyString(location, source.arena);
+                        return try source.token_source.copyString(location, source.arena);
                     },
                     else => unreachable,
                 }
@@ -134,11 +134,11 @@ pub const Source = struct {
 
     /// Given that `index` belongs to a keyword value, map that keyword to the value given in `kvs`,
     /// using case-insensitive matching. If there was no match, null is returned.
-    pub fn mapKeyword(source: Source, index: Ast.Size, comptime ResultType: type, kvs: []const ParserSource.KV(ResultType)) ?ResultType {
+    pub fn mapKeyword(source: Source, index: Ast.Size, comptime ResultType: type, kvs: []const TokenSource.KV(ResultType)) ?ResultType {
         const tag = source.components.tag(index);
         std.debug.assert(source.getType(tag, index) == .keyword);
         const location = source.components.location(index);
-        return source.parser_source.mapIdentifier(location, ResultType, kvs);
+        return source.token_source.mapIdentifier(location, ResultType, kvs);
     }
 };
 
@@ -184,8 +184,8 @@ pub fn typeToParseFn(comptime Type: type) switch (Type) {
 fn testParsing(comptime T: type, input: []const u8, expected: ?T, is_complete: bool) !void {
     const allocator = std.testing.allocator;
 
-    const parser_source = try ParserSource.init(Utf8String{ .data = input });
-    var tree = try zss.syntax.parse.parseListOfComponentValues(parser_source, allocator);
+    const token_source = try TokenSource.init(Utf8String{ .data = input });
+    var tree = try zss.syntax.parse.parseListOfComponentValues(token_source, allocator);
     defer tree.deinit(allocator);
     const slice = tree.slice();
 
@@ -193,7 +193,7 @@ fn testParsing(comptime T: type, input: []const u8, expected: ?T, is_complete: b
     defer arena.deinit();
     var source = Source{
         .components = slice,
-        .parser_source = parser_source,
+        .token_source = token_source,
         .arena = arena.allocator(),
         .range = .{
             .index = 1,
@@ -366,7 +366,7 @@ test "css value parsing" {
     try testParsing(types.BackgroundSize, "5px 5%", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .percentage = 5 } } }, true);
 }
 
-pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const ParserSource.KV(Type)) !Type {
+pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const TokenSource.KV(Type)) !Type {
     const reset = source.range.index;
     if (source.next()) |keyword| {
         if (keyword.type == .keyword) {
@@ -398,14 +398,14 @@ pub fn genericLengthPercentage(comptime Type: type, value: anytype) !Type {
 
 pub fn cssWideKeyword(
     components: zss.syntax.Ast.Slice,
-    parser_source: zss.syntax.parse.Source,
+    token_source: TokenSource,
     declaration_index: Ast.Size,
     declaration_end: Ast.Size,
 ) ?types.CssWideKeyword {
     if (declaration_end - declaration_index == 2) {
         if (components.tag(declaration_index + 1) == .token_ident) {
             const location = components.location(declaration_index + 1);
-            return parser_source.mapIdentifier(location, types.CssWideKeyword, &.{
+            return token_source.mapIdentifier(location, types.CssWideKeyword, &.{
                 .{ "initial", .initial },
                 .{ "inherit", .inherit },
                 .{ "unset", .unset },
@@ -582,7 +582,7 @@ pub fn backgroundRepeat(source: *Source) !types.BackgroundRepeat {
     }
 
     const Style = types.BackgroundRepeat.Style;
-    const map = comptime &[_]ParserSource.KV(Style){
+    const map = comptime &[_]TokenSource.KV(Style){
         .{ "repeat", .repeat },
         .{ "space", .space },
         .{ "round", .round },
@@ -609,7 +609,7 @@ const bg_position = struct {
     const Axis = enum { x, y, either };
 
     const KeywordMapValue = struct { axis: Axis, side: Side };
-    const keyword_map = &[_]ParserSource.KV(KeywordMapValue){
+    const keyword_map = &[_]TokenSource.KV(KeywordMapValue){
         // zig fmt: off
         .{ "center", .{ .axis = .either, .side = .center } },
         .{ "left",   .{ .axis = .x,      .side = .start  } },

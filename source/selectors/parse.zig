@@ -6,7 +6,7 @@ const NameId = Environment.NameId;
 const syntax = zss.syntax;
 const Ast = zss.syntax.Ast;
 const Component = zss.syntax.Component;
-const ParserSource = syntax.parse.Source;
+const TokenSource = syntax.tokenize.Source;
 
 const std = @import("std");
 const panic = std.debug.panic;
@@ -17,7 +17,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 pub const Context = struct {
     env: *Environment,
     arena: Allocator,
-    source: ParserSource,
+    source: TokenSource,
     slice: Ast.Slice,
     end: Ast.Size,
     unspecified_namespace: NamespaceId,
@@ -27,7 +27,7 @@ pub const Context = struct {
     pub fn init(
         env: *Environment,
         arena: *ArenaAllocator,
-        source: ParserSource,
+        source: TokenSource,
         slice: Ast.Slice,
         end: Ast.Size,
     ) Context {
@@ -44,7 +44,7 @@ pub const Context = struct {
     const Next = struct {
         index: Ast.Size,
         tag: Component.Tag,
-        location: ParserSource.Location,
+        location: TokenSource.Location,
         extra: Component.Extra,
         next_it: Iterator,
     };
@@ -347,12 +347,12 @@ const ElementType = struct {
     second_name: ?SecondName,
 
     const FirstName = union(enum) {
-        identifier: ParserSource.Location,
+        identifier: TokenSource.Location,
         empty,
         asterisk,
     };
     const SecondName = union(enum) {
-        identifier: ParserSource.Location,
+        identifier: TokenSource.Location,
         asterisk,
     };
 };

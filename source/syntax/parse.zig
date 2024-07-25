@@ -9,140 +9,10 @@ const tokenize = syntax.tokenize;
 const Ast = syntax.Ast;
 const Component = syntax.Component;
 const Extra = Component.Extra;
+const Source = tokenize.Source;
 const Stack = zss.util.Stack;
 const Token = syntax.Token;
 const Utf8String = zss.util.Utf8String;
-
-/// A source of `Token`.
-
-// TODO: After parsing, this struct "lingers around" because it is used to get information that isn't stored in `Ast`.
-//       A possibly better approach is to store said information into `Ast` (by copying it), eliminating the need for this object.
-pub const Source = struct {
-    inner: tokenize.Source,
-
-    pub const Location = tokenize.Source.Location;
-
-    pub fn init(string: Utf8String) !Source {
-        const inner = try tokenize.Source.init(string);
-        return Source{ .inner = inner };
-    }
-
-    /// Returns the next token, ignoring comments.
-    pub fn next(source: Source, location: *Location) !Token {
-        var next_location = location.*;
-        while (true) {
-            const next_token = try tokenize.nextToken(source.inner, next_location);
-            if (next_token.token != .token_comments) {
-                location.* = next_token.next_location;
-                return next_token.token;
-            }
-            next_location = next_token.next_location;
-        }
-    }
-
-    /// `start` must be the location of a `.token_ident` component
-    pub fn identTokenIterator(source: Source, start: Location) IdentSequenceIterator {
-        return .{ .inner = source.inner.identTokenIterator(start) };
-    }
-
-    /// `start` must be the location of a `.token_hash_id` component
-    pub fn hashIdTokenIterator(source: Source, start: Location) IdentSequenceIterator {
-        return .{ .inner = source.inner.hashIdTokenIterator(start) };
-    }
-
-    /// `start` must be the location of a `.token_string` component
-    pub fn stringTokenIterator(source: Source, start: Location) StringTokenIterator {
-        return .{ .inner = source.inner.stringTokenIterator(start) };
-    }
-
-    /// `start` must be the location of a `.token_url` component
-    /// It CANNOT be the location of a `token_bad_url` component
-    pub fn urlTokenIterator(source: Source, start: Location) UrlTokenIterator {
-        return UrlTokenIterator{ .inner = source.inner.urlTokenIterator(start) };
-    }
-
-    /// Given that `location` is the location of an <ident-token>, check if the identifier is equal to `ascii_string`
-    /// using case-insensitive matching.
-    pub fn identifierEqlIgnoreCase(source: Source, location: Location, ascii_string: []const u8) bool {
-        const toLowercase = zss.util.unicode.toLowercase;
-        var it = identTokenIterator(source, location);
-        for (ascii_string) |string_codepoint| {
-            assert(string_codepoint <= 0x7F);
-            const it_codepoint = it.next(source) orelse return false;
-            if (toLowercase(string_codepoint) != toLowercase(it_codepoint)) return false;
-        }
-        return it.next(source) == null;
-    }
-
-    /// Given that `location` is the location of a <string-token>, copy that string
-    pub fn copyString(source: Source, location: Location, allocator: Allocator) !Utf8String {
-        var iterator = stringTokenIterator(source, location);
-        return copyTokenGeneric(source, &iterator, allocator);
-    }
-
-    /// Given that `location` is the location of a <url-token>, copy that URL
-    pub fn copyUrl(source: Source, location: Location, allocator: Allocator) !Utf8String {
-        var iterator = urlTokenIterator(source, location);
-        return copyTokenGeneric(source, &iterator, allocator);
-    }
-
-    fn copyTokenGeneric(source: Source, iterator: anytype, allocator: Allocator) !Utf8String {
-        var list = std.ArrayListUnmanaged(u8){};
-        defer list.deinit(allocator);
-
-        var buffer: [4]u8 = undefined;
-        while (iterator.next(source)) |codepoint| {
-            // TODO: Get a UTF-8 encoded buffer directly from the tokenizer
-            const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
-            try list.appendSlice(allocator, buffer[0..len]);
-        }
-
-        const bytes = try list.toOwnedSlice(allocator);
-        return Utf8String{ .data = bytes };
-    }
-
-    pub fn KV(comptime Type: type) type {
-        return struct {
-            /// This must be an ASCII string.
-            []const u8,
-            Type,
-        };
-    }
-
-    /// Given that `location` is the location of an <ident-token>, map the identifier at that location
-    /// to the value given in `kvs`, using case-insensitive matching. If there was no match, null is returned.
-    pub fn mapIdentifier(source: Source, location: Location, comptime Type: type, kvs: []const KV(Type)) ?Type {
-        // TODO: Use a hash map/trie or something
-        for (kvs) |kv| {
-            if (identifierEqlIgnoreCase(source, location, kv[0])) return kv[1];
-        }
-        return null;
-    }
-};
-
-pub const IdentSequenceIterator = struct {
-    inner: tokenize.IdentSequenceIterator,
-
-    pub fn next(it: *IdentSequenceIterator, source: Source) ?u21 {
-        return it.inner.next(source.inner);
-    }
-};
-
-pub const StringTokenIterator = struct {
-    inner: tokenize.StringTokenIterator,
-
-    pub fn next(it: *StringTokenIterator, source: Source) ?u21 {
-        return it.inner.next(source.inner);
-    }
-};
-
-pub const UrlTokenIterator = struct {
-    inner: tokenize.UrlTokenIterator,
-
-    pub fn next(it: *UrlTokenIterator, source: Source) ?u21 {
-        return it.inner.next(source.inner);
-    }
-};
 
 pub const AstManaged = struct {
     unmanaged: *Ast,
@@ -346,7 +216,7 @@ pub const Last3NonWhitespaceComponents = struct {
     }
 };
 
-/// Creates a Ast with a root node with tag `rule_list`
+/// Creates an Ast with a root node with tag `rule_list`
 /// Implements CSS Syntax Level 3 Section 9 "Parse a CSS stylesheet"
 pub fn parseCssStylesheet(source: Source, allocator: Allocator) !Ast {
     var ast: Ast = .{};
@@ -367,7 +237,7 @@ pub fn parseCssStylesheet(source: Source, allocator: Allocator) !Ast {
     return ast;
 }
 
-/// Creates a Ast with a root node with tag `component_list`
+/// Creates an Ast with a root node with tag `component_list`
 /// Implements CSS Syntax Level 3 Section 5.3.10 "Parse a list of component values"
 pub fn parseListOfComponentValues(source: Source, allocator: Allocator) !Ast {
     var ast: Ast = .{};
@@ -534,7 +404,7 @@ const Parser = struct {
 
     fn popDeclarationValue(parser: *Parser, ast: AstManaged) void {
         const frame = parser.stack.pop();
-        _ = ast.finishDeclaration(parser.source.inner, frame.index, frame.data.declaration_value.last_3);
+        _ = ast.finishDeclaration(parser.source, frame.index, frame.data.declaration_value.last_3);
     }
 };
 
@@ -576,7 +446,7 @@ fn consumeListOfRules(parser: *Parser, location: *Source.Location, ast: AstManag
         const saved_location = location.*;
         const token = try parser.source.next(location);
         switch (token) {
-            .token_whitespace => {},
+            .token_whitespace, .token_comments => {},
             .token_eof => return parser.popComponent(ast),
             .token_cdo, .token_cdc => {
                 if (!data.top_level) {
@@ -665,7 +535,7 @@ fn consumeStyleBlockContents(parser: *Parser, location: *Source.Location, ast: A
             return;
         };
         switch (token) {
-            .token_whitespace, .token_semicolon => {},
+            .token_whitespace, .token_comments, .token_semicolon => {},
             .token_at_keyword => {
                 try parser.pushAtRule(ast, saved_location);
             },
@@ -712,7 +582,7 @@ fn consumeDeclarationStart(
         const saved_location = location.*;
         const token = try parser.source.next(location);
         switch (token) {
-            .token_whitespace => {},
+            .token_whitespace, .token_comments => {},
             .token_colon => break,
             else => {
                 // NOTE: Parse error
@@ -726,7 +596,7 @@ fn consumeDeclarationStart(
         const saved_location = location.*;
         const token = try parser.source.next(location);
         switch (token) {
-            .token_whitespace => {},
+            .token_whitespace, .token_comments => {},
             else => {
                 location.* = saved_location;
                 try parser.pushDeclarationValue(ast, name_location, style_block, previous_declaration);
@@ -749,8 +619,8 @@ fn consumeDeclarationValue(parser: *Parser, location: *Source.Location, ast: Ast
                 parser.popDeclarationValue(ast);
                 return;
             },
-            .token_whitespace => {
-                _ = try ast.addBasicComponent(.token_whitespace, saved_location);
+            .token_whitespace, .token_comments => {
+                _ = try ast.addBasicComponent(token.cast(Component.Tag), saved_location);
             },
             else => {
                 const component_index = try consumeComponentValue(parser, location, ast, token, saved_location);

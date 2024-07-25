@@ -1,7 +1,7 @@
 const zss = @import("../zss.zig");
 const Ast = zss.syntax.Ast;
 const CascadedValues = zss.CascadedValues;
-const ParserSource = zss.syntax.parse.Source;
+const TokenSource = zss.syntax.tokenize.Source;
 const PropertyName = zss.properties.definitions.PropertyName;
 const Utf8String = zss.util.Utf8String;
 const ValueSource = zss.values.parse.Source;
@@ -19,7 +19,7 @@ pub const ParsedDeclarations = struct {
 pub fn parseStyleBlockDeclarations(
     arena: *ArenaAllocator,
     components: Ast.Slice,
-    parser_source: ParserSource,
+    token_source: TokenSource,
     style_block: Ast.Size,
 ) Allocator.Error!ParsedDeclarations {
     assert(components.tag(style_block) == .style_block);
@@ -31,7 +31,7 @@ pub fn parseStyleBlockDeclarations(
 
     var value_source = ValueSource{
         .components = components,
-        .parser_source = parser_source,
+        .token_source = token_source,
         .arena = arena.allocator(),
         .range = .{
             .index = undefined,
@@ -49,7 +49,7 @@ pub fn parseStyleBlockDeclarations(
             .declaration_normal => &normal,
             else => unreachable,
         };
-        try parseDeclaration(destination, arena, components, parser_source, &value_source, index);
+        try parseDeclaration(destination, arena, components, token_source, &value_source, index);
     }
 
     return ParsedDeclarations{ .normal = normal, .important = important };
@@ -59,16 +59,16 @@ fn parseDeclaration(
     cascaded: *CascadedValues,
     arena: *ArenaAllocator,
     components: Ast.Slice,
-    parser_source: ParserSource,
+    token_source: TokenSource,
     value_source: *ValueSource,
     declaration_index: Ast.Size,
 ) !void {
     if (cascaded.all != null) return;
 
     // TODO: If this property has already been declared, skip parsing a value entirely.
-    const property_name = parsePropertyName(components, parser_source, declaration_index) orelse return;
+    const property_name = parsePropertyName(components, token_source, declaration_index) orelse return;
     const declaration_end = components.nextSibling(declaration_index);
-    const css_wide_keyword = zss.values.parse.cssWideKeyword(components, parser_source, declaration_index, declaration_end);
+    const css_wide_keyword = zss.values.parse.cssWideKeyword(components, token_source, declaration_index, declaration_end);
     switch (property_name) {
         inline else => |comptime_property_name| {
             const def = comptime comptime_property_name.definition();
@@ -109,12 +109,12 @@ fn parseDeclaration(
 
 fn parsePropertyName(
     components: Ast.Slice,
-    parser_source: ParserSource,
+    token_source: TokenSource,
     declaration_index: Ast.Size,
 ) ?PropertyName {
     const map = comptime blk: {
         const names = std.meta.fields(PropertyName);
-        var result: [names.len]ParserSource.KV(PropertyName) = undefined;
+        var result: [names.len]TokenSource.KV(PropertyName) = undefined;
         for (names, &result) |property_name, *entry| {
             entry.* = .{ property_name.name, @enumFromInt(property_name.value) };
         }
@@ -122,7 +122,7 @@ fn parsePropertyName(
         break :blk &const_result;
     };
     const location = components.location(declaration_index);
-    return parser_source.mapIdentifier(location, PropertyName, map);
+    return token_source.mapIdentifier(location, PropertyName, map);
 }
 
 test {
@@ -177,7 +177,7 @@ test {
         \\  background-image: none;
         \\}
     ;
-    const source = try ParserSource.init(Utf8String{ .data = input });
+    const source = try TokenSource.init(Utf8String{ .data = input });
     var components = try zss.syntax.parse.parseCssStylesheet(source, allocator);
     defer components.deinit(allocator);
     const slice = components.slice();

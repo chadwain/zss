@@ -130,12 +130,12 @@ fn getOrPutGeneric(set: *IdentifierSet, allocator: Allocator, key: anytype) !usi
 pub fn getOrPutFromSource(
     set: *IdentifierSet,
     allocator: Allocator,
-    source: syntax.parse.Source,
-    ident_seq_it: syntax.parse.IdentSequenceIterator,
+    source: syntax.tokenize.Source,
+    ident_seq_it: syntax.tokenize.IdentSequenceIterator,
 ) !usize {
     const Key = struct {
-        source: syntax.parse.Source,
-        ident_seq_it: syntax.parse.IdentSequenceIterator,
+        source: syntax.tokenize.Source,
+        ident_seq_it: syntax.tokenize.IdentSequenceIterator,
 
         fn iterator(self: @This()) @This() {
             return self;

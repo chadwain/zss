@@ -127,7 +127,7 @@ pub const Component = struct {
     next_sibling: Ast.Size,
     tag: Tag,
     /// The location of the Component in whatever Source created it. The meaning of this value depends on `tag`.
-    location: parse.Source.Location,
+    location: tokenize.Source.Location,
     /// Additional info about the Component. The meaning of this value depends on `tag`.
     extra: Extra,
 
@@ -351,7 +351,7 @@ pub const Ast = struct {
         ptrs: struct {
             next_sibling: [*]Ast.Size,
             tag: [*]Component.Tag,
-            location: [*]parse.Source.Location,
+            location: [*]tokenize.Source.Location,
             extra: [*]Component.Extra,
         },
 
@@ -375,7 +375,7 @@ pub const Ast = struct {
             return self.ptrs.tag[index];
         }
 
-        pub fn location(self: Slice, index: Ast.Size) parse.Source.Location {
+        pub fn location(self: Slice, index: Ast.Size) tokenize.Source.Location {
             assert(index < self.len);
             return self.ptrs.location[index];
         }
@@ -393,7 +393,7 @@ pub const Ast = struct {
             return self.ptrs.tag[0..self.len];
         }
 
-        pub fn locations(self: Slice) []parse.Source.Location {
+        pub fn locations(self: Slice) []tokenize.Source.Location {
             return self.ptrs.location[0..self.len];
         }
 

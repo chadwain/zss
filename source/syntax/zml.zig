@@ -48,8 +48,6 @@ test "parse a zml document" {
         ),
         else => |e| return e,
     };
-    const writer = std.io.getStdErr().writer();
-    try Ast.debug.print(ast, allocator, writer);
 }
 
 pub const Parser = struct {
