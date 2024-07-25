@@ -55,7 +55,7 @@ pub const Context = struct {
             const tag = context.slice.tag(index);
             const next_index = context.slice.nextSibling(index);
             switch (tag) {
-                .token_whitespace => index = next_index,
+                .token_whitespace, .token_comments => index = next_index,
                 else => return .{
                     .index = index,
                     .tag = tag,
@@ -73,7 +73,7 @@ pub const Context = struct {
         if (it.index < context.end) {
             const tag = context.slice.tag(it.index);
             switch (tag) {
-                .token_whitespace => return null,
+                .token_whitespace, .token_comments => return null,
                 else => return .{
                     .index = it.index,
                     .tag = tag,
@@ -89,7 +89,10 @@ pub const Context = struct {
 
     fn nextIsWhitespace(context: Context, it: Iterator) bool {
         if (it.index < context.end) {
-            return context.slice.tag(it.index) == .token_whitespace;
+            return switch (context.slice.tag(it.index)) {
+                .token_whitespace, .token_comments => true,
+                else => false,
+            };
         } else {
             return false;
         }
@@ -99,10 +102,9 @@ pub const Context = struct {
         var index = it.index;
         while (index < context.end) {
             const tag = context.slice.tag(index);
-            if (tag == .token_whitespace) {
-                index = context.slice.nextSibling(index);
-            } else {
-                break;
+            switch (tag) {
+                .token_whitespace, .token_comments => index = context.slice.nextSibling(index),
+                else => break,
             }
         }
         return Iterator.init(index);
