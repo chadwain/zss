@@ -16,13 +16,16 @@ pub const ParsedDeclarations = struct {
     important: CascadedValues,
 };
 
-pub fn parseStyleBlockDeclarations(
+pub fn parseDeclarationsFromAst(
     arena: *ArenaAllocator,
     components: Ast.Slice,
     token_source: TokenSource,
     style_block: Ast.Size,
 ) Allocator.Error!ParsedDeclarations {
-    assert(components.tag(style_block) == .style_block);
+    switch (components.tag(style_block)) {
+        .style_block, .zml_styles => {},
+        else => unreachable,
+    }
 
     var normal = CascadedValues{};
     // errdefer normal.deinit(allocator);
@@ -188,7 +191,7 @@ test {
     assert(slice.tag(style_block) == .style_block);
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const decls = try parseStyleBlockDeclarations(&arena, slice, source, style_block);
+    const decls = try parseDeclarationsFromAst(&arena, slice, source, style_block);
 
     const expectEqual = std.testing.expectEqual;
     const aggregates = zss.properties.aggregates;

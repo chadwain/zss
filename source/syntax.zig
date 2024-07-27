@@ -340,32 +340,31 @@ pub const Ast = struct {
 
     pub const Size = u32;
 
-    /// Used to iterate over a sequence of components.
-    pub const Interval = struct {
+    pub const Sequence = struct {
         start: Size,
         end: Size,
 
-        pub fn empty(interval: Interval) bool {
-            return (interval.start == interval.end);
+        pub fn empty(sequence: Sequence) bool {
+            return (sequence.start == sequence.end);
         }
 
-        /// Returns the next component in the sequence, skipping over whitespace and comment tokens.
-        pub fn next(interval: *Interval, s: Slice) ?Ast.Size {
-            if (interval.empty()) return null;
+        /// Returns the next component in the sequence, skipping over whitespace and comment components.
+        pub fn next(sequence: *Sequence, s: Slice) ?Ast.Size {
+            if (sequence.empty()) return null;
             defer {
-                interval.start = s.nextSibling(interval.start);
-                interval.skipWhitespaceAndComments(s);
+                sequence.start = s.nextSibling(sequence.start);
+                sequence.skipWhitespaceAndComments(s);
             }
-            return interval.start;
+            return sequence.start;
         }
 
-        fn skipWhitespaceAndComments(interval: *Interval, s: Slice) void {
-            while (!interval.empty()) {
-                switch (s.tag(interval.start)) {
+        fn skipWhitespaceAndComments(sequence: *Sequence, s: Slice) void {
+            while (!sequence.empty()) {
+                switch (s.tag(sequence.start)) {
                     .token_whitespace, .token_comments => {},
                     else => return,
                 }
-                interval.start = s.nextSibling(interval.start);
+                sequence.start = s.nextSibling(sequence.start);
             }
         }
     };
@@ -377,12 +376,11 @@ pub const Ast = struct {
 
     pub const Slice = struct {
         len: Size,
-        // TODO: Make these const pointers
         ptrs: struct {
-            next_sibling: [*]Ast.Size,
-            tag: [*]Component.Tag,
-            location: [*]tokenize.Source.Location,
-            extra: [*]Component.Extra,
+            next_sibling: [*]const Ast.Size,
+            tag: [*]const Component.Tag,
+            location: [*]const tokenize.Source.Location,
+            extra: [*]const Component.Extra,
         },
 
         pub fn get(self: Slice, index: Ast.Size) Component {
@@ -415,29 +413,14 @@ pub const Ast = struct {
             return self.ptrs.extra[index];
         }
 
-        pub fn nextSiblings(self: Slice) []Ast.Size {
-            return self.ptrs.next_sibling[0..self.len];
-        }
-
-        pub fn tags(self: Slice) []Component.Tag {
-            return self.ptrs.tag[0..self.len];
-        }
-
-        pub fn locations(self: Slice) []tokenize.Source.Location {
-            return self.ptrs.location[0..self.len];
-        }
-
-        pub fn extras(self: Slice) []Component.Extra {
-            return self.ptrs.extra[0..self.len];
-        }
-
-        pub fn children(self: Slice, index: Ast.Size) Interval {
-            var interval = Interval{
+        /// Returns the sequence of the immediate children of `index`
+        pub fn children(self: Slice, index: Ast.Size) Sequence {
+            var sequence = Sequence{
                 .start = index + 1,
                 .end = self.nextSibling(index),
             };
-            interval.skipWhitespaceAndComments(self);
-            return interval;
+            sequence.skipWhitespaceAndComments(self);
+            return sequence;
         }
     };
 

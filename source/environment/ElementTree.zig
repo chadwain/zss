@@ -17,12 +17,6 @@ const MultiArrayList = std.MultiArrayList;
 const ElementTree = @This();
 pub const Text = ?[]const u8;
 
-comptime {
-    if (@import("builtin").is_test) {
-        _ = CascadedValues;
-    }
-}
-
 nodes: MultiArrayList(Node) = .{},
 free_list_head: Size = max_size,
 free_list_len: Size = 0,
@@ -430,8 +424,13 @@ pub const Slice = struct {
         // Must be a stable sort.
         std.sort.insertionContext(0, sources.items.len, SortContext{ .sources = sources.items, .precedences = precedences.slice() });
 
+        try updateCascadedValues(self, element, sources.items);
+    }
+
+    pub fn updateCascadedValues(self: Slice, element: Element, sources: []const *const CascadedValues) !void {
+        self.validateElement(element);
         const cascaded_values = &self.ptrs.cascaded_values[element.index];
-        for (sources.items) |source| {
+        for (sources) |source| {
             // TODO: CascadedValues should have a higher level API
             if (source.all) |all| cascaded_values.addAll(all);
             for (source.map.keys(), 0..) |tag, index| {
