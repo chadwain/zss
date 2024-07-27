@@ -340,6 +340,36 @@ pub const Ast = struct {
 
     pub const Size = u32;
 
+    /// Used to iterate over a sequence of components.
+    pub const Interval = struct {
+        start: Size,
+        end: Size,
+
+        pub fn empty(interval: Interval) bool {
+            return (interval.start == interval.end);
+        }
+
+        /// Returns the next component in the sequence, skipping over whitespace and comment tokens.
+        pub fn next(interval: *Interval, s: Slice) ?Ast.Size {
+            if (interval.empty()) return null;
+            defer {
+                interval.start = s.nextSibling(interval.start);
+                interval.skipWhitespaceAndComments(s);
+            }
+            return interval.start;
+        }
+
+        fn skipWhitespaceAndComments(interval: *Interval, s: Slice) void {
+            while (!interval.empty()) {
+                switch (s.tag(interval.start)) {
+                    .token_whitespace, .token_comments => {},
+                    else => return,
+                }
+                interval.start = s.nextSibling(interval.start);
+            }
+        }
+    };
+
     /// Free resources associated with the Ast.
     pub fn deinit(tree: *Ast, allocator: Allocator) void {
         tree.components.deinit(allocator);
@@ -399,6 +429,15 @@ pub const Ast = struct {
 
         pub fn extras(self: Slice) []Component.Extra {
             return self.ptrs.extra[0..self.len];
+        }
+
+        pub fn children(self: Slice, index: Ast.Size) Interval {
+            var interval = Interval{
+                .start = index + 1,
+                .end = self.nextSibling(index),
+            };
+            interval.skipWhitespaceAndComments(self);
+            return interval;
         }
     };
 
