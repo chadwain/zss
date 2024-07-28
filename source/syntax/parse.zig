@@ -52,22 +52,12 @@ pub const AstManaged = struct {
             .next_sibling = undefined,
             .tag = tag,
             .location = location,
-            .extra = Component.Extra.make(0),
+            .extra = undefined,
         });
     }
 
     pub fn finishComplexComponent(ast: AstManaged, component_index: Ast.Size) void {
-        const next_sibling: Ast.Size = ast.len();
-        ast.unmanaged.components.items(.next_sibling)[component_index] = next_sibling;
-    }
-
-    pub fn addComplexComponentExtra(ast: AstManaged, tag: Component.Tag, location: Source.Location) !Ast.Size {
-        return ast.createComponent(.{
-            .next_sibling = undefined,
-            .tag = tag,
-            .location = location,
-            .extra = undefined,
-        });
+        ast.finishComplexComponentExtra(component_index, 0);
     }
 
     pub fn finishComplexComponentExtra(ast: AstManaged, component_index: Ast.Size, extra: u32) void {
@@ -350,7 +340,7 @@ const Parser = struct {
     /// `location` must be the location of the first token of the at-rule (i.e. the <at-keyword-token>).
     /// To finish this component, use `popAtRule`.
     fn pushAtRule(parser: *Parser, ast: AstManaged, location: Source.Location) !void {
-        const index = try ast.addComplexComponentExtra(.at_rule, location);
+        const index = try ast.addComplexComponent(.at_rule, location);
         try parser.pushFrame(.{ .index = index, .data = .{ .at_rule = .{} } });
     }
 
@@ -362,7 +352,7 @@ const Parser = struct {
     /// `location` must be the location of the first token of the qualified rule.
     /// To finish this component, use either `popQualifiedRule` or `discardQualifiedRule`.
     fn pushQualifiedRule(parser: *Parser, ast: AstManaged, location: Source.Location, is_style_rule: bool) !void {
-        const index = try ast.addComplexComponentExtra(.qualified_rule, location);
+        const index = try ast.addComplexComponent(.qualified_rule, location);
         try parser.pushFrame(.{ .index = index, .data = .{ .qualified_rule = .{ .is_style_rule = is_style_rule } } });
     }
 
@@ -380,7 +370,7 @@ const Parser = struct {
     /// `location` must be the location of a <{-token>.
     /// To finish this component, use `popStyleBlock`.
     fn pushStyleBlock(parser: *Parser, ast: AstManaged, location: Source.Location) !void {
-        const index = try ast.addComplexComponentExtra(.style_block, location);
+        const index = try ast.addComplexComponent(.style_block, location);
         try parser.pushFrame(.{ .index = index, .data = .{ .style_block = .{} } });
     }
 
