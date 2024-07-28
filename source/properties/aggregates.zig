@@ -80,11 +80,6 @@ pub const Tag = enum {
     }
 };
 
-/// text -> Does not correspond to any CSS property. Instead it represents the text of a text element.
-pub const Text = struct {
-    text: types.Text,
-};
-
 /// font -> Does not correspond to any CSS property. Instead it represents a font object.
 pub const Font = struct {
     font: types.Font = .undeclared,
