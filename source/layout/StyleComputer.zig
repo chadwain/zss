@@ -11,8 +11,6 @@ const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Stack = zss.util.Stack;
 
-const hb = @import("mach-harfbuzz").c;
-
 const StyleComputer = @This();
 
 pub const Stage = enum { box_gen, cosmetic };
@@ -101,10 +99,6 @@ stage: union {
         value_stack: CosmeticComputedValueStack = .{},
     },
 },
-
-root_font: struct {
-    font: *hb.hb_font_t,
-} = undefined,
 
 // Does not do deinitStage.
 pub fn deinit(self: *StyleComputer) void {

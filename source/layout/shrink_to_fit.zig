@@ -10,6 +10,7 @@ const BlockComputedSizes = zss.layout.BlockComputedSizes;
 const BlockUsedSizes = zss.layout.BlockUsedSizes;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
+const Inputs = zss.layout.Inputs;
 const Stack = zss.util.Stack;
 
 const flow = @import("./flow.zig");
@@ -40,6 +41,7 @@ pub fn runShrinkToFitLayout(
     box_tree: *BoxTree,
     sc: *StackingContexts,
     computer: *StyleComputer,
+    inputs: Inputs,
     subtree_id: SubtreeId,
     used_sizes: BlockUsedSizes,
     available_width: ZssUnit,
@@ -51,7 +53,7 @@ pub fn runShrinkToFitLayout(
     defer ctx.deinit(allocator);
 
     try pushMainObject(&ctx, &object_tree, allocator, used_sizes, available_width);
-    try buildObjectTree(&ctx, &object_tree, allocator, sc, computer, box_tree);
+    try buildObjectTree(&ctx, &object_tree, allocator, sc, computer, box_tree, inputs);
     return try realizeObjects(object_tree.slice(), allocator, box_tree, subtree_id);
 }
 
@@ -114,11 +116,12 @@ fn buildObjectTree(
     sc: *StackingContexts,
     computer: *StyleComputer,
     box_tree: *BoxTree,
+    inputs: Inputs,
 ) !void {
     while (ctx.stack.top) |this| {
         const object_tag = object_tree.items(.tag)[this.object_index];
         switch (object_tag) {
-            .flow_stf => try flowObject(ctx, object_tree, allocator, sc, computer, box_tree),
+            .flow_stf => try flowObject(ctx, object_tree, allocator, sc, computer, box_tree, inputs),
             .flow_normal, .ifc => unreachable,
         }
     }
@@ -131,6 +134,7 @@ fn flowObject(
     sc: *StackingContexts,
     computer: *StyleComputer,
     box_tree: *BoxTree,
+    inputs: Inputs,
 ) !void {
     const element = computer.getCurrentElement();
     if (element.eqlNull()) {
@@ -170,7 +174,7 @@ fn flowObject(
                 const stacking_context_id = try sc.push(stacking_context, box_tree, generated_box.block_box);
                 try computer.pushElement(.box_gen);
                 // TODO: Recursive call here
-                const result = try flow.runFlowLayout(allocator, box_tree, sc, computer, new_subtree_id, used);
+                const result = try flow.runFlowLayout(allocator, box_tree, sc, computer, inputs, new_subtree_id, used);
                 sc.pop(box_tree);
                 computer.popElement(.box_gen);
 
@@ -210,6 +214,7 @@ fn flowObject(
                 .ShrinkToFit,
                 parent.available_width,
                 parent.height,
+                inputs,
             );
             const ifc = box_tree.ifcs.items[result.ifc_index];
             const line_split_result = try inline_layout.splitIntoLineBoxes(
@@ -217,6 +222,7 @@ fn flowObject(
                 box_tree,
                 new_subtree,
                 ifc,
+                inputs,
                 parent.available_width,
             );
 

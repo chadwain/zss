@@ -14,7 +14,7 @@ pub fn main() !void {
         \\  display: none;
         \\}
     ;
-    const stylesheet_source = try zss.syntax.parse.Source.init(zss.util.Utf8String{ .data = stylesheet_text });
+    const stylesheet_source = try zss.syntax.tokenize.Source.init(zss.util.Utf8String{ .data = stylesheet_text });
 
     try env.addStylesheet(stylesheet_source);
 
@@ -29,9 +29,12 @@ pub fn main() !void {
     var images = zss.Images{};
     defer images.deinit(allocator);
 
+    var fonts = zss.Fonts.init();
+    defer fonts.deinit();
+
     var storage = zss.values.Storage{ .allocator = allocator };
     defer storage.deinit();
 
-    var box_tree = try zss.layout.doLayout(slice, root, allocator, 100, 100, images.slice(), &storage);
+    var box_tree = try zss.layout.doLayout(slice, root, allocator, 100, 100, images.slice(), &fonts, &storage);
     defer box_tree.deinit();
 }

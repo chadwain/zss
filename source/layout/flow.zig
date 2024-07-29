@@ -9,6 +9,7 @@ const aggregates = zss.properties.aggregates;
 const BlockComputedSizes = zss.layout.BlockComputedSizes;
 const BlockUsedSizes = zss.layout.BlockUsedSizes;
 const Element = zss.ElementTree.Element;
+const Inputs = zss.layout.Inputs;
 const Stack = zss.util.Stack;
 
 const solve = @import("./solve.zig");
@@ -37,6 +38,7 @@ pub fn runFlowLayout(
     box_tree: *BoxTree,
     sc: *StackingContexts,
     computer: *StyleComputer,
+    inputs: Inputs,
     subtree_id: SubtreeId,
     used_sizes: BlockUsedSizes,
 ) !Result {
@@ -45,7 +47,7 @@ pub fn runFlowLayout(
 
     pushMainBlock(&ctx, used_sizes);
     while (ctx.stack.top) |_| {
-        try analyzeElement(&ctx, sc, computer, box_tree);
+        try analyzeElement(&ctx, sc, computer, box_tree, inputs);
     }
 
     return ctx.result;
@@ -69,7 +71,7 @@ const Context = struct {
     }
 };
 
-fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree) !void {
+fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree, inputs: Inputs) !void {
     const element = computer.getCurrentElement();
     if (element.eqlNull()) {
         return popBlock(ctx, computer, sc, box_tree);
@@ -106,10 +108,11 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                 .Normal,
                 containing_block_width,
                 containing_block_height,
+                inputs,
             );
             const ifc = box_tree.ifcs.items[result.ifc_index];
             const line_split_result =
-                try inline_layout.splitIntoLineBoxes(ctx.allocator, box_tree, subtree, ifc, containing_block_width);
+                try inline_layout.splitIntoLineBoxes(ctx.allocator, box_tree, subtree, ifc, inputs, containing_block_width);
             ifc.parent_block = .{ .subtree = ctx.subtree_id, .index = ifc_container_index };
 
             const subtree_slice = subtree.slice();

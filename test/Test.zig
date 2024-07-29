@@ -4,6 +4,7 @@ const zss = @import("zss");
 const aggregates = zss.properties.aggregates;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
+const Fonts = zss.Fonts;
 const null_element = Element.null_element;
 
 const testing = @import("./testing.zig");
@@ -17,13 +18,14 @@ const hb = @import("mach-harfbuzz").c;
 name: []const u8 = undefined,
 slice: ElementTree.Slice = undefined,
 ft_face: hb.FT_Face = undefined,
-hb_font: ?*hb.hb_font_t = undefined,
+hb_font: *hb.hb_font_t = undefined,
+fonts: Fonts = undefined,
 
 element_tree: ElementTree,
 root: Element = null_element,
 width: u32 = 400,
 height: u32 = 400,
-font: [:0]const u8 = testing.fonts[0],
+font: ?[:0]const u8 = testing.fonts[0],
 font_size: u32 = 12,
 font_color: u32 = 0xffffffff,
 

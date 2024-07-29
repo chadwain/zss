@@ -1,6 +1,7 @@
 const zss = @import("zss");
 const tokenize = zss.syntax.tokenize;
 const parse = zss.syntax.parse;
+const Source = tokenize.Source;
 const Utf8String = zss.util.Utf8String;
 
 const std = @import("std");
@@ -23,19 +24,19 @@ pub fn main() !u8 {
     const string = Utf8String{ .data = input };
 
     if (args.len == 1 or std.mem.eql(u8, args[1], "stylesheet")) {
-        const source = try parse.Source.init(string);
+        const source = try Source.init(string);
         var tree = try parse.parseCssStylesheet(source, allocator);
         defer tree.deinit(allocator);
-        try zss.syntax.ComponentTree.debug.print(tree, allocator, stdout);
+        try zss.syntax.Ast.debug.print(tree, allocator, stdout);
     } else if (std.mem.eql(u8, args[1], "components")) {
-        const source = try parse.Source.init(string);
+        const source = try Source.init(string);
         var tree = try parse.parseListOfComponentValues(source, allocator);
         defer tree.deinit(allocator);
-        try zss.syntax.ComponentTree.debug.print(tree, allocator, stdout);
+        try zss.syntax.Ast.debug.print(tree, allocator, stdout);
     } else if (std.mem.eql(u8, args[1], "tokens")) {
-        const source = try tokenize.Source.init(string);
+        const source = try Source.init(string);
 
-        var location: tokenize.Source.Location = .start;
+        var location: Source.Location = .start;
         var i: usize = 0;
         while (true) {
             const next = try zss.syntax.tokenize.nextToken(source, location);

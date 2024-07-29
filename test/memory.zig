@@ -25,7 +25,7 @@ pub fn run(tests: []const Test) !void {
         try stdout.print("memory safety: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
 
-        try std.testing.checkAllAllocationFailures(allocator, testFn, .{ t.slice, t.root, t.width, t.height, images_slice, &storage });
+        try std.testing.checkAllAllocationFailures(allocator, testFn, .{ t.slice, t.root, t.width, t.height, images_slice, &t.fonts, &storage });
 
         try stdout.writeAll("success");
     }
@@ -40,8 +40,9 @@ fn testFn(
     width: u32,
     height: u32,
     images: zss.Images.Slice,
+    fonts: *const zss.Fonts,
     storage: *const zss.values.Storage,
 ) !void {
-    var box_tree = try zss.layout.doLayout(element_tree_slice, root, allocator, width, height, images, storage);
+    var box_tree = try zss.layout.doLayout(element_tree_slice, root, allocator, width, height, images, fonts, storage);
     defer box_tree.deinit();
 }

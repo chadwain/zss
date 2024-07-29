@@ -61,11 +61,11 @@ pub fn run(tests: []const Test) !void {
         try stdout.print("opengl: ({}/{}) \"{s}\" ... ", .{ ti + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
 
-        var box_tree = try zss.layout.doLayout(t.slice, t.root, allocator, t.width, t.height, images_slice, &storage);
+        var box_tree = try zss.layout.doLayout(t.slice, t.root, allocator, t.width, t.height, images_slice, &t.fonts, &storage);
         defer box_tree.deinit();
 
-        const init_glyphs = t.hb_font != null and t.hb_font.? != hb.hb_font_get_empty();
-        if (init_glyphs) try renderer.initGlyphs(t.hb_font.?);
+        const init_glyphs = t.font != null;
+        if (init_glyphs) try renderer.initGlyphs(t.fonts.get(.the_only_handle).?.handle);
         defer if (init_glyphs) renderer.deinitGlyphs();
 
         var draw_list = try DrawList.create(box_tree, allocator);

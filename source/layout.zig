@@ -5,6 +5,7 @@ const zss = @import("zss.zig");
 const aggregates = zss.properties.aggregates;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
+const Fonts = zss.Fonts;
 const Images = zss.Images;
 const Storage = zss.values.Storage;
 
@@ -24,6 +25,7 @@ pub const Inputs = struct {
     viewport: ZssSize,
     root_element: Element,
     images: Images.Slice,
+    fonts: *const Fonts,
     storage: *const Storage,
 };
 
@@ -44,6 +46,7 @@ pub fn doLayout(
     /// The height of the viewport in pixels.
     height: u32,
     images: Images.Slice,
+    fonts: *const Fonts,
     storage: *const Storage,
 ) Error!BoxTree {
     var computer = StyleComputer{
@@ -63,6 +66,7 @@ pub fn doLayout(
         },
         .root_element = root_element,
         .images = images,
+        .fonts = fonts,
         .storage = storage,
     };
 

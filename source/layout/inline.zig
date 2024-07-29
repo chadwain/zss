@@ -10,6 +10,8 @@ const BlockComputedSizes = zss.layout.BlockComputedSizes;
 const BlockUsedSizes = zss.layout.BlockUsedSizes;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
+const Fonts = zss.Fonts;
+const Inputs = zss.layout.Inputs;
 
 const flow = @import("./flow.zig");
 const stf = @import("./shrink_to_fit.zig");
@@ -51,6 +53,7 @@ pub const InlineLayoutContext = struct {
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
     skip: ArrayListUnmanaged(InlineBoxSkip) = .{},
+    font_handle: ?Fonts.Handle = null,
 
     result: Result,
 
@@ -63,6 +66,17 @@ pub const InlineLayoutContext = struct {
         self.index.deinit(self.allocator);
         self.skip.deinit(self.allocator);
     }
+
+    fn checkHandle(self: *Self, ifc: *InlineFormattingContext, handle: Fonts.Handle) void {
+        if (self.font_handle) |prev_handle| {
+            if (handle != prev_handle) {
+                std.debug.panic("TODO: Only one font allowed per IFC", .{});
+            }
+        } else {
+            self.font_handle = handle;
+            ifc.font = handle;
+        }
+    }
 };
 
 pub fn makeInlineFormattingContext(
@@ -74,6 +88,7 @@ pub fn makeInlineFormattingContext(
     mode: enum { Normal, ShrinkToFit },
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
+    inputs: Inputs,
 ) zss.layout.Error!InlineLayoutContext.Result {
     assert(containing_block_width >= 0);
     assert(if (containing_block_height) |h| h >= 0 else true);
@@ -110,7 +125,7 @@ pub fn makeInlineFormattingContext(
     };
     defer ctx.deinit();
 
-    try createInlineFormattingContext(&ctx, sc, computer, box_tree, ifc);
+    try createInlineFormattingContext(&ctx, sc, computer, box_tree, ifc, inputs);
     return ctx.result;
 }
 
@@ -120,8 +135,9 @@ fn createInlineFormattingContext(
     computer: *StyleComputer,
     box_tree: *BoxTree,
     ifc: *InlineFormattingContext,
+    inputs: Inputs,
 ) !void {
-    ifc.font = computer.root_font.font;
+    ifc.font = .invalid;
     computer.resetElement(.box_gen);
 
     try ifcPushRootInlineBox(ctx, box_tree, ifc);
@@ -129,12 +145,12 @@ fn createInlineFormattingContext(
         const element = computer.getCurrentElement();
         if (ctx.inline_box_depth == 0) {
             if (!element.eqlNull()) {
-                const should_terminate = try ifcRunOnce(ctx, sc, computer, box_tree, ifc);
+                const should_terminate = try ifcRunOnce(ctx, sc, computer, box_tree, ifc, inputs);
                 if (should_terminate) break;
             } else break;
         } else {
             if (!element.eqlNull()) {
-                const should_terminate = try ifcRunOnce(ctx, sc, computer, box_tree, ifc);
+                const should_terminate = try ifcRunOnce(ctx, sc, computer, box_tree, ifc, inputs);
                 assert(!should_terminate);
             } else {
                 try ifcPopInlineBox(ctx, computer, box_tree, ifc);
@@ -145,7 +161,7 @@ fn createInlineFormattingContext(
 
     try ifc.metrics.resize(box_tree.allocator, ifc.glyph_indeces.items.len);
     const subtree = box_tree.blocks.subtree(ctx.subtree_id);
-    ifcSolveMetrics(ifc, subtree);
+    ifcSolveMetrics(ifc, subtree, inputs);
 }
 
 fn ifcPushRootInlineBox(ctx: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
@@ -172,6 +188,7 @@ fn ifcRunOnce(
     computer: *StyleComputer,
     box_tree: *BoxTree,
     ifc: *InlineFormattingContext,
+    inputs: Inputs,
 ) !bool {
     const element = computer.getCurrentElement();
 
@@ -182,10 +199,20 @@ fn ifcRunOnce(
         .text => {
             assert(computer.element_tree_slice.firstChild(element).eqlNull());
             try box_tree.mapElementToBox(element, .text);
-            const text = computer.getText();
+
             // TODO: Do proper font matching.
-            if (ifc.font == hb.hb_font_get_empty()) panic("TODO: Found text, but no font was specified.", .{});
-            try ifcAddText(box_tree, ifc, text, ifc.font);
+            const font = computer.getSpecifiedValue(.box_gen, .font);
+            const handle: Fonts.Handle = switch (font.font) {
+                .default => inputs.fonts.query(),
+                .none => .invalid,
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            };
+            ctx.checkHandle(ifc, handle);
+            if (inputs.fonts.get(handle)) |hb_font| {
+                const text = computer.getText();
+                try ifcAddText(box_tree, ifc, text, hb_font.handle);
+            }
+
             computer.advanceElement(.box_gen);
         },
         .@"inline" => {
@@ -242,7 +269,7 @@ fn ifcRunOnce(
 
             const skip_of_children, const width_unclamped, const auto_height = if (used_sizes.get(.inline_size)) |inline_size| blk: {
                 // TODO: Recursive call here
-                const result = try flow.runFlowLayout(ctx.allocator, box_tree, sc, computer, ctx.subtree_id, used_sizes);
+                const result = try flow.runFlowLayout(ctx.allocator, box_tree, sc, computer, inputs, ctx.subtree_id, used_sizes);
                 break :blk .{ result.skip_of_children, inline_size, result.auto_height };
             } else blk: {
                 const available_width_unclamped = ctx.containing_block_width -
@@ -252,7 +279,7 @@ fn ifcRunOnce(
                 const available_width = solve.clampSize(available_width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
 
                 // TODO: Recursive call here
-                const result = try stf.runShrinkToFitLayout(ctx.allocator, box_tree, sc, computer, ctx.subtree_id, used_sizes, available_width);
+                const result = try stf.runShrinkToFitLayout(ctx.allocator, box_tree, sc, computer, inputs, ctx.subtree_id, used_sizes, available_width);
                 break :blk .{ result.skip_of_children, result.width, result.auto_height };
             };
 
@@ -881,7 +908,8 @@ fn inlineBlockCreateStackingContext(
     }
 }
 
-fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree) void {
+fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree, inputs: Inputs) void {
+    const font = inputs.fonts.get(ifc.font) orelse return;
     const ifc_slice = ifc.slice();
     const subtree_slice = subtree.slice();
 
@@ -896,7 +924,7 @@ fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree) void {
             const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
             const kind = @as(InlineFormattingContext.Special.LayoutInternalKind, @enumFromInt(@intFromEnum(special.kind)));
             switch (kind) {
-                .ZeroGlyphIndex => setMetricsGlyph(metrics, ifc.font, 0),
+                .ZeroGlyphIndex => setMetricsGlyph(metrics, font.handle, 0),
                 .BoxStart => {
                     const inline_box_index = @as(InlineBoxIndex, special.data);
                     setMetricsBoxStart(metrics, ifc_slice, inline_box_index);
@@ -913,7 +941,7 @@ fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree) void {
                 .ContinuationBlock => panic("TODO: Continuation block metrics", .{}),
             }
         } else {
-            setMetricsGlyph(metrics, ifc.font, glyph_index);
+            setMetricsGlyph(metrics, font.handle, glyph_index);
         }
     }
 }
@@ -1045,13 +1073,19 @@ pub fn splitIntoLineBoxes(
     box_tree: *BoxTree,
     subtree: *const BlockSubtree,
     ifc: *InlineFormattingContext,
+    inputs: Inputs,
     max_line_box_length: ZssUnit,
 ) !IFCLineSplitResult {
     assert(max_line_box_length >= 0);
 
     var font_extents: hb.hb_font_extents_t = undefined;
+    const font = inputs.fonts.get(ifc.font) orelse {
+        ifc.ascender = 0;
+        ifc.descender = 0;
+        return .{ .height = 0, .longest_line_box_length = 0 };
+    };
     // TODO assuming ltr direction
-    assert(hb.hb_font_get_h_extents(ifc.font, &font_extents) != 0);
+    assert(hb.hb_font_get_h_extents(font.handle, &font_extents) != 0);
     ifc.ascender = @divFloor(font_extents.ascender * units_per_pixel, 64);
     ifc.descender = @divFloor(-font_extents.descender * units_per_pixel, 64);
     const top_height: ZssUnit = @divFloor((font_extents.ascender + @divFloor(font_extents.line_gap, 2) + @mod(font_extents.line_gap, 2)) * units_per_pixel, 64);

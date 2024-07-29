@@ -61,11 +61,6 @@ fn analyzeRootElement(
 
     const font = computer.getSpecifiedValue(.box_gen, .font);
     computer.setComputedValue(.box_gen, .font, font);
-    computer.root_font.font = switch (font.font) {
-        .font => |f| f,
-        .zss_default => hb.hb_font_get_empty().?, // TODO: Provide a text-rendering-backend-specific default font.
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    };
 
     const specified = .{
         .box_style = computer.getSpecifiedValue(.box_gen, .box_style),
@@ -88,7 +83,7 @@ fn analyzeRootElement(
 
             const stacking_context_id = try sc.push(stacking_context, box_tree, generated_box.block_box);
             try computer.pushElement(.box_gen);
-            const result = try flow.runFlowLayout(ctx.allocator, box_tree, sc, computer, ctx.subtree_id, used_sizes);
+            const result = try flow.runFlowLayout(ctx.allocator, box_tree, sc, computer, inputs, ctx.subtree_id, used_sizes);
             sc.pop(box_tree);
             computer.popElement(.box_gen);
 

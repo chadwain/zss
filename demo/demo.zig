@@ -26,6 +26,7 @@ const ProgramState = struct {
     element_tree: zss.ElementTree.Slice,
     root_element: zss.ElementTree.Element,
     images: zss.Images.Slice,
+    fonts: *const zss.Fonts,
     storage: *const zss.values.Storage,
 
     box_tree: zss.used_values.BoxTree,
@@ -89,6 +90,7 @@ const ProgramState = struct {
             self.main_window_width,
             self.main_window_height,
             self.images,
+            self.fonts,
             self.storage,
         );
         defer box_tree.deinit();
@@ -164,6 +166,10 @@ pub fn main() !u8 {
     var images = zss.Images{};
     defer images.deinit(allocator);
 
+    var fonts = zss.Fonts.init();
+    defer fonts.deinit();
+    fonts.setFont(.{ .handle = font });
+
     var zig_logo_data, const zig_logo_image = try loadImage("demo/zig.png", allocator);
     defer zig_logo_data.deinit();
     const zig_logo_handle = try images.addImage(allocator, zig_logo_image);
@@ -171,7 +177,7 @@ pub fn main() !u8 {
     var storage = zss.values.Storage{ .allocator = allocator };
     defer storage.deinit();
 
-    var tree, const root = try createElements(allocator, file_name, file_contents.items, font, zig_logo_handle);
+    var tree, const root = try createElements(allocator, file_name, file_contents.items, zig_logo_handle);
     defer tree.deinit();
 
     var resize_timer = try std.time.Timer.start();
@@ -189,6 +195,7 @@ pub fn main() !u8 {
         .element_tree = tree.slice(),
         .root_element = root,
         .images = images.slice(),
+        .fonts = &fonts,
         .storage = &storage,
 
         // TODO: Don't "default initialize" these
@@ -289,7 +296,6 @@ fn createElements(
     allocator: Allocator,
     file_name: []const u8,
     file_contents: []const u8,
-    font: *hb.hb_font_t,
     footer_image_handle: zss.Images.Handle,
 ) !struct { zss.ElementTree, zss.ElementTree.Element } {
     var tree = zss.ElementTree.init(allocator);
@@ -362,7 +368,6 @@ fn createElements(
             .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
         });
         try cv.add(arena, .color, .{ .color = .{ .rgba = text_color } });
-        try cv.add(arena, .font, .{ .font = .{ .font = font } });
 
         // Large element with display: none
         cv = slice.ptr(.cascaded_values, removed_block);

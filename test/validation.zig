@@ -34,6 +34,7 @@ pub fn run(tests: []const Test) !void {
             t.width,
             t.height,
             images_slice,
+            &t.fonts,
             &storage,
         );
         defer box_tree.deinit();

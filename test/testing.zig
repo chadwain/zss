@@ -64,9 +64,10 @@ fn setupTest(t: *Test, info: TestInfo) void {
     info[1](t);
     t.name = info[0];
     t.slice = t.element_tree.slice();
+    t.fonts = zss.Fonts.init();
 
-    if (!t.root.eqlNull()) {
-        assert(hb.FT_New_Face(library, t.font.ptr, 0, &t.ft_face) == 0);
+    if (t.font) |font_name| {
+        assert(hb.FT_New_Face(library, font_name.ptr, 0, &t.ft_face) == 0);
         assert(hb.FT_Set_Char_Size(t.ft_face, 0, @as(c_int, @intCast(t.font_size)) * 64, 96, 96) == 0);
 
         t.hb_font = blk: {
@@ -74,14 +75,13 @@ fn setupTest(t: *Test, info: TestInfo) void {
             hb.hb_ft_font_set_funcs(hb_font);
             break :blk hb_font;
         };
+        t.fonts.setFont(.{ .handle = t.hb_font });
+    }
 
+    if (!t.root.eqlNull()) {
         const slice = t.element_tree.slice();
         const cv = slice.ptr(.cascaded_values, t.root);
-        cv.add(slice.arena, .font, .{ .font = .{ .font = t.hb_font.? } }) catch |err| fail(err);
         cv.add(slice.arena, .color, .{ .color = .{ .rgba = t.font_color } }) catch |err| fail(err);
-    } else {
-        t.ft_face = undefined;
-        t.hb_font = null;
     }
 }
 
@@ -92,8 +92,10 @@ fn fail(err: anyerror) noreturn {
 
 fn deinitTest(t: *Test) void {
     t.element_tree.deinit();
-    if (t.hb_font) |font| {
-        hb.hb_font_destroy(font);
+    t.fonts.deinit();
+
+    if (t.font) |_| {
+        hb.hb_font_destroy(t.hb_font);
         _ = hb.FT_Done_Face(t.ft_face);
     }
 }

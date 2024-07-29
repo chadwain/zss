@@ -85,7 +85,7 @@ pub const Font = struct {
     font: types.Font = .undeclared,
 
     pub const initial_values = Font{
-        .font = .zss_default,
+        .font = .default,
     };
 };
 
