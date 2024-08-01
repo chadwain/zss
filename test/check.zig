@@ -5,52 +5,45 @@ const ZssUnit = used.ZssUnit;
 const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
+const Allocator = std.mem.Allocator;
 
-const Test = @import("./testing.zig").Test;
+const Test = @import("./Test.zig");
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-const allocator = gpa.allocator();
-
-pub fn run(tests: []const Test) !void {
+pub fn run(tests: []const *Test) !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(gpa.deinit() == .ok);
+    const allocator = gpa.allocator();
 
     const stdout = std.io.getStdOut().writer();
 
-    var images = zss.Images{};
-    defer images.deinit(allocator);
-    const images_slice = images.slice();
-
-    var storage = zss.values.Storage{ .allocator = allocator };
-    defer storage.deinit();
-
     for (tests, 0..) |t, i| {
-        try stdout.print("validation: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
+        try stdout.print("check: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
         defer stdout.print("\n", .{}) catch {};
 
         var box_tree = try zss.layout.doLayout(
-            t.slice,
-            t.root,
+            t.element_tree.slice(),
+            t.root_element,
             allocator,
             t.width,
             t.height,
-            images_slice,
-            &t.fonts,
-            &storage,
+            t.images,
+            t.fonts,
+            t.storage,
         );
         defer box_tree.deinit();
 
-        try validateStackingContexts(&box_tree);
+        try validateStackingContexts(&box_tree, allocator);
         for (box_tree.ifcs.items) |ifc| {
-            try validateInline(ifc);
+            try validateInline(ifc, allocator);
         }
 
         try stdout.print("success", .{});
     }
 
-    try stdout.print("validation: all {} tests passed\n", .{tests.len});
+    try stdout.print("check: all {} tests passed\n", .{tests.len});
 }
 
-fn validateInline(inl: *used.InlineFormattingContext) !void {
+fn validateInline(inl: *used.InlineFormattingContext, allocator: Allocator) !void {
     @setRuntimeSafety(true);
     const InlineBoxIndex = used.InlineBoxIndex;
 
@@ -71,7 +64,7 @@ fn validateInline(inl: *used.InlineFormattingContext) !void {
     try expect(stack.items.len == 0);
 }
 
-fn validateStackingContexts(box_tree: *zss.used_values.BoxTree) !void {
+fn validateStackingContexts(box_tree: *zss.used_values.BoxTree, allocator: Allocator) !void {
     @setRuntimeSafety(true);
     const Index = used.StackingContext.Index;
     const ZIndex = used.ZIndex;

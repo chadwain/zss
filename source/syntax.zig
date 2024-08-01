@@ -336,7 +336,9 @@ pub const Component = struct {
 };
 
 pub const Ast = struct {
-    components: MultiArrayList(Component) = .{},
+    components: List = .{},
+
+    pub const List = MultiArrayList(Component);
 
     pub const Size = u32;
 
@@ -438,7 +440,7 @@ pub const Ast = struct {
     }
 
     pub const debug = struct {
-        pub fn print(tree: Ast, allocator: Allocator, writer: anytype) !void {
+        pub fn print(tree: Ast, allocator: Allocator, writer: std.io.AnyWriter) !void {
             const c = tree.components;
             try writer.print("Ast (index, component, location, extra)\narray len {}\n", .{c.len});
             if (c.len == 0) return;
@@ -473,7 +475,7 @@ pub const Ast = struct {
             }
         }
 
-        fn printExtra(writer: anytype, tag: Component.Tag, extra: Component.Extra) !void {
+        fn printExtra(writer: std.io.AnyWriter, tag: Component.Tag, extra: Component.Extra) !void {
             switch (tag) {
                 .token_delim => try writer.print("U+{X}", .{extra.codepoint()}),
                 .token_integer => try writer.print("{}", .{extra.integer()}),
@@ -482,6 +484,34 @@ pub const Ast = struct {
                 .token_percentage => try writer.print("{d}%", .{extra.number()}),
                 else => try writer.print("{}", .{@as(u32, @bitCast(extra))}),
             }
+        }
+
+        pub fn serialize(ast: Ast, writer: std.io.AnyWriter) !void {
+            const s = ast.components.slice();
+            const len: Size = @intCast(s.len);
+            try writer.writeAll(std.mem.asBytes(&len));
+
+            inline for (comptime std.meta.tags(List.Field)) |field| {
+                const array = s.items(field);
+                try writer.writeAll(std.mem.sliceAsBytes(array));
+            }
+        }
+
+        pub fn deserialize(reader: std.io.AnyReader, allocator: Allocator) !Ast {
+            const native_endian = @import("builtin").target.cpu.arch.endian();
+            const len = try reader.readInt(Size, native_endian);
+
+            var components = List{};
+            errdefer components.deinit(allocator);
+            try components.resize(allocator, len);
+
+            const s = components.slice();
+            inline for (comptime std.meta.tags(List.Field)) |field| {
+                const array = s.items(field);
+                try reader.readNoEof(std.mem.sliceAsBytes(array));
+            }
+
+            return .{ .components = components };
         }
     };
 };

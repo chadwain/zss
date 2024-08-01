@@ -168,7 +168,7 @@ pub fn main() !u8 {
 
     var fonts = zss.Fonts.init();
     defer fonts.deinit();
-    fonts.setFont(.{ .handle = font });
+    _ = fonts.setFont(.{ .handle = font });
 
     var zig_logo_data, const zig_logo_image = try loadImage("demo/zig.png", allocator);
     defer zig_logo_data.deinit();

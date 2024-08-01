@@ -7,14 +7,14 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
-const Test = @import("./testing.zig").Test;
+const Test = @import("Test.zig");
 
 const glfw = @import("mach-glfw");
 const hb = @import("mach-harfbuzz").c;
 const zgl = @import("zgl");
 const zigimg = @import("zigimg");
 
-pub fn run(tests: []const Test) !void {
+pub fn run(tests: []const *Test) !void {
     if (!glfw.init(.{})) return error.GlfwError;
     defer glfw.terminate();
 
@@ -47,13 +47,6 @@ pub fn run(tests: []const Test) !void {
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
-    var images = zss.Images{};
-    defer images.deinit(allocator);
-    const images_slice = images.slice();
-
-    var storage = zss.values.Storage{ .allocator = allocator };
-    defer storage.deinit();
-
     var renderer = zss.render.opengl.Renderer.init(allocator);
     defer renderer.deinit();
 
@@ -61,18 +54,18 @@ pub fn run(tests: []const Test) !void {
         try stdout.print("opengl: ({}/{}) \"{s}\" ... ", .{ ti + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
 
-        var box_tree = try zss.layout.doLayout(t.slice, t.root, allocator, t.width, t.height, images_slice, &t.fonts, &storage);
+        var box_tree = try zss.layout.doLayout(t.element_tree.slice(), t.root_element, allocator, t.width, t.height, t.images, t.fonts, t.storage);
         defer box_tree.deinit();
 
-        const init_glyphs = t.font != null;
-        if (init_glyphs) try renderer.initGlyphs(t.fonts.get(.the_only_handle).?.handle);
-        defer if (init_glyphs) renderer.deinitGlyphs();
+        const font_opt = t.fonts.get(t.font_handle);
+        if (font_opt) |font| try renderer.initGlyphs(font.handle);
+        defer if (font_opt) |_| renderer.deinitGlyphs();
 
         var draw_list = try DrawList.create(box_tree, allocator);
         defer draw_list.deinit(allocator);
 
         setIcbBackgroundColor(&box_tree, zss.used_values.Color.fromRgbaInt(0x202020ff));
-        const root_block_size = rootBlockSize(&box_tree, t.root);
+        const root_block_size = rootBlockSize(&box_tree, t.root_element);
 
         const pages = zss.util.divCeil(root_block_size.height, t.height);
         var image = try zigimg.Image.create(allocator, root_block_size.width, pages * t.height, .rgba32);
@@ -97,7 +90,7 @@ pub fn run(tests: []const Test) !void {
                 .w = @intCast(t.width * units_per_pixel),
                 .h = @intCast(t.height * units_per_pixel),
             };
-            try zss.render.opengl.drawBoxTree(&renderer, images_slice, box_tree, draw_list, allocator, viewport);
+            try zss.render.opengl.drawBoxTree(&renderer, t.images, box_tree, draw_list, allocator, viewport);
             zgl.flush();
 
             const y: u32 = @intCast(i * t.height);
@@ -122,6 +115,8 @@ pub fn run(tests: []const Test) !void {
             try stdout.writeAll("success");
         }
     }
+
+    try stdout.print("opengl: all {} tests passed\n", .{tests.len});
 }
 
 fn rootBlockSize(box_tree: *BoxTree, root_element: zss.ElementTree.Element) struct { x: u32, y: u32, width: u32, height: u32 } {

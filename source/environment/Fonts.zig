@@ -15,8 +15,9 @@ pub fn deinit(fonts: *Fonts) void {
     _ = fonts;
 }
 
-pub fn setFont(fonts: *Fonts, font: hb.Font) void {
+pub fn setFont(fonts: *Fonts, font: hb.Font) Handle {
     fonts.the_only_font = font;
+    return .the_only_handle;
 }
 
 pub fn query(fonts: Fonts) Handle {

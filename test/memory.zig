@@ -5,32 +5,33 @@ const Element = ElementTree.Element;
 const std = @import("std");
 const assert = std.debug.assert;
 
-const Test = @import("./testing.zig").Test;
+const Test = @import("./Test.zig");
 
-pub fn run(tests: []const Test) !void {
+pub fn run(tests: []const *Test) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
     const stdout = std.io.getStdOut().writer();
 
-    var images = zss.Images{};
-    defer images.deinit(allocator);
-    const images_slice = images.slice();
-
-    var storage = zss.values.Storage{ .allocator = allocator };
-    defer storage.deinit();
-
     for (tests, 0..) |t, i| {
-        try stdout.print("memory safety: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
+        try stdout.print("memory: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
 
-        try std.testing.checkAllAllocationFailures(allocator, testFn, .{ t.slice, t.root, t.width, t.height, images_slice, &t.fonts, &storage });
+        try std.testing.checkAllAllocationFailures(allocator, testFn, .{
+            t.element_tree.slice(),
+            t.root_element,
+            t.width,
+            t.height,
+            t.images,
+            t.fonts,
+            t.storage,
+        });
 
         try stdout.writeAll("success");
     }
 
-    try stdout.print("memory safety: all {} tests passed\n", .{tests.len});
+    try stdout.print("memory: all {} tests passed\n", .{tests.len});
 }
 
 fn testFn(

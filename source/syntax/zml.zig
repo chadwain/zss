@@ -180,6 +180,20 @@ pub const Parser = struct {
         }
     }
 
+    fn consumeWhitespaceAllowEof(parser: *Parser) !bool {
+        const start_location = parser.location;
+        while (true) {
+            const token, const location = try parser.nextTokenAllowEof();
+            switch (token) {
+                .token_whitespace, .token_comments => {},
+                else => {
+                    parser.location = location;
+                    return parser.location != start_location;
+                },
+            }
+        }
+    }
+
     fn consumeUntilEof(parser: *Parser) !void {
         while (true) {
             const token, const location = try parser.nextTokenAllowEof();
@@ -199,7 +213,7 @@ pub const Parser = struct {
 };
 
 fn parseElement(parser: *Parser, ast: AstManaged) !void {
-    _ = try parser.consumeWhitespace();
+    _ = try parser.consumeWhitespaceAllowEof();
     const main_token, const main_location = try parser.nextTokenAllowEof();
 
     switch (main_token) {

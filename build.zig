@@ -1,8 +1,10 @@
 const std = @import("std");
 const Build = std.Build;
+const LazyPath = Build.LazyPath;
 const Module = Build.Module;
 const OptimizeMode = std.builtin.OptimizeMode;
 const ResolvedTarget = Build.ResolvedTarget;
+const Step = Build.Step;
 
 pub fn build(b: *Build) void {
     const optimize = b.standardOptimizeOption(.{});
@@ -15,9 +17,14 @@ pub fn build(b: *Build) void {
     });
 
     const mods = getModules(b, optimize, target);
-    addTests(b, optimize, target, mods);
+    const unit_tests = addUnitTests(b, optimize, target, mods);
+    const test_suite = addTestSuite(b, optimize, target, mods);
     addDemo(b, optimize, target, mods);
     addExamples(b, optimize, target, mods);
+
+    const all_tests = b.step("test", "Run all tests");
+    all_tests.dependOn(&unit_tests.step);
+    all_tests.dependOn(&test_suite.step);
 }
 
 const Modules = struct {
@@ -47,9 +54,7 @@ fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules
     };
 }
 
-fn addTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) void {
-    // Unit tests
-
+fn addUnitTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) *Step.Run {
     const unit_tests = b.addTest(.{
         .name = "zss-unit-tests",
         .root_source_file = b.path("source/zss.zig"),
@@ -59,47 +64,91 @@ fn addTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Mod
     unit_tests.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
     b.installArtifact(unit_tests);
 
-    const unit_tests_step = b.step("test-units", "Run unit tests");
-    const run_unit_tests = b.addRunArtifact(unit_tests);
-    unit_tests_step.dependOn(&run_unit_tests.step);
+    const run = b.addRunArtifact(unit_tests);
+    const step = b.step("test-units", "Run unit tests");
+    step.dependOn(&run.step);
 
-    // Larger test suite
+    return run;
+}
 
+fn addTestSuite(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) *Step.Run {
     const test_suite = b.addExecutable(.{
         .name = "zss-test-suite",
-        .root_source_file = b.path("test/testing.zig"),
+        .root_source_file = b.path("test/suite.zig"),
         .target = target,
         .optimize = optimize,
     });
-    test_suite.root_module.addAnonymousImport("zss", .{
-        .root_source_file = b.path("source/zss.zig"),
-        .imports = &.{
-            .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
-            .{ .name = "zgl", .module = mods.zgl },
-        },
-        .target = target,
-        .optimize = optimize,
-    });
-    test_suite.root_module.addImport("mach-glfw", mods.mach_glfw);
-    test_suite.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
-    test_suite.root_module.addImport("zgl", mods.zgl);
-    test_suite.root_module.addImport("zigimg", mods.zigimg);
+
+    {
+        const TestSuiteCategory = enum {
+            check,
+            memory,
+            opengl,
+        };
+
+        const category_strings = b.option([]const []const u8, "test", "A test category to run (can be used multiple times)") orelse &.{};
+        var category_set = std.enums.EnumSet(TestSuiteCategory).initEmpty();
+        for (category_strings) |in| {
+            const val = std.meta.stringToEnum(TestSuiteCategory, in) orelse std.debug.panic("Invalid, test suite category: {s}", .{in});
+            category_set.insert(val);
+        }
+
+        var categories = std.BoundedArray([]const u8, std.meta.fields(TestSuiteCategory).len){};
+        var it = category_set.iterator();
+        while (it.next()) |category| categories.appendAssumeCapacity(@tagName(category));
+        const options_module = b.addOptions();
+        options_module.addOption([]const []const u8, "test_categories", categories.slice());
+
+        test_suite.root_module.addOptions("build-options", options_module);
+    }
+
+    {
+        const zss_mod = b.createModule(.{
+            .root_source_file = b.path("source/zss.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
+                .{ .name = "zgl", .module = mods.zgl },
+            },
+        });
+        test_suite.root_module.addImport("zss", zss_mod);
+        test_suite.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
+        test_suite.root_module.addImport("zgl", mods.zgl);
+        test_suite.root_module.addImport("zigimg", mods.zigimg);
+        test_suite.root_module.addImport("mach-glfw", mods.mach_glfw);
+    }
+
     b.installArtifact(test_suite);
+    const run = b.addRunArtifact(test_suite);
+    const test_cases_path = b.path("test/cases");
+    const resources_path = b.path("test/res");
+    run.addDirectoryArg(test_cases_path);
+    run.addDirectoryArg(parseAllTestCases(b, test_cases_path, optimize, target));
+    run.addDirectoryArg(resources_path);
 
-    const test_category_filter = b.option([]const []const u8, "tests", "List of test categories to run");
-    const test_suite_options = b.addOptions();
-    test_suite.root_module.addOptions("build-options", test_suite_options);
-    test_suite_options.addOption([]const []const u8, "tests", test_category_filter orelse &[_][]const u8{ "validation", "memory" });
+    const step = b.step("test-suite", "Run the test suite");
+    step.dependOn(&run.step);
 
-    const test_suite_step = b.step("test-suite", "Run the test suite");
-    const run_test_suite = b.addRunArtifact(test_suite);
-    test_suite_step.dependOn(&run_test_suite.step);
+    return run;
+}
 
-    // All tests at once
+/// Returns the output directory created from running "test/parse_all_test_cases.zig"
+fn parseAllTestCases(b: *Build, test_cases_path: LazyPath, optimize: OptimizeMode, target: ResolvedTarget) LazyPath {
+    const parse_all_test_cases = b.addExecutable(.{
+        .name = "parse-all-test-cases",
+        .root_source_file = b.path("test/parse_all_test_cases.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    parse_all_test_cases.root_module.addAnonymousImport("zss", .{
+        .root_source_file = b.path("source/zss.zig"),
+    });
 
-    const all_tests_step = b.step("test-all", "Run all tests");
-    all_tests_step.dependOn(&run_unit_tests.step);
-    all_tests_step.dependOn(&run_test_suite.step);
+    const run = b.addRunArtifact(parse_all_test_cases);
+    run.addDirectoryArg(test_cases_path);
+    run.has_side_effects = true;
+    return run.addOutputDirectoryArg("test_cases");
 }
 
 fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) void {

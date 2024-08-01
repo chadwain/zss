@@ -16,7 +16,7 @@ pub fn main() !u8 {
 
     if (args.len > 2) return 1;
 
-    var stdout = std.io.getStdOut().writer();
+    var stdout = std.io.getStdOut().writer().any();
 
     const input = try std.io.getStdIn().reader().readAllAlloc(allocator, 1_000_000);
     defer allocator.free(input);
