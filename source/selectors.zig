@@ -473,12 +473,12 @@ test "complex selector matching" {
     try tree.allocateElements(&elements);
     const slice = tree.slice();
 
-    slice.initElement(elements[0], .normal, .orphan, {});
-    slice.initElement(elements[1], .normal, .last_child_of, elements[0]);
-    slice.initElement(elements[2], .normal, .last_child_of, elements[0]);
-    slice.initElement(elements[3], .normal, .first_child_of, elements[2]);
-    slice.initElement(elements[4], .text, .last_child_of, elements[0]);
-    slice.initElement(elements[5], .normal, .last_child_of, elements[0]);
+    slice.initElement(elements[0], .normal, .orphan);
+    slice.initElement(elements[1], .normal, .{ .last_child_of = elements[0] });
+    slice.initElement(elements[2], .normal, .{ .last_child_of = elements[0] });
+    slice.initElement(elements[3], .normal, .{ .first_child_of = elements[2] });
+    slice.initElement(elements[4], .text, .{ .last_child_of = elements[0] });
+    slice.initElement(elements[5], .normal, .{ .last_child_of = elements[0] });
 
     slice.set(.fq_type, elements[0], .{ .namespace = .none, .name = type_names[0] });
     slice.set(.fq_type, elements[1], .{ .namespace = .none, .name = type_names[1] });

@@ -320,7 +320,7 @@ pub const Component = struct {
         zml_styles,
         /// description: A '{}-block' containing a zml element's children
         ///    location: The location of the <{-token> that opens the block
-        ///    children: A sequence of `zml_element`
+        ///    children: A sequence of `zml_element` and `zml_text_element`
         zml_children,
         /// description: A zml element
         ///    location: The location of the `zml_features`
@@ -328,9 +328,12 @@ pub const Component = struct {
         ///              optionally, the element's inline style declarations (a `zml_styles`) +
         ///              the element's children (a `zml_children`)
         zml_element,
+        /// description: A zml text element (a string)
+        ///    location: The beginning '\'' or '"' codepoint
+        zml_text_element,
         /// description: A zml document
         ///    location: The beginning of the source document
-        ///    children: Optionally, a single `zml_element`
+        ///    children: Optionally, a single `zml_element` or `zml_text_element`
         zml_document,
     };
 };

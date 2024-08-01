@@ -316,15 +316,15 @@ fn createElements(
 
     const slice = tree.slice();
 
-    slice.initElement(root, .normal, .orphan, {});
-    slice.initElement(removed_block, .normal, .first_child_of, root);
-    slice.initElement(title_block, .normal, .last_child_of, root);
-    slice.initElement(title_inline_box, .normal, .first_child_of, title_block);
-    slice.initElement(title_text, .text, .first_child_of, title_inline_box);
-    slice.initElement(body_block, .normal, .last_child_of, root);
-    slice.initElement(body_inline_box, .normal, .last_child_of, body_block);
-    slice.initElement(body_text, .text, .first_child_of, body_inline_box);
-    slice.initElement(footer, .normal, .last_child_of, root);
+    slice.initElement(root, .normal, .orphan);
+    slice.initElement(removed_block, .normal, .{ .first_child_of = root });
+    slice.initElement(title_block, .normal, .{ .last_child_of = root });
+    slice.initElement(title_inline_box, .normal, .{ .first_child_of = title_block });
+    slice.initElement(title_text, .text, .{ .first_child_of = title_inline_box });
+    slice.initElement(body_block, .normal, .{ .last_child_of = root });
+    slice.initElement(body_inline_box, .normal, .{ .last_child_of = body_block });
+    slice.initElement(body_text, .text, .{ .first_child_of = body_inline_box });
+    slice.initElement(footer, .normal, .{ .last_child_of = root });
 
     {
         const arena = slice.arena;

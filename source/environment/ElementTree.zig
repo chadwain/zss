@@ -270,23 +270,15 @@ pub const Slice = struct {
         return &@field(self.ptrs, @tagName(field))[element.index];
     }
 
-    pub const NodePlacement = enum {
+    pub const NodePlacement = union(enum) {
         orphan,
-        first_child_of,
-        last_child_of,
-
-        pub fn Payload(comptime tag: NodePlacement) type {
-            return switch (tag) {
-                .orphan => void,
-                .first_child_of => Element,
-                .last_child_of => Element,
-            };
-        }
+        first_child_of: Element,
+        last_child_of: Element,
     };
 
     /// Initializes an element and places it at the specificied spot in the tree.
     /// If `payload` is an Element, it is a prerequisite that that element must have already been initialized.
-    pub fn initElement(self: Slice, element: Element, initial_category: Category, comptime placement: NodePlacement, payload: placement.Payload()) void {
+    pub fn initElement(self: Slice, element: Element, initial_category: Category, placement: NodePlacement) void {
         self.validateElement(element);
         self.ptrs.category[element.index] = initial_category;
         self.ptrs.first_child[element.index] = Element.null_element;
@@ -297,7 +289,7 @@ pub const Slice = struct {
                 self.ptrs.next_sibling[element.index] = Element.null_element;
                 self.ptrs.previous_sibling[element.index] = Element.null_element;
             },
-            .first_child_of => {
+            .first_child_of => |payload| {
                 self.validateElement(payload);
                 switch (self.ptrs.category[payload.index]) {
                     .normal => {},
@@ -316,7 +308,7 @@ pub const Slice = struct {
                 self.ptrs.next_sibling[element.index] = former_first_child;
                 self.ptrs.previous_sibling[element.index] = Element.null_element;
             },
-            .last_child_of => {
+            .last_child_of => |payload| {
                 self.validateElement(payload);
                 switch (self.ptrs.category[payload.index]) {
                     .normal => {},

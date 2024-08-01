@@ -21,11 +21,11 @@ comptime {
     }
 }
 
-pub fn astToElementTree(
+pub fn astToElement(
     element_tree: *ElementTree,
     env: *Environment,
     ast: Ast.Slice,
-    root_zml_element: Ast.Size,
+    root_ast_index: Ast.Size,
     token_source: TokenSource,
     allocator: Allocator,
 ) !Element {
@@ -38,39 +38,62 @@ pub fn astToElementTree(
     }){};
     defer stack.deinit(allocator);
 
-    const root_element = try element_tree.allocateElement();
-    {
-        const slice = element_tree.slice();
-        slice.initElement(root_element, .normal, .orphan, {});
-        const children_index = try parseElement(slice, root_element, env, ast, root_zml_element, token_source, &cascade_arena);
+    const root_placement: ElementTree.Slice.NodePlacement = .orphan;
+    const root_element, const root_children =
+        try astToElementOneIter(element_tree, root_placement, env, ast, root_ast_index, token_source, &cascade_arena);
+    if (root_children) |index| {
         stack.top = .{
-            .sequence = ast.children(children_index),
+            .sequence = ast.children(index),
             .parent = root_element,
         };
     }
-
     while (stack.top) |*top| {
         const ast_index = top.sequence.next(ast) orelse {
             _ = stack.pop();
             continue;
         };
-        const element = try element_tree.allocateElement();
-        const slice = element_tree.slice();
-        slice.initElement(element, .normal, .last_child_of, top.parent);
-        const children_index = try parseElement(slice, element, env, ast, ast_index, token_source, &cascade_arena);
-        try stack.push(allocator, .{
-            .sequence = ast.children(children_index),
-            .parent = element,
-        });
+        const placement: ElementTree.Slice.NodePlacement = .{ .last_child_of = top.parent };
+        const element, const children =
+            try astToElementOneIter(element_tree, placement, env, ast, ast_index, token_source, &cascade_arena);
+        if (children) |index| {
+            try stack.push(allocator, .{
+                .sequence = ast.children(index),
+                .parent = element,
+            });
+        }
     }
 
     return root_element;
 }
 
-/// Returns the index of the child block.
+fn astToElementOneIter(
+    element_tree: *ElementTree,
+    placement: ElementTree.Slice.NodePlacement,
+    env: *Environment,
+    ast: Ast.Slice,
+    ast_index: Ast.Size,
+    token_source: TokenSource,
+    cascade_arena: *ArenaAllocator,
+) !struct { Element, ?Ast.Size } {
+    const element = try element_tree.allocateElement();
+    const slice = element_tree.slice();
+    switch (ast.tag(ast_index)) {
+        .zml_element => {
+            const children_index = try parseElement(slice, element, placement, env, ast, ast_index, token_source, cascade_arena);
+            return .{ element, children_index };
+        },
+        .zml_text_element => {
+            parseTextElement(slice, element, placement, ast, ast_index, token_source);
+            return .{ element, null };
+        },
+        else => unreachable,
+    }
+}
+
 fn parseElement(
     element_tree: ElementTree.Slice,
     element: Element,
+    placement: ElementTree.Slice.NodePlacement,
     env: *Environment,
     ast: Ast.Slice,
     zml_element: Ast.Size,
@@ -78,6 +101,8 @@ fn parseElement(
     cascade_arena: *ArenaAllocator,
 ) !Ast.Size {
     assert(ast.tag(zml_element) == .zml_element);
+    element_tree.initElement(element, .normal, placement);
+
     var element_children = ast.children(zml_element);
 
     const features = element_children.next(ast).?;
@@ -115,6 +140,19 @@ fn parseElement(
     return children;
 }
 
+fn parseTextElement(
+    element_tree: ElementTree.Slice,
+    element: Element,
+    placement: ElementTree.Slice.NodePlacement,
+    ast: Ast.Slice,
+    zml_text_element: Ast.Size,
+    token_source: TokenSource,
+) void {
+    _ = token_source;
+    assert(ast.tag(zml_text_element) == .zml_text_element);
+    element_tree.initElement(element, .text, placement);
+    // TODO: element_tree.set(.text, element, ...);
+}
 fn applyStyleBlockDeclarations(
     element_tree: ElementTree.Slice,
     element: Element,
@@ -128,7 +166,7 @@ fn applyStyleBlockDeclarations(
     try element_tree.updateCascadedValues(element, &sources);
 }
 
-test astToElementTree {
+test astToElement {
     const input =
         \\* (display: block) { /*comment*/
         \\  type1 (all: unset) {}
@@ -153,7 +191,7 @@ test astToElementTree {
     const type1 = try env.addTypeOrAttributeNameString("type1");
     const type2 = try env.addTypeOrAttributeNameString("type2");
 
-    const root_element = try astToElementTree(&element_tree, &env, ast.slice(), 1, token_source, allocator);
+    const root_element = try astToElement(&element_tree, &env, ast.slice(), 1, token_source, allocator);
     const slice = element_tree.slice();
     const aggregates = zss.properties.aggregates;
     const CssWideKeyword = zss.values.types.CssWideKeyword;

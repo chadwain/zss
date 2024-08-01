@@ -27,6 +27,7 @@ test "parse a zml document" {
         \\* {
         \\   p1 {}
         \\   * {}
+        \\   "Hello"
         \\   p2 (decl: value !important; decl: asdf) {
         \\       /*comment*/p3/*comment*/[a=b] #id {}
         \\   }
@@ -225,6 +226,10 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
         .token_right_curly => {
             const item = parser.element_stack.pop();
             ast.finishElement(item.element_index, item.block_index);
+            return;
+        },
+        .token_string => {
+            _ = try ast.addBasicComponent(.zml_text_element, main_location);
             return;
         },
         else => parser.location = main_location,

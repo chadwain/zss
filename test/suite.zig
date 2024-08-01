@@ -137,9 +137,8 @@ fn createTest(
         assert(slice.tag(0) == .zml_document);
         var seq = slice.children(0);
         if (seq.next(slice)) |zml_element| {
-            assert(slice.tag(zml_element) == .zml_element);
             const token_source = try zss.syntax.tokenize.Source.init(.{ .data = source });
-            break :blk try zss.zml.astToElementTree(&t.element_tree, &t.env, slice, zml_element, token_source, allocator);
+            break :blk try zss.zml.astToElement(&t.element_tree, &t.env, slice, zml_element, token_source, allocator);
         } else {
             break :blk Element.null_element;
         }
@@ -147,8 +146,10 @@ fn createTest(
 
     if (!t.root_element.eqlNull()) {
         const slice = t.element_tree.slice();
-        const cv = slice.ptr(.cascaded_values, t.root_element);
-        try cv.add(slice.arena, .color, .{ .color = .{ .rgba = 0xffffffff } });
+        if (slice.category(t.root_element) == .normal) {
+            const cv = slice.ptr(.cascaded_values, t.root_element);
+            try cv.add(slice.arena, .color, .{ .color = .{ .rgba = 0xffffffff } });
+        }
     }
 
     return t;

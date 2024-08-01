@@ -23,7 +23,7 @@ pub fn main() !void {
 
     const root = try tree.allocateElement();
     const slice = tree.slice();
-    slice.initElement(root, .normal, .orphan, {});
+    slice.initElement(root, .normal, .orphan);
     try slice.runCascade(root, allocator, &env);
 
     var images = zss.Images{};
