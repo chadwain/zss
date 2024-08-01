@@ -83,7 +83,7 @@ fn astToElementOneIter(
             return .{ element, children_index };
         },
         .zml_text_element => {
-            parseTextElement(slice, element, placement, ast, ast_index, token_source);
+            try parseTextElement(slice, element, placement, ast, ast_index, token_source);
             return .{ element, null };
         },
         else => unreachable,
@@ -147,12 +147,15 @@ fn parseTextElement(
     ast: Ast.Slice,
     zml_text_element: Ast.Size,
     token_source: TokenSource,
-) void {
-    _ = token_source;
+) !void {
     assert(ast.tag(zml_text_element) == .zml_text_element);
     element_tree.initElement(element, .text, placement);
-    // TODO: element_tree.set(.text, element, ...);
+
+    const location = ast.location(zml_text_element);
+    const string = try token_source.copyString(location, element_tree.arena.allocator());
+    element_tree.set(.text, element, string.data);
 }
+
 fn applyStyleBlockDeclarations(
     element_tree: ElementTree.Slice,
     element: Element,
