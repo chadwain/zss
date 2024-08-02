@@ -82,7 +82,8 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, i
                     computer.advanceElement(.cosmetic);
                 }
             },
-            .inline_box, .text => unreachable,
+            .text => computer.advanceElement(.cosmetic),
+            .inline_box => unreachable,
         }
     }
 

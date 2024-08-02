@@ -12,6 +12,8 @@ pub fn Stack(comptime T: type) type {
 
         const Self = @This();
 
+        pub const Item = T;
+
         pub fn deinit(stack: *Self, allocator: Allocator) void {
             stack.rest.deinit(allocator);
         }

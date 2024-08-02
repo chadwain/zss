@@ -125,6 +125,7 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                 result.ifc_index,
                 ifc_container_index,
                 skip,
+                null,
                 parent.auto_height,
                 containing_block_width,
                 line_split_result.height,
@@ -627,13 +628,12 @@ fn writeBlockDataPart1(
     width: ZssUnit,
     stacking_context: ?StackingContext.Id,
 ) void {
+    subtree_slice.items(.type)[index] = .block;
+    subtree_slice.items(.stacking_context)[index] = stacking_context;
+
     const box_offsets = &subtree_slice.items(.box_offsets)[index];
     const borders = &subtree_slice.items(.borders)[index];
     const margins = &subtree_slice.items(.margins)[index];
-
-    subtree_slice.items(.type)[index] = .{ .block = .{
-        .stacking_context = stacking_context,
-    } };
 
     // Horizontal sizes
     box_offsets.border_pos.x = used.get(.margin_inline_start).?;

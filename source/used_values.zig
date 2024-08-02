@@ -191,9 +191,7 @@ pub const BackgroundImage = struct {
 };
 
 pub const BlockType = union(enum) {
-    block: struct {
-        stacking_context: ?StackingContext.Id,
-    },
+    block,
     ifc_container: InlineFormattingContextIndex,
     subtree_proxy: SubtreeId,
 };
@@ -215,6 +213,7 @@ pub const BlockSubtree = struct {
     pub const BlockList = MultiArrayList(struct {
         skip: BlockBoxIndex,
         type: BlockType,
+        stacking_context: ?StackingContext.Id,
         box_offsets: BoxOffsets,
         borders: Borders,
         margins: Margins,
@@ -251,19 +250,32 @@ pub const BlockSubtree = struct {
         ifc: InlineFormattingContextIndex,
         index: BlockBoxIndex,
         skip: BlockBoxIndex,
+        stacking_context: ?StackingContext.Id,
         y_pos: ZssUnit,
         width: ZssUnit,
         height: ZssUnit,
     ) void {
         const s = subtree.slice();
-        s.items(.type)[index] = .{ .ifc_container = ifc };
         s.items(.skip)[index] = skip;
+        s.items(.type)[index] = .{ .ifc_container = ifc };
+        s.items(.stacking_context)[index] = stacking_context;
         s.items(.box_offsets)[index] = .{
             .border_pos = .{ .x = 0, .y = y_pos },
             .border_size = .{ .w = width, .h = height },
             .content_pos = .{ .x = 0, .y = 0 },
             .content_size = .{ .w = width, .h = height },
         };
+    }
+
+    pub fn setSubtreeProxy(
+        subtree: *BlockSubtree,
+        index: BlockBoxIndex,
+        proxied_subtree: SubtreeId,
+    ) void {
+        const s = subtree.slice();
+        s.items(.skip)[index] = 1;
+        s.items(.type)[index] = .{ .subtree_proxy = proxied_subtree };
+        s.items(.stacking_context)[index] = null;
     }
 };
 
@@ -500,7 +512,7 @@ pub const GeneratedBox = union(enum) {
     /// The element generated a single inline box.
     inline_box: struct { ifc_index: InlineFormattingContextIndex, index: InlineBoxIndex },
     /// The element generated text.
-    text,
+    text: InlineFormattingContextIndex,
 };
 
 pub const BackgroundImages = struct {

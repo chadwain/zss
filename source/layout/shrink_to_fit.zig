@@ -172,7 +172,7 @@ fn flowObject(
                 used.padding_inline_start + used.padding_inline_end;
 
             if (used.get(.inline_size)) |inline_size| {
-                const new_subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, undefined);
+                const new_subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, null);
                 const subtree = box_tree.blocks.subtree(new_subtree_id);
                 const block_index = try subtree.appendBlock(box_tree.allocator);
                 const generated_box = GeneratedBox{ .block_box = .{ .subtree = new_subtree_id, .index = block_index } };
@@ -208,7 +208,7 @@ fn flowObject(
         },
         .none => computer.advanceElement(.box_gen),
         .@"inline", .inline_block, .text => {
-            const new_subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, undefined);
+            const new_subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, null);
             const new_subtree = box_tree.blocks.subtree(new_subtree_id);
             const new_ifc_container_index = try new_subtree.appendBlock(box_tree.allocator);
 
@@ -440,9 +440,7 @@ fn realizeObjects(
 
                         {
                             const proxy_index = try subtree.appendBlock(box_tree.allocator);
-                            const subtree_slice = subtree.slice();
-                            subtree_slice.items(.type)[proxy_index] = .{ .subtree_proxy = data.subtree_id };
-                            subtree_slice.items(.skip)[proxy_index] = 1;
+                            subtree.setSubtreeProxy(proxy_index, data.subtree_id);
                             new_subtree.parent = .{ .subtree = main_subtree_id, .index = proxy_index };
                             parent.skip += 1;
                         }
@@ -458,9 +456,7 @@ fn realizeObjects(
                         // TODO: The proxy block should have its box_offsets value set, while the subtree root block should have default values
                         {
                             const proxy_index = try subtree.appendBlock(box_tree.allocator);
-                            const subtree_slice = subtree.slice();
-                            subtree_slice.items(.skip)[proxy_index] = 1;
-                            subtree_slice.items(.type)[proxy_index] = .{ .subtree_proxy = data.subtree_id };
+                            subtree.setSubtreeProxy(proxy_index, data.subtree_id);
                             new_subtree.parent = .{ .subtree = main_subtree_id, .index = proxy_index };
                             parent.skip += 1;
                         }
@@ -468,15 +464,15 @@ fn realizeObjects(
                         const ifc = box_tree.ifcs.items[data.layout_result.ifc_index];
                         ifc.parent_block = .{ .subtree = main_subtree_id, .index = parent.index };
 
-                        const new_subtree_slice = new_subtree.slice();
-                        new_subtree_slice.items(.type)[block_index] = .{ .ifc_container = data.layout_result.ifc_index };
-                        new_subtree_slice.items(.skip)[block_index] = 1 + data.layout_result.total_inline_block_skip;
-                        new_subtree_slice.items(.box_offsets)[block_index] = .{
-                            .border_pos = .{ .x = 0, .y = parent.auto_height },
-                            .border_size = .{ .w = data.line_split_result.longest_line_box_length, .h = data.line_split_result.height },
-                            .content_pos = .{ .x = 0, .y = 0 },
-                            .content_size = .{ .w = data.line_split_result.longest_line_box_length, .h = data.line_split_result.height },
-                        };
+                        new_subtree.setIfcContainer(
+                            data.layout_result.ifc_index,
+                            block_index,
+                            1 + data.layout_result.total_inline_block_skip,
+                            null,
+                            parent.auto_height,
+                            data.line_split_result.longest_line_box_length,
+                            data.line_split_result.height,
+                        );
 
                         flow.advanceFlow(&parent.auto_height, data.line_split_result.height);
                     },

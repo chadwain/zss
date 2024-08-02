@@ -95,7 +95,7 @@ const ProgramState = struct {
         );
         defer box_tree.deinit();
 
-        var draw_list = try zss.render.DrawList.create(box_tree, self.allocator);
+        var draw_list = try zss.render.DrawList.create(&box_tree, self.allocator);
         defer draw_list.deinit(self.allocator);
 
         std.mem.swap(zss.used_values.BoxTree, &self.box_tree, &box_tree);

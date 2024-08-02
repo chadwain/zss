@@ -14,6 +14,7 @@ const ZssVector = used_values.ZssVector;
 const ZssRect = used_values.ZssRect;
 const BoxOffsets = used_values.BoxOffsets;
 const BlockBoxIndex = used_values.BlockBoxIndex;
+const BlockBoxSkip = used_values.BlockBoxSkip;
 const BlockSubtree = used_values.BlockSubtree;
 const SubtreeId = used_values.SubtreeId;
 const InlineFormattingContextIndex = used_values.InlineFormattingContextIndex;
@@ -163,7 +164,7 @@ const Builder = struct {
 };
 
 /// Creates a `DrawList` from a `BoxTree`.
-pub fn create(box_tree: BoxTree, allocator: Allocator) !DrawList {
+pub fn create(box_tree: *const BoxTree, allocator: Allocator) !DrawList {
     var draw_list = DrawList{ .sub_lists = .{}, .quad_tree = .{} };
     errdefer draw_list.deinit(allocator);
 
@@ -293,12 +294,39 @@ fn allocateSubList(
     try parent_data.before_and_after.append(allocator, index);
 }
 
+const PopulateSubListContext = struct {
+    quad_tree: *QuadTree,
+    box_tree: *const BoxTree,
+    sc_tree: StackingContextTree.Slice,
+
+    sub_list: *SubList,
+    sublist_index: SubListIndex,
+    stack: Stack = .{},
+    ifc_infos: AutoHashMapUnmanaged(
+        InlineFormattingContextIndex,
+        struct { vector: ZssVector, containing_block_width: ZssUnit },
+    ) = .{},
+
+    const Stack = zss.util.Stack(struct {
+        begin: BlockBoxIndex,
+        end: BlockBoxIndex,
+        subtree_index: SubtreeId,
+        subtree: BlockSubtree.Slice,
+        vector: ZssVector,
+    });
+
+    fn deinit(ctx: *PopulateSubListContext, allocator: Allocator) void {
+        ctx.stack.deinit(allocator);
+        ctx.ifc_infos.deinit(allocator);
+    }
+};
+
 fn populateSubList(
     draw_list: *DrawList,
     builder: *Builder,
     description: SubList.Description,
     allocator: Allocator,
-    box_tree: BoxTree,
+    box_tree: *const BoxTree,
     slice: StackingContextTree.Slice,
 ) !void {
     const stacking_context = description.stacking_context;
@@ -320,159 +348,149 @@ fn populateSubList(
         }
     }
 
-    const root_block_box = slice.items(.block_box)[stacking_context];
-    const root_block_subtree = box_tree.blocks.subtree(root_block_box.subtree);
-    const root_block_subtree_slice = root_block_subtree.slice();
-    const root_box_offsets = root_block_subtree_slice.items(.box_offsets)[root_block_box.index];
-    const root_insets = root_block_subtree_slice.items(.insets)[root_block_box.index];
-    const root_border_top_left = description.initial_vector.add(root_insets).add(root_box_offsets.border_pos);
-    const root_content_top_left = root_border_top_left.add(root_box_offsets.content_pos);
+    var ctx = PopulateSubListContext{
+        .sub_list = draw_list.getSubList(description.index),
+        .sublist_index = description.index,
+        .quad_tree = &draw_list.quad_tree,
+        .box_tree = box_tree,
+        .sc_tree = slice,
+    };
+    defer ctx.deinit(allocator);
 
     {
-        const data = draw_list.getSubList(description.index);
-
         // Add the root block to the draw order list
-        const root_entry_index = try data.addEntry(
-            allocator,
-            Drawable{
-                .block_box = .{
-                    .block_box = root_block_box,
-                    .border_top_left = root_border_top_left,
-                },
-            },
-        );
-        try draw_list.quad_tree.insert(
-            allocator,
-            calcBoundingBox(root_border_top_left, root_box_offsets),
-            .{ .sub_list = description.index, .entry_index = root_entry_index },
-        );
-
-        var stack = ArrayListUnmanaged(struct {
-            begin: BlockBoxIndex,
-            end: BlockBoxIndex,
-            subtree_index: SubtreeId,
-            subtree: *const BlockSubtree,
-            vector: ZssVector,
-        }){};
-        defer stack.deinit(allocator);
-        try stack.append(allocator, .{
-            .begin = root_block_box.index + 1,
-            .end = root_block_box.index + root_block_subtree_slice.items(.skip)[root_block_box.index],
+        const root_block_box = slice.items(.block_box)[stacking_context];
+        const root_block_subtree = box_tree.blocks.subtree(root_block_box.subtree).slice();
+        const root_block_skip = root_block_subtree.items(.skip)[root_block_box.index];
+        const initial_item = PopulateSubListContext.Stack.Item{
+            .begin = undefined,
+            .end = undefined,
             .subtree_index = root_block_box.subtree,
             .subtree = root_block_subtree,
-            .vector = root_content_top_left,
-        });
+            .vector = description.initial_vector,
+        };
+        const item = try analyzeBlock(&ctx, allocator, root_block_box.index, root_block_skip, &initial_item);
+        ctx.stack.top = item;
+    }
 
-        var ifc_infos = AutoHashMapUnmanaged(InlineFormattingContextIndex, struct { vector: ZssVector, containing_block_width: ZssUnit }){};
-        defer ifc_infos.deinit(allocator);
+    // Add child block boxes to the draw order list
+    while (ctx.stack.top) |*top| {
+        if (top.begin == top.end) {
+            _ = ctx.stack.pop();
+            continue;
+        }
+        const block_index = top.begin;
+        const block_skip = top.subtree.items(.skip)[block_index];
+        top.begin += block_skip;
 
-        // Add child block boxes to the draw order list
-        outerLoop: while (stack.items.len > 0) {
-            const last = &stack.items[stack.items.len - 1];
-            const subtree_index = last.subtree_index;
-            const subtree = last.subtree;
-            const subtree_slice = subtree.slice();
-            const vector = last.vector;
-            while (last.begin < last.end) {
-                const block_index = last.begin;
-                const block_skip = subtree_slice.items(.skip)[block_index];
-                const block_type = subtree_slice.items(.type)[block_index];
-                switch (block_type) {
-                    .block => |block_info| {
-                        if (block_info.stacking_context) |child_stacking_context_id| {
-                            const child_stacking_context: StackingContextIndex =
-                                @intCast(std.mem.indexOfScalar(StackingContextId, slice.items(.id), child_stacking_context_id).?);
-                            try builder.makeSublistReady(allocator, child_stacking_context, vector);
-
-                            last.begin += block_skip;
-                        } else {
-                            const box_offsets = subtree_slice.items(.box_offsets)[block_index];
-                            const insets = subtree_slice.items(.insets)[block_index];
-                            const border_top_left = vector.add(insets).add(box_offsets.border_pos);
-                            const content_top_left = border_top_left.add(box_offsets.content_pos);
-
-                            const entry_index = try data.addEntry(
-                                allocator,
-                                Drawable{
-                                    .block_box = .{
-                                        .block_box = .{ .subtree = subtree_index, .index = block_index },
-                                        .border_top_left = border_top_left,
-                                    },
-                                },
-                            );
-                            try draw_list.quad_tree.insert(
-                                allocator,
-                                calcBoundingBox(border_top_left, box_offsets),
-                                .{ .sub_list = description.index, .entry_index = entry_index },
-                            );
-
-                            last.begin += block_skip;
-                            if (block_skip != 1) {
-                                try stack.append(allocator, .{
-                                    .begin = block_index + 1,
-                                    .end = block_index + subtree_slice.items(.skip)[block_index],
-                                    .subtree_index = subtree_index,
-                                    .subtree = subtree,
-                                    .vector = content_top_left,
-                                });
-                                continue :outerLoop;
-                            }
-                        }
-                    },
-                    .ifc_container => |ifc_index| {
-                        const box_offsets = subtree_slice.items(.box_offsets)[block_index];
-                        const new_vector = vector.add(box_offsets.border_pos).add(box_offsets.content_pos);
-                        try ifc_infos.putNoClobber(allocator, ifc_index, .{ .vector = new_vector, .containing_block_width = box_offsets.border_size.w });
-                        last.begin += 1;
-                        last.vector = new_vector;
-                    },
-                    .subtree_proxy => |proxy_subtree_index| {
-                        last.begin += block_skip;
-                        const child_subtree = box_tree.blocks.subtree(proxy_subtree_index);
-                        try stack.append(allocator, .{
-                            .begin = 0,
-                            .end = child_subtree.size(),
-                            .subtree_index = proxy_subtree_index,
-                            .subtree = child_subtree,
-                            .vector = vector,
-                        });
-                        continue :outerLoop;
-                    },
-                }
-            } else {
-                _ = stack.pop();
-            }
+        if (top.subtree.items(.stacking_context)[block_index]) |child_stacking_context_id| {
+            const child_stacking_context: StackingContextIndex =
+                @intCast(std.mem.indexOfScalar(StackingContextId, slice.items(.id), child_stacking_context_id).?);
+            try builder.makeSublistReady(allocator, child_stacking_context, top.vector);
+            continue;
         }
 
-        // Add inline formatting context line boxes to the draw order list
-        for (slice.items(.ifcs)[stacking_context].items) |ifc_index| {
-            const info = ifc_infos.get(ifc_index) orelse unreachable;
-            const ifc = box_tree.ifcs.items[ifc_index];
-            const line_box_height = ifc.ascender + ifc.descender;
-            for (ifc.line_boxes.items, 0..) |line_box, line_box_index| {
-                const bounding_box = ZssRect{
-                    .x = info.vector.x,
-                    .y = info.vector.y + line_box.baseline - ifc.ascender,
-                    .w = info.containing_block_width,
-                    .h = line_box_height,
-                };
-                const entry_index = try data.addEntry(
-                    allocator,
-                    Drawable{
-                        .line_box = .{
-                            .ifc_index = ifc_index,
-                            .line_box_index = line_box_index,
-                            .origin = info.vector,
-                        },
+        const item = try analyzeBlock(&ctx, allocator, block_index, block_skip, top);
+        try ctx.stack.push(allocator, item);
+    }
+
+    // Add inline formatting context line boxes to the draw order list
+    for (ctx.sc_tree.items(.ifcs)[stacking_context].items) |ifc_index| {
+        const info = ctx.ifc_infos.get(ifc_index).?;
+        const ifc = box_tree.ifcs.items[ifc_index];
+        const line_box_height = ifc.ascender + ifc.descender;
+        for (ifc.line_boxes.items, 0..) |line_box, line_box_index| {
+            const bounding_box = ZssRect{
+                .x = info.vector.x,
+                .y = info.vector.y + line_box.baseline - ifc.ascender,
+                .w = info.containing_block_width,
+                .h = line_box_height,
+            };
+            const entry_index = try ctx.sub_list.addEntry(
+                allocator,
+                Drawable{
+                    .line_box = .{
+                        .ifc_index = ifc_index,
+                        .line_box_index = line_box_index,
+                        .origin = info.vector,
                     },
-                );
-                try draw_list.quad_tree.insert(
-                    allocator,
-                    bounding_box,
-                    .{ .sub_list = description.index, .entry_index = entry_index },
-                );
-            }
+                },
+            );
+            try draw_list.quad_tree.insert(
+                allocator,
+                bounding_box,
+                .{ .sub_list = description.index, .entry_index = entry_index },
+            );
         }
+    }
+}
+
+// NOTE: `ctx` and `top` alias
+fn analyzeBlock(
+    ctx: *PopulateSubListContext,
+    allocator: Allocator,
+    block_index: BlockBoxIndex,
+    block_skip: BlockBoxSkip,
+    top: *const PopulateSubListContext.Stack.Item,
+) !PopulateSubListContext.Stack.Item {
+    const block_type = top.subtree.items(.type)[block_index];
+    switch (block_type) {
+        .block => {
+            const box_offsets = top.subtree.items(.box_offsets)[block_index];
+            const insets = top.subtree.items(.insets)[block_index];
+            const border_top_left = top.vector.add(insets).add(box_offsets.border_pos);
+            const content_top_left = border_top_left.add(box_offsets.content_pos);
+
+            const entry_index = try ctx.sub_list.addEntry(
+                allocator,
+                Drawable{
+                    .block_box = .{
+                        .block_box = .{ .subtree = top.subtree_index, .index = block_index },
+                        .border_top_left = border_top_left,
+                    },
+                },
+            );
+            try ctx.quad_tree.insert(
+                allocator,
+                calcBoundingBox(border_top_left, box_offsets),
+                .{ .sub_list = ctx.sublist_index, .entry_index = entry_index },
+            );
+
+            return .{
+                .begin = block_index + 1,
+                .end = block_index + block_skip,
+                .subtree_index = top.subtree_index,
+                .subtree = top.subtree,
+                .vector = content_top_left,
+            };
+        },
+        .ifc_container => |ifc_index| {
+            const box_offsets = top.subtree.items(.box_offsets)[block_index];
+            const content_top_left = top.vector.add(box_offsets.border_pos).add(box_offsets.content_pos);
+            try ctx.ifc_infos.putNoClobber(
+                allocator,
+                ifc_index,
+                .{ .vector = content_top_left, .containing_block_width = box_offsets.content_size.w },
+            );
+
+            return .{
+                .begin = block_index + 1,
+                .end = block_index + block_skip,
+                .subtree_index = top.subtree_index,
+                .subtree = top.subtree,
+                .vector = content_top_left,
+            };
+        },
+        .subtree_proxy => |proxy_subtree_index| {
+            const child_subtree = ctx.box_tree.blocks.subtree(proxy_subtree_index);
+            return .{
+                .begin = 0,
+                .end = child_subtree.size(),
+                .subtree_index = proxy_subtree_index,
+                .subtree = child_subtree.slice(),
+                .vector = top.vector,
+            };
+        },
     }
 }
 

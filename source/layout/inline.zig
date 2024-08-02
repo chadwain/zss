@@ -206,7 +206,8 @@ fn ifcRunOnce(
     // TODO: Check position and float properties
     switch (effective_display) {
         .text => {
-            try box_tree.mapElementToBox(element, .text);
+            const generated_box = GeneratedBox{ .text = ctx.result.ifc_index };
+            try box_tree.mapElementToBox(element, generated_box);
 
             // TODO: Do proper font matching.
             const font = computer.getSpecifiedValue(.box_gen, .font);

@@ -61,7 +61,7 @@ pub fn run(tests: []const *Test) !void {
         if (font_opt) |font| try renderer.initGlyphs(font.handle);
         defer if (font_opt) |_| renderer.deinitGlyphs();
 
-        var draw_list = try DrawList.create(box_tree, allocator);
+        var draw_list = try DrawList.create(&box_tree, allocator);
         defer draw_list.deinit(allocator);
 
         setIcbBackgroundColor(&box_tree, zss.used_values.Color.fromRgbaInt(0x202020ff));
@@ -122,19 +122,19 @@ pub fn run(tests: []const *Test) !void {
 fn rootBlockSize(box_tree: *BoxTree, root_element: zss.ElementTree.Element) struct { x: u32, y: u32, width: u32, height: u32 } {
     if (root_element.eqlNull()) return .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     const generated_box = box_tree.element_to_generated_box.get(root_element) orelse return .{ .x = 0, .y = 0, .width = 0, .height = 0 };
-    switch (generated_box) {
-        .block_box => |block_box| {
-            const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
-            const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
-            return .{
-                .x = @intCast(@divFloor(box_offsets.border_pos.x, units_per_pixel)),
-                .y = @intCast(@divFloor(box_offsets.border_pos.y, units_per_pixel)),
-                .width = @intCast(@divFloor(box_offsets.border_size.w, units_per_pixel)),
-                .height = @intCast(@divFloor(box_offsets.border_size.h, units_per_pixel)),
-            };
-        },
-        .text, .inline_box => unreachable,
-    }
+    const block_box = switch (generated_box) {
+        .block_box => |block_box| block_box,
+        .text => |ifc_index| box_tree.ifcs.items[ifc_index].parent_block,
+        .inline_box => unreachable,
+    };
+    const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
+    const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
+    return .{
+        .x = @intCast(@divFloor(box_offsets.border_pos.x, units_per_pixel)),
+        .y = @intCast(@divFloor(box_offsets.border_pos.y, units_per_pixel)),
+        .width = @intCast(@divFloor(box_offsets.border_size.w, units_per_pixel)),
+        .height = @intCast(@divFloor(box_offsets.border_size.h, units_per_pixel)),
+    };
 }
 
 fn setIcbBackgroundColor(box_tree: *BoxTree, color: zss.used_values.Color) void {

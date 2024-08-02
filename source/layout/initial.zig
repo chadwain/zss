@@ -5,6 +5,7 @@ const zss = @import("../zss.zig");
 const Inputs = zss.layout.Inputs;
 
 const flow = @import("./flow.zig");
+const @"inline" = @import("./inline.zig");
 const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 const StackingContexts = @import("./StackingContexts.zig");
@@ -33,7 +34,8 @@ pub fn run(ctx: *InitialLayoutContext, sc: *StackingContexts, computer: *StyleCo
 
     const block_index = try subtree.appendBlock(box_tree.allocator);
     const subtree_slice = subtree.slice();
-    subtree_slice.items(.type)[block_index] = .{ .block = .{ .stacking_context = null } };
+    subtree_slice.items(.type)[block_index] = .block;
+    subtree_slice.items(.stacking_context)[block_index] = null;
     subtree_slice.items(.box_offsets)[block_index] = .{
         .border_pos = .{ .x = 0, .y = 0 },
         .content_pos = .{ .x = 0, .y = 0 },
@@ -101,7 +103,43 @@ fn analyzeRootElement(
             computer.advanceElement(.box_gen);
             return 0;
         },
-        .text => std.debug.panic("TODO: root element is text", .{}),
+        .text => {
+            const subtree = box_tree.blocks.subtree(ctx.subtree_id);
+            const ifc_container_index = try subtree.appendBlock(box_tree.allocator);
+
+            const stacking_context: StackingContexts.Info = .{ .is_parent = 0 };
+            const stacking_context_id = try sc.push(stacking_context, box_tree, .{ .subtree = ctx.subtree_id, .index = ifc_container_index });
+            const result = try @"inline".makeInlineFormattingContext(
+                ctx.allocator,
+                sc,
+                computer,
+                box_tree,
+                ctx.subtree_id,
+                .Normal,
+                inputs.viewport.w,
+                inputs.viewport.h,
+                inputs,
+            );
+            sc.pop(box_tree);
+
+            const ifc = box_tree.ifcs.items[result.ifc_index];
+            const line_split_result =
+                try @"inline".splitIntoLineBoxes(ctx.allocator, box_tree, subtree, ifc, inputs, inputs.viewport.w);
+            ifc.parent_block = .{ .subtree = ctx.subtree_id, .index = ifc_container_index };
+
+            const skip = 1 + result.total_inline_block_skip;
+            subtree.setIfcContainer(
+                result.ifc_index,
+                ifc_container_index,
+                skip,
+                stacking_context_id,
+                0,
+                inputs.viewport.w,
+                line_split_result.height,
+            );
+
+            return skip;
+        },
         .@"inline", .inline_block => unreachable,
     }
 
