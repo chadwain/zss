@@ -192,12 +192,20 @@ fn ifcRunOnce(
 ) !bool {
     const element = computer.getCurrentElement();
 
-    const specified = computer.getSpecifiedValue(.box_gen, .box_style);
-    const computed = solve.boxStyle(specified, .NonRoot);
+    const computed, const effective_display = blk: {
+        if (computer.elementCategory(element) == .text) {
+            break :blk .{ undefined, .text };
+        }
+
+        const specified_box_style = computer.getSpecifiedValue(.box_gen, .box_style);
+        const computed_box_style, const effective_display = solve.boxStyle(specified_box_style, .NonRoot);
+        computer.setComputedValue(.box_gen, .box_style, computed_box_style);
+        break :blk .{ computed_box_style, effective_display };
+    };
+
     // TODO: Check position and float properties
-    switch (computed.display) {
+    switch (effective_display) {
         .text => {
-            assert(computer.element_tree_slice.firstChild(element).eqlNull());
             try box_tree.mapElementToBox(element, .text);
 
             // TODO: Do proper font matching.
@@ -221,7 +229,7 @@ fn ifcRunOnce(
 
             const generated_box = GeneratedBox{ .inline_box = .{ .ifc_index = ctx.result.ifc_index, .index = inline_box_index } };
             try box_tree.mapElementToBox(element, generated_box);
-            computer.setComputedValue(.box_gen, .box_style, computed);
+
             { // TODO: Grabbing useless data to satisfy inheritance...
                 const data = .{
                     .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
@@ -250,8 +258,6 @@ fn ifcRunOnce(
             }
         },
         .inline_block => {
-            computer.setComputedValue(.box_gen, .box_style, computed);
-
             const used_sizes = inlineBlockSolveSizes(computer, ctx.containing_block_width, ctx.containing_block_height);
             const stacking_context = inlineBlockCreateStackingContext(computer, computed.position);
 
@@ -303,7 +309,6 @@ fn ifcRunOnce(
             }
         },
         .none => computer.advanceElement(.box_gen),
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     return false;

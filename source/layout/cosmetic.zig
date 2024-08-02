@@ -158,7 +158,7 @@ fn blockBoxCosmeticLayout(
 
     const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
 
-    const computed_box_style = solve.boxStyle(specified.box_style, is_root);
+    const computed_box_style, _ = solve.boxStyle(specified.box_style, is_root);
     const current_color = solve.currentColor(specified.color.color);
 
     var computed_insets: aggregates.Insets = undefined;
@@ -417,7 +417,7 @@ fn inlineBoxCosmeticLayout(
         .insets = computer.getSpecifiedValue(.cosmetic, .insets),
     };
 
-    const computed_box_style = solve.boxStyle(specified.box_style, .NonRoot);
+    const computed_box_style, _ = solve.boxStyle(specified.box_style, .NonRoot);
 
     var computed_insets: aggregates.Insets = undefined;
     {

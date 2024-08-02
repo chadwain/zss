@@ -121,6 +121,10 @@ pub fn deinitStage(self: *StyleComputer, comptime stage: Stage) void {
     }
 }
 
+pub fn elementCategory(self: StyleComputer, element: Element) ElementTree.Category {
+    return self.element_tree_slice.category(element);
+}
+
 pub fn setRootElement(self: *StyleComputer, comptime stage: Stage, root_element: Element) void {
     assert(!root_element.eqlNull());
     assert(self.stack.top == null);

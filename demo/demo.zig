@@ -408,8 +408,6 @@ fn createElements(
         });
 
         // Title text
-        cv = slice.ptr(.cascaded_values, title_text);
-        try cv.add(arena, .box_style, .{ .display = .text });
         slice.set(.text, title_text, file_name);
 
         // Body block box
@@ -422,8 +420,6 @@ fn createElements(
         try cv.add(arena, .background1, .{ .color = .{ .rgba = 0x1010507f } });
 
         // Body text
-        cv = slice.ptr(.cascaded_values, body_text);
-        try cv.add(arena, .box_style, .{ .display = .text });
         slice.set(.text, body_text, file_contents);
 
         // Footer block

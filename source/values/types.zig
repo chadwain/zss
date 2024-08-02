@@ -35,10 +35,6 @@ pub const Display = enum {
     block,
     @"inline",
     inline_block,
-    // TODO: 'text' is not a real value of 'display'
-    //       This value was used to differentiate text nodes from regular nodes,
-    //       but this should be done using the ElementTree instead.
-    text,
     none,
     initial,
     inherit,

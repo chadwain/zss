@@ -77,19 +77,24 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
         return popBlock(ctx, computer, sc, box_tree);
     }
 
-    const specified = .{
-        .box_style = computer.getSpecifiedValue(.box_gen, .box_style),
-        .font = computer.getSpecifiedValue(.box_gen, .font),
+    const computed_box_style, const effective_display = blk: {
+        if (computer.elementCategory(element) == .text) {
+            break :blk .{ undefined, .text };
+        }
+
+        const specified_box_style = computer.getSpecifiedValue(.box_gen, .box_style);
+        const specified_font = computer.getSpecifiedValue(.box_gen, .font);
+        const computed_box_style, const effective_display = solve.boxStyle(specified_box_style, .NonRoot);
+        computer.setComputedValue(.box_gen, .box_style, computed_box_style);
+        computer.setComputedValue(.box_gen, .font, specified_font);
+        break :blk .{ computed_box_style, effective_display };
     };
-    const computed_box_style = solve.boxStyle(specified.box_style, .NonRoot);
-    computer.setComputedValue(.box_gen, .box_style, computed_box_style);
-    computer.setComputedValue(.box_gen, .font, specified.font);
 
     const parent = &ctx.stack.top.?;
     const containing_block_width = parent.used.inline_size_clamped;
     const containing_block_height = parent.used.block_size;
 
-    switch (computed_box_style.display) {
+    switch (effective_display) {
         .block => {
             const used_sizes = solveAllSizes(computer, containing_block_width, containing_block_height);
             const stacking_context = solveStackingContext(computer, computed_box_style.position);
@@ -115,23 +120,20 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                 try inline_layout.splitIntoLineBoxes(ctx.allocator, box_tree, subtree, ifc, inputs, containing_block_width);
             ifc.parent_block = .{ .subtree = ctx.subtree_id, .index = ifc_container_index };
 
-            const subtree_slice = subtree.slice();
             const skip = 1 + result.total_inline_block_skip;
-            subtree_slice.items(.type)[ifc_container_index] = .{ .ifc_container = result.ifc_index };
-            subtree_slice.items(.skip)[ifc_container_index] = skip;
-            subtree_slice.items(.box_offsets)[ifc_container_index] = .{
-                .border_pos = .{ .x = 0, .y = parent.auto_height },
-                .border_size = .{ .w = containing_block_width, .h = line_split_result.height },
-                .content_pos = .{ .x = 0, .y = 0 },
-                .content_size = .{ .w = containing_block_width, .h = line_split_result.height },
-            };
+            subtree.setIfcContainer(
+                result.ifc_index,
+                ifc_container_index,
+                skip,
+                parent.auto_height,
+                containing_block_width,
+                line_split_result.height,
+            );
 
             parent.skip += skip;
-
             advanceFlow(&parent.auto_height, line_split_result.height);
         },
         .none => computer.advanceElement(.box_gen),
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
 

@@ -141,13 +141,20 @@ fn flowObject(
         return popFlowObject(ctx, object_tree, computer, box_tree, sc);
     }
 
-    const specified = computer.getSpecifiedValue(.box_gen, .box_style);
-    const computed = solve.boxStyle(specified, .NonRoot);
-    computer.setComputedValue(.box_gen, .box_style, computed);
+    const computed, const effective_display = blk: {
+        if (computer.elementCategory(element) == .text) {
+            break :blk .{ undefined, .text };
+        }
+
+        const specified_box_style = computer.getSpecifiedValue(.box_gen, .box_style);
+        const computed_box_style, const effective_display = solve.boxStyle(specified_box_style, .NonRoot);
+        computer.setComputedValue(.box_gen, .box_style, computed_box_style);
+        break :blk .{ computed_box_style, effective_display };
+    };
 
     const parent = &ctx.stack.top.?;
 
-    switch (computed.display) {
+    switch (effective_display) {
         .block => {
             var used: BlockUsedSizes = undefined;
             solveBlockSizes(computer, &used, parent.height);
@@ -242,7 +249,6 @@ fn flowObject(
                 } },
             });
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
 

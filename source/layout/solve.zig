@@ -72,7 +72,25 @@ pub const IsRoot = enum {
     NonRoot,
 };
 
-pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: IsRoot) aggregates.BoxStyle {
+pub const EffectiveDisplay = enum {
+    block,
+    @"inline",
+    inline_block,
+    text,
+    none,
+
+    fn fromComputedDisplay(display: types.Display) EffectiveDisplay {
+        return switch (display) {
+            .block => .block,
+            .@"inline" => .@"inline",
+            .inline_block => .inline_block,
+            .none => .none,
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        };
+    }
+};
+
+pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: IsRoot) struct { aggregates.BoxStyle, EffectiveDisplay } {
     var computed: aggregates.BoxStyle = .{
         .display = undefined,
         .position = specified.position,
@@ -91,7 +109,7 @@ pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: IsRoot) aggreg
     } else {
         computed.display = specified.display;
     }
-    return computed;
+    return .{ computed, EffectiveDisplay.fromComputedDisplay(computed.display) };
 }
 
 /// Given a specified value for 'display', returns the computed value according to the table found in section 9.7 of CSS2.2.
@@ -99,7 +117,7 @@ fn @"CSS2.2Section9.7Table"(display: types.Display) types.Display {
     // TODO: This is incomplete, fill in the rest when more values of the 'display' property are supported.
     // TODO: There should be a slightly different version of this switch table for the root element. (See rule 4 of secion 9.7)
     return switch (display) {
-        .@"inline", .inline_block, .text => .block,
+        .@"inline", .inline_block => .block,
         .initial, .inherit, .unset, .undeclared => unreachable,
         else => display,
     };

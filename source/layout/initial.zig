@@ -59,18 +59,21 @@ fn analyzeRootElement(
     computer.setRootElement(.box_gen, inputs.root_element);
     const element = computer.getCurrentElement();
 
-    const font = computer.getSpecifiedValue(.box_gen, .font);
-    computer.setComputedValue(.box_gen, .font, font);
+    const effective_display = blk: {
+        if (computer.elementCategory(element) == .text) {
+            break :blk .text;
+        }
 
-    const specified = .{
-        .box_style = computer.getSpecifiedValue(.box_gen, .box_style),
+        const specified_box_style = computer.getSpecifiedValue(.box_gen, .box_style);
+        const computed_box_style, const effective_display = solve.boxStyle(specified_box_style, .Root);
+        computer.setComputedValue(.box_gen, .box_style, computed_box_style);
+        break :blk effective_display;
     };
-    const computed = .{
-        .box_style = solve.boxStyle(specified.box_style, .Root),
-    };
-    computer.setComputedValue(.box_gen, .box_style, computed.box_style);
 
-    switch (computed.box_style.display) {
+    const specified_font = computer.getSpecifiedValue(.box_gen, .font);
+    computer.setComputedValue(.box_gen, .font, specified_font);
+
+    switch (effective_display) {
         .block => {
             const used_sizes = flow.solveAllSizes(computer, inputs.viewport.w, inputs.viewport.h);
             const stacking_context = rootFlowBlockSolveStackingContext(computer);
@@ -98,8 +101,8 @@ fn analyzeRootElement(
             computer.advanceElement(.box_gen);
             return 0;
         },
-        .@"inline", .inline_block, .text => unreachable,
-        .initial, .inherit, .unset, .undeclared => unreachable,
+        .text => std.debug.panic("TODO: root element is text", .{}),
+        .@"inline", .inline_block => unreachable,
     }
 
     computer.popElement(.box_gen);

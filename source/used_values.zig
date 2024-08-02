@@ -245,6 +245,26 @@ pub const BlockSubtree = struct {
         assert(new_size - 1 == try subtree.blocks.addOne(allocator));
         return new_size - 1;
     }
+
+    pub fn setIfcContainer(
+        subtree: *BlockSubtree,
+        ifc: InlineFormattingContextIndex,
+        index: BlockBoxIndex,
+        skip: BlockBoxIndex,
+        y_pos: ZssUnit,
+        width: ZssUnit,
+        height: ZssUnit,
+    ) void {
+        const s = subtree.slice();
+        s.items(.type)[index] = .{ .ifc_container = ifc };
+        s.items(.skip)[index] = skip;
+        s.items(.box_offsets)[index] = .{
+            .border_pos = .{ .x = 0, .y = y_pos },
+            .border_size = .{ .w = width, .h = height },
+            .content_pos = .{ .x = 0, .y = 0 },
+            .content_size = .{ .w = width, .h = height },
+        };
+    }
 };
 
 pub const BlockBoxTree = struct {
