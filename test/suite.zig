@@ -7,6 +7,7 @@ const zss = @import("zss");
 const Ast = zss.syntax.Ast;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
+const TokenSource = zss.syntax.tokenize.Source;
 
 const hb = @import("mach-harfbuzz").c;
 
@@ -24,7 +25,7 @@ pub fn main() !void {
     if (hb.FT_Init_FreeType(&library) != 0) return error.FreeTypeError;
     defer _ = hb.FT_Done_FreeType(library);
 
-    const font_name = try std.fs.path.joinZ(allocator, &.{ args[3], "NotoSans-Regular.ttf" });
+    const font_name = try std.fs.path.joinZ(allocator, &.{ args[2], "NotoSans-Regular.ttf" });
     defer allocator.free(font_name);
     const font_size = 12;
     var face: hb.FT_Face = undefined;
@@ -77,24 +78,20 @@ fn getAllTests(
     var walker = try cases_dir.walk(allocator);
     defer walker.deinit();
 
-    var ast_dir = try cwd.openDir(args[2], .{});
-    defer ast_dir.close();
-
     var list = std.ArrayList(*Test).init(allocator);
 
     while (try walker.next()) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.basename, ".zml")) continue;
 
+        const source = try cases_dir.readFileAlloc(allocator, entry.path, 100_000);
+        const token_source = try TokenSource.init(.{ .data = source });
+        var ast = Ast{};
+        var parser = zss.zml.Parser.init(token_source, allocator);
+        try parser.parse(&ast, allocator);
+
         const name = try allocator.dupe(u8, entry.path[0 .. entry.path.len - ".zml".len]);
 
-        const ast_file_name = try std.mem.concat(allocator, u8, &.{ entry.path, "-ast" });
-        const in_file = try ast_dir.openFile(ast_file_name, .{});
-        defer in_file.close();
-        const reader = in_file.reader().any();
-        const ast = try zss.syntax.Ast.debug.deserialize(reader, allocator);
-        const source = try reader.readAllAlloc(allocator, 100_000);
-
-        const t = try createTest(allocator, name, ast, source, fonts, font_handle, images, storage);
+        const t = try createTest(allocator, name, ast, token_source, fonts, font_handle, images, storage);
         try list.append(t);
     }
 
@@ -105,7 +102,7 @@ fn createTest(
     allocator: Allocator,
     name: []const u8,
     ast: Ast,
-    source: []const u8,
+    token_source: TokenSource,
     fonts: *const zss.Fonts,
     font_handle: zss.Fonts.Handle,
     images: zss.Images.Slice,
@@ -137,7 +134,6 @@ fn createTest(
         assert(slice.tag(0) == .zml_document);
         var seq = slice.children(0);
         if (seq.next(slice)) |zml_element| {
-            const token_source = try zss.syntax.tokenize.Source.init(.{ .data = source });
             break :blk try zss.zml.astToElement(&t.element_tree, &t.env, slice, zml_element, token_source, allocator);
         } else {
             break :blk Element.null_element;

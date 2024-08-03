@@ -124,31 +124,12 @@ fn addTestSuite(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods:
     const test_cases_path = b.path("test/cases");
     const resources_path = b.path("test/res");
     run.addDirectoryArg(test_cases_path);
-    run.addDirectoryArg(parseAllTestCases(b, test_cases_path, optimize, target));
     run.addDirectoryArg(resources_path);
 
     const step = b.step("test-suite", "Run the test suite");
     step.dependOn(&run.step);
 
     return run;
-}
-
-/// Returns the output directory created from running "test/parse_all_test_cases.zig"
-fn parseAllTestCases(b: *Build, test_cases_path: LazyPath, optimize: OptimizeMode, target: ResolvedTarget) LazyPath {
-    const parse_all_test_cases = b.addExecutable(.{
-        .name = "parse-all-test-cases",
-        .root_source_file = b.path("test/parse_all_test_cases.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    parse_all_test_cases.root_module.addAnonymousImport("zss", .{
-        .root_source_file = b.path("source/zss.zig"),
-    });
-
-    const run = b.addRunArtifact(parse_all_test_cases);
-    run.addDirectoryArg(test_cases_path);
-    run.has_side_effects = true;
-    return run.addOutputDirectoryArg("test_cases");
 }
 
 fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) void {

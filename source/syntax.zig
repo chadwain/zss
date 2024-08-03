@@ -488,34 +488,6 @@ pub const Ast = struct {
                 else => try writer.print("{}", .{@as(u32, @bitCast(extra))}),
             }
         }
-
-        pub fn serialize(ast: Ast, writer: std.io.AnyWriter) !void {
-            const s = ast.components.slice();
-            const len: Size = @intCast(s.len);
-            try writer.writeAll(std.mem.asBytes(&len));
-
-            inline for (comptime std.meta.tags(List.Field)) |field| {
-                const array = s.items(field);
-                try writer.writeAll(std.mem.sliceAsBytes(array));
-            }
-        }
-
-        pub fn deserialize(reader: std.io.AnyReader, allocator: Allocator) !Ast {
-            const native_endian = @import("builtin").target.cpu.arch.endian();
-            const len = try reader.readInt(Size, native_endian);
-
-            var components = List{};
-            errdefer components.deinit(allocator);
-            try components.resize(allocator, len);
-
-            const s = components.slice();
-            inline for (comptime std.meta.tags(List.Field)) |field| {
-                const array = s.items(field);
-                try reader.readNoEof(std.mem.sliceAsBytes(array));
-            }
-
-            return .{ .components = components };
-        }
     };
 };
 
