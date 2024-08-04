@@ -14,7 +14,7 @@ const hb = @import("mach-harfbuzz").c;
 const zgl = @import("zgl");
 const zigimg = @import("zigimg");
 
-pub fn run(tests: []const *Test) !void {
+pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
     if (!glfw.init(.{})) return error.GlfwError;
     defer glfw.terminate();
 
@@ -38,14 +38,18 @@ pub fn run(tests: []const *Test) !void {
     }.f;
     try zgl.loadExtensions({}, getProcAddressWrapper);
 
-    const results_path = "test/output/opengl";
-    try std.fs.cwd().makePath(results_path);
-
-    const stdout = std.io.getStdOut().writer();
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
+
+    var output_dir = blk: {
+        const path = try std.fs.path.join(allocator, &.{ output_parent_dir, "opengl" });
+        defer allocator.free(path);
+        break :blk try std.fs.cwd().makeOpenPath(path, .{});
+    };
+    defer output_dir.close();
+
+    const stdout = std.io.getStdOut().writer();
 
     var renderer = zss.render.opengl.Renderer.init(allocator);
     defer renderer.deinit();
@@ -74,9 +78,6 @@ pub fn run(tests: []const *Test) !void {
 
         const temp_buffer = try allocator.alloc(u8, image_pixels.len);
         defer allocator.free(temp_buffer);
-
-        const file_name = try std.fmt.allocPrint(allocator, results_path ++ "/{s}.png", .{t.name});
-        defer allocator.free(file_name);
 
         window.setSize(.{ .width = t.width, .height = t.height });
         zgl.viewport(0, 0, t.width, t.height);
@@ -111,7 +112,14 @@ pub fn run(tests: []const *Test) !void {
         if (image_pixels.len == 0) {
             try stdout.writeAll("success, no file written");
         } else {
-            try image.writeToFilePath(file_name, .{ .png = .{} });
+            const image_path = try std.mem.concat(allocator, u8, &.{ t.name, ".png" });
+            defer allocator.free(image_path);
+            if (std.fs.path.dirname(image_path)) |parent_dir| {
+                try output_dir.makePath(parent_dir);
+            }
+            const image_file = try output_dir.createFile(image_path, .{});
+            defer image_file.close();
+            try image.writeToFile(image_file, .{ .png = .{} });
             try stdout.writeAll("success");
         }
     }

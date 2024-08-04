@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 
 const Test = @import("./Test.zig");
 
-pub fn run(tests: []const *Test) !void {
+pub fn run(tests: []const *Test, _: []const u8) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();

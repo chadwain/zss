@@ -78,6 +78,7 @@ fn addTestSuite(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods:
         .target = target,
         .optimize = optimize,
     });
+    b.installArtifact(test_suite);
 
     {
         const TestSuiteCategory = enum {
@@ -88,17 +89,17 @@ fn addTestSuite(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods:
 
         const category_strings = b.option([]const []const u8, "test", "A test category to run (can be used multiple times)") orelse &.{};
         var category_set = std.enums.EnumSet(TestSuiteCategory).initEmpty();
+        var final_categories = std.BoundedArray([]const u8, std.meta.fields(TestSuiteCategory).len){};
         for (category_strings) |in| {
-            const val = std.meta.stringToEnum(TestSuiteCategory, in) orelse std.debug.panic("Invalid, test suite category: {s}", .{in});
-            category_set.insert(val);
+            const val = std.meta.stringToEnum(TestSuiteCategory, in) orelse std.debug.panic("Invalid test suite category: {s}", .{in});
+            if (!category_set.contains(val)) {
+                category_set.insert(val);
+                final_categories.appendAssumeCapacity(in);
+            }
         }
 
-        var categories = std.BoundedArray([]const u8, std.meta.fields(TestSuiteCategory).len){};
-        var it = category_set.iterator();
-        while (it.next()) |category| categories.appendAssumeCapacity(@tagName(category));
         const options_module = b.addOptions();
-        options_module.addOption([]const []const u8, "test_categories", categories.slice());
-
+        options_module.addOption([]const []const u8, "test_categories", final_categories.slice());
         test_suite.root_module.addOptions("build-options", options_module);
     }
 
@@ -119,12 +120,14 @@ fn addTestSuite(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods:
         test_suite.root_module.addImport("mach-glfw", mods.mach_glfw);
     }
 
-    b.installArtifact(test_suite);
     const run = b.addRunArtifact(test_suite);
     const test_cases_path = b.path("test/cases");
     const resources_path = b.path("test/res");
+    const output_path = b.path("test/output");
     run.addDirectoryArg(test_cases_path);
     run.addDirectoryArg(resources_path);
+    run.addDirectoryArg(output_path);
+    if (b.args) |args| run.addArgs(args);
 
     const step = b.step("test-suite", "Run the test suite");
     step.dependOn(&run.step);

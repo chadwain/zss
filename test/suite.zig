@@ -13,19 +13,64 @@ const hb = @import("mach-harfbuzz").c;
 
 const Test = @import("Test.zig");
 
+const Args = struct {
+    test_cases_path: []const u8,
+    resources_path: []const u8,
+    output_path: []const u8,
+    filters: []const []const u8,
+
+    fn init(arena: *ArenaAllocator) !Args {
+        const allocator = arena.allocator();
+        const argv = try std.process.argsAlloc(allocator);
+        var args = Args{
+            .test_cases_path = argv[1],
+            .resources_path = argv[2],
+            .output_path = argv[3],
+            .filters = undefined,
+        };
+
+        var filters = std.ArrayList([]const u8).init(allocator);
+        const stderr = std.io.getStdErr();
+        var i: usize = 4;
+        while (i < argv.len) {
+            const arg = argv[i];
+            if (std.mem.eql(u8, arg, "--test-filter")) {
+                i += 1;
+                if (i == argv.len) {
+                    stderr.writeAll("Missing argument after '--test-filter'\n") catch {};
+                    std.process.exit(1);
+                }
+                try filters.append(argv[i]);
+                i += 1;
+            } else {
+                stderr.writeAll("Unrecognized argument: ") catch {};
+                stderr.writeAll(arg) catch {};
+                stderr.writeAll("\n") catch {};
+                std.process.exit(1);
+            }
+        }
+
+        args.filters = try filters.toOwnedSlice();
+
+        return args;
+    }
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    var arena = ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const args = try Args.init(&arena);
 
     var library: hb.FT_Library = undefined;
     if (hb.FT_Init_FreeType(&library) != 0) return error.FreeTypeError;
     defer _ = hb.FT_Done_FreeType(library);
 
-    const font_name = try std.fs.path.joinZ(allocator, &.{ args[2], "NotoSans-Regular.ttf" });
+    const font_name = try std.fs.path.joinZ(allocator, &.{ args.resources_path, "NotoSans-Regular.ttf" });
     defer allocator.free(font_name);
     const font_size = 12;
     var face: hb.FT_Face = undefined;
@@ -46,23 +91,21 @@ pub fn main() !void {
     var storage = zss.values.Storage{ .allocator = allocator };
     defer storage.deinit();
 
-    var arena = ArenaAllocator.init(allocator);
-    defer arena.deinit();
     const tests = try getAllTests(args, &arena, &fonts, font_handle, images.slice(), &storage);
 
-    const category_fns = std.StaticStringMap(*const fn ([]const *Test) anyerror!void).initComptime(&.{
+    const category_fns = std.StaticStringMap(*const fn ([]const *Test, []const u8) anyerror!void).initComptime(&.{
         .{ "check", @import("check.zig").run },
         .{ "memory", @import("memory.zig").run },
         .{ "opengl", @import("opengl.zig").run },
     });
     inline for (@import("build-options").test_categories) |category| {
         const runFn = comptime category_fns.get(category) orelse @compileError("TODO");
-        try runFn(tests);
+        try runFn(tests, args.output_path);
     }
 }
 
 fn getAllTests(
-    args: []const []const u8,
+    args: Args,
     arena: *ArenaAllocator,
     fonts: *const zss.Fonts,
     font_handle: zss.Fonts.Handle,
@@ -72,7 +115,7 @@ fn getAllTests(
     const allocator = arena.allocator();
 
     const cwd = std.fs.cwd();
-    var cases_dir = try cwd.openDir(args[1], .{ .iterate = true });
+    var cases_dir = try cwd.openDir(args.test_cases_path, .{ .iterate = true });
     defer cases_dir.close();
 
     var walker = try cases_dir.walk(allocator);
@@ -82,6 +125,11 @@ fn getAllTests(
 
     while (try walker.next()) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.basename, ".zml")) continue;
+        if (args.filters.len > 0) {
+            for (args.filters) |filter| {
+                if (std.mem.indexOf(u8, entry.path, filter)) |_| break;
+            } else continue;
+        }
 
         const source = try cases_dir.readFileAlloc(allocator, entry.path, 100_000);
         const token_source = try TokenSource.init(.{ .data = source });
