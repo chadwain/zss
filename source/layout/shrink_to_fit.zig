@@ -224,6 +224,8 @@ fn flowObject(
                 inputs,
             );
             const ifc = box_tree.ifcs.items[result.ifc_index];
+            ifc.parent_block = .{ .subtree = new_subtree_id, .index = new_ifc_container_index };
+
             const line_split_result = try inline_layout.splitIntoLineBoxes(
                 allocator,
                 box_tree,
@@ -451,9 +453,7 @@ fn realizeObjects(
                     .ifc => {
                         const data = datas[object_index].ifc;
                         const new_subtree = box_tree.blocks.subtree(data.subtree_id);
-                        const block_index = data.subtree_root_index;
 
-                        // TODO: The proxy block should have its box_offsets value set, while the subtree root block should have default values
                         {
                             const proxy_index = try subtree.appendBlock(box_tree.allocator);
                             subtree.setSubtreeProxy(proxy_index, data.subtree_id);
@@ -461,12 +461,9 @@ fn realizeObjects(
                             parent.skip += 1;
                         }
 
-                        const ifc = box_tree.ifcs.items[data.layout_result.ifc_index];
-                        ifc.parent_block = .{ .subtree = main_subtree_id, .index = parent.index };
-
                         new_subtree.setIfcContainer(
                             data.layout_result.ifc_index,
-                            block_index,
+                            data.subtree_root_index,
                             1 + data.layout_result.total_inline_block_skip,
                             null,
                             parent.auto_height,
