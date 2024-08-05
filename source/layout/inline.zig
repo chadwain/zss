@@ -915,7 +915,7 @@ fn inlineBlockCreateStackingContext(
 }
 
 fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree, inputs: Inputs) void {
-    const font = inputs.fonts.get(ifc.font) orelse return;
+    const font = inputs.fonts.get(ifc.font);
     const ifc_slice = ifc.slice();
     const subtree_slice = subtree.slice();
 
@@ -930,7 +930,7 @@ fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree, inputs
             const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
             const kind = @as(InlineFormattingContext.Special.LayoutInternalKind, @enumFromInt(@intFromEnum(special.kind)));
             switch (kind) {
-                .ZeroGlyphIndex => setMetricsGlyph(metrics, font.handle, 0),
+                .ZeroGlyphIndex => setMetricsGlyph(metrics, font.?.handle, 0),
                 .BoxStart => {
                     const inline_box_index = @as(InlineBoxIndex, special.data);
                     setMetricsBoxStart(metrics, ifc_slice, inline_box_index);
@@ -947,7 +947,7 @@ fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree, inputs
                 .ContinuationBlock => panic("TODO: Continuation block metrics", .{}),
             }
         } else {
-            setMetricsGlyph(metrics, font.handle, glyph_index);
+            setMetricsGlyph(metrics, font.?.handle, glyph_index);
         }
     }
 }
@@ -1083,19 +1083,24 @@ pub fn splitIntoLineBoxes(
     max_line_box_length: ZssUnit,
 ) !IFCLineSplitResult {
     assert(max_line_box_length >= 0);
+    assert(ifc.parent_block.subtree == subtree.id);
 
-    var font_extents: hb.hb_font_extents_t = undefined;
-    const font = inputs.fonts.get(ifc.font) orelse {
+    var top_height: ZssUnit = undefined;
+    var bottom_height: ZssUnit = undefined;
+    if (inputs.fonts.get(ifc.font)) |font| {
+        // TODO assuming ltr direction
+        var font_extents: hb.hb_font_extents_t = undefined;
+        assert(hb.hb_font_get_h_extents(font.handle, &font_extents) != 0);
+        ifc.ascender = @divFloor(font_extents.ascender * units_per_pixel, 64);
+        ifc.descender = @divFloor(-font_extents.descender * units_per_pixel, 64);
+        top_height = @divFloor((font_extents.ascender + @divFloor(font_extents.line_gap, 2) + @mod(font_extents.line_gap, 2)) * units_per_pixel, 64);
+        bottom_height = @divFloor((-font_extents.descender + @divFloor(font_extents.line_gap, 2)) * units_per_pixel, 64);
+    } else {
         ifc.ascender = 0;
         ifc.descender = 0;
-        return .{ .height = 0, .longest_line_box_length = 0 };
-    };
-    // TODO assuming ltr direction
-    assert(hb.hb_font_get_h_extents(font.handle, &font_extents) != 0);
-    ifc.ascender = @divFloor(font_extents.ascender * units_per_pixel, 64);
-    ifc.descender = @divFloor(-font_extents.descender * units_per_pixel, 64);
-    const top_height: ZssUnit = @divFloor((font_extents.ascender + @divFloor(font_extents.line_gap, 2) + @mod(font_extents.line_gap, 2)) * units_per_pixel, 64);
-    const bottom_height: ZssUnit = @divFloor((-font_extents.descender + @divFloor(font_extents.line_gap, 2)) * units_per_pixel, 64);
+        top_height = 0;
+        bottom_height = 0;
+    }
 
     const subtree_slice = subtree.slice();
 
