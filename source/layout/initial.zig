@@ -109,7 +109,7 @@ fn analyzeRootElement(
 
             const stacking_context: StackingContexts.Info = .{ .is_parent = 0 };
             const stacking_context_id = try sc.push(stacking_context, box_tree, .{ .subtree = ctx.subtree_id, .index = ifc_container_index });
-            const result = try @"inline".makeInlineFormattingContext(
+            const result = try @"inline".runInlineLayout(
                 ctx.allocator,
                 sc,
                 computer,
@@ -122,14 +122,14 @@ fn analyzeRootElement(
             );
             sc.pop(box_tree);
 
-            const ifc = box_tree.ifcs.items[result.ifc_index];
+            const ifc = box_tree.ifc(result.ifc_id);
             const line_split_result =
                 try @"inline".splitIntoLineBoxes(ctx.allocator, box_tree, subtree, ifc, inputs, inputs.viewport.w);
             ifc.parent_block = .{ .subtree = ctx.subtree_id, .index = ifc_container_index };
 
             const skip = 1 + result.total_inline_block_skip;
             subtree.setIfcContainer(
-                result.ifc_index,
+                result.ifc_id,
                 ifc_container_index,
                 skip,
                 stacking_context_id,

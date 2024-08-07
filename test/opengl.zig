@@ -132,7 +132,7 @@ fn rootBlockSize(box_tree: *BoxTree, root_element: zss.ElementTree.Element) stru
     const generated_box = box_tree.element_to_generated_box.get(root_element) orelse return .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     const block_box = switch (generated_box) {
         .block_box => |block_box| block_box,
-        .text => |ifc_index| box_tree.ifcs.items[ifc_index].parent_block,
+        .text => |ifc_id| box_tree.ifc(ifc_id).parent_block,
         .inline_box => unreachable,
     };
     const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();

@@ -522,7 +522,7 @@ pub fn drawBoxTree(
             },
             .line_box => |line_box_info| {
                 const origin = line_box_info.origin;
-                const ifc = box_tree.ifcs.items[line_box_info.ifc_index];
+                const ifc = box_tree.ifc(line_box_info.ifc_id);
                 const line_box = ifc.line_boxes.items[line_box_info.line_box_index];
 
                 try drawLineBox(renderer, ifc, line_box, origin, allocator);

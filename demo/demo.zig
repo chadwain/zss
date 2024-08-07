@@ -310,9 +310,9 @@ fn createElements(
     const title_inline_box = elements[3];
     const title_text = elements[4];
     const body_block = elements[5];
-    const body_text = elements[6];
-    const footer = elements[7];
-    const body_inline_box = elements[8];
+    const body_inline_box = elements[6];
+    const body_text = elements[7];
+    const footer = elements[8];
 
     const slice = tree.slice();
 

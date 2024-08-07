@@ -17,7 +17,7 @@ const BlockBoxIndex = used_values.BlockBoxIndex;
 const BlockBoxSkip = used_values.BlockBoxSkip;
 const BlockSubtree = used_values.BlockSubtree;
 const SubtreeId = used_values.SubtreeId;
-const InlineFormattingContextIndex = used_values.InlineFormattingContextIndex;
+const InlineFormattingContextId = used_values.InlineFormattingContextId;
 const StackingContextIndex = used_values.StackingContext.Index;
 const StackingContextId = used_values.StackingContext.Id;
 const StackingContextTree = used_values.StackingContextTree;
@@ -50,7 +50,7 @@ pub const Drawable = union(enum) {
     };
 
     pub const LineBox = struct {
-        ifc_index: InlineFormattingContextIndex,
+        ifc_id: InlineFormattingContextId,
         line_box_index: usize,
         origin: ZssVector,
     };
@@ -61,7 +61,7 @@ pub const Drawable = union(enum) {
 
         switch (drawable) {
             .block_box => |block_box| try writer.print("BlockBox subtree={} index={}", .{ block_box.block_box.subtree, block_box.block_box.index }),
-            .line_box => |line_box| try writer.print("LineBox ifc={} index={}", .{ line_box.ifc_index, line_box.line_box_index }),
+            .line_box => |line_box| try writer.print("LineBox ifc={} index={}", .{ line_box.ifc_id, line_box.line_box_index }),
         }
     }
 };
@@ -303,7 +303,7 @@ const PopulateSubListContext = struct {
     sublist_index: SubListIndex,
     stack: Stack = .{},
     ifc_infos: AutoHashMapUnmanaged(
-        InlineFormattingContextIndex,
+        InlineFormattingContextId,
         struct { vector: ZssVector, containing_block_width: ZssUnit },
     ) = .{},
 
@@ -395,9 +395,9 @@ fn populateSubList(
     }
 
     // Add inline formatting context line boxes to the draw order list
-    for (ctx.sc_tree.items(.ifcs)[stacking_context].items) |ifc_index| {
-        const info = ctx.ifc_infos.get(ifc_index).?;
-        const ifc = box_tree.ifcs.items[ifc_index];
+    for (ctx.sc_tree.items(.ifcs)[stacking_context].items) |ifc_id| {
+        const info = ctx.ifc_infos.get(ifc_id).?;
+        const ifc = box_tree.ifc(ifc_id);
         const line_box_height = ifc.ascender + ifc.descender;
         for (ifc.line_boxes.items, 0..) |line_box, line_box_index| {
             const bounding_box = ZssRect{
@@ -410,7 +410,7 @@ fn populateSubList(
                 allocator,
                 Drawable{
                     .line_box = .{
-                        .ifc_index = ifc_index,
+                        .ifc_id = ifc_id,
                         .line_box_index = line_box_index,
                         .origin = info.vector,
                     },
@@ -464,12 +464,12 @@ fn analyzeBlock(
                 .vector = content_top_left,
             };
         },
-        .ifc_container => |ifc_index| {
+        .ifc_container => |ifc_id| {
             const box_offsets = top.subtree.items(.box_offsets)[block_index];
             const content_top_left = top.vector.add(box_offsets.border_pos).add(box_offsets.content_pos);
             try ctx.ifc_infos.putNoClobber(
                 allocator,
-                ifc_index,
+                ifc_id,
                 .{ .vector = content_top_left, .containing_block_width = box_offsets.content_size.w },
             );
 

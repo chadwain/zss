@@ -111,7 +111,7 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, i
                     }
                 },
                 .inline_box => |inline_box| {
-                    const ifc = box_tree.ifcs.items[inline_box.ifc_index];
+                    const ifc = box_tree.ifc(inline_box.ifc_id);
                     inlineBoxCosmeticLayout(context, computer, inputs, ifc, inline_box.index);
 
                     if (has_children) {

@@ -34,14 +34,60 @@ const StackingContextRef = used_values.StackingContextRef;
 const InlineBoxIndex = used_values.InlineBoxIndex;
 const InlineBoxSkip = used_values.InlineBoxSkip;
 const InlineFormattingContext = used_values.InlineFormattingContext;
-const InlineFormattingContextIndex = used_values.InlineFormattingContextIndex;
+const InlineFormattingContextId = used_values.InlineFormattingContextId;
 const GlyphIndex = InlineFormattingContext.GlyphIndex;
 const GeneratedBox = used_values.GeneratedBox;
 const BoxTree = used_values.BoxTree;
 
 const hb = @import("mach-harfbuzz").c;
 
-pub const InlineLayoutContext = struct {
+pub const Result = struct {
+    ifc_id: InlineFormattingContextId,
+    total_inline_block_skip: BlockBoxSkip,
+};
+
+pub fn runInlineLayout(
+    allocator: Allocator,
+    sc: *StackingContexts,
+    computer: *StyleComputer,
+    box_tree: *BoxTree,
+    subtree_id: SubtreeId,
+    mode: enum { Normal, ShrinkToFit },
+    containing_block_width: ZssUnit,
+    containing_block_height: ?ZssUnit,
+    inputs: Inputs,
+) zss.layout.Error!Result {
+    assert(containing_block_width >= 0);
+    if (containing_block_height) |h| assert(h >= 0);
+
+    const ifc = try box_tree.makeIfc(undefined);
+
+    const sc_ifcs = &box_tree.stacking_contexts.items(.ifcs)[sc.current_index];
+    try sc_ifcs.append(box_tree.allocator, ifc.id);
+
+    const percentage_base_unit: ZssUnit = switch (mode) {
+        .Normal => containing_block_width,
+        .ShrinkToFit => 0,
+    };
+
+    var ctx = InlineLayoutContext{
+        .allocator = allocator,
+        .subtree_id = subtree_id,
+        .containing_block_width = containing_block_width,
+        .containing_block_height = containing_block_height,
+        .percentage_base_unit = percentage_base_unit,
+        .result = .{
+            .ifc_id = ifc.id,
+            .total_inline_block_skip = 0,
+        },
+    };
+    defer ctx.deinit();
+
+    try analyzeElements(&ctx, sc, computer, box_tree, ifc, inputs);
+    return ctx.result;
+}
+
+const InlineLayoutContext = struct {
     const Self = @This();
 
     allocator: Allocator,
@@ -57,12 +103,7 @@ pub const InlineLayoutContext = struct {
 
     result: Result,
 
-    pub const Result = struct {
-        ifc_index: InlineFormattingContextIndex,
-        total_inline_block_skip: BlockBoxSkip = 0,
-    };
-
-    pub fn deinit(self: *Self) void {
+    fn deinit(self: *Self) void {
         self.index.deinit(self.allocator);
         self.skip.deinit(self.allocator);
     }
@@ -79,57 +120,7 @@ pub const InlineLayoutContext = struct {
     }
 };
 
-pub fn makeInlineFormattingContext(
-    allocator: Allocator,
-    sc: *StackingContexts,
-    computer: *StyleComputer,
-    box_tree: *BoxTree,
-    subtree_id: SubtreeId,
-    mode: enum { Normal, ShrinkToFit },
-    containing_block_width: ZssUnit,
-    containing_block_height: ?ZssUnit,
-    inputs: Inputs,
-) zss.layout.Error!InlineLayoutContext.Result {
-    assert(containing_block_width >= 0);
-    assert(if (containing_block_height) |h| h >= 0 else true);
-
-    const ifc_index = std.math.cast(InlineFormattingContextIndex, box_tree.ifcs.items.len) orelse return error.TooManyIfcs;
-    const ifc = ifc: {
-        const result_ptr = try box_tree.ifcs.addOne(box_tree.allocator);
-        errdefer _ = box_tree.ifcs.pop();
-        const result = try box_tree.allocator.create(InlineFormattingContext);
-        errdefer box_tree.allocator.destroy(result);
-        result.* = .{ .parent_block = undefined };
-        errdefer result.deinit(box_tree.allocator);
-        result_ptr.* = result;
-        break :ifc result;
-    };
-
-    const sc_ifcs = &box_tree.stacking_contexts.items(.ifcs)[sc.current_index];
-    try sc_ifcs.append(box_tree.allocator, ifc_index);
-
-    const percentage_base_unit: ZssUnit = switch (mode) {
-        .Normal => containing_block_width,
-        .ShrinkToFit => 0,
-    };
-
-    var ctx = InlineLayoutContext{
-        .allocator = allocator,
-        .subtree_id = subtree_id,
-        .containing_block_width = containing_block_width,
-        .containing_block_height = containing_block_height,
-        .percentage_base_unit = percentage_base_unit,
-        .result = .{
-            .ifc_index = ifc_index,
-        },
-    };
-    defer ctx.deinit();
-
-    try createInlineFormattingContext(&ctx, sc, computer, box_tree, ifc, inputs);
-    return ctx.result;
-}
-
-fn createInlineFormattingContext(
+fn analyzeElements(
     ctx: *InlineLayoutContext,
     sc: *StackingContexts,
     computer: *StyleComputer,
@@ -137,26 +128,10 @@ fn createInlineFormattingContext(
     ifc: *InlineFormattingContext,
     inputs: Inputs,
 ) !void {
-    ifc.font = .invalid;
     computer.resetElement(.box_gen);
 
     try ifcPushRootInlineBox(ctx, box_tree, ifc);
-    while (true) {
-        const element = computer.getCurrentElement();
-        if (ctx.inline_box_depth == 0) {
-            if (!element.eqlNull()) {
-                const should_terminate = try ifcRunOnce(ctx, sc, computer, box_tree, ifc, inputs);
-                if (should_terminate) break;
-            } else break;
-        } else {
-            if (!element.eqlNull()) {
-                const should_terminate = try ifcRunOnce(ctx, sc, computer, box_tree, ifc, inputs);
-                assert(!should_terminate);
-            } else {
-                try ifcPopInlineBox(ctx, computer, box_tree, ifc);
-            }
-        }
-    }
+    while (!(try ifcRunOnce(ctx, sc, computer, box_tree, ifc, inputs))) {}
     try ifcPopRootInlineBox(ctx, box_tree, ifc);
 
     try ifc.metrics.resize(box_tree.allocator, ifc.glyph_indeces.items.len);
@@ -191,6 +166,11 @@ fn ifcRunOnce(
     inputs: Inputs,
 ) !bool {
     const element = computer.getCurrentElement();
+    if (element.eqlNull()) {
+        if (ctx.inline_box_depth == 0) return true;
+        try ifcPopInlineBox(ctx, computer, box_tree, ifc);
+        return false;
+    }
 
     const computed, const effective_display = blk: {
         if (computer.elementCategory(element) == .text) {
@@ -206,7 +186,7 @@ fn ifcRunOnce(
     // TODO: Check position and float properties
     switch (effective_display) {
         .text => {
-            const generated_box = GeneratedBox{ .text = ctx.result.ifc_index };
+            const generated_box = GeneratedBox{ .text = ctx.result.ifc_id };
             try box_tree.mapElementToBox(element, generated_box);
 
             // TODO: Do proper font matching.
@@ -228,7 +208,7 @@ fn ifcRunOnce(
             const inline_box_index = try ifc.appendInlineBox(box_tree.allocator);
             inlineBoxSetData(ctx, computer, ifc, inline_box_index);
 
-            const generated_box = GeneratedBox{ .inline_box = .{ .ifc_index = ctx.result.ifc_index, .index = inline_box_index } };
+            const generated_box = GeneratedBox{ .inline_box = .{ .ifc_id = ctx.result.ifc_id, .index = inline_box_index } };
             try box_tree.mapElementToBox(element, generated_box);
 
             { // TODO: Grabbing useless data to satisfy inheritance...
@@ -306,7 +286,6 @@ fn ifcRunOnce(
                 return true;
             } else {
                 panic("TODO: Blocks within inline contexts", .{});
-                //try ifc.glyph_indeces.appendSlice(box_tree.allocator, &.{ 0, undefined });
             }
         },
         .none => computer.advanceElement(.box_gen),

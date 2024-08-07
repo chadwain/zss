@@ -13,7 +13,7 @@ const Inputs = zss.layout.Inputs;
 const Stack = zss.util.Stack;
 
 const solve = @import("./solve.zig");
-const inline_layout = @import("./inline.zig");
+const @"inline" = @import("./inline.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 const StackingContexts = @import("./StackingContexts.zig");
 
@@ -104,7 +104,7 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
             const subtree = box_tree.blocks.subtree(ctx.subtree_id);
             const ifc_container_index = try subtree.appendBlock(box_tree.allocator);
 
-            const result = try inline_layout.makeInlineFormattingContext(
+            const result = try @"inline".runInlineLayout(
                 ctx.allocator,
                 sc,
                 computer,
@@ -115,14 +115,14 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                 containing_block_height,
                 inputs,
             );
-            const ifc = box_tree.ifcs.items[result.ifc_index];
+            const ifc = box_tree.ifc(result.ifc_id);
             const line_split_result =
-                try inline_layout.splitIntoLineBoxes(ctx.allocator, box_tree, subtree, ifc, inputs, containing_block_width);
+                try @"inline".splitIntoLineBoxes(ctx.allocator, box_tree, subtree, ifc, inputs, containing_block_width);
             ifc.parent_block = .{ .subtree = ctx.subtree_id, .index = ifc_container_index };
 
             const skip = 1 + result.total_inline_block_skip;
             subtree.setIfcContainer(
-                result.ifc_index,
+                result.ifc_id,
                 ifc_container_index,
                 skip,
                 null,

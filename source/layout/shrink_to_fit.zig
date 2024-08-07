@@ -14,7 +14,7 @@ const Inputs = zss.layout.Inputs;
 const Stack = zss.util.Stack;
 
 const flow = @import("./flow.zig");
-const inline_layout = @import("./inline.zig");
+const @"inline" = @import("./inline.zig");
 const solve = @import("./solve.zig");
 const StackingContexts = @import("./StackingContexts.zig");
 const StyleComputer = @import("./StyleComputer.zig");
@@ -85,8 +85,8 @@ const Object = struct {
         ifc: struct {
             subtree_id: SubtreeId,
             subtree_root_index: BlockBoxIndex,
-            layout_result: inline_layout.InlineLayoutContext.Result,
-            line_split_result: inline_layout.IFCLineSplitResult,
+            layout_result: @"inline".Result,
+            line_split_result: @"inline".IFCLineSplitResult,
         },
     };
 };
@@ -212,7 +212,7 @@ fn flowObject(
             const new_subtree = box_tree.blocks.subtree(new_subtree_id);
             const new_ifc_container_index = try new_subtree.appendBlock(box_tree.allocator);
 
-            const result = try inline_layout.makeInlineFormattingContext(
+            const result = try @"inline".runInlineLayout(
                 allocator,
                 sc,
                 computer,
@@ -223,10 +223,10 @@ fn flowObject(
                 parent.height,
                 inputs,
             );
-            const ifc = box_tree.ifcs.items[result.ifc_index];
+            const ifc = box_tree.ifc(result.ifc_id);
             ifc.parent_block = .{ .subtree = new_subtree_id, .index = new_ifc_container_index };
 
-            const line_split_result = try inline_layout.splitIntoLineBoxes(
+            const line_split_result = try @"inline".splitIntoLineBoxes(
                 allocator,
                 box_tree,
                 new_subtree,
@@ -462,7 +462,7 @@ fn realizeObjects(
                         }
 
                         new_subtree.setIfcContainer(
-                            data.layout_result.ifc_index,
+                            data.layout_result.ifc_id,
                             data.subtree_root_index,
                             1 + data.layout_result.total_inline_block_skip,
                             null,

@@ -192,7 +192,7 @@ pub const BackgroundImage = struct {
 
 pub const BlockType = union(enum) {
     block,
-    ifc_container: InlineFormattingContextIndex,
+    ifc_container: InlineFormattingContextId,
     subtree_proxy: SubtreeId,
 };
 
@@ -266,7 +266,7 @@ pub const BlockSubtree = struct {
 
     pub fn setIfcContainer(
         subtree: *BlockSubtree,
-        ifc: InlineFormattingContextIndex,
+        ifc: InlineFormattingContextId,
         index: BlockBoxIndex,
         skip: BlockBoxIndex,
         stacking_context: ?StackingContext.Id,
@@ -327,7 +327,7 @@ pub const BlockBoxTree = struct {
 
 pub const InlineBoxIndex = u16;
 pub const InlineBoxSkip = InlineBoxIndex;
-pub const InlineFormattingContextIndex = u16;
+pub const InlineFormattingContextId = enum(u16) { _ };
 
 /// Contains information about an inline formatting context.
 /// Each glyph and its corresponding metrics are placed into arrays. (glyph_indeces and metrics)
@@ -339,6 +339,7 @@ pub const InlineFormattingContextIndex = u16;
 /// function to recover and interpret that data. Note that this data still has metrics associated with it.
 /// That metrics data is found in the same array index as that of the first glyph index (the one that was 0).
 pub const InlineFormattingContext = struct {
+    id: InlineFormattingContextId,
     parent_block: BlockBox,
 
     glyph_indeces: ArrayListUnmanaged(GlyphIndex) = .{},
@@ -350,7 +351,7 @@ pub const InlineFormattingContext = struct {
     // font and font color will be the same for all glyphs, and
     // ascender and descender will be the same for all line boxes.
     // NOTE: The descender is a positive value.
-    font: zss.Fonts.Handle = undefined,
+    font: zss.Fonts.Handle = .invalid,
     font_color: Color = undefined,
     ascender: ZssUnit = undefined,
     descender: ZssUnit = undefined,
@@ -519,7 +520,7 @@ pub const StackingContext = struct {
     /// The block box that created this stacking context.
     block_box: BlockBox,
     /// The list of inline formatting contexts contained within this stacking context.
-    ifcs: ArrayListUnmanaged(InlineFormattingContextIndex),
+    ifcs: ArrayListUnmanaged(InlineFormattingContextId),
 };
 
 pub const StackingContextTree = MultiArrayList(StackingContext);
@@ -529,9 +530,9 @@ pub const GeneratedBox = union(enum) {
     /// The element generated a single block box.
     block_box: BlockBox,
     /// The element generated a single inline box.
-    inline_box: struct { ifc_index: InlineFormattingContextIndex, index: InlineBoxIndex },
+    inline_box: struct { ifc_id: InlineFormattingContextId, index: InlineBoxIndex },
     /// The element generated text.
-    text: InlineFormattingContextIndex,
+    text: InlineFormattingContextId,
 };
 
 pub const BackgroundImages = struct {
@@ -582,9 +583,9 @@ pub const BoxTree = struct {
 
     pub fn deinit(self: *Self) void {
         self.blocks.deinit(self.allocator);
-        for (self.ifcs.items) |ifc| {
-            ifc.deinit(self.allocator);
-            self.allocator.destroy(ifc);
+        for (self.ifcs.items) |ctx| {
+            ctx.deinit(self.allocator);
+            self.allocator.destroy(ctx);
         }
         self.ifcs.deinit(self.allocator);
         for (self.stacking_contexts.items(.ifcs)) |*ifc_list| {
@@ -597,6 +598,19 @@ pub const BoxTree = struct {
 
     pub fn mapElementToBox(box_tree: *BoxTree, element: Element, generated_box: GeneratedBox) !void {
         try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
+    }
+
+    pub fn ifc(box_tree: BoxTree, id: InlineFormattingContextId) *InlineFormattingContext {
+        return box_tree.ifcs.items[@intFromEnum(id)];
+    }
+
+    pub fn makeIfc(box_tree: *BoxTree, parent_block: BlockBox) !*InlineFormattingContext {
+        const id = std.math.cast(std.meta.Tag(InlineFormattingContextId), box_tree.ifcs.items.len) orelse return error.TooManyIfcs;
+        try box_tree.ifcs.ensureUnusedCapacity(box_tree.allocator, 1);
+        const ptr = try box_tree.allocator.create(InlineFormattingContext);
+        box_tree.ifcs.appendAssumeCapacity(ptr);
+        ptr.* = .{ .id = @enumFromInt(id), .parent_block = parent_block };
+        return ptr;
     }
 
     pub fn print(box_tree: BoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
