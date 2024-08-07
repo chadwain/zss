@@ -97,6 +97,7 @@ pub fn main() !void {
         .{ "check", @import("check.zig").run },
         .{ "memory", @import("memory.zig").run },
         .{ "opengl", @import("opengl.zig").run },
+        .{ "print", @import("print.zig").run },
     });
     inline for (@import("build-options").test_categories) |category| {
         const runFn = comptime category_fns.get(category) orelse @compileError("TODO");

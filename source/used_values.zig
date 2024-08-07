@@ -227,6 +227,25 @@ pub const BlockSubtree = struct {
         subtree.blocks.deinit(allocator);
     }
 
+    pub const Iterator = struct {
+        current: BlockBoxIndex,
+        end: BlockBoxIndex,
+
+        pub fn next(it: *Iterator, subtree: Slice) ?BlockBoxIndex {
+            if (it.current == it.end) return null;
+            defer it.current += subtree.items(.skip)[it.current];
+            return it.current;
+        }
+    };
+
+    fn root(s: Slice) Iterator {
+        return .{ .current = 0, .end = s.items(.skip)[0] };
+    }
+
+    fn children(s: Slice, index: BlockBoxIndex) Iterator {
+        return .{ .current = index + 1, .end = index + s.items(.skip)[index] };
+    }
+
     pub fn size(subtree: BlockSubtree) BlockBoxSkip {
         return @intCast(subtree.blocks.len);
     }
@@ -578,6 +597,61 @@ pub const BoxTree = struct {
 
     pub fn mapElementToBox(box_tree: *BoxTree, element: Element, generated_box: GeneratedBox) !void {
         try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
+    }
+
+    pub fn print(box_tree: BoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
+        var stack = zss.util.Stack(struct {
+            iterator: BlockSubtree.Iterator,
+            subtree: BlockSubtree.Slice,
+        }){};
+        defer stack.deinit(allocator);
+
+        const printBlock = struct {
+            fn printBlock(subtree: BlockSubtree.Slice, index: BlockBoxIndex, w: std.io.AnyWriter) !void {
+                try w.print("[{}, {}) ", .{ index, index + subtree.items(.skip)[index] });
+
+                switch (subtree.items(.type)[index]) {
+                    .block => try w.writeAll("block "),
+                    .ifc_container => |ifc_index| try w.print("ifc_container({}) ", .{ifc_index}),
+                    .subtree_proxy => |subtree_id| {
+                        try w.print("subtree_proxy({})\n", .{@intFromEnum(subtree_id)});
+                        return;
+                    },
+                }
+
+                if (subtree.items(.stacking_context)[index]) |sc_id| try w.print("stacking_context({}) ", .{@intFromEnum(sc_id)});
+
+                const bo = subtree.items(.box_offsets)[index];
+                try w.print("border_rect({}, {}, {}, {}) ", .{ bo.border_pos.x, bo.border_pos.y, bo.border_size.w, bo.border_size.h });
+                try w.print("content_rect({}, {}, {}, {})\n", .{ bo.content_pos.x, bo.content_pos.y, bo.content_size.w, bo.content_size.h });
+            }
+        }.printBlock;
+
+        {
+            const icb = box_tree.blocks.initial_containing_block;
+            const subtree = box_tree.blocks.subtree(icb.subtree).slice();
+            try printBlock(subtree, icb.index, writer);
+            stack.top = .{ .iterator = BlockSubtree.children(subtree, icb.index), .subtree = subtree };
+        }
+
+        while (stack.top) |*top| {
+            const index = top.iterator.next(top.subtree) orelse {
+                _ = stack.pop();
+                continue;
+            };
+            try writer.writeByteNTimes(' ', stack.len() * 4);
+            try printBlock(top.subtree, index, writer);
+
+            switch (top.subtree.items(.type)[index]) {
+                .subtree_proxy => |subtree_id| {
+                    const subtree = box_tree.blocks.subtree(subtree_id).slice();
+                    try writer.writeByteNTimes(' ', stack.len() * 4);
+                    try writer.print("Subtree({}) size ({})\n", .{ @intFromEnum(subtree_id), subtree.len });
+                    try stack.push(allocator, .{ .iterator = BlockSubtree.root(subtree), .subtree = subtree });
+                },
+                else => try stack.push(allocator, .{ .iterator = BlockSubtree.children(top.subtree, index), .subtree = top.subtree }),
+            }
+        }
     }
 };
 

@@ -85,6 +85,7 @@ fn addTestSuite(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods:
             check,
             memory,
             opengl,
+            print,
         };
 
         const category_strings = b.option([]const []const u8, "test", "A test category to run (can be used multiple times)") orelse &.{};
