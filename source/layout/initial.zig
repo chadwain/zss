@@ -33,9 +33,18 @@ pub fn run(ctx: *InitialLayoutContext, sc: *StackingContexts, computer: *StyleCo
     const subtree = box_tree.blocks.subtree(subtree_id);
 
     const block_index = try subtree.appendBlock(box_tree.allocator);
+    box_tree.blocks.initial_containing_block = .{ .subtree = subtree_id, .index = block_index };
+
+    const stacking_context: StackingContexts.Info = .{ .is_parent = 0 };
+
+    const stacking_context_id = try sc.push(stacking_context, box_tree, box_tree.blocks.initial_containing_block);
+    const skip = try analyzeRootElement(ctx, sc, computer, box_tree, inputs);
+    sc.pop(box_tree);
+
     const subtree_slice = subtree.slice();
+    subtree_slice.items(.skip)[block_index] = 1 + skip;
     subtree_slice.items(.type)[block_index] = .block;
-    subtree_slice.items(.stacking_context)[block_index] = null;
+    subtree_slice.items(.stacking_context)[block_index] = stacking_context_id;
     subtree_slice.items(.box_offsets)[block_index] = .{
         .border_pos = .{ .x = 0, .y = 0 },
         .content_pos = .{ .x = 0, .y = 0 },
@@ -44,10 +53,6 @@ pub fn run(ctx: *InitialLayoutContext, sc: *StackingContexts, computer: *StyleCo
     };
     subtree_slice.items(.borders)[block_index] = .{};
     subtree_slice.items(.margins)[block_index] = .{};
-    box_tree.blocks.initial_containing_block = .{ .subtree = subtree_id, .index = block_index };
-
-    const skip = try analyzeRootElement(ctx, sc, computer, box_tree, inputs);
-    subtree_slice.items(.skip)[block_index] = 1 + skip;
 }
 
 fn analyzeRootElement(
@@ -107,8 +112,6 @@ fn analyzeRootElement(
             const subtree = box_tree.blocks.subtree(ctx.subtree_id);
             const ifc_container_index = try subtree.appendBlock(box_tree.allocator);
 
-            const stacking_context: StackingContexts.Info = .{ .is_parent = 0 };
-            const stacking_context_id = try sc.push(stacking_context, box_tree, .{ .subtree = ctx.subtree_id, .index = ifc_container_index });
             const result = try @"inline".runInlineLayout(
                 ctx.allocator,
                 sc,
@@ -120,7 +123,6 @@ fn analyzeRootElement(
                 inputs.viewport.h,
                 inputs,
             );
-            sc.pop(box_tree);
 
             const ifc = box_tree.ifc(result.ifc_id);
             const line_split_result =
@@ -132,7 +134,6 @@ fn analyzeRootElement(
                 result.ifc_id,
                 ifc_container_index,
                 skip,
-                stacking_context_id,
                 0,
                 inputs.viewport.w,
                 line_split_result.height,

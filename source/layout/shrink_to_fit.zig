@@ -465,7 +465,6 @@ fn realizeObjects(
                             data.layout_result.ifc_id,
                             data.subtree_root_index,
                             1 + data.layout_result.total_inline_block_skip,
-                            null,
                             parent.auto_height,
                             data.line_split_result.longest_line_box_length,
                             data.line_split_result.height,

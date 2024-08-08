@@ -269,7 +269,6 @@ pub const BlockSubtree = struct {
         ifc: InlineFormattingContextId,
         index: BlockBoxIndex,
         skip: BlockBoxIndex,
-        stacking_context: ?StackingContext.Id,
         y_pos: ZssUnit,
         width: ZssUnit,
         height: ZssUnit,
@@ -277,7 +276,7 @@ pub const BlockSubtree = struct {
         const s = subtree.slice();
         s.items(.skip)[index] = skip;
         s.items(.type)[index] = .{ .ifc_container = ifc };
-        s.items(.stacking_context)[index] = stacking_context;
+        s.items(.stacking_context)[index] = null;
         s.items(.box_offsets)[index] = .{
             .border_pos = .{ .x = 0, .y = y_pos },
             .border_size = .{ .w = width, .h = height },

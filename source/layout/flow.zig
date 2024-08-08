@@ -125,7 +125,6 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                 result.ifc_id,
                 ifc_container_index,
                 skip,
-                null,
                 parent.auto_height,
                 containing_block_width,
                 line_split_result.height,

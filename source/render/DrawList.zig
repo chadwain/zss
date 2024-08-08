@@ -31,7 +31,6 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
 pub const SubListIndex = u32;
-pub const root_sub_list = @as(SubListIndex, 0);
 
 pub const DrawIndex = u32;
 
@@ -85,8 +84,7 @@ pub const DrawableRef = struct {
 /// A `SubList` represents a small segment of the entire `DrawList`.
 /// SubLists reference other SubLists, forming a tree structure.
 /// Each SubList is referenced by a `SubListIndex`.
-/// There is always at least 1 SubList - referenced by `root_sub_list`.
-/// There is also 1 SubList created for every stacking context. (In the future there may be more reasons to create SubLists)
+/// There is 1 SubList created for every stacking context. (In the future there may be more reasons to create SubLists)
 ///
 /// Because they are designed to represent stacking contexts, a SubList is, conceptually, a list like this:
 ///     [ root drawable, before1, ..., beforeN, child drawables, after1, ..., afterN ],
@@ -168,47 +166,21 @@ pub fn create(box_tree: *const BoxTree, allocator: Allocator) !DrawList {
     var draw_list = DrawList{ .sub_lists = .{}, .quad_tree = .{} };
     errdefer draw_list.deinit(allocator);
 
+    var root_sub_list: SubListIndex = undefined;
+
     {
         var builder = Builder{};
         defer builder.deinit(allocator);
 
-        try draw_list.sub_lists.append(allocator, .{});
-
-        const subtree_slice = box_tree.blocks.subtree(box_tree.blocks.initial_containing_block.subtree).slice();
-        const box_offsets = subtree_slice.items(.box_offsets)[box_tree.blocks.initial_containing_block.index];
-        const insets = subtree_slice.items(.insets)[box_tree.blocks.initial_containing_block.index];
-        const border_top_left = insets.add(box_offsets.border_pos);
-        const content_top_left = border_top_left.add(box_offsets.content_pos);
+        const slice = box_tree.stacking_contexts.slice();
 
         {
-            const data = draw_list.getSubList(root_sub_list);
-            data.setMidpoint();
-
-            // Add the initial containing block to the draw order list
-            const entry_index = try data.addEntry(
-                allocator,
-                Drawable{
-                    .block_box = .{
-                        .block_box = box_tree.blocks.initial_containing_block,
-                        .border_top_left = border_top_left,
-                    },
-                },
-            );
-            try draw_list.quad_tree.insert(
-                allocator,
-                calcBoundingBox(border_top_left, box_offsets),
-                .{
-                    .sub_list = root_sub_list,
-                    .entry_index = entry_index,
-                },
-            );
-        }
-
-        const slice = box_tree.stacking_contexts.slice();
-        if (slice.len > 0) {
-            // Add the root stacking context to the draw order list
-            try allocateSubList(&builder, &draw_list, allocator, root_sub_list, 0);
-            try builder.makeSublistReady(allocator, 0, content_top_left);
+            // Add the initial containing block stacking context to the draw order list
+            try allocateIcbSubList(&builder, &draw_list, allocator);
+            try builder.makeSublistReady(allocator, 0, .{ .x = 0, .y = 0 });
+            const description = builder.ready_sub_lists.pop();
+            root_sub_list = description.index;
+            try populateSubList(&draw_list, &builder, description, allocator, box_tree, slice);
         }
 
         while (builder.ready_sub_lists.items.len > 0) {
@@ -274,6 +246,16 @@ pub fn create(box_tree: *const BoxTree, allocator: Allocator) !DrawList {
 
 fn getSubList(draw_list: *DrawList, index: SubListIndex) *SubList {
     return &draw_list.sub_lists.items[index];
+}
+
+fn allocateIcbSubList(
+    builder: *Builder,
+    draw_list: *DrawList,
+    allocator: Allocator,
+) !void {
+    assert(draw_list.sub_lists.items.len == 0);
+    try draw_list.sub_lists.append(allocator, .{});
+    try builder.pending_sub_lists.put(allocator, 0, 0);
 }
 
 /// Allocating a SubList automatically puts it in the "pending" state, and updates the parent SubList.
