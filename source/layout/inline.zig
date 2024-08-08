@@ -42,8 +42,9 @@ const BoxTree = used_values.BoxTree;
 const hb = @import("mach-harfbuzz").c;
 
 pub const Result = struct {
-    ifc_id: InlineFormattingContextId,
-    total_inline_block_skip: BlockBoxSkip,
+    skip: BlockBoxSkip,
+    min_width: ZssUnit,
+    height: ZssUnit,
 };
 
 pub fn runInlineLayout(
@@ -60,7 +61,10 @@ pub fn runInlineLayout(
     assert(containing_block_width >= 0);
     if (containing_block_height) |h| assert(h >= 0);
 
-    const ifc = try box_tree.makeIfc(undefined);
+    const subtree = box_tree.blocks.subtree(subtree_id);
+    const ifc_container_index = try subtree.appendBlock(box_tree.allocator);
+
+    const ifc = try box_tree.makeIfc(.{ .subtree = subtree_id, .index = ifc_container_index });
 
     const sc_ifcs = &box_tree.stacking_contexts.items(.ifcs)[sc.current_index];
     try sc_ifcs.append(box_tree.allocator, ifc.id);
@@ -76,15 +80,28 @@ pub fn runInlineLayout(
         .containing_block_width = containing_block_width,
         .containing_block_height = containing_block_height,
         .percentage_base_unit = percentage_base_unit,
-        .result = .{
-            .ifc_id = ifc.id,
-            .total_inline_block_skip = 0,
-        },
     };
     defer ctx.deinit();
-
     try analyzeElements(&ctx, sc, computer, box_tree, ifc, inputs);
-    return ctx.result;
+
+    const line_split_result = try splitIntoLineBoxes(allocator, box_tree, subtree, ifc, inputs, containing_block_width);
+
+    const skip = 1 + ctx.total_inline_block_skip;
+    const height = line_split_result.height;
+    subtree.setIfcContainer(
+        ifc.id,
+        ifc_container_index,
+        skip,
+        0, // TODO: This should have a real value, not 0.
+        containing_block_width,
+        height,
+    );
+
+    return .{
+        .skip = skip,
+        .min_width = line_split_result.longest_line_box_length,
+        .height = height,
+    };
 }
 
 const InlineLayoutContext = struct {
@@ -99,9 +116,8 @@ const InlineLayoutContext = struct {
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
     skip: ArrayListUnmanaged(InlineBoxSkip) = .{},
+    total_inline_block_skip: BlockBoxSkip = 0,
     font_handle: ?Fonts.Handle = null,
-
-    result: Result,
 
     fn deinit(self: *Self) void {
         self.index.deinit(self.allocator);
@@ -186,7 +202,7 @@ fn ifcRunOnce(
     // TODO: Check position and float properties
     switch (effective_display) {
         .text => {
-            const generated_box = GeneratedBox{ .text = ctx.result.ifc_id };
+            const generated_box = GeneratedBox{ .text = ifc.id };
             try box_tree.mapElementToBox(element, generated_box);
 
             // TODO: Do proper font matching.
@@ -208,7 +224,7 @@ fn ifcRunOnce(
             const inline_box_index = try ifc.appendInlineBox(box_tree.allocator);
             inlineBoxSetData(ctx, computer, ifc, inline_box_index);
 
-            const generated_box = GeneratedBox{ .inline_box = .{ .ifc_id = ctx.result.ifc_id, .index = inline_box_index } };
+            const generated_box = GeneratedBox{ .inline_box = .{ .ifc_id = ifc.id, .index = inline_box_index } };
             try box_tree.mapElementToBox(element, generated_box);
 
             { // TODO: Grabbing useless data to satisfy inheritance...
@@ -278,7 +294,7 @@ fn ifcRunOnce(
             const height = flow.solveUsedHeight(used_sizes.get(.block_size), used_sizes.min_block_size, used_sizes.max_block_size, auto_height);
             flow.writeBlockData(subtree.slice(), block_index, used_sizes, skip, width, height, stacking_context_id);
 
-            ctx.result.total_inline_block_skip += skip;
+            ctx.total_inline_block_skip += skip;
             try ifcAddInlineBlock(box_tree, ifc, block_index);
         },
         .block => {

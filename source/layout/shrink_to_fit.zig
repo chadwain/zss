@@ -84,9 +84,7 @@ const Object = struct {
         },
         ifc: struct {
             subtree_id: SubtreeId,
-            subtree_root_index: BlockBoxIndex,
             layout_result: @"inline".Result,
-            line_split_result: @"inline".IFCLineSplitResult,
         },
     };
 };
@@ -209,8 +207,6 @@ fn flowObject(
         .none => computer.advanceElement(.box_gen),
         .@"inline", .inline_block, .text => {
             const new_subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, null);
-            const new_subtree = box_tree.blocks.subtree(new_subtree_id);
-            const new_ifc_container_index = try new_subtree.appendBlock(box_tree.allocator);
 
             const result = try @"inline".runInlineLayout(
                 allocator,
@@ -223,19 +219,8 @@ fn flowObject(
                 parent.height,
                 inputs,
             );
-            const ifc = box_tree.ifc(result.ifc_id);
-            ifc.parent_block = .{ .subtree = new_subtree_id, .index = new_ifc_container_index };
 
-            const line_split_result = try @"inline".splitIntoLineBoxes(
-                allocator,
-                box_tree,
-                new_subtree,
-                ifc,
-                inputs,
-                parent.available_width,
-            );
-
-            parent.auto_width = @max(parent.auto_width, line_split_result.longest_line_box_length);
+            parent.auto_width = @max(parent.auto_width, result.min_width);
 
             // TODO: Store the IFC index as the element
             parent.object_skip += 1;
@@ -245,9 +230,7 @@ fn flowObject(
                 .element = undefined,
                 .data = .{ .ifc = .{
                     .subtree_id = new_subtree_id,
-                    .subtree_root_index = new_ifc_container_index,
                     .layout_result = result,
-                    .line_split_result = line_split_result,
                 } },
             });
         },
@@ -454,23 +437,12 @@ fn realizeObjects(
                         const data = datas[object_index].ifc;
                         const new_subtree = box_tree.blocks.subtree(data.subtree_id);
 
-                        {
-                            const proxy_index = try subtree.appendBlock(box_tree.allocator);
-                            subtree.setSubtreeProxy(proxy_index, data.subtree_id);
-                            new_subtree.parent = .{ .subtree = main_subtree_id, .index = proxy_index };
-                            parent.skip += 1;
-                        }
+                        const proxy_index = try subtree.appendBlock(box_tree.allocator);
+                        subtree.setSubtreeProxy(proxy_index, data.subtree_id);
+                        new_subtree.parent = .{ .subtree = main_subtree_id, .index = proxy_index };
+                        parent.skip += 1;
 
-                        new_subtree.setIfcContainer(
-                            data.layout_result.ifc_id,
-                            data.subtree_root_index,
-                            1 + data.layout_result.total_inline_block_skip,
-                            parent.auto_height,
-                            data.line_split_result.longest_line_box_length,
-                            data.line_split_result.height,
-                        );
-
-                        flow.advanceFlow(&parent.auto_height, data.line_split_result.height);
+                        flow.advanceFlow(&parent.auto_height, data.layout_result.height);
                     },
                 }
             } else {

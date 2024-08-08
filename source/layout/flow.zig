@@ -101,9 +101,6 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
             try pushBlock(ctx, computer, box_tree, sc, element, used_sizes, stacking_context);
         },
         .@"inline", .inline_block, .text => {
-            const subtree = box_tree.blocks.subtree(ctx.subtree_id);
-            const ifc_container_index = try subtree.appendBlock(box_tree.allocator);
-
             const result = try @"inline".runInlineLayout(
                 ctx.allocator,
                 sc,
@@ -115,23 +112,9 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
                 containing_block_height,
                 inputs,
             );
-            const ifc = box_tree.ifc(result.ifc_id);
-            const line_split_result =
-                try @"inline".splitIntoLineBoxes(ctx.allocator, box_tree, subtree, ifc, inputs, containing_block_width);
-            ifc.parent_block = .{ .subtree = ctx.subtree_id, .index = ifc_container_index };
 
-            const skip = 1 + result.total_inline_block_skip;
-            subtree.setIfcContainer(
-                result.ifc_id,
-                ifc_container_index,
-                skip,
-                parent.auto_height,
-                containing_block_width,
-                line_split_result.height,
-            );
-
-            parent.skip += skip;
-            advanceFlow(&parent.auto_height, line_split_result.height);
+            parent.skip += result.skip;
+            advanceFlow(&parent.auto_height, result.height);
         },
         .none => computer.advanceElement(.box_gen),
     }

@@ -109,9 +109,6 @@ fn analyzeRootElement(
             return 0;
         },
         .text => {
-            const subtree = box_tree.blocks.subtree(ctx.subtree_id);
-            const ifc_container_index = try subtree.appendBlock(box_tree.allocator);
-
             const result = try @"inline".runInlineLayout(
                 ctx.allocator,
                 sc,
@@ -124,22 +121,7 @@ fn analyzeRootElement(
                 inputs,
             );
 
-            const ifc = box_tree.ifc(result.ifc_id);
-            const line_split_result =
-                try @"inline".splitIntoLineBoxes(ctx.allocator, box_tree, subtree, ifc, inputs, inputs.viewport.w);
-            ifc.parent_block = .{ .subtree = ctx.subtree_id, .index = ifc_container_index };
-
-            const skip = 1 + result.total_inline_block_skip;
-            subtree.setIfcContainer(
-                result.ifc_id,
-                ifc_container_index,
-                skip,
-                0,
-                inputs.viewport.w,
-                line_split_result.height,
-            );
-
-            return skip;
+            return result.skip;
         },
         .@"inline", .inline_block => unreachable,
     }
