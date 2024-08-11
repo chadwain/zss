@@ -9,13 +9,6 @@ const Element = zss.ElementTree.Element;
 pub const unicode = @import("util/unicode.zig");
 pub const Stack = @import("util/Stack.zig").Stack;
 
-/// This type serves as documentation only.
-/// It shows that the data contained within is acknowledged to be a UTF-8 encoded string,
-/// even if said data is invalid UTF-8.
-pub const Utf8String = struct {
-    data: []const u8,
-};
-
 fn expectSuccess(error_union: anytype, expected: @typeInfo(@TypeOf(error_union)).ErrorUnion.payload) !void {
     if (error_union) |success| {
         return std.testing.expectEqual(expected, success);

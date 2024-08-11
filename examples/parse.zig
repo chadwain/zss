@@ -1,8 +1,6 @@
 const zss = @import("zss");
-const tokenize = zss.syntax.tokenize;
 const parse = zss.syntax.parse;
-const Source = tokenize.Source;
-const Utf8String = zss.util.Utf8String;
+const TokenSource = zss.syntax.TokenSource;
 
 const std = @import("std");
 
@@ -18,32 +16,29 @@ pub fn main() !u8 {
 
     var stdout = std.io.getStdOut().writer().any();
 
-    const input = try std.io.getStdIn().reader().readAllAlloc(allocator, 1_000_000);
-    defer allocator.free(input);
-
-    const string = Utf8String{ .data = input };
+    const string = try std.io.getStdIn().reader().readAllAlloc(allocator, 1_000_000);
+    defer allocator.free(string);
 
     if (args.len == 1 or std.mem.eql(u8, args[1], "stylesheet")) {
-        const source = try Source.init(string);
+        const source = try TokenSource.init(string);
         var tree = try parse.parseCssStylesheet(source, allocator);
         defer tree.deinit(allocator);
         try zss.syntax.Ast.debug.print(tree, allocator, stdout);
     } else if (std.mem.eql(u8, args[1], "components")) {
-        const source = try Source.init(string);
+        const source = try TokenSource.init(string);
         var tree = try parse.parseListOfComponentValues(source, allocator);
         defer tree.deinit(allocator);
         try zss.syntax.Ast.debug.print(tree, allocator, stdout);
     } else if (std.mem.eql(u8, args[1], "tokens")) {
-        const source = try Source.init(string);
+        const source = try TokenSource.init(string);
 
-        var location: Source.Location = .start;
+        var location: TokenSource.Location = .start;
         var i: usize = 0;
         while (true) {
-            const next = try zss.syntax.tokenize.nextToken(source, location);
-            location = next.next_location;
-            try stdout.print("{}: {s}\n", .{ i, @tagName(next.token) });
+            const token = try source.next(&location);
+            try stdout.print("{}: {s}\n", .{ i, @tagName(token) });
             i += 1;
-            if (next.token == .token_eof) break;
+            if (token == .token_eof) break;
         }
     } else {
         return 1;

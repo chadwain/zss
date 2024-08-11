@@ -11,7 +11,6 @@ const CheckedInt = zss.util.CheckedInt;
 const Component = zss.syntax.Component;
 const Token = zss.syntax.Token;
 const Unit = Token.Unit;
-const Utf8String = zss.util.Utf8String;
 
 const u21_max = std.math.maxInt(u21);
 const replacement_character: u21 = 0xfffd;
@@ -29,10 +28,19 @@ pub const Source = struct {
         _,
     };
 
-    pub fn init(string: Utf8String) !Source {
-        if (string.data.len > std.math.maxInt(std.meta.Tag(Location))) return error.SourceDataTooLong;
-        return Source{ .data = string.data };
+    pub fn init(utf8_string: []const u8) !Source {
+        if (utf8_string.len > std.math.maxInt(std.meta.Tag(Location))) return error.SourceDataTooLong;
+        return Source{ .data = utf8_string };
     }
+
+    pub const Error = error{
+        Utf8ExpectedContinuation,
+        Utf8OverlongEncoding,
+        Utf8EncodesSurrogateHalf,
+        Utf8CodepointTooLarge,
+        Utf8InvalidStartByte,
+        Utf8CodepointTruncated,
+    };
 
     pub fn next(source: Source, location: *Location) !Token {
         const next_token = try nextToken(source, location.*);
@@ -84,18 +92,18 @@ pub const Source = struct {
     }
 
     /// Given that `location` is the location of a <string-token>, copy that string
-    pub fn copyString(source: Source, location: Location, allocator: Allocator) !Utf8String {
+    pub fn copyString(source: Source, location: Location, allocator: Allocator) ![]const u8 {
         var iterator = stringTokenIterator(source, location);
         return copyTokenGeneric(source, &iterator, allocator);
     }
 
     /// Given that `location` is the location of a <url-token>, copy that URL
-    pub fn copyUrl(source: Source, location: Location, allocator: Allocator) !Utf8String {
+    pub fn copyUrl(source: Source, location: Location, allocator: Allocator) ![]const u8 {
         var iterator = urlTokenIterator(source, location);
         return copyTokenGeneric(source, &iterator, allocator);
     }
 
-    fn copyTokenGeneric(source: Source, iterator: anytype, allocator: Allocator) !Utf8String {
+    fn copyTokenGeneric(source: Source, iterator: anytype, allocator: Allocator) ![]const u8 {
         var list = std.ArrayListUnmanaged(u8){};
         defer list.deinit(allocator);
 
@@ -107,7 +115,7 @@ pub const Source = struct {
         }
 
         const bytes = try list.toOwnedSlice(allocator);
-        return Utf8String{ .data = bytes };
+        return bytes;
     }
 
     pub fn KV(comptime Type: type) type {
@@ -206,8 +214,8 @@ pub const UrlTokenIterator = struct {
     }
 };
 
-pub fn stringIsIdentSequence(string: Utf8String) bool {
-    const source = Source.init(string) catch return false;
+pub fn stringIsIdentSequence(utf8_string: []const u8) bool {
+    const source = Source.init(utf8_string) catch return false;
     var location: Source.Location = .start;
     var first_3: [3]u21 = undefined;
     _ = readCodepoints(source, location, &first_3) catch return false;
@@ -259,21 +267,12 @@ fn readCodepoints(source: Source, start: Source.Location, buffer: []u21) !Source
     return location;
 }
 
-pub const NextToken = struct {
+const NextToken = struct {
     token: Token,
     next_location: Source.Location,
 };
 
-pub const Error = error{
-    Utf8ExpectedContinuation,
-    Utf8OverlongEncoding,
-    Utf8EncodesSurrogateHalf,
-    Utf8CodepointTooLarge,
-    Utf8InvalidStartByte,
-    Utf8CodepointTruncated,
-};
-
-pub fn nextToken(source: Source, location: Source.Location) Error!NextToken {
+fn nextToken(source: Source, location: Source.Location) Source.Error!NextToken {
     const next = try nextCodepoint(source, location);
     switch (next.codepoint) {
         '/' => {
@@ -986,7 +985,7 @@ test "tokenization" {
         \\/* comments here */
         \\end
     ;
-    const source = try Source.init(Utf8String{ .data = input });
+    const source = try Source.init(input);
     const expected = [_]Token{
         .token_at_keyword,
         .token_whitespace,

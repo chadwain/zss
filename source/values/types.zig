@@ -2,7 +2,6 @@ const std = @import("std");
 
 const zss = @import("../zss.zig");
 const Storage = zss.values.Storage;
-const Utf8String = zss.util.Utf8String;
 
 pub const CssWideKeyword = enum {
     initial,
@@ -231,7 +230,7 @@ pub const Color = union(enum) {
 
 pub const BackgroundImage = union(enum) {
     image: zss.Images.Handle,
-    url: Utf8String,
+    url: []const u8,
     none,
     many: Storage.Handle,
     initial,
@@ -247,7 +246,7 @@ pub const BackgroundImage = union(enum) {
         try expectEqual(@as(Tag, lhs), @as(Tag, rhs));
         switch (lhs) {
             .image => try expectEqual(lhs.image, rhs.image),
-            .url => try expectEqualSlices(u8, lhs.url.data, rhs.url.data),
+            .url => try expectEqualSlices(u8, lhs.url, rhs.url),
             .none => {},
             .many => std.debug.panic("TODO", .{}),
             .initial,

@@ -6,7 +6,7 @@ const NameId = Environment.NameId;
 const syntax = zss.syntax;
 const Ast = zss.syntax.Ast;
 const Component = zss.syntax.Component;
-const TokenSource = syntax.tokenize.Source;
+const TokenSource = syntax.TokenSource;
 
 const std = @import("std");
 const panic = std.debug.panic;
@@ -456,7 +456,7 @@ fn attributeSelector(context: *Context, it: Iterator) !?Pair(selectors.Attribute
     const element_type = elementType(context, it) orelse return null;
     if (element_type[0].second_name) |second_name| {
         switch (element_type[0].first_name) {
-            .identifier => panic("TODO: Namespaces in type selectors", .{}),
+            .identifier => panic("TODO: Namespaces in attribute selectors", .{}),
             .empty => result.namespace = NamespaceId.none,
             .asterisk => result.namespace = NamespaceId.any,
         }

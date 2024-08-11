@@ -1,9 +1,8 @@
 const zss = @import("../zss.zig");
 const Ast = zss.syntax.Ast;
 const CascadedValues = zss.CascadedValues;
-const TokenSource = zss.syntax.tokenize.Source;
+const TokenSource = zss.syntax.TokenSource;
 const PropertyName = zss.properties.definitions.PropertyName;
-const Utf8String = zss.util.Utf8String;
 const ValueSource = zss.values.parse.Source;
 
 const std = @import("std");
@@ -180,7 +179,7 @@ test {
         \\  background-image: none;
         \\}
     ;
-    const source = try TokenSource.init(Utf8String{ .data = input });
+    const source = try TokenSource.init(input);
     var components = try zss.syntax.parse.parseCssStylesheet(source, allocator);
     defer components.deinit(allocator);
     const slice = components.slice();

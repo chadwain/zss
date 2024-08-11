@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("zss.zig");
-pub const tokenize = @import("syntax/tokenize.zig");
+const tokenize = @import("syntax/tokenize.zig");
 pub const parse = @import("syntax/parse.zig");
 pub const IdentifierSet = @import("syntax/IdentifierSet.zig");
 
@@ -112,7 +112,7 @@ pub const Token = union(enum) {
     pub const Dimension = struct {
         number: f32,
         unit: Unit,
-        unit_location: tokenize.Source.Location,
+        unit_location: TokenSource.Location,
     };
 
     pub fn cast(token: Token, comptime Derived: type) Derived {
@@ -122,12 +122,18 @@ pub const Token = union(enum) {
     }
 };
 
+pub const TokenSource = tokenize.Source;
+pub const IdentSequenceIterator = tokenize.IdentSequenceIterator;
+pub const StringSequenceIterator = tokenize.StringSequenceIterator;
+pub const UrlSequenceIterator = tokenize.UrlSequenceIterator;
+pub const stringIsIdentSequence = tokenize.stringIsIdentSequence;
+
 /// Corresponds to what CSS calls a "component value".
 pub const Component = struct {
     next_sibling: Ast.Size,
     tag: Tag,
     /// The location of the Component in whatever Source created it. The meaning of this value depends on `tag`.
-    location: tokenize.Source.Location,
+    location: TokenSource.Location,
     /// Additional info about the Component. The meaning of this value depends on `tag`.
     extra: Extra,
 
@@ -384,7 +390,7 @@ pub const Ast = struct {
         ptrs: struct {
             next_sibling: [*]const Ast.Size,
             tag: [*]const Component.Tag,
-            location: [*]const tokenize.Source.Location,
+            location: [*]const TokenSource.Location,
             extra: [*]const Component.Extra,
         },
 
@@ -408,7 +414,7 @@ pub const Ast = struct {
             return self.ptrs.tag[index];
         }
 
-        pub fn location(self: Slice, index: Ast.Size) tokenize.Source.Location {
+        pub fn location(self: Slice, index: Ast.Size) TokenSource.Location {
             assert(index < self.len);
             return self.ptrs.location[index];
         }

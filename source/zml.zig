@@ -10,7 +10,7 @@ const Environment = zss.Environment;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Stack = zss.util.Stack;
-const TokenSource = zss.syntax.tokenize.Source;
+const TokenSource = zss.syntax.TokenSource;
 
 const parse_zml = @import("syntax/zml.zig");
 pub const Parser = parse_zml.Parser;
@@ -153,7 +153,7 @@ fn parseTextElement(
 
     const location = ast.location(zml_text_element);
     const string = try token_source.copyString(location, element_tree.arena.allocator());
-    element_tree.set(.text, element, string.data);
+    element_tree.set(.text, element, string);
 }
 
 fn applyStyleBlockDeclarations(
@@ -176,7 +176,7 @@ test astToElement {
         \\  type2 (display: block; all: inherit !important) {}
         \\}
     ;
-    const token_source = try TokenSource.init(zss.util.Utf8String{ .data = input });
+    const token_source = try TokenSource.init(input);
     const allocator = std.testing.allocator;
 
     var parser = Parser.init(token_source, allocator);

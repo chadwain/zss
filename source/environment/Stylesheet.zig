@@ -5,7 +5,7 @@ const ComplexSelectorList = zss.selectors.ComplexSelectorList;
 const Ast = zss.syntax.Ast;
 const Environment = zss.Environment;
 const ParsedDeclarations = zss.properties.declaration.ParsedDeclarations;
-const Source = zss.syntax.tokenize.Source;
+const Source = zss.syntax.TokenSource;
 
 const std = @import("std");
 const assert = std.debug.assert;

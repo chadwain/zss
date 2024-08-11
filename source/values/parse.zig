@@ -5,9 +5,8 @@ const zss = @import("../zss.zig");
 const types = zss.values.types;
 const Ast = zss.syntax.Ast;
 const Component = zss.syntax.Component;
-const TokenSource = zss.syntax.tokenize.Source;
+const TokenSource = zss.syntax.TokenSource;
 const Unit = zss.syntax.Token.Unit;
-const Utf8String = zss.util.Utf8String;
 
 /// A source of primitive CSS values.
 pub const Source = struct {
@@ -28,7 +27,7 @@ pub const Source = struct {
         percentage: f32,
         dimension: Dimension,
         function,
-        url: Allocator.Error!?Utf8String,
+        url: Allocator.Error!?[]const u8,
 
         pub const Dimension = struct {
             number: f32,
@@ -184,7 +183,7 @@ pub fn typeToParseFn(comptime Type: type) switch (Type) {
 fn testParsing(comptime T: type, input: []const u8, expected: ?T, is_complete: bool) !void {
     const allocator = std.testing.allocator;
 
-    const token_source = try TokenSource.init(Utf8String{ .data = input });
+    const token_source = try TokenSource.init(input);
     var tree = try zss.syntax.parse.parseListOfComponentValues(token_source, allocator);
     defer tree.deinit(allocator);
     const slice = tree.slice();
@@ -264,8 +263,8 @@ test "css value parsing" {
     try testParsing(types.BorderWidth, "thick", .thick, true);
 
     try testParsing(types.BackgroundImage, "none", .none, true);
-    try testParsing(types.BackgroundImage, "url(abcd)", .{ .url = .{ .data = "abcd" } }, true);
-    try testParsing(types.BackgroundImage, "url( \"abcd\" )", .{ .url = .{ .data = "abcd" } }, true);
+    try testParsing(types.BackgroundImage, "url(abcd)", .{ .url = "abcd" }, true);
+    try testParsing(types.BackgroundImage, "url( \"abcd\" )", .{ .url = "abcd" }, true);
     try testParsing(types.BackgroundImage, "invalid", null, true);
 
     try testParsing(types.BackgroundRepeat, "repeat-x", .{ .repeat = .{ .x = .repeat, .y = .no_repeat } }, true);

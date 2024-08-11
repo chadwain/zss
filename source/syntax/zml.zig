@@ -17,10 +17,10 @@ const Ast = zss.syntax.Ast;
 const AstManaged = zss.syntax.parse.AstManaged;
 const Component = zss.syntax.Component;
 const Last3NonWhitespaceComponents = zss.syntax.parse.Last3NonWhitespaceComponents;
-const Location = Source.Location;
+const Location = TokenSource.Location;
 const Stack = zss.util.Stack;
-const Source = tokenize.Source;
 const Token = zss.syntax.Token;
+const TokenSource = zss.syntax.TokenSource;
 
 test "parse a zml document" {
     const input =
@@ -34,13 +34,13 @@ test "parse a zml document" {
         \\   p3 (decl: func({} [ {} {1}] };)) {}
         \\}
     ;
-    const source = try Source.init(zss.util.Utf8String{ .data = input });
+    const token_source = try TokenSource.init(input);
     const allocator = std.testing.allocator;
 
     var ast = Ast{};
     defer ast.deinit(allocator);
 
-    var parser = Parser.init(source, allocator);
+    var parser = Parser.init(token_source, allocator);
     defer parser.deinit();
     parser.parse(&ast, allocator) catch |err| switch (err) {
         error.ParseError => std.log.err(
@@ -52,7 +52,7 @@ test "parse a zml document" {
 }
 
 pub const Parser = struct {
-    source: Source,
+    token_source: TokenSource,
     location: Location,
     allocator: Allocator,
     element_stack: ArrayListUnmanaged(struct {
@@ -110,9 +110,9 @@ pub const Parser = struct {
         };
     };
 
-    pub fn init(source: Source, allocator: Allocator) Parser {
+    pub fn init(token_source: TokenSource, allocator: Allocator) Parser {
         return .{
-            .source = source,
+            .token_source = token_source,
             .location = .start,
             .allocator = allocator,
             .element_stack = .{},
@@ -126,7 +126,7 @@ pub const Parser = struct {
         parser.block_stack.deinit(parser.allocator);
     }
 
-    pub const Error = error{ ParseError, Overflow } || tokenize.Error || Allocator.Error;
+    pub const Error = error{ ParseError, Overflow } || TokenSource.Error || Allocator.Error;
 
     pub fn parse(parser: *Parser, ast: *Ast, allocator: Allocator) Error!void {
         const managed = AstManaged{ .unmanaged = ast, .allocator = allocator };
@@ -146,9 +146,9 @@ pub const Parser = struct {
     }
 
     fn nextTokenAllowEof(parser: *Parser) !struct { Token, Location } {
-        const next_token = try tokenize.nextToken(parser.source, parser.location);
-        defer parser.location = next_token.next_location;
-        return .{ next_token.token, parser.location };
+        const location = parser.location;
+        const token = try parser.token_source.next(&parser.location);
+        return .{ token, location };
     }
 
     fn nextToken(parser: *Parser) !struct { Token, Location } {
@@ -405,7 +405,7 @@ fn parseInlineStyleBlock(parser: *Parser, ast: AstManaged, main_location: Locati
             }
         }
 
-        if (ast.finishDeclaration(parser.source, declaration_index, last_3)) return parser.fail(.empty_declaration_value, name_location);
+        if (ast.finishDeclaration(parser.token_source, declaration_index, last_3)) return parser.fail(.empty_declaration_value, name_location);
         previous_declaration = declaration_index;
     }
 

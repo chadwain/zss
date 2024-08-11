@@ -7,7 +7,7 @@ const zss = @import("zss");
 const Ast = zss.syntax.Ast;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
-const TokenSource = zss.syntax.tokenize.Source;
+const TokenSource = zss.syntax.TokenSource;
 
 const hb = @import("mach-harfbuzz").c;
 
@@ -133,7 +133,7 @@ fn getAllTests(
         }
 
         const source = try cases_dir.readFileAlloc(allocator, entry.path, 100_000);
-        const token_source = try TokenSource.init(.{ .data = source });
+        const token_source = try TokenSource.init(source);
         var ast = Ast{};
         var parser = zss.zml.Parser.init(token_source, allocator);
         try parser.parse(&ast, allocator);

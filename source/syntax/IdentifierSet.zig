@@ -4,7 +4,6 @@ const IdentifierSet = @This();
 
 const zss = @import("../zss.zig");
 const syntax = @import("../syntax.zig");
-const Utf8String = zss.util.Utf8String;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -130,12 +129,12 @@ fn getOrPutGeneric(set: *IdentifierSet, allocator: Allocator, key: anytype) !usi
 pub fn getOrPutFromSource(
     set: *IdentifierSet,
     allocator: Allocator,
-    source: syntax.tokenize.Source,
-    ident_seq_it: syntax.tokenize.IdentSequenceIterator,
+    source: syntax.TokenSource,
+    ident_seq_it: syntax.IdentSequenceIterator,
 ) !usize {
     const Key = struct {
-        source: syntax.tokenize.Source,
-        ident_seq_it: syntax.tokenize.IdentSequenceIterator,
+        source: syntax.TokenSource,
+        ident_seq_it: syntax.IdentSequenceIterator,
 
         fn iterator(self: @This()) @This() {
             return self;
@@ -175,7 +174,7 @@ pub fn getOrPutFromString(
         }
     };
 
-    assert(syntax.tokenize.stringIsIdentSequence(Utf8String{ .data = string }));
+    assert(syntax.stringIsIdentSequence(string));
     const key = Key{ .string = string };
     return set.getOrPutGeneric(allocator, key);
 }
