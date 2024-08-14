@@ -399,19 +399,17 @@ pub fn cssWideKeyword(
     components: zss.syntax.Ast.Slice,
     token_source: TokenSource,
     declaration_index: Ast.Size,
-    declaration_end: Ast.Size,
 ) ?types.CssWideKeyword {
-    if (declaration_end - declaration_index == 2) {
-        if (components.tag(declaration_index + 1) == .token_ident) {
-            const location = components.location(declaration_index + 1);
-            return token_source.mapIdentifier(location, types.CssWideKeyword, &.{
-                .{ "initial", .initial },
-                .{ "inherit", .inherit },
-                .{ "unset", .unset },
-            });
-        }
-    }
-    return null;
+    var sequence = components.children(declaration_index);
+    const identifier = sequence.nextDeclComponent(components) orelse return null;
+    if (components.tag(identifier) != .token_ident or
+        sequence.nextDeclComponent(components) != null) return null;
+    const location = components.location(identifier);
+    return token_source.mapIdentifier(location, types.CssWideKeyword, &.{
+        .{ "initial", .initial },
+        .{ "inherit", .inherit },
+        .{ "unset", .unset },
+    });
 }
 
 // Spec: CSS 2.2

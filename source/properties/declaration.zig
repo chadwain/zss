@@ -69,8 +69,7 @@ fn parseDeclaration(
 
     // TODO: If this property has already been declared, skip parsing a value entirely.
     const property_name = parsePropertyName(components, token_source, declaration_index) orelse return;
-    const declaration_end = components.nextSibling(declaration_index);
-    const css_wide_keyword = zss.values.parse.cssWideKeyword(components, token_source, declaration_index, declaration_end);
+    const css_wide_keyword = zss.values.parse.cssWideKeyword(components, token_source, declaration_index);
     switch (property_name) {
         inline else => |comptime_property_name| {
             const def = comptime comptime_property_name.definition();
@@ -91,6 +90,7 @@ fn parseDeclaration(
                         try cascaded.addValue(arena, simple.aggregate_tag, simple.field, value);
                     } else {
                         const parseFn = zss.values.parse.typeToParseFn(field_info.type);
+                        const declaration_end = components.nextSibling(declaration_index);
                         value_source.range = .{
                             .index = declaration_index + 1,
                             .end = declaration_end,
