@@ -717,19 +717,12 @@ const ConsumeUnit = struct {
 };
 
 fn consumeUnit(source: Source, start: Source.Location) !ConsumeUnit {
-    const units = comptime std.meta.fields(Unit);
-    const max_unit_len = comptime blk: {
-        var result: comptime_int = 0;
-        for (units) |field_info| {
-            if (@as(Unit, @enumFromInt(field_info.value)) == .unrecognized) continue;
-            result = @max(result, field_info.name.len);
-        }
-        break :blk result;
-    };
-    const Count = comptime std.math.IntFittingRange(0, max_unit_len + 1);
-    const map = comptime blk: {
+    const map, const max_unit_len = comptime blk: {
         const KV = struct { []const u8, Unit };
+        const units = std.meta.fields(Unit);
+
         var kvs: [units.len - 1]KV = undefined;
+        var max_unit_len: usize = 0;
         var i = 0;
         for (units) |field_info| {
             const unit: Unit = @enumFromInt(field_info.value);
@@ -738,22 +731,24 @@ fn consumeUnit(source: Source, start: Source.Location) !ConsumeUnit {
                 .px => "px",
             };
             kvs[i] = .{ name, unit };
+            max_unit_len = @max(max_unit_len, name.len);
             i += 1;
         }
+
         const map = zss.syntax.ComptimeIdentifierMap(Unit).init(kvs);
         assert(map.get("unrecognized") == null);
-        break :blk map;
+        break :blk .{ map, max_unit_len };
     };
 
     var location = start;
     var unit_buffer: [max_unit_len]u8 = undefined;
-    var count: Count = 0;
+    var count: usize = 0;
     while (try consumeIdentSequenceCodepoint(source, location)) |next| {
         if (count < max_unit_len and next.codepoint <= 0xFF) {
             unit_buffer[count] = @intCast(next.codepoint);
             count += 1;
         } else {
-            count = std.math.maxInt(Count);
+            count = std.math.maxInt(usize);
         }
         location = next.next_location;
     }

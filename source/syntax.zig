@@ -177,6 +177,7 @@ pub const Component = struct {
     ///                  If not specified, then the component cannot have any children.
     ///           extra: What the component's `extra` field represents.
     ///                  If not specified, then the `extra` field is meaningless.
+    ///            note: Additional notes
     ///
     /// Components that represent tokens begin with `token_`. More documentation for these can be found by looking at `Token`.
     /// Components that represent constructs from zml begin with `zml_`.
@@ -186,6 +187,7 @@ pub const Component = struct {
     /// at any position within a sequence of components.
     /// For example, "a sequence of `token_ident`" is really "a sequence of `token_ident`, `token_whitespace`, and `token_comments`".
     pub const Tag = enum {
+        ///        note: This component never appears within the Ast
         token_eof,
         token_comments,
         token_ident,
@@ -315,7 +317,7 @@ pub const Component = struct {
         zml_attribute,
         /// description: A zml element's features
         ///    location: The location of the element's first feature
-        ///    children: either a single `zml_empty`, or
+        ///    children: Either a single `zml_empty`, or
         ///              a non-empty sequence of `zml_type`, `zml_id`, `zml_class`, and `zml_attribute` (at most one `zml_type` is allowed)
         zml_features,
         /// description: A zml element's inline style declarations (a '()-block' containing declarations)
@@ -362,21 +364,25 @@ pub const Ast = struct {
         /// Returns the next component in the sequence, skipping over whitespace and comment components.
         pub fn next(sequence: *Sequence, s: Slice) ?Ast.Size {
             if (sequence.empty()) return null;
-            defer {
-                sequence.start = s.nextSibling(sequence.start);
-                sequence.skipWhitespaceAndComments(s);
+            const result = sequence.start;
+            var current = s.nextSibling(sequence.start);
+            while (current != sequence.end) {
+                switch (s.tag(current)) {
+                    .token_whitespace, .token_comments => current = s.nextSibling(current),
+                    else => break,
+                }
             }
-            return sequence.start;
+            sequence.start = current;
+            return result;
         }
 
-        fn skipWhitespaceAndComments(sequence: *Sequence, s: Slice) void {
-            while (!sequence.empty()) {
-                switch (s.tag(sequence.start)) {
-                    .token_whitespace, .token_comments => {},
-                    else => return,
-                }
-                sequence.start = s.nextSibling(sequence.start);
-            }
+        /// Returns the next component in a declaration's value.
+        pub const nextDeclComponent = next;
+
+        /// Returns to a previously visited point in the sequence.
+        /// `index` must be a value that was previously returned from one of the `next*` functions.
+        pub fn reset(sequence: *Sequence, index: Ast.Size) void {
+            sequence.start = index;
         }
     };
 
@@ -426,12 +432,15 @@ pub const Ast = struct {
 
         /// Returns the sequence of the immediate children of `index`
         pub fn children(self: Slice, index: Ast.Size) Sequence {
-            var sequence = Sequence{
-                .start = index + 1,
-                .end = self.nextSibling(index),
-            };
-            sequence.skipWhitespaceAndComments(self);
-            return sequence;
+            var current = index + 1;
+            const end = self.nextSibling(index);
+            while (current != end) {
+                switch (self.tag(current)) {
+                    .token_whitespace, .token_comments => current = self.nextSibling(current),
+                    else => break,
+                }
+            }
+            return .{ .start = current, .end = end };
         }
     };
 

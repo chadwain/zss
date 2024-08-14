@@ -16,42 +16,26 @@ pub const ParsedDeclarations = struct {
 };
 
 pub fn parseDeclarationsFromAst(
+    value_source: *ValueSource,
     arena: *ArenaAllocator,
-    components: Ast.Slice,
-    token_source: TokenSource,
-    style_block: Ast.Size,
+    last_declaration_index: Ast.Size,
 ) Allocator.Error!ParsedDeclarations {
-    switch (components.tag(style_block)) {
-        .style_block, .zml_styles => {},
-        else => unreachable,
-    }
-
     var normal = CascadedValues{};
     // errdefer normal.deinit(allocator);
     var important = CascadedValues{};
     // errdefer important.deinit(allocator);
 
-    var value_source = ValueSource{
-        .components = components,
-        .token_source = token_source,
-        .arena = arena.allocator(),
-        .range = .{
-            .index = undefined,
-            .end = undefined,
-        },
-    };
-
     // We parse declarations in the reverse order in which they appear.
     // This is because later declarations will overwrite previous ones.
-    var index = components.extra(style_block).index();
+    var index = last_declaration_index;
     while (index != 0) {
-        defer index = components.extra(index).index();
-        const destination = switch (components.tag(index)) {
+        const destination = switch (value_source.ast.tag(index)) {
             .declaration_important => &important,
             .declaration_normal => &normal,
             else => unreachable,
         };
-        try parseDeclaration(destination, arena, components, token_source, &value_source, index);
+        try parseDeclaration(destination, arena, value_source, index);
+        index = value_source.ast.extra(index).index();
     }
 
     return ParsedDeclarations{ .normal = normal, .important = important };
@@ -60,16 +44,24 @@ pub fn parseDeclarationsFromAst(
 fn parseDeclaration(
     cascaded: *CascadedValues,
     arena: *ArenaAllocator,
-    components: Ast.Slice,
-    token_source: TokenSource,
     value_source: *ValueSource,
     declaration_index: Ast.Size,
 ) !void {
     if (cascaded.all != null) return;
 
     // TODO: If this property has already been declared, skip parsing a value entirely.
-    const property_name = parsePropertyName(components, token_source, declaration_index) orelse return;
-    const css_wide_keyword = zss.values.parse.cssWideKeyword(components, token_source, declaration_index);
+    const property_name = parsePropertyName(value_source.ast, value_source.token_source, declaration_index) orelse return;
+    const decl_value_sequence = value_source.ast.children(declaration_index);
+
+    value_source.sequence = decl_value_sequence;
+    const css_wide_keyword = blk: {
+        const value = zss.values.parse.cssWideKeyword(value_source) catch |err| switch (err) {
+            error.ParseError => break :blk null,
+            else => |e| return e,
+        };
+        if (!value_source.sequence.empty()) break :blk null;
+        break :blk value;
+    };
     switch (property_name) {
         inline else => |comptime_property_name| {
             const def = comptime comptime_property_name.definition();
@@ -90,17 +82,13 @@ fn parseDeclaration(
                         try cascaded.addValue(arena, simple.aggregate_tag, simple.field, value);
                     } else {
                         const parseFn = zss.values.parse.typeToParseFn(field_info.type);
-                        const declaration_end = components.nextSibling(declaration_index);
-                        value_source.range = .{
-                            .index = declaration_index + 1,
-                            .end = declaration_end,
-                        };
+                        value_source.sequence = decl_value_sequence;
                         // TODO: If parsing fails, "reset" the arena
                         const value = parseFn(value_source) catch |err| switch (err) {
                             error.ParseError => return,
                             else => |e| return e,
                         };
-                        if (value_source.range.index != value_source.range.end) return;
+                        if (!value_source.sequence.empty()) return;
                         try cascaded.addValue(arena, simple.aggregate_tag, simple.field, value);
                     }
                 },
@@ -188,9 +176,13 @@ test {
     assert(slice.tag(qualified_rule) == .qualified_rule);
     const style_block = slice.extra(qualified_rule).index();
     assert(slice.tag(style_block) == .style_block);
+    const last_declaration = slice.extra(style_block).index();
+
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const decls = try parseDeclarationsFromAst(&arena, slice, source, style_block);
+
+    var value_source = ValueSource.init(slice, source, arena.allocator());
+    const decls = try parseDeclarationsFromAst(&value_source, &arena, last_declaration);
 
     const expectEqual = std.testing.expectEqual;
     const aggregates = zss.properties.aggregates;

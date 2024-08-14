@@ -128,7 +128,8 @@ fn parseElement(
     const has_style_block = (ast.tag(style_block) == .zml_styles);
     if (has_style_block) {
         _ = cascade_arena.reset(.retain_capacity);
-        try applyStyleBlockDeclarations(element_tree, element, ast, style_block, token_source, cascade_arena);
+        const last_declaration = ast.extra(style_block).index();
+        try applyStyleBlockDeclarations(element_tree, element, ast, last_declaration, token_source, cascade_arena);
     }
 
     const children = if (has_style_block)
@@ -160,11 +161,12 @@ fn applyStyleBlockDeclarations(
     element_tree: ElementTree.Slice,
     element: Element,
     ast: Ast.Slice,
-    style_block: Ast.Size,
+    last_declaration: Ast.Size,
     token_source: TokenSource,
     cascade_arena: *ArenaAllocator,
 ) !void {
-    const parsed_declarations = try zss.properties.declaration.parseDeclarationsFromAst(cascade_arena, ast, token_source, style_block);
+    var value_source = zss.values.Source.init(ast, token_source, cascade_arena.allocator());
+    const parsed_declarations = try zss.properties.declaration.parseDeclarationsFromAst(&value_source, cascade_arena, last_declaration);
     const sources = [2]*const CascadedValues{ &parsed_declarations.important, &parsed_declarations.normal };
     try element_tree.updateCascadedValues(element, &sources);
 }
