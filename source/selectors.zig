@@ -31,7 +31,8 @@ pub const Specificity = packed struct {
             .class, .attribute, .pseudo_class => "b",
             .type_ident, .pseudo_element => "c",
         };
-        @field(specificity, field_name) +|= 1;
+        const field = &@field(specificity, field_name);
+        if (field.* < 254) field.* += 1;
     }
 
     pub fn order(lhs: Specificity, rhs: Specificity) std.math.Order {
