@@ -71,16 +71,12 @@ pub const Source = struct {
         return Item{ .index = index, .type = @"type" };
     }
 
-    fn reset(source: *Source, index: Ast.Size) void {
-        source.sequence.reset(index);
-    }
-
     pub fn expect(source: *Source, @"type": Type) ?Item {
         const item = source.next() orelse return null;
         if (item.type == @"type") {
             return item;
         } else {
-            source.reset(item.index);
+            source.sequence.reset(item.index);
             return null;
         }
     }
@@ -112,7 +108,7 @@ pub const Source = struct {
                         const string = function_value.next(source.ast) orelse return null;
 
                         if (source.ast.tag(string) != .token_string) return null;
-                        // NOTE: URL modifiers, or other extra values within a url() function are not supported
+                        // NOTE: No URL modifiers are supported
                         if (!function_value.empty()) return null;
 
                         const location = source.ast.location(string);
@@ -121,7 +117,7 @@ pub const Source = struct {
                     else => unreachable,
                 }
             },
-            .unknown => return {},
+            .unknown => @compileError("No value for type 'unknown'"),
         }
     }
 
@@ -354,7 +350,7 @@ test "css value parsing" {
 
 pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const TokenSource.KV(Type)) !Type {
     const keyword = source.next() orelse return error.ParseError;
-    errdefer source.reset(keyword.index);
+    errdefer source.sequence.reset(keyword.index);
 
     if (keyword.type == .keyword) {
         if (source.mapKeyword(keyword.index, Type, kvs)) |value| {
@@ -437,7 +433,7 @@ pub fn float(source: *Source) !types.Float {
 // auto | <integer>
 pub fn zIndex(source: *Source) !types.ZIndex {
     const auto_or_int = source.next() orelse return error.ParseError;
-    errdefer source.reset(auto_or_int.index);
+    errdefer source.sequence.reset(auto_or_int.index);
     switch (auto_or_int.type) {
         .integer => return types.ZIndex{ .integer = source.value(.integer, auto_or_int.index) },
         .keyword => return source.mapKeyword(auto_or_int.index, types.ZIndex, &.{
@@ -451,7 +447,7 @@ pub fn zIndex(source: *Source) !types.ZIndex {
 // <length> | <percentage>
 pub fn lengthPercentage(source: *Source) !types.LengthPercentage {
     const item = source.next() orelse return error.ParseError;
-    errdefer source.reset(item.index);
+    errdefer source.sequence.reset(item.index);
     switch (item.type) {
         .dimension => return genericLength(types.LengthPercentage, source.value(.dimension, item.index)),
         .percentage => return .{ .percentage = source.value(.percentage, item.index) },
@@ -463,7 +459,7 @@ pub fn lengthPercentage(source: *Source) !types.LengthPercentage {
 // <length> | <percentage> | auto
 pub fn lengthPercentageAuto(source: *Source) !types.LengthPercentageAuto {
     const item = source.next() orelse return error.ParseError;
-    errdefer source.reset(item.index);
+    errdefer source.sequence.reset(item.index);
     switch (item.type) {
         .dimension => return genericLength(types.LengthPercentageAuto, source.value(.dimension, item.index)),
         .percentage => return .{ .percentage = source.value(.percentage, item.index) },
@@ -478,7 +474,7 @@ pub fn lengthPercentageAuto(source: *Source) !types.LengthPercentageAuto {
 // <length> | <percentage> | none
 pub fn maxSize(source: *Source) !types.MaxSize {
     const item = source.next() orelse return error.ParseError;
-    errdefer source.reset(item.index);
+    errdefer source.sequence.reset(item.index);
     switch (item.type) {
         .dimension => return genericLength(types.MaxSize, source.value(.dimension, item.index)),
         .percentage => return .{ .percentage = source.value(.percentage, item.index) },
@@ -493,7 +489,7 @@ pub fn maxSize(source: *Source) !types.MaxSize {
 // Syntax: <length> | thin | medium | thick
 pub fn borderWidth(source: *Source) !types.BorderWidth {
     const item = source.next() orelse return error.ParseError;
-    errdefer source.reset(item.index);
+    errdefer source.sequence.reset(item.index);
     switch (item.type) {
         .dimension => return genericLength(types.BorderWidth, source.value(.dimension, item.index)),
         .keyword => return source.mapKeyword(item.index, types.BorderWidth, &.{
@@ -511,7 +507,7 @@ pub fn borderWidth(source: *Source) !types.BorderWidth {
 //         <gradient> = <linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()> | <repeating-radial-gradient()>
 pub fn backgroundImage(source: *Source) !types.BackgroundImage {
     const item = source.next() orelse return error.ParseError;
-    errdefer source.reset(item.index);
+    errdefer source.sequence.reset(item.index);
     switch (item.type) {
         .url => {
             const url = (try source.value(.url, item.index)) orelse return error.ParseError;
@@ -533,7 +529,7 @@ pub fn backgroundImage(source: *Source) !types.BackgroundImage {
 pub fn backgroundRepeat(source: *Source) !types.BackgroundRepeat {
     // TODO: reset point incorrect
     const keyword1 = source.expect(.keyword) orelse return error.ParseError;
-    errdefer source.reset(keyword1.index);
+    errdefer source.sequence.reset(keyword1.index);
     if (source.mapKeyword(keyword1.index, types.BackgroundRepeat.Repeat, &.{
         .{ "repeat-x", .{ .x = .repeat, .y = .no_repeat } },
         .{ "repeat-y", .{ .x = .no_repeat, .y = .repeat } },
@@ -569,8 +565,8 @@ const bg_position = struct {
     const Axis = enum { x, y, either };
 
     const KeywordMapValue = struct { axis: Axis, side: Side };
+    // zig fmt: off
     const keyword_map = &[_]TokenSource.KV(KeywordMapValue){
-        // zig fmt: off
         .{ "center", .{ .axis = .either, .side = .center } },
         .{ "left",   .{ .axis = .x,      .side = .start  } },
         .{ "right",  .{ .axis = .x,      .side = .end    } },
@@ -601,7 +597,7 @@ const bg_position = struct {
 ///                         [ center | [ top | bottom ] <length-percentage>? ]
 pub fn backgroundPosition(source: *Source) !types.BackgroundPosition {
     const first_item = source.next() orelse return error.ParseError;
-    errdefer source.reset(first_item.index);
+    errdefer source.sequence.reset(first_item.index);
 
     var items: [4]Source.Item = .{ first_item, undefined, undefined, undefined };
     for (items[1..]) |*item| {
@@ -614,7 +610,7 @@ pub fn backgroundPosition(source: *Source) !types.BackgroundPosition {
         return error.ParseError;
 
     if (result.num_items_used < 4) {
-        source.reset(items[result.num_items_used].index);
+        source.sequence.reset(items[result.num_items_used].index);
     }
     return result.bg_position;
 }
