@@ -15,6 +15,8 @@ pub const Fonts = @import("environment/Fonts.zig");
 pub const Images = @import("environment/Images.zig");
 pub const Stylesheet = @import("environment/Stylesheet.zig");
 
+pub const log = @import("std").log.scoped(.zss);
+
 comptime {
     if (@import("builtin").is_test) {
         @import("std").testing.refAllDecls(@This());

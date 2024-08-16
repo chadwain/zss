@@ -91,6 +91,12 @@ pub const Source = struct {
         return it.next(source) == null;
     }
 
+    /// Given that `location` is the location of a <ident-token>, copy that identifier
+    pub fn copyIdentifier(source: Source, location: Location, allocator: Allocator) ![]const u8 {
+        var iterator = identTokenIterator(source, location);
+        return copyTokenGeneric(source, &iterator, allocator);
+    }
+
     /// Given that `location` is the location of a <string-token>, copy that string
     pub fn copyString(source: Source, location: Location, allocator: Allocator) ![]const u8 {
         var iterator = stringTokenIterator(source, location);

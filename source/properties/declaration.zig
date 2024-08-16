@@ -21,9 +21,7 @@ pub fn parseDeclarationsFromAst(
     last_declaration_index: Ast.Size,
 ) Allocator.Error!ParsedDeclarations {
     var normal = CascadedValues{};
-    // errdefer normal.deinit(allocator);
     var important = CascadedValues{};
-    // errdefer important.deinit(allocator);
 
     // We parse declarations in the reverse order in which they appear.
     // This is because later declarations will overwrite previous ones.
@@ -50,7 +48,11 @@ fn parseDeclaration(
     if (cascaded.all != null) return;
 
     // TODO: If this property has already been declared, skip parsing a value entirely.
-    const property_name = parsePropertyName(value_source.ast, value_source.token_source, declaration_index) orelse return;
+    const property_name = parsePropertyName(value_source.ast, value_source.token_source, declaration_index) orelse {
+        const name_string = value_source.token_source.copyIdentifier(value_source.ast.location(declaration_index), arena.allocator()) catch return;
+        zss.log.warn("Ignoring declaration with unrecognized name: {s}", .{name_string});
+        return;
+    };
     const decl_value_sequence = value_source.ast.children(declaration_index);
 
     value_source.sequence = decl_value_sequence;
