@@ -11,7 +11,7 @@ const BlockUsedSizes = zss.layout.BlockUsedSizes;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Fonts = zss.Fonts;
-const Inputs = zss.layout.Inputs;
+const Layout = zss.layout.Layout;
 
 const flow = @import("./flow.zig");
 const stf = @import("./shrink_to_fit.zig");
@@ -48,26 +48,22 @@ pub const Result = struct {
 };
 
 pub fn runInlineLayout(
-    allocator: Allocator,
-    sc: *StackingContexts,
-    computer: *StyleComputer,
-    box_tree: *BoxTree,
+    layout: *Layout,
     subtree_id: SubtreeId,
     mode: enum { Normal, ShrinkToFit },
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
-    inputs: Inputs,
 ) zss.layout.Error!Result {
     assert(containing_block_width >= 0);
     if (containing_block_height) |h| assert(h >= 0);
 
-    const subtree = box_tree.blocks.subtree(subtree_id);
-    const ifc_container_index = try subtree.appendBlock(box_tree.allocator);
+    const subtree = layout.box_tree.blocks.subtree(subtree_id);
+    const ifc_container_index = try subtree.appendBlock(layout.box_tree.allocator);
 
-    const ifc = try box_tree.makeIfc(.{ .subtree = subtree_id, .index = ifc_container_index });
+    const ifc = try layout.box_tree.makeIfc(.{ .subtree = subtree_id, .index = ifc_container_index });
 
-    const sc_ifcs = &box_tree.stacking_contexts.items(.ifcs)[sc.current_index];
-    try sc_ifcs.append(box_tree.allocator, ifc.id);
+    const sc_ifcs = &layout.box_tree.stacking_contexts.items(.ifcs)[layout.sc.current_index];
+    try sc_ifcs.append(layout.box_tree.allocator, ifc.id);
 
     const percentage_base_unit: ZssUnit = switch (mode) {
         .Normal => containing_block_width,
@@ -75,16 +71,16 @@ pub fn runInlineLayout(
     };
 
     var ctx = InlineLayoutContext{
-        .allocator = allocator,
+        .allocator = layout.allocator,
         .subtree_id = subtree_id,
         .containing_block_width = containing_block_width,
         .containing_block_height = containing_block_height,
         .percentage_base_unit = percentage_base_unit,
     };
     defer ctx.deinit();
-    try analyzeElements(&ctx, sc, computer, box_tree, ifc, inputs);
+    try analyzeElements(layout, &ctx, ifc);
 
-    const line_split_result = try splitIntoLineBoxes(allocator, box_tree, subtree, ifc, inputs, containing_block_width);
+    const line_split_result = try splitIntoLineBoxes(layout, subtree, ifc, containing_block_width);
 
     const skip = 1 + ctx.total_inline_block_skip;
     const height = line_split_result.height;
@@ -136,23 +132,16 @@ const InlineLayoutContext = struct {
     }
 };
 
-fn analyzeElements(
-    ctx: *InlineLayoutContext,
-    sc: *StackingContexts,
-    computer: *StyleComputer,
-    box_tree: *BoxTree,
-    ifc: *InlineFormattingContext,
-    inputs: Inputs,
-) !void {
-    computer.resetElement(.box_gen);
+fn analyzeElements(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormattingContext) !void {
+    layout.computer.resetElement(.box_gen);
 
-    try ifcPushRootInlineBox(ctx, box_tree, ifc);
-    while (!(try ifcRunOnce(ctx, sc, computer, box_tree, ifc, inputs))) {}
-    try ifcPopRootInlineBox(ctx, box_tree, ifc);
+    try ifcPushRootInlineBox(ctx, layout.box_tree, ifc);
+    while (!(try ifcRunOnce(layout, ctx, ifc))) {}
+    try ifcPopRootInlineBox(ctx, layout.box_tree, ifc);
 
-    try ifc.metrics.resize(box_tree.allocator, ifc.glyph_indeces.items.len);
-    const subtree = box_tree.blocks.subtree(ctx.subtree_id);
-    ifcSolveMetrics(ifc, subtree, inputs);
+    try ifc.metrics.resize(layout.box_tree.allocator, ifc.glyph_indeces.items.len);
+    const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
+    ifcSolveMetrics(ifc, subtree, layout.inputs.fonts);
 }
 
 fn ifcPushRootInlineBox(ctx: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
@@ -173,29 +162,23 @@ fn ifcPopRootInlineBox(ctx: *InlineLayoutContext, box_tree: *BoxTree, ifc: *Inli
 }
 
 /// A return value of true means that a terminating element was encountered.
-fn ifcRunOnce(
-    ctx: *InlineLayoutContext,
-    sc: *StackingContexts,
-    computer: *StyleComputer,
-    box_tree: *BoxTree,
-    ifc: *InlineFormattingContext,
-    inputs: Inputs,
-) !bool {
-    const element = computer.getCurrentElement();
+fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormattingContext) !bool {
+    const element = layout.computer.getCurrentElement();
     if (element.eqlNull()) {
         if (ctx.inline_box_depth == 0) return true;
-        try ifcPopInlineBox(ctx, computer, box_tree, ifc);
+        try ifcPopInlineBox(ctx, layout.box_tree, ifc);
+        layout.computer.popElement(.box_gen);
         return false;
     }
 
     const computed, const effective_display = blk: {
-        if (computer.elementCategory(element) == .text) {
+        if (layout.computer.elementCategory(element) == .text) {
             break :blk .{ undefined, .text };
         }
 
-        const specified_box_style = computer.getSpecifiedValue(.box_gen, .box_style);
+        const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
         const computed_box_style, const effective_display = solve.boxStyle(specified_box_style, .NonRoot);
-        computer.setComputedValue(.box_gen, .box_style, computed_box_style);
+        layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
         break :blk .{ computed_box_style, effective_display };
     };
 
@@ -203,76 +186,76 @@ fn ifcRunOnce(
     switch (effective_display) {
         .text => {
             const generated_box = GeneratedBox{ .text = ifc.id };
-            try box_tree.mapElementToBox(element, generated_box);
+            try layout.box_tree.mapElementToBox(element, generated_box);
 
             // TODO: Do proper font matching.
-            const font = computer.getSpecifiedValue(.box_gen, .font);
+            const font = layout.computer.getSpecifiedValue(.box_gen, .font);
             const handle: Fonts.Handle = switch (font.font) {
-                .default => inputs.fonts.query(),
+                .default => layout.inputs.fonts.query(),
                 .none => .invalid,
                 .initial, .inherit, .unset, .undeclared => unreachable,
             };
             ctx.checkHandle(ifc, handle);
-            if (inputs.fonts.get(handle)) |hb_font| {
-                const text = computer.getText();
-                try ifcAddText(box_tree, ifc, text, hb_font.handle);
+            if (layout.inputs.fonts.get(handle)) |hb_font| {
+                const text = layout.computer.getText();
+                try ifcAddText(layout.box_tree, ifc, text, hb_font.handle);
             }
 
-            computer.advanceElement(.box_gen);
+            layout.computer.advanceElement(.box_gen);
         },
         .@"inline" => {
-            const inline_box_index = try ifc.appendInlineBox(box_tree.allocator);
-            inlineBoxSetData(ctx, computer, ifc, inline_box_index);
+            const inline_box_index = try ifc.appendInlineBox(layout.box_tree.allocator);
+            inlineBoxSetData(ctx, &layout.computer, ifc, inline_box_index);
 
             const generated_box = GeneratedBox{ .inline_box = .{ .ifc_id = ifc.id, .index = inline_box_index } };
-            try box_tree.mapElementToBox(element, generated_box);
+            try layout.box_tree.mapElementToBox(element, generated_box);
 
             { // TODO: Grabbing useless data to satisfy inheritance...
                 const data = .{
-                    .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
-                    .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
-                    .z_index = computer.getSpecifiedValue(.box_gen, .z_index),
-                    .font = computer.getSpecifiedValue(.box_gen, .font),
+                    .content_width = layout.computer.getSpecifiedValue(.box_gen, .content_width),
+                    .content_height = layout.computer.getSpecifiedValue(.box_gen, .content_height),
+                    .z_index = layout.computer.getSpecifiedValue(.box_gen, .z_index),
+                    .font = layout.computer.getSpecifiedValue(.box_gen, .font),
                 };
-                computer.setComputedValue(.box_gen, .content_width, data.content_width);
-                computer.setComputedValue(.box_gen, .content_height, data.content_height);
-                computer.setComputedValue(.box_gen, .z_index, data.z_index);
-                computer.setComputedValue(.box_gen, .font, data.font);
+                layout.computer.setComputedValue(.box_gen, .content_width, data.content_width);
+                layout.computer.setComputedValue(.box_gen, .content_height, data.content_height);
+                layout.computer.setComputedValue(.box_gen, .z_index, data.z_index);
+                layout.computer.setComputedValue(.box_gen, .font, data.font);
             }
 
-            try ifcAddBoxStart(box_tree, ifc, inline_box_index);
+            try ifcAddBoxStart(layout.box_tree, ifc, inline_box_index);
 
-            if (!computer.element_tree_slice.firstChild(element).eqlNull()) {
+            if (!layout.computer.element_tree_slice.firstChild(element).eqlNull()) {
                 ctx.inline_box_depth += 1;
                 try ctx.index.append(ctx.allocator, inline_box_index);
                 try ctx.skip.append(ctx.allocator, 1);
-                try computer.pushElement(.box_gen);
+                try layout.computer.pushElement(.box_gen);
             } else {
                 // Optimized path for inline boxes with no children.
                 // It is a shorter version of ifcPopInlineBox.
-                try ifcAddBoxEnd(box_tree, ifc, inline_box_index);
-                computer.advanceElement(.box_gen);
+                try ifcAddBoxEnd(layout.box_tree, ifc, inline_box_index);
+                layout.computer.advanceElement(.box_gen);
             }
         },
         .inline_block => {
-            const used_sizes = inlineBlockSolveSizes(computer, ctx.containing_block_width, ctx.containing_block_height);
-            const stacking_context = inlineBlockCreateStackingContext(computer, computed.position);
+            const used_sizes = inlineBlockSolveSizes(&layout.computer, ctx.containing_block_width, ctx.containing_block_height);
+            const stacking_context = inlineBlockCreateStackingContext(&layout.computer, computed.position);
 
             // TODO: Grabbing useless data to satisfy inheritance...
-            const font = computer.getSpecifiedValue(.box_gen, .font);
-            computer.setComputedValue(.box_gen, .font, font);
+            const font = layout.computer.getSpecifiedValue(.box_gen, .font);
+            layout.computer.setComputedValue(.box_gen, .font, font);
 
-            const subtree = box_tree.blocks.subtree(ctx.subtree_id);
-            const block_index = try subtree.appendBlock(box_tree.allocator);
+            const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
+            const block_index = try subtree.appendBlock(layout.box_tree.allocator);
             const generated_box = GeneratedBox{ .block_box = .{ .subtree = ctx.subtree_id, .index = block_index } };
-            try box_tree.mapElementToBox(element, generated_box);
+            try layout.box_tree.mapElementToBox(element, generated_box);
 
-            const stacking_context_id = try sc.push(stacking_context, box_tree, generated_box.block_box);
-            try computer.pushElement(.box_gen);
+            const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
+            try layout.computer.pushElement(.box_gen);
 
             const skip_of_children, const width_unclamped, const auto_height = if (used_sizes.get(.inline_size)) |inline_size| blk: {
                 // TODO: Recursive call here
-                const result = try flow.runFlowLayout(ctx.allocator, box_tree, sc, computer, inputs, ctx.subtree_id, used_sizes);
+                const result = try flow.runFlowLayout(layout, ctx.subtree_id, used_sizes);
                 break :blk .{ result.skip_of_children, inline_size, result.auto_height };
             } else blk: {
                 const available_width_unclamped = ctx.containing_block_width -
@@ -282,12 +265,12 @@ fn ifcRunOnce(
                 const available_width = solve.clampSize(available_width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
 
                 // TODO: Recursive call here
-                const result = try stf.runShrinkToFitLayout(ctx.allocator, box_tree, sc, computer, inputs, ctx.subtree_id, used_sizes, available_width);
+                const result = try stf.runShrinkToFitLayout(layout, ctx.subtree_id, used_sizes, available_width);
                 break :blk .{ result.skip_of_children, result.width, result.auto_height };
             };
 
-            sc.pop(box_tree);
-            computer.popElement(.box_gen);
+            layout.sc.pop(layout.box_tree);
+            layout.computer.popElement(.box_gen);
 
             const skip = 1 + skip_of_children;
             const width = flow.solveUsedWidth(width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
@@ -295,7 +278,7 @@ fn ifcRunOnce(
             flow.writeBlockData(subtree.slice(), block_index, used_sizes, skip, width, height, stacking_context_id);
 
             ctx.total_inline_block_skip += skip;
-            try ifcAddInlineBlock(box_tree, ifc, block_index);
+            try ifcAddInlineBlock(layout.box_tree, ifc, block_index);
         },
         .block => {
             if (ctx.inline_box_depth == 0) {
@@ -304,20 +287,19 @@ fn ifcRunOnce(
                 panic("TODO: Blocks within inline contexts", .{});
             }
         },
-        .none => computer.advanceElement(.box_gen),
+        .none => layout.computer.advanceElement(.box_gen),
     }
 
     return false;
 }
 
-fn ifcPopInlineBox(ctx: *InlineLayoutContext, computer: *StyleComputer, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
+fn ifcPopInlineBox(ctx: *InlineLayoutContext, box_tree: *BoxTree, ifc: *InlineFormattingContext) !void {
     ctx.inline_box_depth -= 1;
     const inline_box_index = ctx.index.pop();
     const skip = ctx.skip.pop();
     ifc.slice().items(.skip)[inline_box_index] = skip;
     try ifcAddBoxEnd(box_tree, ifc, inline_box_index);
     ctx.skip.items[ctx.skip.items.len - 1] += skip;
-    computer.popElement(.box_gen);
 }
 
 fn ifcAddBoxStart(box_tree: *BoxTree, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
@@ -909,8 +891,8 @@ fn inlineBlockCreateStackingContext(
     }
 }
 
-fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree, inputs: Inputs) void {
-    const font = inputs.fonts.get(ifc.font);
+fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree, fonts: *const Fonts) void {
+    const font = fonts.get(ifc.font);
     const ifc_slice = ifc.slice();
     const subtree_slice = subtree.slice();
 
@@ -1070,11 +1052,9 @@ pub const IFCLineSplitResult = struct {
 };
 
 pub fn splitIntoLineBoxes(
-    allocator: Allocator,
-    box_tree: *BoxTree,
+    layout: *Layout,
     subtree: *const BlockSubtree,
     ifc: *InlineFormattingContext,
-    inputs: Inputs,
     max_line_box_length: ZssUnit,
 ) !IFCLineSplitResult {
     assert(max_line_box_length >= 0);
@@ -1082,7 +1062,7 @@ pub fn splitIntoLineBoxes(
 
     var top_height: ZssUnit = undefined;
     var bottom_height: ZssUnit = undefined;
-    if (inputs.fonts.get(ifc.font)) |font| {
+    if (layout.inputs.fonts.get(ifc.font)) |font| {
         // TODO assuming ltr direction
         var font_extents: hb.hb_font_extents_t = undefined;
         assert(hb.hb_font_get_h_extents(font.handle, &font_extents) != 0);
@@ -1100,7 +1080,7 @@ pub fn splitIntoLineBoxes(
     const subtree_slice = subtree.slice();
 
     var s = IFCLineSplitState.init(top_height, bottom_height);
-    defer s.deinit(allocator);
+    defer s.deinit(layout.allocator);
 
     {
         const gi = ifc.glyph_indeces.items[0];
@@ -1108,7 +1088,7 @@ pub fn splitIntoLineBoxes(
         const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[1]);
         assert(special.kind == .BoxStart);
         assert(@as(InlineBoxIndex, special.data) == 0);
-        s.pushInlineBox(allocator, 0) catch unreachable;
+        s.pushInlineBox(layout.allocator, 0) catch unreachable;
         s.line_box.elements[1] = 2;
         s.line_box.inline_box = null;
     }
@@ -1122,11 +1102,11 @@ pub fn splitIntoLineBoxes(
             i += 1;
             const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
             switch (@as(InlineFormattingContext.Special.LayoutInternalKind, @enumFromInt(@intFromEnum(special.kind)))) {
-                .BoxStart => try s.pushInlineBox(allocator, @as(InlineBoxIndex, special.data)),
+                .BoxStart => try s.pushInlineBox(layout.allocator, @as(InlineBoxIndex, special.data)),
                 .BoxEnd => s.popInlineBox(@as(InlineBoxIndex, special.data)),
                 .LineBreak => {
                     s.finishLineBox();
-                    try ifc.line_boxes.append(box_tree.allocator, s.line_box);
+                    try ifc.line_boxes.append(layout.box_tree.allocator, s.line_box);
                     s.newLineBox(2);
                     continue;
                 },
@@ -1138,7 +1118,7 @@ pub fn splitIntoLineBoxes(
         // TODO: (Bug) A glyph with a width of zero but an advance that is non-zero may overflow the width of the containing block
         if (s.cursor > 0 and metrics.width > 0 and s.cursor + metrics.offset + metrics.width > max_line_box_length and s.line_box.elements[1] > s.line_box.elements[0]) {
             s.finishLineBox();
-            try ifc.line_boxes.append(box_tree.allocator, s.line_box);
+            try ifc.line_boxes.append(layout.box_tree.allocator, s.line_box);
             s.newLineBox(0);
         }
 
@@ -1152,7 +1132,7 @@ pub fn splitIntoLineBoxes(
                     const margin_box_height = box_offsets.border_size.h + margins.top + margins.bottom;
                     s.max_top_height = @max(s.max_top_height, margin_box_height);
                     try s.inline_blocks_in_this_line_box.append(
-                        allocator,
+                        layout.allocator,
                         .{ .box_offsets = box_offsets, .cursor = s.cursor, .height = margin_box_height - margins.top },
                     );
                 },
@@ -1170,7 +1150,7 @@ pub fn splitIntoLineBoxes(
 
     if (s.line_box.elements[1] > s.line_box.elements[0]) {
         s.finishLineBox();
-        try ifc.line_boxes.append(box_tree.allocator, s.line_box);
+        try ifc.line_boxes.append(layout.box_tree.allocator, s.line_box);
     }
 
     return IFCLineSplitResult{

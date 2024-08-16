@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
-const Inputs = zss.layout.Inputs;
+const Layout = zss.layout.Layout;
 const StyleComputer = @import("./StyleComputer.zig");
 const aggregates = zss.properties.aggregates;
 const solve = @import("./solve.zig");
@@ -36,89 +36,89 @@ const Context = struct {
     }
 };
 
-pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, inputs: Inputs) !void {
-    const initial_containing_block = box_tree.blocks.initial_containing_block;
-    anonymousBlockBoxCosmeticLayout(box_tree, initial_containing_block);
+pub fn run(layout: *Layout) !void {
+    const initial_containing_block = layout.box_tree.blocks.initial_containing_block;
+    anonymousBlockBoxCosmeticLayout(layout.box_tree, initial_containing_block);
     // TODO: Also process any anonymous block boxes.
 
-    for (box_tree.ifcs.items) |ifc| {
+    for (layout.box_tree.ifcs.items) |ifc| {
         rootInlineBoxCosmeticLayout(ifc);
     }
 
-    if (inputs.root_element.eqlNull()) return;
-    computer.setRootElement(.cosmetic, inputs.root_element);
+    if (layout.inputs.root_element.eqlNull()) return;
+    layout.computer.setRootElement(.cosmetic, layout.inputs.root_element);
 
-    var context = Context{ .allocator = allocator };
+    var context = Context{ .allocator = layout.allocator };
     defer context.deinit();
 
     {
-        const initial_containing_block_subtree = box_tree.blocks.subtree(initial_containing_block.subtree);
+        const initial_containing_block_subtree = layout.box_tree.blocks.subtree(initial_containing_block.subtree);
         const box_offsets = initial_containing_block_subtree.slice().items(.box_offsets)[initial_containing_block.index];
         try context.mode.append(context.allocator, .InitialContainingBlock);
         try context.containing_block_size.append(context.allocator, box_offsets.content_size);
     }
 
     {
-        const root_element = computer.getCurrentElement();
-        const box_type = box_tree.element_to_generated_box.get(root_element) orelse return;
+        const root_element = layout.computer.getCurrentElement();
+        const box_type = layout.box_tree.element_to_generated_box.get(root_element) orelse return;
         switch (box_type) {
             .block_box => |block_box| {
-                try blockBoxCosmeticLayout(context, computer, box_tree, inputs, block_box, .Root);
+                try blockBoxCosmeticLayout(layout, context, block_box, .Root);
 
                 // TODO: Temporary jank to set the text color.
-                const computed_color = computer.stage.cosmetic.current_values.color;
+                const computed_color = layout.computer.stage.cosmetic.current_values.color;
                 const used_color = solve.currentColor(computed_color.color);
-                for (box_tree.ifcs.items) |ifc| {
+                for (layout.box_tree.ifcs.items) |ifc| {
                     ifc.font_color = used_color;
                 }
 
-                if (!computer.element_tree_slice.firstChild(root_element).eqlNull()) {
-                    const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
+                if (!layout.computer.element_tree_slice.firstChild(root_element).eqlNull()) {
+                    const subtree_slice = layout.box_tree.blocks.subtree(block_box.subtree).slice();
                     const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
                     try context.mode.append(context.allocator, .Flow);
                     try context.containing_block_size.append(context.allocator, box_offsets.content_size);
-                    try computer.pushElement(.cosmetic);
+                    try layout.computer.pushElement(.cosmetic);
                 } else {
-                    computer.advanceElement(.cosmetic);
+                    layout.computer.advanceElement(.cosmetic);
                 }
             },
-            .text => computer.advanceElement(.cosmetic),
+            .text => layout.computer.advanceElement(.cosmetic),
             .inline_box => unreachable,
         }
     }
 
     while (context.mode.items.len > 1) {
-        const element = computer.getCurrentElement();
+        const element = layout.computer.getCurrentElement();
         if (!element.eqlNull()) {
-            const box_type = box_tree.element_to_generated_box.get(element) orelse {
-                computer.advanceElement(.cosmetic);
+            const box_type = layout.box_tree.element_to_generated_box.get(element) orelse {
+                layout.computer.advanceElement(.cosmetic);
                 continue;
             };
-            const has_children = !computer.element_tree_slice.firstChild(element).eqlNull();
+            const has_children = !layout.computer.element_tree_slice.firstChild(element).eqlNull();
             switch (box_type) {
-                .text => computer.advanceElement(.cosmetic),
+                .text => layout.computer.advanceElement(.cosmetic),
                 .block_box => |block_box| {
-                    try blockBoxCosmeticLayout(context, computer, box_tree, inputs, block_box, .NonRoot);
+                    try blockBoxCosmeticLayout(layout, context, block_box, .NonRoot);
 
                     if (has_children) {
-                        const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
+                        const subtree_slice = layout.box_tree.blocks.subtree(block_box.subtree).slice();
                         const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
                         try context.mode.append(context.allocator, .Flow);
                         try context.containing_block_size.append(context.allocator, box_offsets.content_size);
-                        try computer.pushElement(.cosmetic);
+                        try layout.computer.pushElement(.cosmetic);
                     } else {
-                        computer.advanceElement(.cosmetic);
+                        layout.computer.advanceElement(.cosmetic);
                     }
                 },
                 .inline_box => |inline_box| {
-                    const ifc = box_tree.ifc(inline_box.ifc_id);
-                    inlineBoxCosmeticLayout(context, computer, inputs, ifc, inline_box.index);
+                    const ifc = layout.box_tree.ifc(inline_box.ifc_id);
+                    inlineBoxCosmeticLayout(layout, context, ifc, inline_box.index);
 
                     if (has_children) {
                         try context.mode.append(context.allocator, .InlineBox);
-                        try computer.pushElement(.cosmetic);
+                        try layout.computer.pushElement(.cosmetic);
                     } else {
-                        computer.advanceElement(.cosmetic);
+                        layout.computer.advanceElement(.cosmetic);
                     }
                 },
             }
@@ -131,33 +131,26 @@ pub fn run(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, i
                 },
                 .InlineBox => {},
             }
-            computer.popElement(.cosmetic);
+            layout.computer.popElement(.cosmetic);
         }
     }
 
     assert(context.mode.pop() == .InitialContainingBlock);
-    computer.popElement(.cosmetic);
+    layout.computer.popElement(.cosmetic);
 }
 
-fn blockBoxCosmeticLayout(
-    context: Context,
-    computer: *StyleComputer,
-    box_tree: *BoxTree,
-    inputs: Inputs,
-    block_box: BlockBox,
-    comptime is_root: solve.IsRoot,
-) !void {
+fn blockBoxCosmeticLayout(layout: *Layout, context: Context, block_box: BlockBox, comptime is_root: solve.IsRoot) !void {
     const specified = .{
-        .box_style = computer.getSpecifiedValue(.cosmetic, .box_style),
-        .color = computer.getSpecifiedValue(.cosmetic, .color),
-        .border_colors = computer.getSpecifiedValue(.cosmetic, .border_colors),
-        .border_styles = computer.getSpecifiedValue(.cosmetic, .border_styles),
-        .background1 = computer.getSpecifiedValue(.cosmetic, .background1),
-        .background2 = computer.getSpecifiedValue(.cosmetic, .background2),
-        .insets = computer.getSpecifiedValue(.cosmetic, .insets),
+        .box_style = layout.computer.getSpecifiedValue(.cosmetic, .box_style),
+        .color = layout.computer.getSpecifiedValue(.cosmetic, .color),
+        .border_colors = layout.computer.getSpecifiedValue(.cosmetic, .border_colors),
+        .border_styles = layout.computer.getSpecifiedValue(.cosmetic, .border_styles),
+        .background1 = layout.computer.getSpecifiedValue(.cosmetic, .background1),
+        .background2 = layout.computer.getSpecifiedValue(.cosmetic, .background2),
+        .insets = layout.computer.getSpecifiedValue(.cosmetic, .insets),
     };
 
-    const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
+    const subtree_slice = layout.box_tree.blocks.subtree(block_box.subtree).slice();
 
     const computed_box_style, _ = solve.boxStyle(specified.box_style, is_root);
     const current_color = solve.currentColor(specified.color.color);
@@ -189,8 +182,8 @@ fn blockBoxCosmeticLayout(
     {
         const background_ptr = &subtree_slice.items(.background)[block_box.index];
         try blockBoxBackgrounds(
-            box_tree,
-            inputs,
+            layout.box_tree,
+            layout.inputs,
             box_offsets_ptr,
             borders_ptr,
             current_color,
@@ -199,14 +192,14 @@ fn blockBoxCosmeticLayout(
         );
     }
 
-    computer.setComputedValue(.cosmetic, .box_style, computed_box_style);
-    computer.setComputedValue(.cosmetic, .insets, computed_insets);
+    layout.computer.setComputedValue(.cosmetic, .box_style, computed_box_style);
+    layout.computer.setComputedValue(.cosmetic, .insets, computed_insets);
     // TODO: Pretending that specified values are computed values...
-    computer.setComputedValue(.cosmetic, .color, specified.color);
-    computer.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
-    computer.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
-    computer.setComputedValue(.cosmetic, .background1, specified.background1);
-    computer.setComputedValue(.cosmetic, .background2, specified.background2);
+    layout.computer.setComputedValue(.cosmetic, .color, specified.color);
+    layout.computer.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
+    layout.computer.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
+    layout.computer.setComputedValue(.cosmetic, .background1, specified.background1);
+    layout.computer.setComputedValue(.cosmetic, .background2, specified.background2);
 }
 
 fn solveInsetsStatic(
@@ -323,7 +316,7 @@ fn solveInsetsRelative(
 
 fn blockBoxBackgrounds(
     box_tree: *BoxTree,
-    inputs: Inputs,
+    inputs: Layout.Inputs,
     box_offsets: *const used_values.BoxOffsets,
     borders: *const used_values.Borders,
     current_color: used_values.Color,
@@ -383,7 +376,7 @@ fn blockBoxBackgrounds(
     background_ptr.images = handle;
 }
 
-fn getBackgroundPropertyArray(inputs: Inputs, ptr_to_value: anytype) []const std.meta.Child(@TypeOf(ptr_to_value)) {
+fn getBackgroundPropertyArray(inputs: Layout.Inputs, ptr_to_value: anytype) []const std.meta.Child(@TypeOf(ptr_to_value)) {
     const T = std.meta.Child(@TypeOf(ptr_to_value));
     switch (ptr_to_value.*) {
         .many => |storage_handle| return inputs.storage.get(T, storage_handle),
@@ -400,22 +393,21 @@ fn anonymousBlockBoxCosmeticLayout(box_tree: *BoxTree, block_box: BlockBox) void
 }
 
 fn inlineBoxCosmeticLayout(
+    layout: *Layout,
     context: Context,
-    computer: *StyleComputer,
-    inputs: Inputs,
     ifc: *InlineFormattingContext,
     inline_box_index: InlineBoxIndex,
 ) void {
     const ifc_slice = ifc.slice();
 
     const specified = .{
-        .box_style = computer.getSpecifiedValue(.cosmetic, .box_style),
-        .color = computer.getSpecifiedValue(.cosmetic, .color),
-        .border_colors = computer.getSpecifiedValue(.cosmetic, .border_colors),
-        .border_styles = computer.getSpecifiedValue(.cosmetic, .border_styles),
-        .background1 = computer.getSpecifiedValue(.cosmetic, .background1),
-        .background2 = computer.getSpecifiedValue(.cosmetic, .background2), // TODO: Inline boxes don't need background2
-        .insets = computer.getSpecifiedValue(.cosmetic, .insets),
+        .box_style = layout.computer.getSpecifiedValue(.cosmetic, .box_style),
+        .color = layout.computer.getSpecifiedValue(.cosmetic, .color),
+        .border_colors = layout.computer.getSpecifiedValue(.cosmetic, .border_colors),
+        .border_styles = layout.computer.getSpecifiedValue(.cosmetic, .border_styles),
+        .background1 = layout.computer.getSpecifiedValue(.cosmetic, .background1),
+        .background2 = layout.computer.getSpecifiedValue(.cosmetic, .background2), // TODO: Inline boxes don't need background2
+        .insets = layout.computer.getSpecifiedValue(.cosmetic, .insets),
     };
 
     const computed_box_style, _ = solve.boxStyle(specified.box_style, .NonRoot);
@@ -448,7 +440,7 @@ fn inlineBoxCosmeticLayout(
     {
         const background_clip = switch (specified.background1.clip) {
             .many => |storage_handle| blk: {
-                const array = inputs.storage.get(zss.values.types.BackgroundClip, storage_handle);
+                const array = layout.inputs.storage.get(zss.values.types.BackgroundClip, storage_handle);
                 // CSS-BACKGROUNDS-3§2.2:
                 // The background color is clipped according to the background-clip value associated with the bottom-most background image layer.
                 break :blk array[array.len - 1];
@@ -459,14 +451,14 @@ fn inlineBoxCosmeticLayout(
         background_ptr.* = solve.inlineBoxBackground(specified.background1.color, background_clip, current_color);
     }
 
-    computer.setComputedValue(.cosmetic, .box_style, computed_box_style);
-    computer.setComputedValue(.cosmetic, .insets, computed_insets);
+    layout.computer.setComputedValue(.cosmetic, .box_style, computed_box_style);
+    layout.computer.setComputedValue(.cosmetic, .insets, computed_insets);
     // TODO: Pretending that specified values are computed values...
-    computer.setComputedValue(.cosmetic, .color, specified.color);
-    computer.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
-    computer.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
-    computer.setComputedValue(.cosmetic, .background1, specified.background1);
-    computer.setComputedValue(.cosmetic, .background2, specified.background2);
+    layout.computer.setComputedValue(.cosmetic, .color, specified.color);
+    layout.computer.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
+    layout.computer.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
+    layout.computer.setComputedValue(.cosmetic, .background1, specified.background1);
+    layout.computer.setComputedValue(.cosmetic, .background2, specified.background2);
 }
 
 fn rootInlineBoxCosmeticLayout(ifc: *InlineFormattingContext) void {

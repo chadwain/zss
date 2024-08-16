@@ -21,20 +21,13 @@ const BoxTree = used_values.BoxTree;
 const ZssUnit = used_values.ZssUnit;
 const ZssSize = used_values.ZssSize;
 
-pub const Inputs = struct {
-    viewport: ZssSize,
-    root_element: Element,
-    images: Images.Slice,
-    fonts: *const Fonts,
-    storage: *const Storage,
-};
-
 pub const Error = error{
     OutOfMemory,
     OutOfRefs,
     TooManyBlocks,
     TooManyIfcs,
     TooManyInlineBoxes,
+    ViewportTooLarge,
 };
 
 pub fn doLayout(
@@ -49,54 +42,92 @@ pub fn doLayout(
     fonts: *const Fonts,
     storage: *const Storage,
 ) Error!BoxTree {
-    var computer = StyleComputer{
-        .element_tree_slice = element_tree_slice,
-        .stage = undefined,
-        .allocator = allocator,
-    };
-    defer computer.deinit();
-
     var box_tree = BoxTree{ .allocator = allocator };
     errdefer box_tree.deinit();
 
-    const inputs = Inputs{
-        .viewport = .{
-            .w = @intCast(width * units_per_pixel),
-            .h = @intCast(height * units_per_pixel),
-        },
-        .root_element = root_element,
-        .images = images,
-        .fonts = fonts,
-        .storage = storage,
-    };
+    var layout = try Layout.init(&box_tree, element_tree_slice, root_element, allocator, width, height, images, fonts, storage);
+    defer layout.deinit();
 
-    try boxGeneration(&computer, &box_tree, allocator, inputs);
-    try cosmeticLayout(&computer, &box_tree, allocator, inputs);
+    try boxGeneration(&layout);
+    try cosmeticLayout(&layout);
 
     return box_tree;
 }
 
-fn boxGeneration(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, inputs: Inputs) !void {
-    computer.stage = .{ .box_gen = .{} };
-    defer computer.deinitStage(.box_gen);
+pub const Layout = struct {
+    box_tree: *BoxTree,
+    computer: StyleComputer,
+    sc: StackingContexts,
+    inputs: Inputs,
+    allocator: Allocator,
 
-    var context = initial.InitialLayoutContext{ .allocator = allocator };
+    pub const Inputs = struct {
+        viewport: ZssSize,
+        root_element: Element,
+        images: Images.Slice,
+        fonts: *const Fonts,
+        storage: *const Storage,
+    };
 
-    var sc = StackingContexts{ .allocator = allocator };
-    defer sc.deinit();
+    fn init(
+        box_tree: *BoxTree,
+        element_tree_slice: ElementTree.Slice,
+        root_element: Element,
+        allocator: Allocator,
+        width: u32,
+        height: u32,
+        images: Images.Slice,
+        fonts: *const Fonts,
+        storage: *const Storage,
+    ) !Layout {
+        const cast = used_values.pixelsToZssUnits;
+        const width_units = cast(width) orelse return error.ViewportTooLarge;
+        const height_units = cast(height) orelse return error.ViewportTooLarge;
+        return .{
+            .box_tree = box_tree,
+            .computer = .{
+                .element_tree_slice = element_tree_slice,
+                .stage = undefined,
+                .allocator = allocator,
+            },
+            .sc = .{ .allocator = allocator },
+            .inputs = .{
+                .viewport = .{
+                    .w = width_units,
+                    .h = height_units,
+                },
+                .root_element = root_element,
+                .images = images,
+                .fonts = fonts,
+                .storage = storage,
+            },
+            .allocator = allocator,
+        };
+    }
 
-    try initial.run(&context, &sc, computer, box_tree, inputs);
+    fn deinit(layout: *Layout) void {
+        layout.computer.deinit();
+        layout.sc.deinit();
+    }
+};
 
-    computer.assertEmptyStage(.box_gen);
+fn boxGeneration(layout: *Layout) !void {
+    layout.computer.stage = .{ .box_gen = .{} };
+    defer layout.computer.deinitStage(.box_gen);
+
+    var context = initial.InitialLayoutContext{ .allocator = layout.allocator };
+    try initial.run(layout, &context);
+
+    layout.computer.assertEmptyStage(.box_gen);
 }
 
-fn cosmeticLayout(computer: *StyleComputer, box_tree: *BoxTree, allocator: Allocator, inputs: Inputs) !void {
-    computer.stage = .{ .cosmetic = .{} };
-    defer computer.deinitStage(.cosmetic);
+fn cosmeticLayout(layout: *Layout) !void {
+    layout.computer.stage = .{ .cosmetic = .{} };
+    defer layout.computer.deinitStage(.cosmetic);
 
-    try cosmetic.run(computer, box_tree, allocator, inputs);
+    try cosmetic.run(layout);
 
-    computer.assertEmptyStage(.cosmetic);
+    layout.computer.assertEmptyStage(.cosmetic);
 }
 
 pub const BlockComputedSizes = struct {

@@ -9,7 +9,7 @@ const aggregates = zss.properties.aggregates;
 const BlockComputedSizes = zss.layout.BlockComputedSizes;
 const BlockUsedSizes = zss.layout.BlockUsedSizes;
 const Element = zss.ElementTree.Element;
-const Inputs = zss.layout.Inputs;
+const Layout = zss.layout.Layout;
 const Stack = zss.util.Stack;
 
 const solve = @import("./solve.zig");
@@ -34,20 +34,16 @@ pub const Result = struct {
 };
 
 pub fn runFlowLayout(
-    allocator: Allocator,
-    box_tree: *BoxTree,
-    sc: *StackingContexts,
-    computer: *StyleComputer,
-    inputs: Inputs,
+    layout: *Layout,
     subtree_id: SubtreeId,
     used_sizes: BlockUsedSizes,
 ) !Result {
-    var ctx = Context{ .allocator = allocator, .subtree_id = subtree_id };
+    var ctx = Context{ .allocator = layout.allocator, .subtree_id = subtree_id };
     defer ctx.deinit();
 
     pushMainBlock(&ctx, used_sizes);
     while (ctx.stack.top) |_| {
-        try analyzeElement(&ctx, sc, computer, box_tree, inputs);
+        try analyzeElement(layout, &ctx);
     }
 
     return ctx.result;
@@ -71,22 +67,22 @@ const Context = struct {
     }
 };
 
-fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer, box_tree: *BoxTree, inputs: Inputs) !void {
-    const element = computer.getCurrentElement();
+fn analyzeElement(layout: *Layout, ctx: *Context) !void {
+    const element = layout.computer.getCurrentElement();
     if (element.eqlNull()) {
-        return popBlock(ctx, computer, sc, box_tree);
+        return popBlock(layout, ctx);
     }
 
     const computed_box_style, const effective_display = blk: {
-        if (computer.elementCategory(element) == .text) {
+        if (layout.computer.elementCategory(element) == .text) {
             break :blk .{ undefined, .text };
         }
 
-        const specified_box_style = computer.getSpecifiedValue(.box_gen, .box_style);
-        const specified_font = computer.getSpecifiedValue(.box_gen, .font);
+        const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
+        const specified_font = layout.computer.getSpecifiedValue(.box_gen, .font);
         const computed_box_style, const effective_display = solve.boxStyle(specified_box_style, .NonRoot);
-        computer.setComputedValue(.box_gen, .box_style, computed_box_style);
-        computer.setComputedValue(.box_gen, .font, specified_font);
+        layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
+        layout.computer.setComputedValue(.box_gen, .font, specified_font);
         break :blk .{ computed_box_style, effective_display };
     };
 
@@ -96,27 +92,16 @@ fn analyzeElement(ctx: *Context, sc: *StackingContexts, computer: *StyleComputer
 
     switch (effective_display) {
         .block => {
-            const used_sizes = solveAllSizes(computer, containing_block_width, containing_block_height);
-            const stacking_context = solveStackingContext(computer, computed_box_style.position);
-            try pushBlock(ctx, computer, box_tree, sc, element, used_sizes, stacking_context);
+            const used_sizes = solveAllSizes(&layout.computer, containing_block_width, containing_block_height);
+            const stacking_context = solveStackingContext(&layout.computer, computed_box_style.position);
+            try pushBlock(layout, ctx, element, used_sizes, stacking_context);
         },
         .@"inline", .inline_block, .text => {
-            const result = try @"inline".runInlineLayout(
-                ctx.allocator,
-                sc,
-                computer,
-                box_tree,
-                ctx.subtree_id,
-                .Normal,
-                containing_block_width,
-                containing_block_height,
-                inputs,
-            );
-
+            const result = try @"inline".runInlineLayout(layout, ctx.subtree_id, .Normal, containing_block_width, containing_block_height);
             parent.skip += result.skip;
             advanceFlow(&parent.auto_height, result.height);
         },
-        .none => computer.advanceElement(.box_gen),
+        .none => layout.computer.advanceElement(.box_gen),
     }
 }
 
@@ -130,19 +115,11 @@ fn pushMainBlock(ctx: *Context, used_sizes: BlockUsedSizes) void {
     };
 }
 
-fn pushBlock(
-    ctx: *Context,
-    computer: *StyleComputer,
-    box_tree: *BoxTree,
-    sc: *StackingContexts,
-    element: Element,
-    used_sizes: BlockUsedSizes,
-    stacking_context: StackingContexts.Info,
-) !void {
-    const subtree = box_tree.blocks.subtree(ctx.subtree_id);
-    const block_index = try subtree.appendBlock(box_tree.allocator);
+fn pushBlock(layout: *Layout, ctx: *Context, element: Element, used_sizes: BlockUsedSizes, stacking_context: StackingContexts.Info) !void {
+    const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
+    const block_index = try subtree.appendBlock(layout.box_tree.allocator);
     const generated_box = GeneratedBox{ .block_box = .{ .subtree = ctx.subtree_id, .index = block_index } };
-    try box_tree.mapElementToBox(element, generated_box);
+    try layout.box_tree.mapElementToBox(element, generated_box);
 
     // The allocations here must have corresponding deallocations in popBlock.
     try ctx.stack.push(ctx.allocator, .{
@@ -151,14 +128,14 @@ fn pushBlock(
         .used = BlockUsedSizesSlim.fromFull(used_sizes),
         .auto_height = 0,
     });
-    const stacking_context_id = try sc.push(stacking_context, box_tree, generated_box.block_box);
-    try computer.pushElement(.box_gen);
+    const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
+    try layout.computer.pushElement(.box_gen);
 
     const width = solveUsedWidth(used_sizes.get(.inline_size).?, used_sizes.min_inline_size, used_sizes.max_inline_size);
     writeBlockDataPart1(subtree.slice(), block_index, used_sizes, width, stacking_context_id);
 }
 
-fn popBlock(ctx: *Context, computer: *StyleComputer, sc: *StackingContexts, box_tree: *BoxTree) void {
+fn popBlock(layout: *Layout, ctx: *Context) void {
     // The deallocations here must correspond to allocations in pushBlock.
     const this = ctx.stack.pop();
     const parent = if (ctx.stack.top) |*top| top else {
@@ -169,10 +146,10 @@ fn popBlock(ctx: *Context, computer: *StyleComputer, sc: *StackingContexts, box_
         return;
     };
 
-    sc.pop(box_tree);
-    computer.popElement(.box_gen);
+    layout.sc.pop(layout.box_tree);
+    layout.computer.popElement(.box_gen);
 
-    const subtree_slice = box_tree.blocks.subtree(ctx.subtree_id).slice();
+    const subtree_slice = layout.box_tree.blocks.subtree(ctx.subtree_id).slice();
     const height = solveUsedHeight(this.used.block_size, this.used.min_block_size, this.used.max_block_size, this.auto_height);
     writeBlockDataPart2(subtree_slice, this.index, this.skip, height);
 

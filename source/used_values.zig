@@ -15,6 +15,11 @@ pub const ZssUnit = i32;
 /// The number of ZssUnits contained wthin the width or height of 1 screen pixel.
 pub const units_per_pixel = 4;
 
+pub fn pixelsToZssUnits(px: anytype) ?ZssUnit {
+    const casted = std.math.cast(ZssUnit, px) orelse return null;
+    return std.math.mul(ZssUnit, casted, units_per_pixel) catch null;
+}
+
 pub const ZssVector = struct {
     x: ZssUnit,
     y: ZssUnit,

@@ -10,7 +10,7 @@ const BlockComputedSizes = zss.layout.BlockComputedSizes;
 const BlockUsedSizes = zss.layout.BlockUsedSizes;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
-const Inputs = zss.layout.Inputs;
+const Layout = zss.layout.Layout;
 const Stack = zss.util.Stack;
 
 const flow = @import("./flow.zig");
@@ -36,25 +36,16 @@ pub const Result = struct {
     auto_height: ZssUnit,
 };
 
-pub fn runShrinkToFitLayout(
-    allocator: Allocator,
-    box_tree: *BoxTree,
-    sc: *StackingContexts,
-    computer: *StyleComputer,
-    inputs: Inputs,
-    subtree_id: SubtreeId,
-    used_sizes: BlockUsedSizes,
-    available_width: ZssUnit,
-) !Result {
+pub fn runShrinkToFitLayout(layout: *Layout, subtree_id: SubtreeId, used_sizes: BlockUsedSizes, available_width: ZssUnit) !Result {
     var object_tree = ObjectTree{};
-    defer object_tree.deinit(allocator);
+    defer object_tree.deinit(layout.allocator);
 
     var ctx = BuildObjectTreeContext{};
-    defer ctx.deinit(allocator);
+    defer ctx.deinit(layout.allocator);
 
-    try pushMainObject(&ctx, &object_tree, allocator, used_sizes, available_width);
-    try buildObjectTree(&ctx, &object_tree, allocator, sc, computer, box_tree, inputs);
-    return try realizeObjects(object_tree.slice(), allocator, box_tree, subtree_id);
+    try pushMainObject(&ctx, &object_tree, layout.allocator, used_sizes, available_width);
+    try buildObjectTree(layout, &ctx, &object_tree);
+    return try realizeObjects(object_tree.slice(), layout.allocator, layout.box_tree, subtree_id);
 }
 
 const Object = struct {
@@ -108,45 +99,33 @@ pub const BuildObjectTreeContext = struct {
 };
 
 fn buildObjectTree(
+    layout: *Layout,
     ctx: *BuildObjectTreeContext,
     object_tree: *ObjectTree,
-    allocator: Allocator,
-    sc: *StackingContexts,
-    computer: *StyleComputer,
-    box_tree: *BoxTree,
-    inputs: Inputs,
 ) !void {
     while (ctx.stack.top) |this| {
         const object_tag = object_tree.items(.tag)[this.object_index];
         switch (object_tag) {
-            .flow_stf => try flowObject(ctx, object_tree, allocator, sc, computer, box_tree, inputs),
+            .flow_stf => try flowObject(layout, ctx, object_tree),
             .flow_normal, .ifc => unreachable,
         }
     }
 }
 
-fn flowObject(
-    ctx: *BuildObjectTreeContext,
-    object_tree: *ObjectTree,
-    allocator: Allocator,
-    sc: *StackingContexts,
-    computer: *StyleComputer,
-    box_tree: *BoxTree,
-    inputs: Inputs,
-) !void {
-    const element = computer.getCurrentElement();
+fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *ObjectTree) !void {
+    const element = layout.computer.getCurrentElement();
     if (element.eqlNull()) {
-        return popFlowObject(ctx, object_tree, computer, box_tree, sc);
+        return popFlowObject(layout, ctx, object_tree);
     }
 
     const computed, const effective_display = blk: {
-        if (computer.elementCategory(element) == .text) {
+        if (layout.computer.elementCategory(element) == .text) {
             break :blk .{ undefined, .text };
         }
 
-        const specified_box_style = computer.getSpecifiedValue(.box_gen, .box_style);
+        const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
         const computed_box_style, const effective_display = solve.boxStyle(specified_box_style, .NonRoot);
-        computer.setComputedValue(.box_gen, .box_style, computed_box_style);
+        layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
         break :blk .{ computed_box_style, effective_display };
     };
 
@@ -155,14 +134,14 @@ fn flowObject(
     switch (effective_display) {
         .block => {
             var used: BlockUsedSizes = undefined;
-            solveBlockSizes(computer, &used, parent.height);
-            const stacking_context = flow.solveStackingContext(computer, computed.position);
+            solveBlockSizes(&layout.computer, &used, parent.height);
+            const stacking_context = flow.solveStackingContext(&layout.computer, computed.position);
 
             { // TODO: Delete this
                 const stuff = .{
-                    .font = computer.getSpecifiedValue(.box_gen, .font),
+                    .font = layout.computer.getSpecifiedValue(.box_gen, .font),
                 };
-                computer.setComputedValue(.box_gen, .font, stuff.font);
+                layout.computer.setComputedValue(.box_gen, .font, stuff.font);
             }
 
             const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
@@ -170,18 +149,18 @@ fn flowObject(
                 used.padding_inline_start + used.padding_inline_end;
 
             if (used.get(.inline_size)) |inline_size| {
-                const new_subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, null);
-                const subtree = box_tree.blocks.subtree(new_subtree_id);
-                const block_index = try subtree.appendBlock(box_tree.allocator);
+                const new_subtree_id = try layout.box_tree.blocks.makeSubtree(layout.box_tree.allocator, null);
+                const subtree = layout.box_tree.blocks.subtree(new_subtree_id);
+                const block_index = try subtree.appendBlock(layout.box_tree.allocator);
                 const generated_box = GeneratedBox{ .block_box = .{ .subtree = new_subtree_id, .index = block_index } };
-                try box_tree.mapElementToBox(element, generated_box);
+                try layout.box_tree.mapElementToBox(element, generated_box);
 
-                const stacking_context_id = try sc.push(stacking_context, box_tree, generated_box.block_box);
-                try computer.pushElement(.box_gen);
+                const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
+                try layout.computer.pushElement(.box_gen);
                 // TODO: Recursive call here
-                const result = try flow.runFlowLayout(allocator, box_tree, sc, computer, inputs, new_subtree_id, used);
-                sc.pop(box_tree);
-                computer.popElement(.box_gen);
+                const result = try flow.runFlowLayout(layout, new_subtree_id, used);
+                layout.sc.pop(layout.box_tree);
+                layout.computer.popElement(.box_gen);
 
                 const skip = 1 + result.skip_of_children;
                 const width = flow.solveUsedWidth(inline_size, used.min_inline_size, used.max_inline_size);
@@ -190,7 +169,7 @@ fn flowObject(
 
                 parent.object_skip += 1;
                 parent.auto_width = @max(parent.auto_width, inline_size + edge_width);
-                try object_tree.append(allocator, .{
+                try object_tree.append(layout.allocator, .{
                     .skip = 1,
                     .tag = .flow_normal,
                     .element = element,
@@ -201,30 +180,20 @@ fn flowObject(
                 });
             } else {
                 const available_width = solve.clampSize(parent.available_width - edge_width, used.min_inline_size, used.max_inline_size);
-                try pushFlowObject(ctx, object_tree, allocator, computer, box_tree, sc, element, used, available_width, stacking_context);
+                try pushFlowObject(layout, ctx, object_tree, element, used, available_width, stacking_context);
             }
         },
-        .none => computer.advanceElement(.box_gen),
+        .none => layout.computer.advanceElement(.box_gen),
         .@"inline", .inline_block, .text => {
-            const new_subtree_id = try box_tree.blocks.makeSubtree(box_tree.allocator, null);
+            const new_subtree_id = try layout.box_tree.blocks.makeSubtree(layout.box_tree.allocator, null);
 
-            const result = try @"inline".runInlineLayout(
-                allocator,
-                sc,
-                computer,
-                box_tree,
-                new_subtree_id,
-                .ShrinkToFit,
-                parent.available_width,
-                parent.height,
-                inputs,
-            );
+            const result = try @"inline".runInlineLayout(layout, new_subtree_id, .ShrinkToFit, parent.available_width, parent.height);
 
             parent.auto_width = @max(parent.auto_width, result.min_width);
 
             // TODO: Store the IFC index as the element
             parent.object_skip += 1;
-            try object_tree.append(allocator, .{
+            try object_tree.append(layout.allocator, .{
                 .skip = 1,
                 .tag = .ifc,
                 .element = undefined,
@@ -265,29 +234,26 @@ fn pushMainObject(
 }
 
 fn pushFlowObject(
+    layout: *Layout,
     ctx: *BuildObjectTreeContext,
     object_tree: *ObjectTree,
-    allocator: Allocator,
-    computer: *StyleComputer,
-    box_tree: *BoxTree,
-    sc: *StackingContexts,
     element: Element,
     used_sizes: BlockUsedSizes,
     available_width: ZssUnit,
     stacking_context: StackingContexts.Info,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowObject.
-    try ctx.stack.push(allocator, .{
+    try ctx.stack.push(layout.allocator, .{
         .object_index = @intCast(object_tree.len),
         .object_skip = 1,
         .auto_width = 0,
         .available_width = available_width,
         .height = used_sizes.get(.block_size),
     });
-    const stacking_context_id = try sc.push(stacking_context, box_tree, undefined);
-    try computer.pushElement(.box_gen);
+    const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, undefined);
+    try layout.computer.pushElement(.box_gen);
 
-    try object_tree.append(allocator, .{
+    try object_tree.append(layout.allocator, .{
         .skip = undefined,
         .tag = .flow_stf,
         .element = element,
@@ -299,7 +265,7 @@ fn pushFlowObject(
     });
 }
 
-fn popFlowObject(ctx: *BuildObjectTreeContext, object_tree: *ObjectTree, computer: *StyleComputer, box_tree: *BoxTree, sc: *StackingContexts) void {
+fn popFlowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *ObjectTree) void {
     // The deallocations here must correspond to allocations in pushFlowObject.
     const this = ctx.stack.pop();
     const object_tree_slice = object_tree.slice();
@@ -309,8 +275,8 @@ fn popFlowObject(ctx: *BuildObjectTreeContext, object_tree: *ObjectTree, compute
     data.width = solve.clampSize(this.auto_width, used.min_inline_size, used.max_inline_size);
 
     const parent = if (ctx.stack.top) |*top| top else return;
-    sc.pop(box_tree);
-    computer.popElement(.box_gen);
+    layout.sc.pop(layout.box_tree);
+    layout.computer.popElement(.box_gen);
 
     const parent_object_tag = object_tree_slice.items(.tag)[parent.object_index];
     switch (parent_object_tag) {
