@@ -72,54 +72,65 @@ pub const IsRoot = enum {
     NonRoot,
 };
 
-pub const EffectiveDisplay = enum {
-    block,
-    @"inline",
-    inline_block,
-    text,
-    none,
-
-    fn fromComputedDisplay(display: types.Display) EffectiveDisplay {
-        return switch (display) {
-            .block => .block,
-            .@"inline" => .@"inline",
-            .inline_block => .inline_block,
-            .none => .none,
-            .initial, .inherit, .unset, .undeclared => unreachable,
-        };
-    }
-};
-
-pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: IsRoot) struct { aggregates.BoxStyle, EffectiveDisplay } {
+/// Implements the rules specified in section 9.7 of CSS2.2.
+pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: IsRoot) struct { aggregates.BoxStyle, used_values.BoxStyle } {
     var computed: aggregates.BoxStyle = .{
         .display = undefined,
         .position = specified.position,
         .float = specified.float,
     };
+
     if (specified.display == .none) {
         computed.display = .none;
-    } else if (specified.position == .absolute or specified.position == .fixed) {
-        computed.display = @"CSS2.2Section9.7Table"(specified.display);
-        computed.float = .none;
-    } else if (specified.float != .none) {
-        computed.display = @"CSS2.2Section9.7Table"(specified.display);
-    } else if (is_root == .Root) {
-        // TODO: There should be a slightly different version of this function for the root element. (See rule 4 of section 9.7)
-        computed.display = @"CSS2.2Section9.7Table"(specified.display);
-    } else {
-        computed.display = specified.display;
+        return .{ computed, .none };
     }
-    return .{ computed, EffectiveDisplay.fromComputedDisplay(computed.display) };
+
+    switch (specified.position) {
+        .absolute => {
+            std.debug.panic("TODO: absolute positioning", .{});
+            // computed.display = blockify(specified.display);
+            // computed.float = .none;
+            // const used: used_values.BoxStyle = .{ .absolute = innerBlockType(computed.display) };
+            // return .{ computed, used };
+        },
+        .fixed => std.debug.panic("TODO: fixed positioning", .{}),
+        .static, .relative, .sticky => {},
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    }
+
+    if (specified.float != .none) {
+        std.debug.panic("TODO: floats", .{});
+    }
+
+    computed.display = if (is_root == .Root) blockify(specified.display) else specified.display;
+    const used: used_values.BoxStyle = switch (computed.display) {
+        .block => .{ .block = .flow },
+        .@"inline" => .{ .@"inline" = .@"inline" },
+        .inline_block => .{ .@"inline" = .flow },
+        .none => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    };
+
+    return .{ computed, used };
 }
 
 /// Given a specified value for 'display', returns the computed value according to the table found in section 9.7 of CSS2.2.
-fn @"CSS2.2Section9.7Table"(display: types.Display) types.Display {
+fn blockify(display: types.Display) types.Display {
     // TODO: This is incomplete, fill in the rest when more values of the 'display' property are supported.
     // TODO: There should be a slightly different version of this switch table for the root element. (See rule 4 of secion 9.7)
     return switch (display) {
+        .block => .block,
         .@"inline", .inline_block => .block,
+        .none => unreachable,
         .initial, .inherit, .unset, .undeclared => unreachable,
-        else => display,
+    };
+}
+
+fn innerBlockType(computed_display: types.Display) used_values.BoxStyle.InnerBlock {
+    return switch (computed_display) {
+        .block => .flow,
+        .@"inline", .inline_block, .none => unreachable,
+        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 }
 

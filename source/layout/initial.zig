@@ -60,53 +60,57 @@ fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockB
     layout.computer.setRootElement(.box_gen, layout.inputs.root_element);
     const element = layout.computer.getCurrentElement();
 
-    const effective_display = blk: {
+    const used_box_style: used_values.BoxStyle = blk: {
         if (layout.computer.elementCategory(element) == .text) {
-            break :blk .text;
+            break :blk .{ .@"inline" = .text };
         }
 
         const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
-        const computed_box_style, const effective_display = solve.boxStyle(specified_box_style, .Root);
+        const computed_box_style, const used_box_style = solve.boxStyle(specified_box_style, .Root);
         layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
-        break :blk effective_display;
+        break :blk used_box_style;
     };
 
     const specified_font = layout.computer.getSpecifiedValue(.box_gen, .font);
     layout.computer.setComputedValue(.box_gen, .font, specified_font);
 
-    switch (effective_display) {
-        .block => {
-            const used_sizes = flow.solveAllSizes(&layout.computer, layout.inputs.viewport.w, layout.inputs.viewport.h);
-            const stacking_context = rootFlowBlockSolveStackingContext(&layout.computer);
+    switch (used_box_style) {
+        .block => |inner| switch (inner) {
+            .flow => {
+                const used_sizes = flow.solveAllSizes(&layout.computer, layout.inputs.viewport.w, layout.inputs.viewport.h);
+                const stacking_context = rootFlowBlockSolveStackingContext(&layout.computer);
 
-            // TODO: The rest of this code block is repeated almost verbatim in at least 2 other places.
-            const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
-            const block_index = try subtree.appendBlock(layout.box_tree.allocator);
-            const generated_box = GeneratedBox{ .block_box = .{ .subtree = ctx.subtree_id, .index = block_index } };
-            try layout.box_tree.mapElementToBox(element, generated_box);
+                // TODO: The rest of this code block is repeated almost verbatim in at least 2 other places.
+                const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
+                const block_index = try subtree.appendBlock(layout.box_tree.allocator);
+                const generated_box = GeneratedBox{ .block_box = .{ .subtree = ctx.subtree_id, .index = block_index } };
+                try layout.box_tree.mapElementToBox(element, generated_box);
 
-            const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
-            try layout.computer.pushElement(.box_gen);
-            const result = try flow.runFlowLayout(layout, ctx.subtree_id, used_sizes);
-            layout.sc.pop(layout.box_tree);
-            layout.computer.popElement(.box_gen);
+                const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
+                try layout.computer.pushElement(.box_gen);
+                const result = try flow.runFlowLayout(layout, ctx.subtree_id, used_sizes);
+                layout.sc.pop(layout.box_tree);
+                layout.computer.popElement(.box_gen);
 
-            const skip = 1 + result.skip_of_children;
-            const width = flow.solveUsedWidth(used_sizes.get(.inline_size).?, used_sizes.min_inline_size, used_sizes.max_inline_size);
-            const height = flow.solveUsedHeight(used_sizes.get(.block_size), used_sizes.min_block_size, used_sizes.max_block_size, result.auto_height);
-            flow.writeBlockData(subtree.slice(), block_index, used_sizes, skip, width, height, stacking_context_id);
+                const skip = 1 + result.skip_of_children;
+                const width = flow.solveUsedWidth(used_sizes.get(.inline_size).?, used_sizes.min_inline_size, used_sizes.max_inline_size);
+                const height = flow.solveUsedHeight(used_sizes.get(.block_size), used_sizes.min_block_size, used_sizes.max_block_size, result.auto_height);
+                flow.writeBlockData(subtree.slice(), block_index, used_sizes, skip, width, height, stacking_context_id);
 
-            return skip;
+                return skip;
+            },
         },
         .none => {
             layout.computer.advanceElement(.box_gen);
             return 0;
         },
-        .text => {
-            const result = try @"inline".runInlineLayout(layout, ctx.subtree_id, .Normal, layout.inputs.viewport.w, layout.inputs.viewport.h);
-            return result.skip;
+        .@"inline" => |inner| switch (inner) {
+            .text => {
+                const result = try @"inline".runInlineLayout(layout, ctx.subtree_id, .Normal, layout.inputs.viewport.w, layout.inputs.viewport.h);
+                return result.skip;
+            },
+            .@"inline", .flow => unreachable,
         },
-        .@"inline", .inline_block => unreachable,
     }
 
     layout.computer.popElement(.box_gen);

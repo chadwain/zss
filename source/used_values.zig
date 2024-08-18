@@ -164,6 +164,22 @@ pub const Margins = struct {
 
 pub const Insets = ZssVector;
 
+/// Each field represents an "outer" display type, while each value represents an "inner" display type.
+pub const BoxStyle = union(enum) {
+    pub const InnerBlock = enum {
+        flow,
+    };
+    pub const InnerInline = enum {
+        @"inline",
+        flow,
+        text,
+    };
+
+    block: InnerBlock,
+    @"inline": InnerInline,
+    none,
+};
+
 pub const BackgroundClip = enum { border, padding, content };
 
 pub const InlineBoxBackground = struct {

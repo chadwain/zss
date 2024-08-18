@@ -171,114 +171,116 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
         return false;
     }
 
-    const computed, const effective_display = blk: {
+    const computed, const used_box_style = blk: {
         if (layout.computer.elementCategory(element) == .text) {
-            break :blk .{ undefined, .text };
+            break :blk .{ undefined, used_values.BoxStyle{ .@"inline" = .text } };
         }
 
         const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
-        const computed_box_style, const effective_display = solve.boxStyle(specified_box_style, .NonRoot);
+        const computed_box_style, const used_box_style = solve.boxStyle(specified_box_style, .NonRoot);
         layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
-        break :blk .{ computed_box_style, effective_display };
+        break :blk .{ computed_box_style, used_box_style };
     };
 
     // TODO: Check position and float properties
-    switch (effective_display) {
-        .text => {
-            const generated_box = GeneratedBox{ .text = ifc.id };
-            try layout.box_tree.mapElementToBox(element, generated_box);
+    switch (used_box_style) {
+        .@"inline" => |inner| switch (inner) {
+            .text => {
+                const generated_box = GeneratedBox{ .text = ifc.id };
+                try layout.box_tree.mapElementToBox(element, generated_box);
 
-            // TODO: Do proper font matching.
-            const font = layout.computer.getSpecifiedValue(.box_gen, .font);
-            const handle: Fonts.Handle = switch (font.font) {
-                .default => layout.inputs.fonts.query(),
-                .none => .invalid,
-                .initial, .inherit, .unset, .undeclared => unreachable,
-            };
-            ctx.checkHandle(ifc, handle);
-            if (layout.inputs.fonts.get(handle)) |hb_font| {
-                const text = layout.computer.getText();
-                try ifcAddText(layout.box_tree, ifc, text, hb_font.handle);
-            }
-
-            layout.computer.advanceElement(.box_gen);
-        },
-        .@"inline" => {
-            const inline_box_index = try ifc.appendInlineBox(layout.box_tree.allocator);
-            inlineBoxSetData(ctx, &layout.computer, ifc, inline_box_index);
-
-            const generated_box = GeneratedBox{ .inline_box = .{ .ifc_id = ifc.id, .index = inline_box_index } };
-            try layout.box_tree.mapElementToBox(element, generated_box);
-
-            { // TODO: Grabbing useless data to satisfy inheritance...
-                const data = .{
-                    .content_width = layout.computer.getSpecifiedValue(.box_gen, .content_width),
-                    .content_height = layout.computer.getSpecifiedValue(.box_gen, .content_height),
-                    .z_index = layout.computer.getSpecifiedValue(.box_gen, .z_index),
-                    .font = layout.computer.getSpecifiedValue(.box_gen, .font),
+                // TODO: Do proper font matching.
+                const font = layout.computer.getSpecifiedValue(.box_gen, .font);
+                const handle: Fonts.Handle = switch (font.font) {
+                    .default => layout.inputs.fonts.query(),
+                    .none => .invalid,
+                    .initial, .inherit, .unset, .undeclared => unreachable,
                 };
-                layout.computer.setComputedValue(.box_gen, .content_width, data.content_width);
-                layout.computer.setComputedValue(.box_gen, .content_height, data.content_height);
-                layout.computer.setComputedValue(.box_gen, .z_index, data.z_index);
-                layout.computer.setComputedValue(.box_gen, .font, data.font);
-            }
+                ctx.checkHandle(ifc, handle);
+                if (layout.inputs.fonts.get(handle)) |hb_font| {
+                    const text = layout.computer.getText();
+                    try ifcAddText(layout.box_tree, ifc, text, hb_font.handle);
+                }
 
-            try ifcAddBoxStart(layout.box_tree, ifc, inline_box_index);
-
-            if (!layout.computer.element_tree_slice.firstChild(element).eqlNull()) {
-                ctx.inline_box_depth += 1;
-                try ctx.index.append(ctx.allocator, inline_box_index);
-                try ctx.skip.append(ctx.allocator, 1);
-                try layout.computer.pushElement(.box_gen);
-            } else {
-                // Optimized path for inline boxes with no children.
-                // It is a shorter version of ifcPopInlineBox.
-                try ifcAddBoxEnd(layout.box_tree, ifc, inline_box_index);
                 layout.computer.advanceElement(.box_gen);
-            }
-        },
-        .inline_block => {
-            const used_sizes = inlineBlockSolveSizes(&layout.computer, ctx.containing_block_width, ctx.containing_block_height);
-            const stacking_context = inlineBlockCreateStackingContext(&layout.computer, computed.position);
+            },
+            .@"inline" => {
+                const inline_box_index = try ifc.appendInlineBox(layout.box_tree.allocator);
+                inlineBoxSetData(ctx, &layout.computer, ifc, inline_box_index);
 
-            // TODO: Grabbing useless data to satisfy inheritance...
-            const font = layout.computer.getSpecifiedValue(.box_gen, .font);
-            layout.computer.setComputedValue(.box_gen, .font, font);
+                const generated_box = GeneratedBox{ .inline_box = .{ .ifc_id = ifc.id, .index = inline_box_index } };
+                try layout.box_tree.mapElementToBox(element, generated_box);
 
-            const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
-            const block_index = try subtree.appendBlock(layout.box_tree.allocator);
-            const generated_box = GeneratedBox{ .block_box = .{ .subtree = ctx.subtree_id, .index = block_index } };
-            try layout.box_tree.mapElementToBox(element, generated_box);
+                { // TODO: Grabbing useless data to satisfy inheritance...
+                    const data = .{
+                        .content_width = layout.computer.getSpecifiedValue(.box_gen, .content_width),
+                        .content_height = layout.computer.getSpecifiedValue(.box_gen, .content_height),
+                        .z_index = layout.computer.getSpecifiedValue(.box_gen, .z_index),
+                        .font = layout.computer.getSpecifiedValue(.box_gen, .font),
+                    };
+                    layout.computer.setComputedValue(.box_gen, .content_width, data.content_width);
+                    layout.computer.setComputedValue(.box_gen, .content_height, data.content_height);
+                    layout.computer.setComputedValue(.box_gen, .z_index, data.z_index);
+                    layout.computer.setComputedValue(.box_gen, .font, data.font);
+                }
 
-            const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
-            try layout.computer.pushElement(.box_gen);
+                try ifcAddBoxStart(layout.box_tree, ifc, inline_box_index);
 
-            const skip_of_children, const width_unclamped, const auto_height = if (used_sizes.get(.inline_size)) |inline_size| blk: {
-                // TODO: Recursive call here
-                const result = try flow.runFlowLayout(layout, ctx.subtree_id, used_sizes);
-                break :blk .{ result.skip_of_children, inline_size, result.auto_height };
-            } else blk: {
-                const available_width_unclamped = ctx.containing_block_width -
-                    (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
-                    used_sizes.border_inline_start + used_sizes.border_inline_end +
-                    used_sizes.padding_inline_start + used_sizes.padding_inline_end);
-                const available_width = solve.clampSize(available_width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
+                if (!layout.computer.element_tree_slice.firstChild(element).eqlNull()) {
+                    ctx.inline_box_depth += 1;
+                    try ctx.index.append(ctx.allocator, inline_box_index);
+                    try ctx.skip.append(ctx.allocator, 1);
+                    try layout.computer.pushElement(.box_gen);
+                } else {
+                    // Optimized path for inline boxes with no children.
+                    // It is a shorter version of ifcPopInlineBox.
+                    try ifcAddBoxEnd(layout.box_tree, ifc, inline_box_index);
+                    layout.computer.advanceElement(.box_gen);
+                }
+            },
+            .flow => {
+                const used_sizes = inlineBlockSolveSizes(&layout.computer, ctx.containing_block_width, ctx.containing_block_height);
+                const stacking_context = inlineBlockCreateStackingContext(&layout.computer, computed.position);
 
-                // TODO: Recursive call here
-                const result = try stf.runShrinkToFitLayout(layout, ctx.subtree_id, used_sizes, available_width);
-                break :blk .{ result.skip_of_children, result.width, result.auto_height };
-            };
+                // TODO: Grabbing useless data to satisfy inheritance...
+                const font = layout.computer.getSpecifiedValue(.box_gen, .font);
+                layout.computer.setComputedValue(.box_gen, .font, font);
 
-            layout.sc.pop(layout.box_tree);
-            layout.computer.popElement(.box_gen);
+                const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
+                const block_index = try subtree.appendBlock(layout.box_tree.allocator);
+                const generated_box = GeneratedBox{ .block_box = .{ .subtree = ctx.subtree_id, .index = block_index } };
+                try layout.box_tree.mapElementToBox(element, generated_box);
 
-            const skip = 1 + skip_of_children;
-            const width = flow.solveUsedWidth(width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
-            const height = flow.solveUsedHeight(used_sizes.get(.block_size), used_sizes.min_block_size, used_sizes.max_block_size, auto_height);
-            flow.writeBlockData(subtree.slice(), block_index, used_sizes, skip, width, height, stacking_context_id);
+                const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
+                try layout.computer.pushElement(.box_gen);
 
-            ctx.total_inline_block_skip += skip;
-            try ifcAddInlineBlock(layout.box_tree, ifc, block_index);
+                const skip_of_children, const width_unclamped, const auto_height = if (used_sizes.get(.inline_size)) |inline_size| blk: {
+                    // TODO: Recursive call here
+                    const result = try flow.runFlowLayout(layout, ctx.subtree_id, used_sizes);
+                    break :blk .{ result.skip_of_children, inline_size, result.auto_height };
+                } else blk: {
+                    const available_width_unclamped = ctx.containing_block_width -
+                        (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
+                        used_sizes.border_inline_start + used_sizes.border_inline_end +
+                        used_sizes.padding_inline_start + used_sizes.padding_inline_end);
+                    const available_width = solve.clampSize(available_width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
+
+                    // TODO: Recursive call here
+                    const result = try stf.runShrinkToFitLayout(layout, ctx.subtree_id, used_sizes, available_width);
+                    break :blk .{ result.skip_of_children, result.width, result.auto_height };
+                };
+
+                layout.sc.pop(layout.box_tree);
+                layout.computer.popElement(.box_gen);
+
+                const skip = 1 + skip_of_children;
+                const width = flow.solveUsedWidth(width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
+                const height = flow.solveUsedHeight(used_sizes.get(.block_size), used_sizes.min_block_size, used_sizes.max_block_size, auto_height);
+                flow.writeBlockData(subtree.slice(), block_index, used_sizes, skip, width, height, stacking_context_id);
+
+                ctx.total_inline_block_skip += skip;
+                try ifcAddInlineBlock(layout.box_tree, ifc, block_index);
+            },
         },
         .block => {
             if (ctx.inline_box_depth == 0) {

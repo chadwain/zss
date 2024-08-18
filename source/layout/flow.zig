@@ -33,11 +33,7 @@ pub const Result = struct {
     auto_height: ZssUnit,
 };
 
-pub fn runFlowLayout(
-    layout: *Layout,
-    subtree_id: SubtreeId,
-    used_sizes: BlockUsedSizes,
-) !Result {
+pub fn runFlowLayout(layout: *Layout, subtree_id: SubtreeId, used_sizes: BlockUsedSizes) !Result {
     var ctx = Context{ .allocator = layout.allocator, .subtree_id = subtree_id };
     defer ctx.deinit();
 
@@ -73,30 +69,32 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
         return popBlock(layout, ctx);
     }
 
-    const computed_box_style, const effective_display = blk: {
+    const computed_box_style, const used_box_style = blk: {
         if (layout.computer.elementCategory(element) == .text) {
-            break :blk .{ undefined, .text };
+            break :blk .{ undefined, used_values.BoxStyle{ .@"inline" = .text } };
         }
 
         const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
         const specified_font = layout.computer.getSpecifiedValue(.box_gen, .font);
-        const computed_box_style, const effective_display = solve.boxStyle(specified_box_style, .NonRoot);
+        const computed_box_style, const used_box_style = solve.boxStyle(specified_box_style, .NonRoot);
         layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
         layout.computer.setComputedValue(.box_gen, .font, specified_font);
-        break :blk .{ computed_box_style, effective_display };
+        break :blk .{ computed_box_style, used_box_style };
     };
 
     const parent = &ctx.stack.top.?;
     const containing_block_width = parent.used.inline_size_clamped;
     const containing_block_height = parent.used.block_size;
 
-    switch (effective_display) {
-        .block => {
-            const used_sizes = solveAllSizes(&layout.computer, containing_block_width, containing_block_height);
-            const stacking_context = solveStackingContext(&layout.computer, computed_box_style.position);
-            try pushBlock(layout, ctx, element, used_sizes, stacking_context);
+    switch (used_box_style) {
+        .block => |inner| switch (inner) {
+            .flow => {
+                const used_sizes = solveAllSizes(&layout.computer, containing_block_width, containing_block_height);
+                const stacking_context = solveStackingContext(&layout.computer, computed_box_style.position);
+                try pushBlock(layout, ctx, element, used_sizes, stacking_context);
+            },
         },
-        .@"inline", .inline_block, .text => {
+        .@"inline" => {
             const result = try @"inline".runInlineLayout(layout, ctx.subtree_id, .Normal, containing_block_width, containing_block_height);
             parent.skip += result.skip;
             advanceFlow(&parent.auto_height, result.height);
@@ -559,7 +557,8 @@ pub fn solveStackingContext(
             .auto => return .{ .is_non_parent = 0 },
             .initial, .inherit, .unset, .undeclared => unreachable,
         },
-        .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),
+        .absolute => unreachable,
+        .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
