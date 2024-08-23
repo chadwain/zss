@@ -51,6 +51,22 @@ test "parse a zml document" {
     };
 }
 
+test "zml parser fuzz test" {
+    const input = std.testing.fuzzInput(.{});
+    const token_source = try TokenSource.init(input);
+    const allocator = std.testing.allocator;
+
+    var ast = Ast{};
+    defer ast.deinit(allocator);
+
+    var parser = Parser.init(token_source, allocator);
+    defer parser.deinit();
+    parser.parse(&ast, allocator) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => {},
+    };
+}
+
 pub const Parser = struct {
     token_source: TokenSource,
     location: Location,
@@ -219,11 +235,13 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
 
     switch (main_token) {
         .token_eof => {
-            const is_root_element = (parser.element_stack.items.len == 0);
-            if (is_root_element) return;
+            const no_open_elements = (parser.element_stack.items.len == 0);
+            if (no_open_elements) return;
             return parser.fail(.unexpected_eof, main_location);
         },
         .token_right_curly => {
+            const no_open_elements = (parser.element_stack.items.len == 0);
+            if (no_open_elements) return parser.fail(.invalid_token, main_location);
             const item = parser.element_stack.pop();
             ast.finishElement(item.element_index, item.block_index);
             return;

@@ -592,8 +592,8 @@ const NumberBuffer = struct {
     len: u8 = 0,
 
     fn append(buffer: *NumberBuffer, char: u8) void {
-        defer buffer.len +|= 1;
         if (buffer.len >= buffer.data.len) return;
+        defer buffer.len +|= 1;
         buffer.data[buffer.len] = char;
     }
 
@@ -684,9 +684,8 @@ fn consumeNumber(source: Source, start: Source.Location) !ConsumeNumber {
                     error.InvalidCharacter => unreachable,
                 };
                 assert(!std.math.isNan(float));
-                assert(!std.math.isInf(float));
-                if (!std.math.isNormal(float) and float != 0.0) {
-                    // It's either a denormal/subnormal or negative zero
+                if (!std.math.isNormal(float)) {
+                    // It's either infinity, a denormal/subnormal or negative zero
                     float = 0.0;
                 }
             }
