@@ -3,12 +3,12 @@
     .version = "0.0.0",
     .paths = .{
         "demo/",
-        "dependencies/",
         "examples/",
         "source/",
         "test/",
         "build.zig",
         "build.zig.zon",
+        "LICENSE",
         "README.md",
     },
     .dependencies = .{
@@ -17,16 +17,16 @@
             .hash = "12206251ed342f400b80abf3c338521f5d8c83eb596899abf77a2afe0cfd46e61ff0",
         },
         .@"mach-glfw" = .{
-            .url = "https://pkg.machengine.org/mach-glfw/8da44b719e345097664ff2e0a7620474eb11db5f.tar.gz",
-            .hash = "1220e5343c2fe2a490aa90dc52d92fd34ebfd7d0ffc7d246dd4720bb5c339ead4d7b",
+            .url = "git+https://github.com/chadwain/mach-glfw#9dd25ffa3e91f2f3417f4bbeb2128fca69174839",
+            .hash = "1220cdcde5cb8c8e323ebfbdcbde734ac5638bacaa5e6affabd4fbfd74fecf6eace4",
         },
         .zgl = .{
             .url = "git+https://github.com/chadwain/zgl.git#1c5a5830fdd0be4a075219ade1e637baf946cdd3",
             .hash = "1220321dfd8487b92a05f13d7ef9520a3b5ef73cb53f0f40cadbfc1003bd53c06960",
         },
         .zigimg = .{
-            .url = "git+https://github.com/zigimg/zigimg.git#268c786ff5550ccb35c46a5fe804483ff210bd24",
-            .hash = "1220fc66474870d6ed00f442556718cb0dc7a4cb8137074370689aa8922bcc4a8bd6",
+            .url = "git+https://github.com/zigimg/zigimg.git#d9dbbe22b5f7b5f1f4772169ed93ffeed8e8124d",
+            .hash = "122013646f7038ecc71ddf8a0d7de346d29a6ec40140af57f838b0a975c69af512b0",
         },
     },
 }
