@@ -667,7 +667,7 @@ fn consumeNumber(source: Source, start: Source.Location) !ConsumeNumber {
 
     switch (number_type) {
         .integer => {
-            // NOTE: Should the default value be 0, or some really big number?
+            // TODO: Should the default value be 0, or some really big number?
             const unwrapped = integral_part.value.unwrap() catch 0;
             comptime assert(@TypeOf(unwrapped) == u31);
             var integer: i32 = unwrapped;
@@ -677,7 +677,7 @@ fn consumeNumber(source: Source, start: Source.Location) !ConsumeNumber {
         .number => {
             var float: f32 = undefined;
             if (buffer.overflow()) {
-                // NOTE: Should the default value be 0, or some really big number/infinity/NaN?
+                // TODO: Should the default value be 0, or some really big number/infinity/NaN?
                 float = 0.0;
             } else {
                 float = std.fmt.parseFloat(f32, buffer.slice()) catch |err| switch (err) {
@@ -685,7 +685,7 @@ fn consumeNumber(source: Source, start: Source.Location) !ConsumeNumber {
                 };
                 assert(!std.math.isNan(float));
                 if (!std.math.isNormal(float)) {
-                    // It's either infinity, a denormal/subnormal or negative zero
+                    // TODO: Should the default value be 0, or some really big number/infinity/NaN?
                     float = 0.0;
                 }
             }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const zss = @import("zss.zig");
@@ -60,6 +61,7 @@ pub const Layout = struct {
     sc: StackingContexts,
     inputs: Inputs,
     allocator: Allocator,
+    element_stack: zss.util.Stack(Element),
 
     pub const Inputs = struct {
         viewport: ZssSize,
@@ -85,11 +87,7 @@ pub const Layout = struct {
         const height_units = cast(height) orelse return error.ViewportTooLarge;
         return .{
             .box_tree = box_tree,
-            .computer = .{
-                .element_tree_slice = element_tree_slice,
-                .stage = undefined,
-                .allocator = allocator,
-            },
+            .computer = StyleComputer.init(element_tree_slice, allocator),
             .sc = .{ .allocator = allocator },
             .inputs = .{
                 .viewport = .{
@@ -102,12 +100,34 @@ pub const Layout = struct {
                 .storage = storage,
             },
             .allocator = allocator,
+            .element_stack = .{},
         };
     }
 
     fn deinit(layout: *Layout) void {
         layout.computer.deinit();
         layout.sc.deinit();
+        layout.element_stack.deinit(layout.allocator);
+    }
+
+    pub fn currentElement(layout: Layout) Element {
+        return layout.element_stack.top.?;
+    }
+
+    pub fn pushElement(layout: *Layout) !void {
+        const element = &layout.element_stack.top.?;
+        const child = layout.computer.element_tree_slice.firstChild(element.*);
+        element.* = layout.computer.element_tree_slice.nextSibling(element.*);
+        try layout.element_stack.push(layout.allocator, child);
+    }
+
+    pub fn popElement(layout: *Layout) void {
+        _ = layout.element_stack.pop();
+    }
+
+    pub fn advanceElement(layout: *Layout) void {
+        const element = &layout.element_stack.top.?;
+        element.* = layout.computer.element_tree_slice.nextSibling(element.*);
     }
 };
 
@@ -115,19 +135,19 @@ fn boxGeneration(layout: *Layout) !void {
     layout.computer.stage = .{ .box_gen = .{} };
     defer layout.computer.deinitStage(.box_gen);
 
+    layout.element_stack.top = layout.inputs.root_element;
+
     var context = initial.InitialLayoutContext{ .allocator = layout.allocator };
     try initial.run(layout, &context);
-
-    layout.computer.assertEmptyStage(.box_gen);
 }
 
 fn cosmeticLayout(layout: *Layout) !void {
     layout.computer.stage = .{ .cosmetic = .{} };
     defer layout.computer.deinitStage(.cosmetic);
 
-    try cosmetic.run(layout);
+    layout.element_stack.top = layout.inputs.root_element;
 
-    layout.computer.assertEmptyStage(.cosmetic);
+    try cosmetic.run(layout);
 }
 
 pub const BlockComputedSizes = struct {

@@ -21,7 +21,7 @@ pub fn positiveLength(comptime unit: LengthUnit, value: f32) ZssUnit {
 }
 
 pub fn percentage(value: f32, unit: ZssUnit) ZssUnit {
-    return @as(ZssUnit, @intFromFloat(@round(@as(f32, @floatFromInt(unit)) * value)));
+    return @intFromFloat(@round(@as(f32, @floatFromInt(unit)) * value));
 }
 
 pub fn positivePercentage(value: f32, unit: ZssUnit) ZssUnit {
@@ -46,8 +46,16 @@ pub fn borderWidth(comptime thickness: std.meta.Tag(types.BorderWidth)) f32 {
 pub fn borderWidthMultiplier(border_style: types.BorderStyle) f32 {
     return switch (border_style) {
         .none, .hidden => 0,
+        .solid,
+        .dotted,
+        .dashed,
+        .double,
+        .groove,
+        .ridge,
+        .inset,
+        .outset,
+        => 1,
         .initial, .inherit, .unset, .undeclared => unreachable,
-        else => 1,
     };
 }
 
@@ -149,7 +157,14 @@ pub fn borderStyles(border_styles: aggregates.BorderStyles) void {
             switch (border_style) {
                 .none, .hidden, .solid => {},
                 .initial, .inherit, .unset, .undeclared => unreachable,
-                else => std.debug.panic("TODO: border-style: {s}", .{@tagName(border_style)}),
+                .dotted,
+                .dashed,
+                .double,
+                .groove,
+                .ridge,
+                .inset,
+                .outset,
+                => std.debug.panic("TODO: border-style: {s}", .{@tagName(border_style)}),
             }
         }
     }.f;

@@ -113,10 +113,11 @@ fn buildObjectTree(
 }
 
 fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *ObjectTree) !void {
-    const element = layout.computer.getCurrentElement();
+    const element = layout.currentElement();
     if (element.eqlNull()) {
         return popFlowObject(layout, ctx, object_tree);
     }
+    layout.computer.setCurrentElement(.box_gen, element);
 
     const computed, const used_box_style = blk: {
         if (layout.computer.elementCategory(element) == .text) {
@@ -143,6 +144,8 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                         .font = layout.computer.getSpecifiedValue(.box_gen, .font),
                     };
                     layout.computer.setComputedValue(.box_gen, .font, stuff.font);
+
+                    try layout.computer.commitElement(.box_gen);
                 }
 
                 const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
@@ -157,11 +160,11 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                     try layout.box_tree.mapElementToBox(element, generated_box);
 
                     const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
-                    try layout.computer.pushElement(.box_gen);
+                    try layout.pushElement();
                     // TODO: Recursive call here
                     const result = try flow.runFlowLayout(layout, new_subtree_id, used);
                     layout.sc.pop(layout.box_tree);
-                    layout.computer.popElement(.box_gen);
+                    layout.popElement();
 
                     const skip = 1 + result.skip_of_children;
                     const width = flow.solveUsedWidth(inline_size, used.min_inline_size, used.max_inline_size);
@@ -185,7 +188,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                 }
             },
         },
-        .none => layout.computer.advanceElement(.box_gen),
+        .none => layout.advanceElement(),
         .@"inline" => {
             const new_subtree_id = try layout.box_tree.blocks.makeSubtree(layout.box_tree.allocator, null);
 
@@ -253,7 +256,7 @@ fn pushFlowObject(
         .height = used_sizes.get(.block_size),
     });
     const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, undefined);
-    try layout.computer.pushElement(.box_gen);
+    try layout.pushElement();
 
     try object_tree.append(layout.allocator, .{
         .skip = undefined,
@@ -278,7 +281,7 @@ fn popFlowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Ob
 
     const parent = if (ctx.stack.top) |*top| top else return;
     layout.sc.pop(layout.box_tree);
-    layout.computer.popElement(.box_gen);
+    layout.popElement();
 
     const parent_object_tag = object_tree_slice.items(.tag)[parent.object_index];
     switch (parent_object_tag) {

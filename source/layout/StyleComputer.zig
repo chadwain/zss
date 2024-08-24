@@ -13,197 +13,126 @@ const Stack = zss.util.Stack;
 
 const StyleComputer = @This();
 
-pub const Stage = enum { box_gen, cosmetic };
+pub const Stage = enum {
+    box_gen,
+    cosmetic,
 
-const BoxGenComputedValueStack = struct {
-    box_style: ArrayListUnmanaged(aggregates.BoxStyle) = .{},
-    content_width: ArrayListUnmanaged(aggregates.ContentWidth) = .{},
-    horizontal_edges: ArrayListUnmanaged(aggregates.HorizontalEdges) = .{},
-    content_height: ArrayListUnmanaged(aggregates.ContentHeight) = .{},
-    vertical_edges: ArrayListUnmanaged(aggregates.VerticalEdges) = .{},
-    border_styles: ArrayListUnmanaged(aggregates.BorderStyles) = .{},
-    z_index: ArrayListUnmanaged(aggregates.ZIndex) = .{},
-    font: ArrayListUnmanaged(aggregates.Font) = .{},
+    fn ComputedValues(comptime stage: Stage) type {
+        return switch (stage) {
+            .box_gen => BoxGenComputedValues,
+            .cosmetic => CosmeticComputedValues,
+        };
+    }
 };
 
-const BoxGenCurrentValues = struct {
-    box_style: aggregates.BoxStyle,
-    content_width: aggregates.ContentWidth,
-    horizontal_edges: aggregates.HorizontalEdges,
-    content_height: aggregates.ContentHeight,
-    vertical_edges: aggregates.VerticalEdges,
-    border_styles: aggregates.BorderStyles,
-    z_index: aggregates.ZIndex,
-    font: aggregates.Font,
+const BoxGenComputedValues = struct {
+    box_style: ?aggregates.BoxStyle = null,
+    content_width: ?aggregates.ContentWidth = null,
+    horizontal_edges: ?aggregates.HorizontalEdges = null,
+    content_height: ?aggregates.ContentHeight = null,
+    vertical_edges: ?aggregates.VerticalEdges = null,
+    border_styles: ?aggregates.BorderStyles = null,
+    z_index: ?aggregates.ZIndex = null,
+    font: ?aggregates.Font = null,
 };
 
-const BoxGenComptutedValueFlags = struct {
-    box_style: bool = false,
-    content_width: bool = false,
-    horizontal_edges: bool = false,
-    content_height: bool = false,
-    vertical_edges: bool = false,
-    border_styles: bool = false,
-    z_index: bool = false,
-    font: bool = false,
+const CosmeticComputedValues = struct {
+    box_style: ?aggregates.BoxStyle = null,
+    border_colors: ?aggregates.BorderColors = null,
+    border_styles: ?aggregates.BorderStyles = null,
+    background1: ?aggregates.Background1 = null,
+    background2: ?aggregates.Background2 = null,
+    color: ?aggregates.Color = null,
+    insets: ?aggregates.Insets = null,
 };
 
-const CosmeticComputedValueStack = struct {
-    box_style: ArrayListUnmanaged(aggregates.BoxStyle) = .{},
-    border_colors: ArrayListUnmanaged(aggregates.BorderColors) = .{},
-    border_styles: ArrayListUnmanaged(aggregates.BorderStyles) = .{},
-    background1: ArrayListUnmanaged(aggregates.Background1) = .{},
-    background2: ArrayListUnmanaged(aggregates.Background2) = .{},
-    color: ArrayListUnmanaged(aggregates.Color) = .{},
-    insets: ArrayListUnmanaged(aggregates.Insets) = .{},
-};
-
-const CosmeticCurrentValues = struct {
-    box_style: aggregates.BoxStyle,
-    border_colors: aggregates.BorderColors,
-    border_styles: aggregates.BorderStyles,
-    background1: aggregates.Background1,
-    background2: aggregates.Background2,
-    color: aggregates.Color,
-    insets: aggregates.Insets,
-};
-
-const CosmeticComptutedValueFlags = struct {
-    box_style: bool = false,
-    border_colors: bool = false,
-    border_styles: bool = false,
-    background1: bool = false,
-    background2: bool = false,
-    color: bool = false,
-    insets: bool = false,
-};
-
-const StackItem = struct {
+const Current = struct {
     element: Element,
     cascaded_values: CascadedValues,
 };
 
-stack: Stack(StackItem) = .{},
 element_tree_slice: ElementTree.Slice,
+root_element: Element,
+current: Current,
 allocator: Allocator,
-
 stage: union {
     box_gen: struct {
-        current_values: BoxGenCurrentValues = undefined,
-        current_flags: BoxGenComptutedValueFlags = .{},
-        value_stack: BoxGenComputedValueStack = .{},
+        map: std.AutoHashMapUnmanaged(Element, BoxGenComputedValues) = .{},
+        current_computed: BoxGenComputedValues = undefined,
     },
     cosmetic: struct {
-        current_values: CosmeticCurrentValues = undefined,
-        current_flags: CosmeticComptutedValueFlags = .{},
-        value_stack: CosmeticComputedValueStack = .{},
+        map: std.AutoHashMapUnmanaged(Element, CosmeticComputedValues) = .{},
+        current_computed: CosmeticComputedValues = undefined,
     },
 },
 
-// Does not do deinitStage.
-pub fn deinit(self: *StyleComputer) void {
-    self.stack.deinit(self.allocator);
+pub fn init(element_tree_slice: ElementTree.Slice, allocator: Allocator) StyleComputer {
+    return .{
+        .element_tree_slice = element_tree_slice,
+        .allocator = allocator,
+        .root_element = undefined,
+        .current = undefined,
+        .stage = undefined,
+    };
 }
 
-pub fn assertEmptyStage(self: StyleComputer, comptime stage: Stage) void {
-    assert(self.stack.rest.len == 0);
-    const current_stage = &@field(self.stage, @tagName(stage));
-    inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
-        assert(@field(current_stage.value_stack, field_info.name).items.len == 0);
-    }
+// Does not do deinitStage.
+pub fn deinit(self: *StyleComputer) void {
+    _ = self;
 }
 
 pub fn deinitStage(self: *StyleComputer, comptime stage: Stage) void {
-    self.stack.top = null;
     const current_stage = &@field(self.stage, @tagName(stage));
-    inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
-        @field(current_stage.value_stack, field_info.name).deinit(self.allocator);
-    }
+    current_stage.map.deinit(self.allocator);
 }
 
 pub fn elementCategory(self: StyleComputer, element: Element) ElementTree.Category {
     return self.element_tree_slice.category(element);
 }
 
-pub fn setRootElement(self: *StyleComputer, comptime stage: Stage, root_element: Element) void {
-    assert(!root_element.eqlNull());
-    assert(self.stack.top == null);
-    self.stack.top = .{
-        .element = root_element,
-        .cascaded_values = self.element_tree_slice.get(.cascaded_values, root_element),
+pub fn setCurrentElement(self: *StyleComputer, comptime stage: Stage, element: Element) void {
+    assert(!element.eqlNull());
+    const cascaded_values = switch (self.elementCategory(element)) {
+        .normal => self.element_tree_slice.get(.cascaded_values, element),
+        .text => undefined,
+    };
+    self.current = .{
+        .element = element,
+        .cascaded_values = cascaded_values,
     };
 
-    self.resetElement(stage);
+    const current_stage = &@field(self.stage, @tagName(stage));
+    current_stage.current_computed = .{};
 }
 
-pub fn getCurrentElement(self: StyleComputer) Element {
-    return self.stack.top.?.element;
+pub fn commitElement(self: *StyleComputer, comptime stage: Stage) !void {
+    const element = self.current.element;
+    const current_stage = &@field(self.stage, @tagName(stage));
+    inline for (std.meta.fields(stage.ComputedValues())) |field_info| {
+        const field = @field(current_stage.current_computed, field_info.name);
+        assert(field != null);
+    }
+    try current_stage.map.putNoClobber(self.allocator, element, current_stage.current_computed);
+}
+
+pub fn getText(self: StyleComputer) zss.values.types.Text {
+    const element = self.current.element;
+    assert(self.elementCategory(element) == .text);
+    return self.element_tree_slice.get(.text, element) orelse "";
+}
+
+pub fn getTextFont(self: StyleComputer, comptime stage: Stage) aggregates.Font {
+    const element = self.current.element;
+    assert(self.elementCategory(element) == .text);
+    var inherited_value = OptionalInheritedValue(.font){};
+    return inherited_value.get(self, stage);
 }
 
 pub fn setComputedValue(self: *StyleComputer, comptime stage: Stage, comptime tag: aggregates.Tag, value: tag.Value()) void {
     const current_stage = &@field(self.stage, @tagName(stage));
-    const flag = &@field(current_stage.current_flags, @tagName(tag));
-    assert(!flag.*);
-    flag.* = true;
-    @field(current_stage.current_values, @tagName(tag)) = value;
-}
-
-pub fn resetElement(self: *StyleComputer, comptime stage: Stage) void {
-    const current_stage = &@field(self.stage, @tagName(stage));
-    current_stage.current_flags = .{};
-    current_stage.current_values = undefined;
-}
-
-pub fn advanceElement(self: *StyleComputer, comptime stage: Stage) void {
-    const sibling = self.element_tree_slice.nextSibling(self.stack.top.?.element);
-    const cascaded_values = if (sibling.eqlNull()) CascadedValues{} else self.element_tree_slice.get(.cascaded_values, sibling);
-    self.stack.top = .{
-        .element = sibling,
-        .cascaded_values = cascaded_values,
-    };
-    self.resetElement(stage);
-}
-
-pub fn pushElement(self: *StyleComputer, comptime stage: Stage) !void {
-    const child = self.element_tree_slice.firstChild(self.stack.top.?.element);
-    const cascaded_values = if (child.eqlNull()) CascadedValues{} else self.element_tree_slice.get(.cascaded_values, child);
-    try self.stack.push(self.allocator, .{ .element = child, .cascaded_values = cascaded_values });
-
-    const current_stage = &@field(self.stage, @tagName(stage));
-    const values = current_stage.current_values;
-    const flags = current_stage.current_flags;
-
-    inline for (std.meta.fields(@TypeOf(flags))) |field_info| {
-        const flag = @field(flags, field_info.name);
-        assert(flag);
-        const value = @field(values, field_info.name);
-        try @field(current_stage.value_stack, field_info.name).append(self.allocator, value);
-    }
-
-    self.resetElement(stage);
-}
-
-pub fn popElement(self: *StyleComputer, comptime stage: Stage) void {
-    _ = self.stack.pop();
-    if (self.stack.top) |*item| {
-        const sibling = self.element_tree_slice.nextSibling(item.element);
-        const cascaded_values = if (sibling.eqlNull()) CascadedValues{} else self.element_tree_slice.get(.cascaded_values, sibling);
-        item.* = .{
-            .element = sibling,
-            .cascaded_values = cascaded_values,
-        };
-
-        const current_stage = &@field(self.stage, @tagName(stage));
-        inline for (std.meta.fields(@TypeOf(current_stage.value_stack))) |field_info| {
-            _ = @field(current_stage.value_stack, field_info.name).pop();
-        }
-
-        self.resetElement(stage);
-    }
-}
-
-pub fn getText(self: StyleComputer) zss.values.types.Text {
-    return self.element_tree_slice.get(.text, self.stack.top.?.element) orelse "";
+    const field = &@field(current_stage.current_computed, @tagName(tag));
+    assert(field.* == null);
+    field.* = value;
 }
 
 pub fn getSpecifiedValue(
@@ -211,7 +140,10 @@ pub fn getSpecifiedValue(
     comptime stage: Stage,
     comptime tag: aggregates.Tag,
 ) tag.Value() {
-    const cascaded_values = self.stack.top.?.cascaded_values;
+    const element = self.current.element;
+    assert(self.elementCategory(element) == .normal);
+
+    const cascaded_values = self.current.cascaded_values;
     var cascaded_value = cascaded_values.get(tag);
 
     // CSS-COLOR-3§4.4: If the 'currentColor' keyword is set on the 'color' property itself, it is treated as 'color: inherit'.
@@ -284,13 +216,58 @@ fn OptionalInheritedValue(comptime tag: aggregates.Tag) type {
             if (self.value) |value| return value;
 
             const current_stage = @field(computer.stage, @tagName(stage));
-            const value_stack = @field(current_stage.value_stack, @tagName(tag));
-            if (value_stack.items.len > 0) {
-                self.value = value_stack.items[value_stack.items.len - 1];
-            } else {
-                self.value = Aggregate.initial_values;
-            }
+            const parent = computer.element_tree_slice.parent(computer.current.element);
+            self.value = if (parent.eqlNull())
+                Aggregate.initial_values
+            else if (current_stage.map.get(parent)) |parent_computed_value|
+                @field(parent_computed_value, @tagName(tag))
+            else
+                std.debug.panic("TODO: parent computed value not found", .{});
             return self.value.?;
         }
     };
 }
+
+// fn getComputedBoxStyle(
+//     computer: StyleComputer,
+//     comptime stage: Stage,
+//     element: Element,
+// ) aggregates.BoxStyle {
+//     const current_stage = @field(computer.stage, @tagName(stage));
+//     if (current_stage.map.get(element)) |computed_value| return computed_value;
+//
+//     const Inherited = struct {
+//         value: ?aggregates.BoxStyle = null,
+//
+//         fn get(self: *@This(), computer: StyleComputer, parent: Element) aggregates.BoxStyle {
+//             if (self.value) |value| return value;
+//             if (parent.eqlNull()) {
+//                 self.value = aggregates.BoxStyle.initial_values;
+//             } else {
+//                 // TODO: Recursive call here
+//                 self.value = getComputedBoxStyle(computer, stage, parent);
+//             }
+//             return self.value;
+//         }
+//     };
+//
+//     const parent = computer.element_tree_slice.parent(e);
+//     const initial_value = aggregates.BoxStyle.initial_values;
+//     var inherited_value = Inherited{};
+//     const cascaded_values = computer.element_tree_slice.get(.cascaded_values, element);
+//     var box_style = cascaded_values.get(box_style) orelse return initial_value;
+//
+//     inline for (std.meta.fields(aggregates.BoxStyle)) |field_info| {
+//         const property = &@field(box_style, field_info.name);
+//         switch (property.*) {
+//             .inherit => property.* = @field(inherited_value.get(computer, element), field_info.name),
+//             .initial => property.* = @field(initial_value, field_info.name),
+//             .unset => property.* = @field(initial_value, field_info.name),
+//             .undeclared => property.* = @field(initial_value, field_info.name),
+//             else => {},
+//         }
+//     }
+//
+//     const computed_value, _ = solve.boxStyle(box_style, parent.eqlNull());
+//     return computed_value;
+// }

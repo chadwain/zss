@@ -64,10 +64,11 @@ const Context = struct {
 };
 
 fn analyzeElement(layout: *Layout, ctx: *Context) !void {
-    const element = layout.computer.getCurrentElement();
+    const element = layout.currentElement();
     if (element.eqlNull()) {
         return popBlock(layout, ctx);
     }
+    layout.computer.setCurrentElement(.box_gen, element);
 
     const computed_box_style, const used_box_style = blk: {
         if (layout.computer.elementCategory(element) == .text) {
@@ -91,6 +92,7 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
             .flow => {
                 const used_sizes = solveAllSizes(&layout.computer, containing_block_width, containing_block_height);
                 const stacking_context = solveStackingContext(&layout.computer, computed_box_style.position);
+                try layout.computer.commitElement(.box_gen);
                 try pushBlock(layout, ctx, element, used_sizes, stacking_context);
             },
         },
@@ -99,7 +101,7 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
             parent.skip += result.skip;
             advanceFlow(&parent.auto_height, result.height);
         },
-        .none => layout.computer.advanceElement(.box_gen),
+        .none => layout.advanceElement(),
     }
 }
 
@@ -127,7 +129,7 @@ fn pushBlock(layout: *Layout, ctx: *Context, element: Element, used_sizes: Block
         .auto_height = 0,
     });
     const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
-    try layout.computer.pushElement(.box_gen);
+    try layout.pushElement();
 
     const width = solveUsedWidth(used_sizes.get(.inline_size).?, used_sizes.min_inline_size, used_sizes.max_inline_size);
     writeBlockDataPart1(subtree.slice(), block_index, used_sizes, width, stacking_context_id);
@@ -145,7 +147,7 @@ fn popBlock(layout: *Layout, ctx: *Context) void {
     };
 
     layout.sc.pop(layout.box_tree);
-    layout.computer.popElement(.box_gen);
+    layout.popElement();
 
     const subtree_slice = layout.box_tree.blocks.subtree(ctx.subtree_id).slice();
     const height = solveUsedHeight(this.used.block_size, this.used.min_block_size, this.used.max_block_size, this.auto_height);

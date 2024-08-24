@@ -45,8 +45,9 @@ pub fn run(layout: *Layout) !void {
         rootInlineBoxCosmeticLayout(ifc);
     }
 
-    if (layout.inputs.root_element.eqlNull()) return;
-    layout.computer.setRootElement(.cosmetic, layout.inputs.root_element);
+    const root_element = layout.inputs.root_element;
+    if (root_element.eqlNull()) return;
+    layout.computer.setCurrentElement(.cosmetic, root_element);
 
     var context = Context{ .allocator = layout.allocator };
     defer context.deinit();
@@ -59,14 +60,14 @@ pub fn run(layout: *Layout) !void {
     }
 
     {
-        const root_element = layout.computer.getCurrentElement();
         const box_type = layout.box_tree.element_to_generated_box.get(root_element) orelse return;
         switch (box_type) {
             .block_box => |block_box| {
                 try blockBoxCosmeticLayout(layout, context, block_box, .Root);
+                try layout.computer.commitElement(.cosmetic);
 
                 // TODO: Temporary jank to set the text color.
-                const computed_color = layout.computer.stage.cosmetic.current_values.color;
+                const computed_color = layout.computer.stage.cosmetic.current_computed.color.?;
                 const used_color = solve.currentColor(computed_color.color);
                 for (layout.box_tree.ifcs.items) |ifc| {
                     ifc.font_color = used_color;
@@ -77,48 +78,51 @@ pub fn run(layout: *Layout) !void {
                     const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
                     try context.mode.append(context.allocator, .Flow);
                     try context.containing_block_size.append(context.allocator, box_offsets.content_size);
-                    try layout.computer.pushElement(.cosmetic);
+                    try layout.pushElement();
                 } else {
-                    layout.computer.advanceElement(.cosmetic);
+                    layout.advanceElement();
                 }
             },
-            .text => layout.computer.advanceElement(.cosmetic),
+            .text => layout.advanceElement(),
             .inline_box => unreachable,
         }
     }
 
     while (context.mode.items.len > 1) {
-        const element = layout.computer.getCurrentElement();
+        const element = layout.currentElement();
         if (!element.eqlNull()) {
+            layout.computer.setCurrentElement(.cosmetic, element);
             const box_type = layout.box_tree.element_to_generated_box.get(element) orelse {
-                layout.computer.advanceElement(.cosmetic);
+                layout.advanceElement();
                 continue;
             };
             const has_children = !layout.computer.element_tree_slice.firstChild(element).eqlNull();
             switch (box_type) {
-                .text => layout.computer.advanceElement(.cosmetic),
+                .text => layout.advanceElement(),
                 .block_box => |block_box| {
                     try blockBoxCosmeticLayout(layout, context, block_box, .NonRoot);
+                    try layout.computer.commitElement(.cosmetic);
 
                     if (has_children) {
                         const subtree_slice = layout.box_tree.blocks.subtree(block_box.subtree).slice();
                         const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
                         try context.mode.append(context.allocator, .Flow);
                         try context.containing_block_size.append(context.allocator, box_offsets.content_size);
-                        try layout.computer.pushElement(.cosmetic);
+                        try layout.pushElement();
                     } else {
-                        layout.computer.advanceElement(.cosmetic);
+                        layout.advanceElement();
                     }
                 },
                 .inline_box => |inline_box| {
                     const ifc = layout.box_tree.ifc(inline_box.ifc_id);
                     inlineBoxCosmeticLayout(layout, context, ifc, inline_box.index);
+                    try layout.computer.commitElement(.cosmetic);
 
                     if (has_children) {
                         try context.mode.append(context.allocator, .InlineBox);
-                        try layout.computer.pushElement(.cosmetic);
+                        try layout.pushElement();
                     } else {
-                        layout.computer.advanceElement(.cosmetic);
+                        layout.advanceElement();
                     }
                 },
             }
@@ -131,12 +135,12 @@ pub fn run(layout: *Layout) !void {
                 },
                 .InlineBox => {},
             }
-            layout.computer.popElement(.cosmetic);
+            layout.popElement();
         }
     }
 
     assert(context.mode.pop() == .InitialContainingBlock);
-    layout.computer.popElement(.cosmetic);
+    layout.popElement();
 }
 
 fn blockBoxCosmeticLayout(layout: *Layout, context: Context, block_box: BlockBox, comptime is_root: solve.IsRoot) !void {
