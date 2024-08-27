@@ -6,11 +6,11 @@ const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
-const BlockComputedSizes = zss.layout.BlockComputedSizes;
-const BlockUsedSizes = zss.layout.BlockUsedSizes;
+const BlockComputedSizes = zss.Layout.BlockComputedSizes;
+const BlockUsedSizes = zss.Layout.BlockUsedSizes;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
-const Layout = zss.layout.Layout;
+const Layout = zss.Layout;
 const Stack = zss.util.Stack;
 
 const flow = @import("./flow.zig");

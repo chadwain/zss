@@ -6,12 +6,12 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
-const BlockComputedSizes = zss.layout.BlockComputedSizes;
-const BlockUsedSizes = zss.layout.BlockUsedSizes;
+const BlockComputedSizes = zss.Layout.BlockComputedSizes;
+const BlockUsedSizes = zss.Layout.BlockUsedSizes;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Fonts = zss.Fonts;
-const Layout = zss.layout.Layout;
+const Layout = zss.Layout;
 
 const flow = @import("./flow.zig");
 const stf = @import("./shrink_to_fit.zig");
@@ -53,7 +53,7 @@ pub fn runInlineLayout(
     mode: enum { Normal, ShrinkToFit },
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
-) zss.layout.Error!Result {
+) zss.Layout.Error!Result {
     assert(containing_block_width >= 0);
     if (containing_block_height) |h| assert(h >= 0);
 

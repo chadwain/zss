@@ -58,7 +58,10 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
         try stdout.print("opengl: ({}/{}) \"{s}\" ... ", .{ ti + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
 
-        var box_tree = try zss.layout.doLayout(t.element_tree.slice(), t.root_element, allocator, t.width, t.height, t.images, t.fonts, t.storage);
+        var layout = zss.Layout.init(t.element_tree.slice(), t.root_element, allocator, t.width, t.height, t.images, t.fonts, t.storage);
+        defer layout.deinit();
+
+        var box_tree = try layout.run(allocator);
         defer box_tree.deinit();
 
         const font_opt = t.fonts.get(t.font_handle);

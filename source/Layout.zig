@@ -22,6 +22,25 @@ const BoxTree = used_values.BoxTree;
 const ZssUnit = used_values.ZssUnit;
 const ZssSize = used_values.ZssSize;
 
+const Layout = @This();
+
+box_tree: *BoxTree,
+computer: StyleComputer,
+sc: StackingContexts,
+viewport: ZssSize,
+inputs: Inputs,
+allocator: Allocator,
+element_stack: zss.util.Stack(Element),
+
+pub const Inputs = struct {
+    root_element: Element,
+    width: u32,
+    height: u32,
+    images: Images.Slice,
+    fonts: *const Fonts,
+    storage: *const Storage,
+};
+
 pub const Error = error{
     OutOfMemory,
     OutOfRefs,
@@ -31,7 +50,7 @@ pub const Error = error{
     ViewportTooLarge,
 };
 
-pub fn doLayout(
+pub fn init(
     element_tree_slice: ElementTree.Slice,
     root_element: Element,
     allocator: Allocator,
@@ -42,99 +61,74 @@ pub fn doLayout(
     images: Images.Slice,
     fonts: *const Fonts,
     storage: *const Storage,
-) Error!BoxTree {
+) Layout {
+    if (!root_element.eqlNull()) {
+        const parent = element_tree_slice.parent(root_element);
+        assert(parent.eqlNull());
+    }
+
+    return .{
+        .box_tree = undefined,
+        .computer = StyleComputer.init(element_tree_slice, allocator),
+        .sc = .{ .allocator = allocator },
+        .viewport = undefined,
+        .inputs = .{
+            .root_element = root_element,
+            .width = width,
+            .height = height,
+            .images = images,
+            .fonts = fonts,
+            .storage = storage,
+        },
+        .allocator = allocator,
+        .element_stack = .{},
+    };
+}
+
+pub fn deinit(layout: *Layout) void {
+    layout.computer.deinit();
+    layout.sc.deinit();
+    layout.element_stack.deinit(layout.allocator);
+}
+
+pub fn run(layout: *Layout, allocator: Allocator) Error!BoxTree {
+    const cast = used_values.pixelsToZssUnits;
+    const width_units = cast(layout.inputs.width) orelse return error.ViewportTooLarge;
+    const height_units = cast(layout.inputs.height) orelse return error.ViewportTooLarge;
+    layout.viewport = .{
+        .w = width_units,
+        .h = height_units,
+    };
+
     var box_tree = BoxTree{ .allocator = allocator };
     errdefer box_tree.deinit();
+    layout.box_tree = &box_tree;
 
-    var layout = try Layout.init(&box_tree, element_tree_slice, root_element, allocator, width, height, images, fonts, storage);
-    defer layout.deinit();
-
-    try boxGeneration(&layout);
-    try cosmeticLayout(&layout);
+    try boxGeneration(layout);
+    try cosmeticLayout(layout);
 
     return box_tree;
 }
 
-pub const Layout = struct {
-    box_tree: *BoxTree,
-    computer: StyleComputer,
-    sc: StackingContexts,
-    inputs: Inputs,
-    allocator: Allocator,
-    element_stack: zss.util.Stack(Element),
+pub fn currentElement(layout: Layout) Element {
+    return layout.element_stack.top.?;
+}
 
-    pub const Inputs = struct {
-        viewport: ZssSize,
-        root_element: Element,
-        images: Images.Slice,
-        fonts: *const Fonts,
-        storage: *const Storage,
-    };
+pub fn pushElement(layout: *Layout) !void {
+    const element = &layout.element_stack.top.?;
+    const child = layout.computer.element_tree_slice.firstChild(element.*);
+    element.* = layout.computer.element_tree_slice.nextSibling(element.*);
+    try layout.element_stack.push(layout.allocator, child);
+}
 
-    fn init(
-        box_tree: *BoxTree,
-        element_tree_slice: ElementTree.Slice,
-        root_element: Element,
-        allocator: Allocator,
-        width: u32,
-        height: u32,
-        images: Images.Slice,
-        fonts: *const Fonts,
-        storage: *const Storage,
-    ) !Layout {
-        if (!root_element.eqlNull()) {
-            const parent = element_tree_slice.parent(root_element);
-            assert(parent.eqlNull());
-        }
+pub fn popElement(layout: *Layout) void {
+    _ = layout.element_stack.pop();
+}
 
-        const cast = used_values.pixelsToZssUnits;
-        const width_units = cast(width) orelse return error.ViewportTooLarge;
-        const height_units = cast(height) orelse return error.ViewportTooLarge;
-        return .{
-            .box_tree = box_tree,
-            .computer = StyleComputer.init(element_tree_slice, allocator),
-            .sc = .{ .allocator = allocator },
-            .inputs = .{
-                .viewport = .{
-                    .w = width_units,
-                    .h = height_units,
-                },
-                .root_element = root_element,
-                .images = images,
-                .fonts = fonts,
-                .storage = storage,
-            },
-            .allocator = allocator,
-            .element_stack = .{},
-        };
-    }
-
-    fn deinit(layout: *Layout) void {
-        layout.computer.deinit();
-        layout.sc.deinit();
-        layout.element_stack.deinit(layout.allocator);
-    }
-
-    pub fn currentElement(layout: Layout) Element {
-        return layout.element_stack.top.?;
-    }
-
-    pub fn pushElement(layout: *Layout) !void {
-        const element = &layout.element_stack.top.?;
-        const child = layout.computer.element_tree_slice.firstChild(element.*);
-        element.* = layout.computer.element_tree_slice.nextSibling(element.*);
-        try layout.element_stack.push(layout.allocator, child);
-    }
-
-    pub fn popElement(layout: *Layout) void {
-        _ = layout.element_stack.pop();
-    }
-
-    pub fn advanceElement(layout: *Layout) void {
-        const element = &layout.element_stack.top.?;
-        element.* = layout.computer.element_tree_slice.nextSibling(element.*);
-    }
-};
+pub fn advanceElement(layout: *Layout) void {
+    const element = &layout.element_stack.top.?;
+    element.* = layout.computer.element_tree_slice.nextSibling(element.*);
+}
 
 fn boxGeneration(layout: *Layout) !void {
     layout.computer.stage = .{ .box_gen = .{} };

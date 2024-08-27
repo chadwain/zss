@@ -20,7 +20,7 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
         try stdout.print("check: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
         defer stdout.print("\n", .{}) catch {};
 
-        var box_tree = try zss.layout.doLayout(
+        var layout = zss.Layout.init(
             t.element_tree.slice(),
             t.root_element,
             allocator,
@@ -30,6 +30,9 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
             t.fonts,
             t.storage,
         );
+        defer layout.deinit();
+
+        var box_tree = try layout.run(allocator);
         defer box_tree.deinit();
 
         try validateStackingContexts(&box_tree, allocator);

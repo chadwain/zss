@@ -1,4 +1,3 @@
-pub const layout = @import("layout.zig");
 pub const properties = @import("properties.zig");
 pub const render = @import("render.zig");
 pub const selectors = @import("selectors.zig");
@@ -13,6 +12,7 @@ pub const ElementTree = @import("environment/ElementTree.zig");
 pub const Environment = @import("environment/Environment.zig");
 pub const Fonts = @import("environment/Fonts.zig");
 pub const Images = @import("environment/Images.zig");
+pub const Layout = @import("Layout.zig");
 pub const Stylesheet = @import("environment/Stylesheet.zig");
 
 pub const log = @import("std").log.scoped(.zss);

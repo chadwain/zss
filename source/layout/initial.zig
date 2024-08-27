@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const zss = @import("../zss.zig");
-const Layout = zss.layout.Layout;
+const Layout = zss.Layout;
 
 const flow = @import("./flow.zig");
 const @"inline" = @import("./inline.zig");
@@ -25,8 +25,8 @@ pub const InitialLayoutContext = struct {
 };
 
 pub fn run(layout: *Layout, ctx: *InitialLayoutContext) !void {
-    const width = layout.inputs.viewport.w;
-    const height = layout.inputs.viewport.h;
+    const width = layout.viewport.w;
+    const height = layout.viewport.h;
 
     const subtree_id = try layout.box_tree.blocks.makeSubtree(layout.box_tree.allocator, null);
     ctx.subtree_id = subtree_id;
@@ -76,7 +76,7 @@ fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockB
     switch (used_box_style) {
         .block => |inner| switch (inner) {
             .flow => {
-                const used_sizes = flow.solveAllSizes(&layout.computer, layout.inputs.viewport.w, layout.inputs.viewport.h);
+                const used_sizes = flow.solveAllSizes(&layout.computer, layout.viewport.w, layout.viewport.h);
                 const stacking_context = rootFlowBlockSolveStackingContext(&layout.computer);
                 try layout.computer.commitElement(.box_gen);
 
@@ -106,7 +106,7 @@ fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockB
         },
         .@"inline" => |inner| switch (inner) {
             .text => {
-                const result = try @"inline".runInlineLayout(layout, ctx.subtree_id, .Normal, layout.inputs.viewport.w, layout.inputs.viewport.h);
+                const result = try @"inline".runInlineLayout(layout, ctx.subtree_id, .Normal, layout.viewport.w, layout.viewport.h);
                 return result.skip;
             },
             .@"inline", .flow => unreachable,

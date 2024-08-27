@@ -83,7 +83,7 @@ const ProgramState = struct {
     }
 
     fn layout(self: *ProgramState) !void {
-        var box_tree = try zss.layout.doLayout(
+        var l = zss.Layout.init(
             self.element_tree,
             self.root_element,
             self.allocator,
@@ -93,6 +93,9 @@ const ProgramState = struct {
             self.fonts,
             self.storage,
         );
+        defer l.deinit();
+
+        var box_tree = try l.run(self.allocator);
         defer box_tree.deinit();
 
         var draw_list = try zss.render.DrawList.create(&box_tree, self.allocator);
