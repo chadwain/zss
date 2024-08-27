@@ -82,7 +82,7 @@ const Object = struct {
 
 const ObjectTree = MultiArrayList(Object);
 
-pub const BuildObjectTreeContext = struct {
+const BuildObjectTreeContext = struct {
     stack: Stack(StackItem) = .{},
 
     const StackItem = struct {
@@ -93,7 +93,7 @@ pub const BuildObjectTreeContext = struct {
         height: ?ZssUnit,
     };
 
-    pub fn deinit(self: *BuildObjectTreeContext, allocator: Allocator) void {
+    fn deinit(self: *BuildObjectTreeContext, allocator: Allocator) void {
         self.stack.deinit(allocator);
     }
 };
@@ -169,12 +169,9 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
         .none => layout.advanceElement(),
         .@"inline" => {
             const new_subtree_id = try layout.box_tree.blocks.makeSubtree(layout.box_tree.allocator, null);
-
             const result = try @"inline".runInlineLayout(layout, new_subtree_id, .ShrinkToFit, parent.available_width, parent.height);
 
             parent.auto_width = @max(parent.auto_width, result.min_width);
-
-            // TODO: Store the IFC index as the element
             parent.object_skip += 1;
             try object_tree.append(layout.allocator, .{
                 .skip = 1,
@@ -235,17 +232,21 @@ fn pushFlowObject(
         .height = used_sizes.get(.block_size),
     });
     const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, undefined);
+    //const absolute_containing_block_id = try layout.pushAbsoluteContainingBlock(position, undefined);
     try layout.pushElement();
 
     try object_tree.append(layout.allocator, .{
         .skip = undefined,
         .tag = .flow_stf,
         .element = element,
-        .data = .{ .flow_stf = .{
-            .width = undefined,
-            .used = used_sizes,
-            .stacking_context_id = stacking_context_id,
-        } },
+        .data = .{
+            .flow_stf = .{
+                .width = undefined,
+                .used = used_sizes,
+                .stacking_context_id = stacking_context_id,
+                //.absolute_containing_block_id = absolute_containing_block_id,
+            },
+        },
     });
 }
 

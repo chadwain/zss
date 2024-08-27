@@ -15,6 +15,7 @@ const cosmetic = @import("layout/cosmetic.zig");
 const flow = @import("layout/flow.zig");
 const solve = @import("layout/solve.zig");
 const stf = @import("layout/shrink_to_fit.zig");
+const Absolute = @import("layout/Absolute.zig");
 const StyleComputer = @import("layout/StyleComputer.zig");
 const StackingContexts = @import("layout/StackingContexts.zig");
 
@@ -29,6 +30,7 @@ const Layout = @This();
 box_tree: *BoxTree,
 computer: StyleComputer,
 sc: StackingContexts,
+absolute: Absolute,
 viewport: ZssSize,
 inputs: Inputs,
 allocator: Allocator,
@@ -73,6 +75,7 @@ pub fn init(
         .box_tree = undefined,
         .computer = StyleComputer.init(element_tree_slice, allocator),
         .sc = .{ .allocator = allocator },
+        .absolute = .{},
         .viewport = undefined,
         .inputs = .{
             .root_element = root_element,
@@ -90,6 +93,7 @@ pub fn init(
 pub fn deinit(layout: *Layout) void {
     layout.computer.deinit();
     layout.sc.deinit();
+    layout.absolute.deinit(layout.allocator);
     layout.element_stack.deinit(layout.allocator);
 }
 
@@ -149,6 +153,26 @@ pub fn popElement(layout: *Layout) void {
 pub fn advanceElement(layout: *Layout) void {
     const element = &layout.element_stack.top.?;
     element.* = layout.computer.element_tree_slice.nextSibling(element.*);
+}
+
+pub fn pushAbsoluteContainingBlock(
+    layout: *Layout,
+    position: zss.values.types.Position,
+    block_box: used_values.BlockBox,
+) !?Absolute.ContainingBlock.Id {
+    return layout.absolute.pushAbsoluteContainingBlock(layout.allocator, position, block_box);
+}
+
+pub fn popAbsoluteContainingBlock(layout: *Layout) void {
+    return layout.absolute.popAbsoluteContainingBlock();
+}
+
+pub fn fixupAbsoluteContainingBlock(layout: *Layout, id: Absolute.ContainingBlock.Id, block_box: used_values.BlockBox) void {
+    return layout.absolute.fixupAbsoluteContainingBlock(id, block_box);
+}
+
+pub fn addAbsoluteBlock(layout: *Layout, element: Element, inner_box_style: used_values.BoxStyle.InnerBlock) !void {
+    return layout.absolute.addAbsoluteBlock(layout.allocator, element, inner_box_style);
 }
 
 pub const BlockComputedSizes = struct {
@@ -231,11 +255,11 @@ pub const LayoutBlockResult = struct {
 pub fn createBlock(
     layout: *Layout,
     subtree: *used_values.BlockSubtree,
-    inner_block_type: used_values.BoxStyle.InnerBlock,
+    inner_box_style: used_values.BoxStyle.InnerBlock,
     sizes: BlockUsedSizes,
     stacking_context: StackingContexts.Info,
 ) !LayoutBlockResult {
-    switch (inner_block_type) {
+    switch (inner_box_style) {
         .flow => {
             const index = try subtree.appendBlock(layout.box_tree.allocator);
             const generated_box = used_values.GeneratedBox{ .block_box = .{ .subtree = subtree.id, .index = index } };
@@ -261,12 +285,12 @@ pub fn createBlock(
 pub fn createStfBlock(
     layout: *Layout,
     subtree: *used_values.BlockSubtree,
-    inner_block_type: used_values.BoxStyle.InnerBlock,
+    inner_box_style: used_values.BoxStyle.InnerBlock,
     sizes: BlockUsedSizes,
     containing_block_width: ZssUnit,
     stacking_context: StackingContexts.Info,
 ) !LayoutBlockResult {
-    switch (inner_block_type) {
+    switch (inner_box_style) {
         .flow => {
             const index = try subtree.appendBlock(layout.box_tree.allocator);
             const generated_box = used_values.GeneratedBox{ .block_box = .{ .subtree = subtree.id, .index = index } };
