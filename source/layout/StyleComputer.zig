@@ -92,7 +92,7 @@ pub fn elementCategory(self: StyleComputer, element: Element) ElementTree.Catego
     return self.element_tree_slice.category(element);
 }
 
-pub fn setCurrentElement(self: *StyleComputer, comptime stage: Stage, element: Element) void {
+pub fn setCurrentElement(self: *StyleComputer, comptime stage: Stage, element: Element) !void {
     assert(!element.eqlNull());
     const cascaded_values = switch (self.elementCategory(element)) {
         .normal => self.element_tree_slice.get(.cascaded_values, element),
@@ -104,17 +104,17 @@ pub fn setCurrentElement(self: *StyleComputer, comptime stage: Stage, element: E
     };
 
     const current_stage = &@field(self.stage, @tagName(stage));
-    current_stage.current_computed = .{};
+    const gop_result = try current_stage.map.getOrPut(self.allocator, element);
+    if (!gop_result.found_existing) {
+        gop_result.value_ptr.* = .{};
+    }
+    current_stage.current_computed = gop_result.value_ptr.*;
 }
 
-pub fn commitElement(self: *StyleComputer, comptime stage: Stage) !void {
+pub fn commitElement(self: *StyleComputer, comptime stage: Stage) void {
     const element = self.current.element;
     const current_stage = &@field(self.stage, @tagName(stage));
-    inline for (std.meta.fields(stage.ComputedValues())) |field_info| {
-        const field = @field(current_stage.current_computed, field_info.name);
-        assert(field != null);
-    }
-    try current_stage.map.putNoClobber(self.allocator, element, current_stage.current_computed);
+    current_stage.map.putAssumeCapacity(element, current_stage.current_computed);
 }
 
 pub fn getText(self: StyleComputer) zss.values.types.Text {

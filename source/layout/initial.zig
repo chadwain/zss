@@ -58,7 +58,7 @@ pub fn run(layout: *Layout, ctx: *InitialLayoutContext) !void {
 fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockBoxSkip {
     const element = layout.currentElement();
     if (element.eqlNull()) return 0;
-    layout.computer.setCurrentElement(.box_gen, element);
+    try layout.computer.setCurrentElement(.box_gen, element);
 
     const used_box_style: used_values.BoxStyle = blk: {
         if (layout.computer.elementCategory(element) == .text) {
@@ -78,7 +78,7 @@ fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockB
             .flow => {
                 const used_sizes = flow.solveAllSizes(&layout.computer, layout.viewport.w, layout.viewport.h);
                 const stacking_context = rootFlowBlockSolveStackingContext(&layout.computer);
-                try layout.computer.commitElement(.box_gen);
+                layout.computer.commitElement(.box_gen);
 
                 const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
                 const result = try layout.createBlock(subtree, .flow, used_sizes, stacking_context);

@@ -47,7 +47,7 @@ pub fn run(layout: *Layout) !void {
 
     const root_element = layout.inputs.root_element;
     if (root_element.eqlNull()) return;
-    layout.computer.setCurrentElement(.cosmetic, root_element);
+    try layout.computer.setCurrentElement(.cosmetic, root_element);
 
     var context = Context{ .allocator = layout.allocator };
     defer context.deinit();
@@ -64,7 +64,7 @@ pub fn run(layout: *Layout) !void {
         switch (box_type) {
             .block_box => |block_box| {
                 try blockBoxCosmeticLayout(layout, context, block_box, .Root);
-                try layout.computer.commitElement(.cosmetic);
+                layout.computer.commitElement(.cosmetic);
 
                 // TODO: Temporary jank to set the text color.
                 const computed_color = layout.computer.stage.cosmetic.current_computed.color.?;
@@ -91,7 +91,7 @@ pub fn run(layout: *Layout) !void {
     while (context.mode.items.len > 1) {
         const element = layout.currentElement();
         if (!element.eqlNull()) {
-            layout.computer.setCurrentElement(.cosmetic, element);
+            try layout.computer.setCurrentElement(.cosmetic, element);
             const box_type = layout.box_tree.element_to_generated_box.get(element) orelse {
                 layout.advanceElement();
                 continue;
@@ -101,7 +101,7 @@ pub fn run(layout: *Layout) !void {
                 .text => layout.advanceElement(),
                 .block_box => |block_box| {
                     try blockBoxCosmeticLayout(layout, context, block_box, .NonRoot);
-                    try layout.computer.commitElement(.cosmetic);
+                    layout.computer.commitElement(.cosmetic);
 
                     if (has_children) {
                         const subtree_slice = layout.box_tree.blocks.subtree(block_box.subtree).slice();
@@ -116,7 +116,7 @@ pub fn run(layout: *Layout) !void {
                 .inline_box => |inline_box| {
                     const ifc = layout.box_tree.ifc(inline_box.ifc_id);
                     inlineBoxCosmeticLayout(layout, context, ifc, inline_box.index);
-                    try layout.computer.commitElement(.cosmetic);
+                    layout.computer.commitElement(.cosmetic);
 
                     if (has_children) {
                         try context.mode.append(context.allocator, .InlineBox);

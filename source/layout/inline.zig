@@ -168,7 +168,7 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
         layout.popElement();
         return false;
     }
-    layout.computer.setCurrentElement(.box_gen, element);
+    try layout.computer.setCurrentElement(.box_gen, element);
 
     const computed, const used_box_style = blk: {
         if (layout.computer.elementCategory(element) == .text) {
@@ -222,7 +222,7 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
                     layout.computer.setComputedValue(.box_gen, .z_index, data.z_index);
                     layout.computer.setComputedValue(.box_gen, .font, data.font);
 
-                    try layout.computer.commitElement(.box_gen);
+                    layout.computer.commitElement(.box_gen);
                 }
 
                 try ifcAddBoxStart(layout.box_tree, ifc, inline_box_index);
@@ -246,7 +246,7 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
                 // TODO: Grabbing useless data to satisfy inheritance...
                 const font = layout.computer.getSpecifiedValue(.box_gen, .font);
                 layout.computer.setComputedValue(.box_gen, .font, font);
-                try layout.computer.commitElement(.box_gen);
+                layout.computer.commitElement(.box_gen);
 
                 const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
                 const result = if (used_sizes.get(.inline_size)) |_|

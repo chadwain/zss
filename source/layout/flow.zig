@@ -68,7 +68,7 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
     if (element.eqlNull()) {
         return popBlock(layout, ctx);
     }
-    layout.computer.setCurrentElement(.box_gen, element);
+    try layout.computer.setCurrentElement(.box_gen, element);
 
     const computed_box_style, const used_box_style = blk: {
         if (layout.computer.elementCategory(element) == .text) {
@@ -92,7 +92,7 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
             .flow => {
                 const used_sizes = solveAllSizes(&layout.computer, containing_block_width, containing_block_height);
                 const stacking_context = solveStackingContext(&layout.computer, computed_box_style.position);
-                try layout.computer.commitElement(.box_gen);
+                layout.computer.commitElement(.box_gen);
                 try pushBlock(layout, ctx, element, used_sizes, stacking_context);
             },
         },

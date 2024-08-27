@@ -117,7 +117,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
     if (element.eqlNull()) {
         return popFlowObject(layout, ctx, object_tree);
     }
-    layout.computer.setCurrentElement(.box_gen, element);
+    try layout.computer.setCurrentElement(.box_gen, element);
 
     const computed, const used_box_style = blk: {
         if (layout.computer.elementCategory(element) == .text) {
@@ -145,7 +145,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                     };
                     layout.computer.setComputedValue(.box_gen, .font, stuff.font);
 
-                    try layout.computer.commitElement(.box_gen);
+                    layout.computer.commitElement(.box_gen);
                 }
 
                 const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
