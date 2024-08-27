@@ -292,6 +292,7 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
             }
         },
         .none => layout.advanceElement(),
+        .absolute => panic("TODO: Absolute blocks within inline contexts", .{}),
     }
 
     return false;

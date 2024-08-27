@@ -177,6 +177,7 @@ pub const BoxStyle = union(enum) {
 
     block: InnerBlock,
     @"inline": InnerInline,
+    absolute: InnerBlock,
     none,
 };
 

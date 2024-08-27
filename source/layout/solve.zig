@@ -81,7 +81,7 @@ pub const IsRoot = enum {
 };
 
 /// Implements the rules specified in section 9.7 of CSS2.2.
-pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: IsRoot) struct { aggregates.BoxStyle, used_values.BoxStyle } {
+pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggregates.BoxStyle, used_values.BoxStyle } {
     var computed: aggregates.BoxStyle = .{
         .display = undefined,
         .position = specified.position,
@@ -93,24 +93,33 @@ pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: IsRoot) struct
         return .{ computed, .none };
     }
 
-    switch (specified.position) {
-        .absolute => {
-            std.debug.panic("TODO: absolute positioning", .{});
-            // computed.display = blockify(specified.display);
-            // computed.float = .none;
-            // const used: used_values.BoxStyle = .{ .absolute = innerBlockType(computed.display) };
-            // return .{ computed, used };
+    switch (is_root) {
+        .NonRoot => {
+            switch (specified.position) {
+                .absolute => {
+                    computed.display = blockify(specified.display);
+                    computed.float = .none;
+                    const used: used_values.BoxStyle = .{ .absolute = innerBlockType(computed.display) };
+                    return .{ computed, used };
+                },
+                .fixed => std.debug.panic("TODO: fixed positioning", .{}),
+                .static, .relative, .sticky => {},
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            }
+
+            if (specified.float != .none) {
+                std.debug.panic("TODO: floats", .{});
+            }
+
+            computed.display = specified.display;
         },
-        .fixed => std.debug.panic("TODO: fixed positioning", .{}),
-        .static, .relative, .sticky => {},
-        .initial, .inherit, .unset, .undeclared => unreachable,
+        .Root => {
+            computed.display = blockify(specified.display);
+            computed.position = .static;
+            computed.float = .none;
+        },
     }
 
-    if (specified.float != .none) {
-        std.debug.panic("TODO: floats", .{});
-    }
-
-    computed.display = if (is_root == .Root) blockify(specified.display) else specified.display;
     const used: used_values.BoxStyle = switch (computed.display) {
         .block => .{ .block = .flow },
         .@"inline" => .{ .@"inline" = .@"inline" },

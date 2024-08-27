@@ -11,6 +11,8 @@ const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Stack = zss.util.Stack;
 
+const solve = @import("./solve.zig");
+
 const StyleComputer = @This();
 
 pub const Stage = enum {
@@ -124,7 +126,7 @@ pub fn getText(self: StyleComputer) zss.values.types.Text {
 pub fn getTextFont(self: StyleComputer, comptime stage: Stage) aggregates.Font {
     const element = self.current.element;
     assert(self.elementCategory(element) == .text);
-    var inherited_value = OptionalInheritedValue(.font){};
+    var inherited_value = InheritedValue(.font){ .element = element };
     return inherited_value.get(self, stage);
 }
 
@@ -135,15 +137,18 @@ pub fn setComputedValue(self: *StyleComputer, comptime stage: Stage, comptime ta
     field.* = value;
 }
 
-pub fn getSpecifiedValue(
+pub fn getSpecifiedValue(self: StyleComputer, comptime stage: Stage, comptime tag: aggregates.Tag) tag.Value() {
+    return self.getSpecifiedValueForElement(stage, tag, self.current.element, self.current.cascaded_values);
+}
+
+fn getSpecifiedValueForElement(
     self: StyleComputer,
     comptime stage: Stage,
     comptime tag: aggregates.Tag,
+    element: Element,
+    cascaded_values: CascadedValues,
 ) tag.Value() {
-    const element = self.current.element;
     assert(self.elementCategory(element) == .normal);
-
-    const cascaded_values = self.current.cascaded_values;
     var cascaded_value = cascaded_values.get(tag);
 
     // CSS-COLOR-3§4.4: If the 'currentColor' keyword is set on the 'color' property itself, it is treated as 'color: inherit'.
@@ -181,7 +186,7 @@ pub fn getSpecifiedValue(
         return initial_value;
     }
 
-    var inherited_value = OptionalInheritedValue(tag){};
+    var inherited_value = InheritedValue(tag){ .element = element };
     if (cascaded_value == null and default == .inherit) {
         return inherited_value.get(self, stage);
     }
@@ -207,67 +212,39 @@ pub fn getSpecifiedValue(
     return cv.*;
 }
 
-fn OptionalInheritedValue(comptime tag: aggregates.Tag) type {
+fn InheritedValue(comptime tag: aggregates.Tag) type {
     const Aggregate = tag.Value();
     return struct {
         value: ?Aggregate = null,
+        element: Element,
 
         fn get(self: *@This(), computer: StyleComputer, comptime stage: Stage) Aggregate {
             if (self.value) |value| return value;
 
             const current_stage = @field(computer.stage, @tagName(stage));
-            const parent = computer.element_tree_slice.parent(computer.current.element);
+            const parent = computer.element_tree_slice.parent(self.element);
             self.value = if (parent.eqlNull())
                 Aggregate.initial_values
             else if (current_stage.map.get(parent)) |parent_computed_value|
                 @field(parent_computed_value, @tagName(tag))
-            else
-                std.debug.panic("TODO: parent computed value not found", .{});
+            else blk: {
+                const cascaded_values = computer.element_tree_slice.get(.cascaded_values, parent);
+                // TODO: Recursive call here
+                const specified_value = computer.getSpecifiedValueForElement(stage, tag, parent, cascaded_values);
+                break :blk specifiedToComputed(tag, specified_value, computer, parent);
+            };
             return self.value.?;
         }
     };
 }
 
-// fn getComputedBoxStyle(
-//     computer: StyleComputer,
-//     comptime stage: Stage,
-//     element: Element,
-// ) aggregates.BoxStyle {
-//     const current_stage = @field(computer.stage, @tagName(stage));
-//     if (current_stage.map.get(element)) |computed_value| return computed_value;
-//
-//     const Inherited = struct {
-//         value: ?aggregates.BoxStyle = null,
-//
-//         fn get(self: *@This(), computer: StyleComputer, parent: Element) aggregates.BoxStyle {
-//             if (self.value) |value| return value;
-//             if (parent.eqlNull()) {
-//                 self.value = aggregates.BoxStyle.initial_values;
-//             } else {
-//                 // TODO: Recursive call here
-//                 self.value = getComputedBoxStyle(computer, stage, parent);
-//             }
-//             return self.value;
-//         }
-//     };
-//
-//     const parent = computer.element_tree_slice.parent(e);
-//     const initial_value = aggregates.BoxStyle.initial_values;
-//     var inherited_value = Inherited{};
-//     const cascaded_values = computer.element_tree_slice.get(.cascaded_values, element);
-//     var box_style = cascaded_values.get(box_style) orelse return initial_value;
-//
-//     inline for (std.meta.fields(aggregates.BoxStyle)) |field_info| {
-//         const property = &@field(box_style, field_info.name);
-//         switch (property.*) {
-//             .inherit => property.* = @field(inherited_value.get(computer, element), field_info.name),
-//             .initial => property.* = @field(initial_value, field_info.name),
-//             .unset => property.* = @field(initial_value, field_info.name),
-//             .undeclared => property.* = @field(initial_value, field_info.name),
-//             else => {},
-//         }
-//     }
-//
-//     const computed_value, _ = solve.boxStyle(box_style, parent.eqlNull());
-//     return computed_value;
-// }
+fn specifiedToComputed(comptime tag: aggregates.Tag, specified: tag.Value(), computer: StyleComputer, element: Element) tag.Value() {
+    switch (tag) {
+        .box_style => {
+            const parent = computer.element_tree_slice.parent(element);
+            const computed_value, _ = solve.boxStyle(specified, if (parent.eqlNull()) .Root else .NonRoot);
+            return computed_value;
+        },
+        else => std.debug.panic("TODO: parent computed value not found", .{}),
+    }
+}

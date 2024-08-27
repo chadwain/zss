@@ -102,6 +102,7 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
             advanceFlow(&parent.auto_height, result.height);
         },
         .none => layout.advanceElement(),
+        .absolute => std.debug.panic("TODO: Absolute blocks within flow layout", .{}),
     }
 }
 
@@ -559,8 +560,7 @@ pub fn solveStackingContext(
             .auto => return .{ .is_non_parent = 0 },
             .initial, .inherit, .unset, .undeclared => unreachable,
         },
-        .absolute => unreachable,
-        .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),
+        .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }

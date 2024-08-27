@@ -34,8 +34,7 @@ pub const Info = union(enum) {
     is_parent: ZIndex,
     /// Represents a stacking context that cannot have child stacking contexts.
     /// When one tries to create new stacking context as a child of one of these ones, it instead becomes its sibling.
-    /// This type of stacking context is created by, for example, static-positioned inline-blocks, or
-    /// relative-positioned blocks with a z-index of 'auto'.
+    /// This type of stacking context is created by, for example, static-positioned inline-blocks, or absolute-positioned blocks.
     is_non_parent: ZIndex,
 };
 

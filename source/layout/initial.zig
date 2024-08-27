@@ -111,6 +111,7 @@ fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockB
             },
             .@"inline", .flow => unreachable,
         },
+        .absolute => unreachable,
     }
 
     layout.popElement();

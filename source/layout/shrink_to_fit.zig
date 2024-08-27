@@ -208,6 +208,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                 } },
             });
         },
+        .absolute => std.debug.panic("TODO: Absolute blocks within shrink-to-fit contexts", .{}),
     }
 }
 

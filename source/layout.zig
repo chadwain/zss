@@ -82,6 +82,11 @@ pub const Layout = struct {
         fonts: *const Fonts,
         storage: *const Storage,
     ) !Layout {
+        if (!root_element.eqlNull()) {
+            const parent = element_tree_slice.parent(root_element);
+            assert(parent.eqlNull());
+        }
+
         const cast = used_values.pixelsToZssUnits;
         const width_units = cast(width) orelse return error.ViewportTooLarge;
         const height_units = cast(height) orelse return error.ViewportTooLarge;
