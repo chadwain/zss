@@ -12,7 +12,9 @@ const Storage = zss.values.Storage;
 
 const initial = @import("layout/initial.zig");
 const cosmetic = @import("layout/cosmetic.zig");
+const flow = @import("layout/flow.zig");
 const solve = @import("layout/solve.zig");
+const stf = @import("layout/shrink_to_fit.zig");
 const StyleComputer = @import("layout/StyleComputer.zig");
 const StackingContexts = @import("layout/StackingContexts.zig");
 
@@ -110,6 +112,25 @@ pub fn run(layout: *Layout, allocator: Allocator) Error!BoxTree {
     return box_tree;
 }
 
+fn boxGeneration(layout: *Layout) !void {
+    layout.computer.stage = .{ .box_gen = .{} };
+    defer layout.computer.deinitStage(.box_gen);
+
+    layout.element_stack.top = layout.inputs.root_element;
+
+    var context = initial.InitialLayoutContext{ .allocator = layout.allocator };
+    try initial.run(layout, &context);
+}
+
+fn cosmeticLayout(layout: *Layout) !void {
+    layout.computer.stage = .{ .cosmetic = .{} };
+    defer layout.computer.deinitStage(.cosmetic);
+
+    layout.element_stack.top = layout.inputs.root_element;
+
+    try cosmetic.run(layout);
+}
+
 pub fn currentElement(layout: Layout) Element {
     return layout.element_stack.top.?;
 }
@@ -128,25 +149,6 @@ pub fn popElement(layout: *Layout) void {
 pub fn advanceElement(layout: *Layout) void {
     const element = &layout.element_stack.top.?;
     element.* = layout.computer.element_tree_slice.nextSibling(element.*);
-}
-
-fn boxGeneration(layout: *Layout) !void {
-    layout.computer.stage = .{ .box_gen = .{} };
-    defer layout.computer.deinitStage(.box_gen);
-
-    layout.element_stack.top = layout.inputs.root_element;
-
-    var context = initial.InitialLayoutContext{ .allocator = layout.allocator };
-    try initial.run(layout, &context);
-}
-
-fn cosmeticLayout(layout: *Layout) !void {
-    layout.computer.stage = .{ .cosmetic = .{} };
-    defer layout.computer.deinitStage(.cosmetic);
-
-    layout.element_stack.top = layout.inputs.root_element;
-
-    try cosmetic.run(layout);
 }
 
 pub const BlockComputedSizes = struct {
@@ -220,3 +222,75 @@ pub const BlockUsedSizes = struct {
         return self.auto_bitfield & @intFromEnum(field) != 0;
     }
 };
+
+pub const LayoutBlockResult = struct {
+    index: used_values.BlockBoxIndex,
+    skip: used_values.BlockBoxSkip,
+};
+
+pub fn createBlock(
+    layout: *Layout,
+    subtree: *used_values.BlockSubtree,
+    inner_block_type: used_values.BoxStyle.InnerBlock,
+    sizes: BlockUsedSizes,
+    stacking_context: StackingContexts.Info,
+) !LayoutBlockResult {
+    switch (inner_block_type) {
+        .flow => {
+            const index = try subtree.appendBlock(layout.box_tree.allocator);
+            const generated_box = used_values.GeneratedBox{ .block_box = .{ .subtree = subtree.id, .index = index } };
+            try layout.box_tree.mapElementToBox(layout.currentElement(), generated_box);
+
+            const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
+            try layout.pushElement();
+            // TODO: Recursive call here
+            const result = try flow.runFlowLayout(layout, subtree.id, sizes);
+            layout.sc.pop(layout.box_tree);
+            layout.popElement();
+
+            const skip = 1 + result.skip_of_children;
+            const width = flow.solveUsedWidth(sizes.get(.inline_size).?, sizes.min_inline_size, sizes.max_inline_size);
+            const height = flow.solveUsedHeight(sizes.get(.block_size), sizes.min_block_size, sizes.max_block_size, result.auto_height);
+            flow.writeBlockData(subtree.slice(), index, sizes, skip, width, height, stacking_context_id);
+
+            return .{ .index = index, .skip = skip };
+        },
+    }
+}
+
+pub fn createStfBlock(
+    layout: *Layout,
+    subtree: *used_values.BlockSubtree,
+    inner_block_type: used_values.BoxStyle.InnerBlock,
+    sizes: BlockUsedSizes,
+    containing_block_width: ZssUnit,
+    stacking_context: StackingContexts.Info,
+) !LayoutBlockResult {
+    switch (inner_block_type) {
+        .flow => {
+            const index = try subtree.appendBlock(layout.box_tree.allocator);
+            const generated_box = used_values.GeneratedBox{ .block_box = .{ .subtree = subtree.id, .index = index } };
+            try layout.box_tree.mapElementToBox(layout.currentElement(), generated_box);
+
+            const available_width_unclamped = containing_block_width -
+                (sizes.margin_inline_start_untagged + sizes.margin_inline_end_untagged +
+                sizes.border_inline_start + sizes.border_inline_end +
+                sizes.padding_inline_start + sizes.padding_inline_end);
+            const available_width = solve.clampSize(available_width_unclamped, sizes.min_inline_size, sizes.max_inline_size);
+
+            const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
+            try layout.pushElement();
+            // TODO: Recursive call here
+            const result = try stf.runShrinkToFitLayout(layout, subtree.id, sizes, available_width);
+            layout.sc.pop(layout.box_tree);
+            layout.popElement();
+
+            const skip = 1 + result.skip_of_children;
+            const width = flow.solveUsedWidth(result.width, sizes.min_inline_size, sizes.max_inline_size);
+            const height = flow.solveUsedHeight(sizes.get(.block_size), sizes.min_block_size, sizes.max_block_size, result.auto_height);
+            flow.writeBlockData(subtree.slice(), index, sizes, skip, width, height, stacking_context_id);
+
+            return .{ .index = index, .skip = skip };
+        },
+    }
+}

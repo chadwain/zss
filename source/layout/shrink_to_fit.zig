@@ -155,21 +155,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                 if (used.get(.inline_size)) |inline_size| {
                     const new_subtree_id = try layout.box_tree.blocks.makeSubtree(layout.box_tree.allocator, null);
                     const subtree = layout.box_tree.blocks.subtree(new_subtree_id);
-                    const block_index = try subtree.appendBlock(layout.box_tree.allocator);
-                    const generated_box = GeneratedBox{ .block_box = .{ .subtree = new_subtree_id, .index = block_index } };
-                    try layout.box_tree.mapElementToBox(element, generated_box);
-
-                    const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
-                    try layout.pushElement();
-                    // TODO: Recursive call here
-                    const result = try flow.runFlowLayout(layout, new_subtree_id, used);
-                    layout.sc.pop(layout.box_tree);
-                    layout.popElement();
-
-                    const skip = 1 + result.skip_of_children;
-                    const width = flow.solveUsedWidth(inline_size, used.min_inline_size, used.max_inline_size);
-                    const height = flow.solveUsedHeight(used.get(.block_size), used.min_block_size, used.max_block_size, result.auto_height);
-                    flow.writeBlockData(subtree.slice(), block_index, used, skip, width, height, stacking_context_id);
+                    const result = try layout.createBlock(subtree, .flow, used, stacking_context);
 
                     parent.object_skip += 1;
                     parent.auto_width = @max(parent.auto_width, inline_size + edge_width);
@@ -179,7 +165,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                         .element = element,
                         .data = .{ .flow_normal = .{
                             .subtree_id = new_subtree_id,
-                            .index = block_index,
+                            .index = result.index,
                         } },
                     });
                 } else {

@@ -80,24 +80,9 @@ fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockB
                 const stacking_context = rootFlowBlockSolveStackingContext(&layout.computer);
                 try layout.computer.commitElement(.box_gen);
 
-                // TODO: The rest of this code block is repeated almost verbatim in at least 2 other places.
                 const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
-                const block_index = try subtree.appendBlock(layout.box_tree.allocator);
-                const generated_box = GeneratedBox{ .block_box = .{ .subtree = ctx.subtree_id, .index = block_index } };
-                try layout.box_tree.mapElementToBox(element, generated_box);
-
-                const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
-                try layout.pushElement();
-                const result = try flow.runFlowLayout(layout, ctx.subtree_id, used_sizes);
-                layout.sc.pop(layout.box_tree);
-                layout.popElement();
-
-                const skip = 1 + result.skip_of_children;
-                const width = flow.solveUsedWidth(used_sizes.get(.inline_size).?, used_sizes.min_inline_size, used_sizes.max_inline_size);
-                const height = flow.solveUsedHeight(used_sizes.get(.block_size), used_sizes.min_block_size, used_sizes.max_block_size, result.auto_height);
-                flow.writeBlockData(subtree.slice(), block_index, used_sizes, skip, width, height, stacking_context_id.?);
-
-                return skip;
+                const result = try layout.createBlock(subtree, .flow, used_sizes, stacking_context);
+                return result.skip;
             },
         },
         .none => {

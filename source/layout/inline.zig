@@ -249,39 +249,13 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
                 try layout.computer.commitElement(.box_gen);
 
                 const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
-                const block_index = try subtree.appendBlock(layout.box_tree.allocator);
-                const generated_box = GeneratedBox{ .block_box = .{ .subtree = ctx.subtree_id, .index = block_index } };
-                try layout.box_tree.mapElementToBox(element, generated_box);
+                const result = if (used_sizes.get(.inline_size)) |_|
+                    try layout.createBlock(subtree, .flow, used_sizes, stacking_context)
+                else
+                    try layout.createStfBlock(subtree, .flow, used_sizes, ctx.containing_block_width, stacking_context);
 
-                const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
-                try layout.pushElement();
-
-                const skip_of_children, const width_unclamped, const auto_height = if (used_sizes.get(.inline_size)) |inline_size| blk: {
-                    // TODO: Recursive call here
-                    const result = try flow.runFlowLayout(layout, ctx.subtree_id, used_sizes);
-                    break :blk .{ result.skip_of_children, inline_size, result.auto_height };
-                } else blk: {
-                    const available_width_unclamped = ctx.containing_block_width -
-                        (used_sizes.margin_inline_start_untagged + used_sizes.margin_inline_end_untagged +
-                        used_sizes.border_inline_start + used_sizes.border_inline_end +
-                        used_sizes.padding_inline_start + used_sizes.padding_inline_end);
-                    const available_width = solve.clampSize(available_width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
-
-                    // TODO: Recursive call here
-                    const result = try stf.runShrinkToFitLayout(layout, ctx.subtree_id, used_sizes, available_width);
-                    break :blk .{ result.skip_of_children, result.width, result.auto_height };
-                };
-
-                layout.sc.pop(layout.box_tree);
-                layout.popElement();
-
-                const skip = 1 + skip_of_children;
-                const width = flow.solveUsedWidth(width_unclamped, used_sizes.min_inline_size, used_sizes.max_inline_size);
-                const height = flow.solveUsedHeight(used_sizes.get(.block_size), used_sizes.min_block_size, used_sizes.max_block_size, auto_height);
-                flow.writeBlockData(subtree.slice(), block_index, used_sizes, skip, width, height, stacking_context_id);
-
-                ctx.total_inline_block_skip += skip;
-                try ifcAddInlineBlock(layout.box_tree, ifc, block_index);
+                ctx.total_inline_block_skip += result.skip;
+                try ifcAddInlineBlock(layout.box_tree, ifc, result.index);
             },
         },
         .block => {
