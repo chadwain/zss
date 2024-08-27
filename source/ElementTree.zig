@@ -1,4 +1,4 @@
-const zss = @import("../zss.zig");
+const zss = @import("zss.zig");
 const AggregateTag = zss.properties.aggregates.Tag;
 const CascadedValues = zss.CascadedValues;
 const Environment = zss.Environment;

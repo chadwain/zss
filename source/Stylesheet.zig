@@ -1,6 +1,6 @@
 const Stylesheet = @This();
 
-const zss = @import("../zss.zig");
+const zss = @import("zss.zig");
 const ComplexSelectorList = zss.selectors.ComplexSelectorList;
 const Ast = zss.syntax.Ast;
 const Environment = zss.Environment;
