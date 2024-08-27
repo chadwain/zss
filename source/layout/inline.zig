@@ -172,7 +172,7 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
 
     const computed, const used_box_style = blk: {
         if (layout.computer.elementCategory(element) == .text) {
-            break :blk .{ undefined, used_values.BoxStyle{ .@"inline" = .text } };
+            break :blk .{ undefined, used_values.BoxStyle.text };
         }
 
         const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
@@ -182,7 +182,7 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
     };
 
     // TODO: Check position and float properties
-    switch (used_box_style) {
+    switch (used_box_style.outer) {
         .@"inline" => |inner| switch (inner) {
             .text => {
                 const generated_box = GeneratedBox{ .text = ifc.id };
@@ -237,19 +237,21 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
                     layout.advanceElement();
                 }
             },
-            .flow => {
-                const used_sizes = inlineBlockSolveSizes(&layout.computer, ctx.containing_block_width, ctx.containing_block_height);
-                const stacking_context = inlineBlockCreateStackingContext(&layout.computer, computed.position);
-                layout.computer.commitElement(.box_gen);
+            .block => |block_inner| switch (block_inner) {
+                .flow => {
+                    const used_sizes = inlineBlockSolveSizes(&layout.computer, ctx.containing_block_width, ctx.containing_block_height);
+                    const stacking_context = inlineBlockCreateStackingContext(&layout.computer, computed.position);
+                    layout.computer.commitElement(.box_gen);
 
-                const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
-                const result = if (used_sizes.get(.inline_size)) |_|
-                    try layout.createBlock(subtree, .flow, used_sizes, stacking_context)
-                else
-                    try layout.createStfBlock(subtree, .flow, used_sizes, ctx.containing_block_width, stacking_context);
+                    const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
+                    const result = if (used_sizes.get(.inline_size)) |_|
+                        try layout.createBlock(subtree, .flow, used_box_style, used_sizes, stacking_context)
+                    else
+                        try layout.createStfBlock(subtree, .flow, used_box_style, used_sizes, ctx.containing_block_width, stacking_context);
 
-                ctx.total_inline_block_skip += result.skip;
-                try ifcAddInlineBlock(layout.box_tree, ifc, result.index);
+                    ctx.total_inline_block_skip += result.skip;
+                    try ifcAddInlineBlock(layout.box_tree, ifc, result.index);
+                },
             },
         },
         .block => {

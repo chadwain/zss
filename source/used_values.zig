@@ -164,21 +164,35 @@ pub const Margins = struct {
 
 pub const Insets = ZssVector;
 
-/// Each field represents an "outer" display type, while each value represents an "inner" display type.
-pub const BoxStyle = union(enum) {
+pub const BoxStyle = struct {
     pub const InnerBlock = enum {
+        /// display: block
         flow,
     };
-    pub const InnerInline = enum {
+    pub const InnerInline = union(enum) {
+        /// display: inline
         @"inline",
-        flow,
+        /// Text nodes
         text,
+        /// display: inline-block, inline-grid, etc.
+        block: InnerBlock,
     };
 
-    block: InnerBlock,
-    @"inline": InnerInline,
-    absolute: InnerBlock,
-    none,
+    /// Each field represents an "outer" display type, while each value represents an "inner" display type.
+    outer: union(enum) {
+        block: InnerBlock,
+        @"inline": InnerInline,
+        /// position: absolute
+        absolute: InnerBlock,
+        /// display: none
+        none,
+    },
+    positioned: bool,
+
+    pub const text = BoxStyle{
+        .outer = .{ .@"inline" = .text },
+        .positioned = false,
+    };
 };
 
 pub const BackgroundClip = enum { border, padding, content };

@@ -90,16 +90,20 @@ pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggreg
 
     if (specified.display == .none) {
         computed.display = .none;
-        return .{ computed, .none };
+        return .{ computed, .{ .outer = .none, .positioned = false } };
     }
 
+    var positioned: bool = undefined;
     switch (is_root) {
         .NonRoot => {
             switch (specified.position) {
                 .absolute => {
                     computed.display = blockify(specified.display);
                     computed.float = .none;
-                    const used: used_values.BoxStyle = .{ .absolute = innerBlockType(computed.display) };
+                    const used: used_values.BoxStyle = .{
+                        .outer = .{ .absolute = innerBlockType(computed.display) },
+                        .positioned = true,
+                    };
                     return .{ computed, used };
                 },
                 .fixed => std.debug.panic("TODO: fixed positioning", .{}),
@@ -112,20 +116,29 @@ pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggreg
             }
 
             computed.display = specified.display;
+            positioned = switch (computed.position) {
+                .static => false,
+                .relative, .sticky, .absolute, .fixed => true,
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            };
         },
         .Root => {
             computed.display = blockify(specified.display);
             computed.position = .static;
             computed.float = .none;
+            positioned = false;
         },
     }
 
-    const used: used_values.BoxStyle = switch (computed.display) {
-        .block => .{ .block = .flow },
-        .@"inline" => .{ .@"inline" = .@"inline" },
-        .inline_block => .{ .@"inline" = .flow },
-        .none => unreachable,
-        .initial, .inherit, .unset, .undeclared => unreachable,
+    const used: used_values.BoxStyle = .{
+        .outer = switch (computed.display) {
+            .block => .{ .block = .flow },
+            .@"inline" => .{ .@"inline" = .@"inline" },
+            .inline_block => .{ .@"inline" = .{ .block = .flow } },
+            .none => unreachable,
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        },
+        .positioned = positioned,
     };
 
     return .{ computed, used };

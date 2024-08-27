@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const zss = @import("../zss.zig");
 const BlockBox = zss.used_values.BlockBox;
 const Element = zss.ElementTree.Element;
-const InnerBoxStyle = zss.used_values.BoxStyle.InnerBlock;
+const BoxStyle = zss.used_values.BoxStyle;
 const Position = zss.values.types.Position;
 
 const Absolute = @This();
@@ -31,10 +31,10 @@ pub const ContainingBlock = struct {
     pub const Id = enum(u32) { _ };
 };
 
-const Block = struct {
+pub const Block = struct {
     containing_block: ContainingBlock.Id,
     element: Element,
-    inner_box_style: InnerBoxStyle,
+    inner_box_style: BoxStyle.InnerBlock,
 };
 
 const Tag = enum {
@@ -42,23 +42,19 @@ const Tag = enum {
     exists,
 };
 
-pub fn pushAbsoluteContainingBlock(
-    absolute: *Absolute,
-    allocator: Allocator,
-    position: Position,
-    block_box: BlockBox,
-) !?ContainingBlock.Id {
-    switch (position) {
-        .static => {
-            try absolute.containing_block_tag.push(allocator, .none);
-            return null;
-        },
-        .relative, .sticky, .absolute, .fixed => {},
-        .initial, .inherit, .unset, .undeclared => unreachable,
+pub fn pushAbsoluteContainingBlock(absolute: *Absolute, allocator: Allocator, box_style: BoxStyle, block_box: BlockBox) !?ContainingBlock.Id {
+    if (!box_style.positioned) {
+        try absolute.containing_block_tag.append(allocator, .none);
+        return null;
     }
+    return try absolute.newAbsoluteContainingBlock(allocator, block_box);
+}
 
+pub const pushInitialAbsoluteContainingBlock = newAbsoluteContainingBlock;
+
+fn newAbsoluteContainingBlock(absolute: *Absolute, allocator: Allocator, block_box: BlockBox) !ContainingBlock.Id {
     const id: ContainingBlock.Id = @enumFromInt(absolute.next_containing_block_id);
-    const index: u32 = @intCast(absolute.containing_blocks.items.len);
+    const index: u32 = @intCast(absolute.containing_blocks.len);
     try absolute.containing_block_tag.append(allocator, .exists);
     try absolute.containing_block_index.append(allocator, index);
     try absolute.containing_blocks.append(allocator, .{ .id = id, .block_box = block_box });
@@ -73,22 +69,19 @@ pub fn popAbsoluteContainingBlock(absolute: *Absolute) void {
     _ = absolute.containing_block_index.pop();
 
     if (absolute.containing_block_tag.items.len > 0) {
-        absolute.current_containing_block_index = absolute.containing_block_tag.items[absolute.containing_block_tag.items.len - 1];
+        absolute.current_containing_block_index = absolute.containing_block_index.items[absolute.containing_block_index.items.len - 1];
     } else {
         absolute.current_containing_block_index = undefined;
     }
 }
 
 pub fn fixupAbsoluteContainingBlock(absolute: *Absolute, id: ContainingBlock.Id, block_box: BlockBox) void {
-    for (absolute.containing_blocks.items) |*acb| {
-        if (acb.id == id) {
-            acb.block_box = block_box;
-            break;
-        }
-    }
+    const slice = absolute.containing_blocks.slice();
+    const index: u32 = @intCast(std.mem.indexOfScalar(ContainingBlock.Id, slice.items(.id), id).?);
+    slice.items(.block_box)[index] = block_box;
 }
 
-pub fn addAbsoluteBlock(absolute: *Absolute, allocator: Allocator, element: Element, inner_box_style: InnerBoxStyle) !void {
+pub fn addAbsoluteBlock(absolute: *Absolute, allocator: Allocator, element: Element, inner_box_style: BoxStyle.InnerBlock) !void {
     const index = absolute.current_containing_block_index;
     const id = absolute.containing_blocks.items[index].id;
     try absolute.blocks.append(allocator, .{ .containing_block = id, .element = element, .inner_box_style = inner_box_style });

@@ -72,7 +72,7 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
 
     const computed_box_style, const used_box_style = blk: {
         if (layout.computer.elementCategory(element) == .text) {
-            break :blk .{ undefined, used_values.BoxStyle{ .@"inline" = .text } };
+            break :blk .{ undefined, used_values.BoxStyle.text };
         }
 
         const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
@@ -85,13 +85,13 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
     const containing_block_width = parent.used.inline_size_clamped;
     const containing_block_height = parent.used.block_size;
 
-    switch (used_box_style) {
+    switch (used_box_style.outer) {
         .block => |inner| switch (inner) {
             .flow => {
                 const used_sizes = solveAllSizes(&layout.computer, containing_block_width, containing_block_height);
                 const stacking_context = solveStackingContext(&layout.computer, computed_box_style.position);
                 layout.computer.commitElement(.box_gen);
-                try pushBlock(layout, ctx, element, used_sizes, stacking_context);
+                try pushBlock(layout, ctx, element, used_box_style, used_sizes, stacking_context);
             },
         },
         .@"inline" => {
@@ -114,7 +114,14 @@ fn pushMainBlock(ctx: *Context, used_sizes: BlockUsedSizes) void {
     };
 }
 
-fn pushBlock(layout: *Layout, ctx: *Context, element: Element, used_sizes: BlockUsedSizes, stacking_context: StackingContexts.Info) !void {
+fn pushBlock(
+    layout: *Layout,
+    ctx: *Context,
+    element: Element,
+    box_style: used_values.BoxStyle,
+    used_sizes: BlockUsedSizes,
+    stacking_context: StackingContexts.Info,
+) !void {
     const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
     const block_index = try subtree.appendBlock(layout.box_tree.allocator);
     const generated_box = GeneratedBox{ .block_box = .{ .subtree = ctx.subtree_id, .index = block_index } };
@@ -128,6 +135,7 @@ fn pushBlock(layout: *Layout, ctx: *Context, element: Element, used_sizes: Block
         .auto_height = 0,
     });
     const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
+    _ = try layout.pushAbsoluteContainingBlock(box_style, generated_box.block_box);
     try layout.pushElement();
 
     const width = solveUsedWidth(used_sizes.get(.inline_size).?, used_sizes.min_inline_size, used_sizes.max_inline_size);
@@ -146,6 +154,7 @@ fn popBlock(layout: *Layout, ctx: *Context) void {
     };
 
     layout.sc.pop(layout.box_tree);
+    layout.popAbsoluteContainingBlock();
     layout.popElement();
 
     const subtree_slice = layout.box_tree.blocks.subtree(ctx.subtree_id).slice();

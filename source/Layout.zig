@@ -15,7 +15,7 @@ const cosmetic = @import("layout/cosmetic.zig");
 const flow = @import("layout/flow.zig");
 const solve = @import("layout/solve.zig");
 const stf = @import("layout/shrink_to_fit.zig");
-const Absolute = @import("layout/Absolute.zig");
+pub const Absolute = @import("layout/Absolute.zig");
 const StyleComputer = @import("layout/StyleComputer.zig");
 const StackingContexts = @import("layout/StackingContexts.zig");
 
@@ -157,10 +157,14 @@ pub fn advanceElement(layout: *Layout) void {
 
 pub fn pushAbsoluteContainingBlock(
     layout: *Layout,
-    position: zss.values.types.Position,
+    box_style: used_values.BoxStyle,
     block_box: used_values.BlockBox,
 ) !?Absolute.ContainingBlock.Id {
-    return layout.absolute.pushAbsoluteContainingBlock(layout.allocator, position, block_box);
+    return layout.absolute.pushAbsoluteContainingBlock(layout.allocator, box_style, block_box);
+}
+
+pub fn pushInitialAbsoluteContainingBlock(layout: *Layout, block_box: used_values.BlockBox) !?Absolute.ContainingBlock.Id {
+    return try layout.absolute.pushInitialAbsoluteContainingBlock(layout.allocator, block_box);
 }
 
 pub fn popAbsoluteContainingBlock(layout: *Layout) void {
@@ -256,6 +260,7 @@ pub fn createBlock(
     layout: *Layout,
     subtree: *used_values.BlockSubtree,
     inner_box_style: used_values.BoxStyle.InnerBlock,
+    box_style: used_values.BoxStyle,
     sizes: BlockUsedSizes,
     stacking_context: StackingContexts.Info,
 ) !LayoutBlockResult {
@@ -266,10 +271,12 @@ pub fn createBlock(
             try layout.box_tree.mapElementToBox(layout.currentElement(), generated_box);
 
             const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
+            _ = try layout.pushAbsoluteContainingBlock(box_style, generated_box.block_box);
             try layout.pushElement();
             // TODO: Recursive call here
             const result = try flow.runFlowLayout(layout, subtree.id, sizes);
             layout.sc.pop(layout.box_tree);
+            layout.popAbsoluteContainingBlock();
             layout.popElement();
 
             const skip = 1 + result.skip_of_children;
@@ -286,6 +293,7 @@ pub fn createStfBlock(
     layout: *Layout,
     subtree: *used_values.BlockSubtree,
     inner_box_style: used_values.BoxStyle.InnerBlock,
+    box_style: used_values.BoxStyle,
     sizes: BlockUsedSizes,
     containing_block_width: ZssUnit,
     stacking_context: StackingContexts.Info,
@@ -303,10 +311,12 @@ pub fn createStfBlock(
             const available_width = solve.clampSize(available_width_unclamped, sizes.min_inline_size, sizes.max_inline_size);
 
             const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
+            _ = try layout.pushAbsoluteContainingBlock(box_style, generated_box.block_box);
             try layout.pushElement();
             // TODO: Recursive call here
             const result = try stf.runShrinkToFitLayout(layout, subtree.id, sizes, available_width);
             layout.sc.pop(layout.box_tree);
+            layout.popAbsoluteContainingBlock();
             layout.popElement();
 
             const skip = 1 + result.skip_of_children;

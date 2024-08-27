@@ -33,13 +33,16 @@ pub fn run(layout: *Layout, ctx: *InitialLayoutContext) !void {
     const subtree = layout.box_tree.blocks.subtree(subtree_id);
 
     const block_index = try subtree.appendBlock(layout.box_tree.allocator);
-    layout.box_tree.blocks.initial_containing_block = .{ .subtree = subtree_id, .index = block_index };
+    const block_box = BlockBox{ .subtree = subtree_id, .index = block_index };
+    layout.box_tree.blocks.initial_containing_block = block_box;
 
     const stacking_context: StackingContexts.Info = .{ .is_parent = 0 };
 
-    const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, layout.box_tree.blocks.initial_containing_block);
+    const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, block_box);
+    _ = try layout.pushInitialAbsoluteContainingBlock(block_box);
     const skip = try analyzeRootElement(layout, ctx);
     layout.sc.pop(layout.box_tree);
+    layout.popAbsoluteContainingBlock();
 
     const subtree_slice = subtree.slice();
     subtree_slice.items(.skip)[block_index] = 1 + skip;
@@ -62,7 +65,7 @@ fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockB
 
     const used_box_style: used_values.BoxStyle = blk: {
         if (layout.computer.elementCategory(element) == .text) {
-            break :blk .{ .@"inline" = .text };
+            break :blk used_values.BoxStyle.text;
         }
 
         const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
@@ -71,7 +74,7 @@ fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockB
         break :blk used_box_style;
     };
 
-    switch (used_box_style) {
+    switch (used_box_style.outer) {
         .block => |inner| switch (inner) {
             .flow => {
                 const used_sizes = flow.solveAllSizes(&layout.computer, layout.viewport.w, layout.viewport.h);
@@ -79,7 +82,7 @@ fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockB
                 layout.computer.commitElement(.box_gen);
 
                 const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
-                const result = try layout.createBlock(subtree, .flow, used_sizes, stacking_context);
+                const result = try layout.createBlock(subtree, .flow, used_box_style, used_sizes, stacking_context);
                 return result.skip;
             },
         },
@@ -92,7 +95,7 @@ fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockB
                 const result = try @"inline".runInlineLayout(layout, ctx.subtree_id, .Normal, layout.viewport.w, layout.viewport.h);
                 return result.skip;
             },
-            .@"inline", .flow => unreachable,
+            .@"inline", .block => unreachable,
         },
         .absolute => unreachable,
     }
