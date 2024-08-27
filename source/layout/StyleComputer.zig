@@ -225,9 +225,14 @@ fn InheritedValue(comptime tag: aggregates.Tag) type {
             const parent = computer.element_tree_slice.parent(self.element);
             self.value = if (parent.eqlNull())
                 Aggregate.initial_values
-            else if (current_stage.map.get(parent)) |parent_computed_value|
-                @field(parent_computed_value, @tagName(tag))
             else blk: {
+                if (current_stage.map.get(parent)) |parent_computed_values| {
+                    if (@field(parent_computed_values, @tagName(tag))) |inherited_value| {
+                        break :blk inherited_value;
+                    }
+                }
+                // TODO: Cache the parent's computed value for faster access in future calls.
+
                 const cascaded_values = computer.element_tree_slice.get(.cascaded_values, parent);
                 // TODO: Recursive call here
                 const specified_value = computer.getSpecifiedValueForElement(stage, tag, parent, cascaded_values);
@@ -245,6 +250,10 @@ fn specifiedToComputed(comptime tag: aggregates.Tag, specified: tag.Value(), com
             const computed_value, _ = solve.boxStyle(specified, if (parent.eqlNull()) .Root else .NonRoot);
             return computed_value;
         },
-        else => std.debug.panic("TODO: parent computed value not found", .{}),
+        .font => {
+            // TODO: This is not the correct computed value for fonts.
+            return specified;
+        },
+        else => std.debug.panic("TODO: specifiedToComputed for aggregate '{s}'", .{@tagName(tag)}),
     }
 }

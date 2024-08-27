@@ -138,15 +138,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                 var used: BlockUsedSizes = undefined;
                 solveBlockSizes(&layout.computer, &used, parent.height);
                 const stacking_context = flow.solveStackingContext(&layout.computer, computed.position);
-
-                { // TODO: Delete this
-                    const stuff = .{
-                        .font = layout.computer.getSpecifiedValue(.box_gen, .font),
-                    };
-                    layout.computer.setComputedValue(.box_gen, .font, stuff.font);
-
-                    layout.computer.commitElement(.box_gen);
-                }
+                layout.computer.commitElement(.box_gen);
 
                 const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
                     used.border_inline_start + used.border_inline_end +

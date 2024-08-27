@@ -215,12 +215,10 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
                         .content_width = layout.computer.getSpecifiedValue(.box_gen, .content_width),
                         .content_height = layout.computer.getSpecifiedValue(.box_gen, .content_height),
                         .z_index = layout.computer.getSpecifiedValue(.box_gen, .z_index),
-                        .font = layout.computer.getSpecifiedValue(.box_gen, .font),
                     };
                     layout.computer.setComputedValue(.box_gen, .content_width, data.content_width);
                     layout.computer.setComputedValue(.box_gen, .content_height, data.content_height);
                     layout.computer.setComputedValue(.box_gen, .z_index, data.z_index);
-                    layout.computer.setComputedValue(.box_gen, .font, data.font);
 
                     layout.computer.commitElement(.box_gen);
                 }
@@ -242,10 +240,6 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
             .flow => {
                 const used_sizes = inlineBlockSolveSizes(&layout.computer, ctx.containing_block_width, ctx.containing_block_height);
                 const stacking_context = inlineBlockCreateStackingContext(&layout.computer, computed.position);
-
-                // TODO: Grabbing useless data to satisfy inheritance...
-                const font = layout.computer.getSpecifiedValue(.box_gen, .font);
-                layout.computer.setComputedValue(.box_gen, .font, font);
                 layout.computer.commitElement(.box_gen);
 
                 const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);

@@ -76,10 +76,8 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
         }
 
         const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
-        const specified_font = layout.computer.getSpecifiedValue(.box_gen, .font);
         const computed_box_style, const used_box_style = solve.boxStyle(specified_box_style, .NonRoot);
         layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
-        layout.computer.setComputedValue(.box_gen, .font, specified_font);
         break :blk .{ computed_box_style, used_box_style };
     };
 
