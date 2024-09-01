@@ -253,11 +253,11 @@ fn solveWidthAndHorizontalMargins(
     switch (specified.content_width.width) {
         .px => |value| {
             computed.content_width.width = .{ .px = value };
-            used.set(.inline_size, solve.positiveLength(.px, value));
+            used.setValue(.inline_size, solve.positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.content_width.width = .{ .percentage = value };
-            used.set(.inline_size, solve.positivePercentage(value, containing_block_width));
+            used.setValue(.inline_size, solve.positivePercentage(value, containing_block_width));
         },
         .auto => {
             computed.content_width.width = .auto;
@@ -268,11 +268,11 @@ fn solveWidthAndHorizontalMargins(
     switch (specified.horizontal_edges.margin_left) {
         .px => |value| {
             computed.horizontal_edges.margin_left = .{ .px = value };
-            used.set(.margin_inline_start, solve.length(.px, value));
+            used.setValue(.margin_inline_start, solve.length(.px, value));
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_left = .{ .percentage = value };
-            used.set(.margin_inline_start, solve.percentage(value, containing_block_width));
+            used.setValue(.margin_inline_start, solve.percentage(value, containing_block_width));
         },
         .auto => {
             computed.horizontal_edges.margin_left = .auto;
@@ -283,11 +283,11 @@ fn solveWidthAndHorizontalMargins(
     switch (specified.horizontal_edges.margin_right) {
         .px => |value| {
             computed.horizontal_edges.margin_right = .{ .px = value };
-            used.set(.margin_inline_end, solve.length(.px, value));
+            used.setValue(.margin_inline_end, solve.length(.px, value));
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_right = .{ .percentage = value };
-            used.set(.margin_inline_end, solve.percentage(value, containing_block_width));
+            used.setValue(.margin_inline_end, solve.percentage(value, containing_block_width));
         },
         .auto => {
             computed.horizontal_edges.margin_right = .auto;
@@ -407,12 +407,12 @@ pub fn solveHeight(
     switch (specified.height) {
         .px => |value| {
             computed.height = .{ .px = value };
-            used.set(.block_size, solve.positiveLength(.px, value));
+            used.setValue(.block_size, solve.positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.height = .{ .percentage = value };
             if (containing_block_height) |h|
-                used.set(.block_size, solve.positivePercentage(value, h))
+                used.setValue(.block_size, solve.positivePercentage(value, h))
             else
                 used.setAuto(.block_size);
         },
@@ -527,28 +527,31 @@ pub fn solveVerticalEdges(
 pub fn adjustWidthAndMargins(used: *BlockUsedSizes, containing_block_width: ZssUnit) void {
     const width_margin_space = containing_block_width -
         (used.border_inline_start + used.border_inline_end + used.padding_inline_start + used.padding_inline_end);
-    if (used.inlineSizeAndMarginsAreAllNotAuto()) {
+    const auto = .{
+        .inline_size = used.isAuto(.inline_size),
+        .margin_inline_start = used.isAuto(.margin_inline_start),
+        .margin_inline_end = used.isAuto(.margin_inline_end),
+    };
+    if (!auto.inline_size and !auto.margin_inline_start and !auto.margin_inline_end) {
         // None of the values were auto, so one of the margins must be set according to the other values.
         // TODO the margin that gets set is determined by the 'direction' property
-        used.set(.margin_inline_end, width_margin_space - used.inline_size_untagged - used.margin_inline_start_untagged);
-    } else if (!used.isFieldAuto(.inline_size)) {
+        used.setValue(.margin_inline_end, width_margin_space - used.inline_size_untagged - used.margin_inline_start_untagged);
+    } else if (!auto.inline_size) {
         // 'inline-size' is not auto, but at least one of 'margin-inline-start' and 'margin-inline-end' is.
         // If there is only one "auto", then that value gets the remaining margin space.
         // Else, there are 2 "auto"s, and both values get half the remaining margin space.
-        const start = used.isFieldAuto(.margin_inline_start);
-        const end = used.isFieldAuto(.margin_inline_end);
-        const shr_amount = @intFromBool(start and end);
+        const shr_amount = @intFromBool(auto.margin_inline_start and auto.margin_inline_end);
         const leftover_margin = @max(0, width_margin_space -
             (used.inline_size_untagged + used.margin_inline_start_untagged + used.margin_inline_end_untagged));
         // TODO the margin that gets the extra 1 unit shall be determined by the 'direction' property
-        if (start) used.set(.margin_inline_start, leftover_margin >> shr_amount);
-        if (end) used.set(.margin_inline_end, (leftover_margin >> shr_amount) + @mod(leftover_margin, 2));
+        if (auto.margin_inline_start) used.setValue(.margin_inline_start, leftover_margin >> shr_amount);
+        if (auto.margin_inline_end) used.setValue(.margin_inline_end, (leftover_margin >> shr_amount) + @mod(leftover_margin, 2));
     } else {
         // 'inline-size' is auto, so it is set according to the other values.
         // The margin values don't need to change.
-        used.set(.inline_size, width_margin_space - used.margin_inline_start_untagged - used.margin_inline_end_untagged);
-        used.setOnly(.margin_inline_start);
-        used.setOnly(.margin_inline_end);
+        used.setValue(.inline_size, width_margin_space - used.margin_inline_start_untagged - used.margin_inline_end_untagged);
+        used.setValueFlagOnly(.margin_inline_start);
+        used.setValueFlagOnly(.margin_inline_end);
     }
 }
 

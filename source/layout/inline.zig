@@ -632,30 +632,30 @@ fn inlineBlockSolveSizes(
     switch (specified.horizontal_edges.margin_left) {
         .px => |value| {
             computed.horizontal_edges.margin_left = .{ .px = value };
-            used.set(.margin_inline_start, solve.length(.px, value));
+            used.setValue(.margin_inline_start, solve.length(.px, value));
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_left = .{ .percentage = value };
-            used.set(.margin_inline_start, solve.percentage(value, containing_block_width));
+            used.setValue(.margin_inline_start, solve.percentage(value, containing_block_width));
         },
         .auto => {
             computed.horizontal_edges.margin_left = .auto;
-            used.set(.margin_inline_start, 0);
+            used.setValue(.margin_inline_start, 0);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.margin_right) {
         .px => |value| {
             computed.horizontal_edges.margin_right = .{ .px = value };
-            used.set(.margin_inline_end, solve.length(.px, value));
+            used.setValue(.margin_inline_end, solve.length(.px, value));
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_right = .{ .percentage = value };
-            used.set(.margin_inline_end, solve.percentage(value, containing_block_width));
+            used.setValue(.margin_inline_end, solve.percentage(value, containing_block_width));
         },
         .auto => {
             computed.horizontal_edges.margin_right = .auto;
-            used.set(.margin_inline_end, 0);
+            used.setValue(.margin_inline_end, 0);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -689,11 +689,11 @@ fn inlineBlockSolveSizes(
     switch (specified.content_width.width) {
         .px => |value| {
             computed.content_width.width = .{ .px = value };
-            used.set(.inline_size, solve.positiveLength(.px, value));
+            used.setValue(.inline_size, solve.positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.content_width.width = .{ .percentage = value };
-            used.set(.inline_size, solve.positivePercentage(value, containing_block_width));
+            used.setValue(.inline_size, solve.positivePercentage(value, containing_block_width));
         },
         .auto => {
             computed.content_width.width = .auto;
@@ -821,12 +821,12 @@ fn inlineBlockSolveSizes(
     switch (specified.content_height.height) {
         .px => |value| {
             computed.content_height.height = .{ .px = value };
-            used.set(.block_size, solve.positiveLength(.px, value));
+            used.setValue(.block_size, solve.positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.content_height.height = .{ .percentage = value };
             if (containing_block_height) |h|
-                used.set(.block_size, solve.positivePercentage(value, h))
+                used.setValue(.block_size, solve.positivePercentage(value, h))
             else
                 used.setAuto(.block_size);
         },

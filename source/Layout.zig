@@ -15,7 +15,7 @@ const cosmetic = @import("layout/cosmetic.zig");
 const flow = @import("layout/flow.zig");
 const solve = @import("layout/solve.zig");
 const stf = @import("layout/shrink_to_fit.zig");
-pub const Absolute = @import("layout/Absolute.zig");
+pub const Absolute = @import("layout/AbsoluteContainingBlocks.zig");
 const StyleComputer = @import("layout/StyleComputer.zig");
 const StackingContexts = @import("layout/StackingContexts.zig");
 
@@ -207,47 +207,85 @@ pub const BlockUsedSizes = struct {
     min_block_size: ZssUnit,
     max_block_size: ZssUnit,
 
-    auto_bitfield: u4,
+    inset_inline_start_untagged: ZssUnit,
+    inset_inline_end_untagged: ZssUnit,
+    inset_block_start_untagged: ZssUnit,
+    inset_block_end_untagged: ZssUnit,
 
-    pub const PossiblyAutoField = enum(u4) {
-        inline_size = 1,
-        margin_inline_start = 2,
-        margin_inline_end = 4,
-        block_size = 8,
+    flags: Flags,
+
+    pub const Flags = packed struct {
+        inline_size: IsAuto,
+        margin_inline_start: IsAuto,
+        margin_inline_end: IsAuto,
+        block_size: IsAuto,
+        inset_inline_start: IsAuto,
+        inset_inline_end: IsAuto,
+        inset_block_start: IsAutoOrPercentage,
+        inset_block_end: IsAutoOrPercentage,
+
+        pub const IsAuto = enum(u1) { value, auto };
+        pub const IsAutoOrPercentage = enum(u2) { value, auto, percentage };
+
+        const Field = std.meta.FieldEnum(Flags);
     };
 
-    pub fn set(self: *BlockUsedSizes, comptime field: PossiblyAutoField, value: ZssUnit) void {
-        self.auto_bitfield &= (~@intFromEnum(field));
+    pub fn setValue(self: *BlockUsedSizes, comptime field: Flags.Field, value: ZssUnit) void {
+        @field(self.flags, @tagName(field)) = .value;
         const clamped_value = switch (field) {
             .inline_size => solve.clampSize(value, self.min_inline_size, self.max_inline_size),
             .margin_inline_start, .margin_inline_end => value,
             .block_size => solve.clampSize(value, self.min_block_size, self.max_block_size),
+            .inset_inline_start, .inset_inline_end, .inset_block_start, .inset_block_end => value,
         };
         @field(self, @tagName(field) ++ "_untagged") = clamped_value;
     }
 
-    pub fn setOnly(self: *BlockUsedSizes, comptime field: PossiblyAutoField) void {
-        self.auto_bitfield &= (~@intFromEnum(field));
+    pub fn setValueFlagOnly(self: *BlockUsedSizes, comptime field: Flags.Field) void {
+        @field(self.flags, @tagName(field)) = .value;
     }
 
-    pub fn setAuto(self: *BlockUsedSizes, comptime field: PossiblyAutoField) void {
-        self.auto_bitfield |= @intFromEnum(field);
+    pub fn setAuto(self: *BlockUsedSizes, comptime field: Flags.Field) void {
+        @field(self.flags, @tagName(field)) = .auto;
         @field(self, @tagName(field) ++ "_untagged") = 0;
     }
 
-    pub fn get(self: BlockUsedSizes, comptime field: PossiblyAutoField) ?ZssUnit {
-        return if (self.isFieldAuto(field)) null else @field(self, @tagName(field) ++ "_untagged");
+    pub fn setPercentage(self: *BlockUsedSizes, comptime field: Flags.Field, value: f32) void {
+        @field(self.flags, @tagName(field)) = .percentage;
+        @field(self, @tagName(field) ++ "_untagged") = @bitCast(value);
     }
 
-    pub fn inlineSizeAndMarginsAreAllNotAuto(self: BlockUsedSizes) bool {
-        const mask = @intFromEnum(PossiblyAutoField.inline_size) |
-            @intFromEnum(PossiblyAutoField.margin_inline_start) |
-            @intFromEnum(PossiblyAutoField.margin_inline_end);
-        return self.auto_bitfield & mask == 0;
+    pub fn GetReturnType(comptime field: Flags.Field) type {
+        return switch (std.meta.FieldType(Flags, field)) {
+            Flags.IsAuto => ?ZssUnit,
+            Flags.IsAutoOrPercentage => union(Flags.IsAutoOrPercentage) {
+                value: ZssUnit,
+                auto,
+                percentage: f32,
+            },
+            else => comptime unreachable,
+        };
     }
 
-    pub fn isFieldAuto(self: BlockUsedSizes, comptime field: PossiblyAutoField) bool {
-        return self.auto_bitfield & @intFromEnum(field) != 0;
+    pub fn get(self: BlockUsedSizes, comptime field: Flags.Field) GetReturnType(field) {
+        const flag = @field(self.flags, @tagName(field));
+        const value = @field(self, @tagName(field) ++ "_untagged");
+        return switch (std.meta.FieldType(Flags, field)) {
+            Flags.IsAuto => switch (flag) {
+                .value => value,
+                .auto => null,
+            },
+            Flags.IsAutoOrPercentage => switch (flag) {
+                .value => .{ .value = value },
+                .auto => .auto,
+                .percentage => .{ .percentage = @bitCast(value) },
+            },
+            else => comptime unreachable,
+        };
+    }
+
+    pub fn isAuto(self: BlockUsedSizes, comptime field: Flags.Field) bool {
+        return @field(self.flags, @tagName(field)) == .auto;
     }
 };
 

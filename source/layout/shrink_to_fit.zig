@@ -501,7 +501,7 @@ fn flowBlockSolveWidthAndHorizontalMargins(
     switch (specified.content_width.width) {
         .px => |value| {
             computed.content_width.width = .{ .px = value };
-            used.set(.inline_size, solve.positiveLength(.px, value));
+            used.setValue(.inline_size, solve.positiveLength(.px, value));
         },
         .percentage => |value| {
             computed.content_width.width = .{ .percentage = value };
@@ -516,7 +516,7 @@ fn flowBlockSolveWidthAndHorizontalMargins(
     switch (specified.horizontal_edges.margin_left) {
         .px => |value| {
             computed.horizontal_edges.margin_left = .{ .px = value };
-            used.set(.margin_inline_start, solve.length(.px, value));
+            used.setValue(.margin_inline_start, solve.length(.px, value));
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_left = .{ .percentage = value };
@@ -531,7 +531,7 @@ fn flowBlockSolveWidthAndHorizontalMargins(
     switch (specified.horizontal_edges.margin_right) {
         .px => |value| {
             computed.horizontal_edges.margin_right = .{ .px = value };
-            used.set(.margin_inline_end, solve.length(.px, value));
+            used.setValue(.margin_inline_end, solve.length(.px, value));
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_right = .{ .percentage = value };
