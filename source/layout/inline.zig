@@ -239,7 +239,7 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
             },
             .block => |block_inner| switch (block_inner) {
                 .flow => {
-                    const used_sizes = inlineBlockSolveSizes(&layout.computer, ctx.containing_block_width, ctx.containing_block_height);
+                    const used_sizes = inlineBlockSolveSizes(&layout.computer, used_box_style.position, ctx.containing_block_width, ctx.containing_block_height);
                     const stacking_context = inlineBlockCreateStackingContext(&layout.computer, computed.position);
                     layout.computer.commitElement(.box_gen);
 
@@ -557,6 +557,7 @@ fn inlineBoxSetData(ctx: *InlineLayoutContext, computer: *StyleComputer, ifc: *I
 
 fn inlineBlockSolveSizes(
     computer: *StyleComputer,
+    position: used_values.BoxStyle.Position,
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
 ) BlockUsedSizes {
@@ -568,6 +569,7 @@ fn inlineBlockSolveSizes(
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
         .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
         .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
+        .insets = computer.getSpecifiedValue(.box_gen, .insets),
     };
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     var computed: BlockComputedSizes = undefined;
@@ -837,10 +839,14 @@ fn inlineBlockSolveSizes(
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
+    computed.insets = solve.insets(specified.insets);
+    flow.solveInsets(computed.insets, position, &used);
+
     computer.setComputedValue(.box_gen, .content_width, computed.content_width);
     computer.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
     computer.setComputedValue(.box_gen, .content_height, computed.content_height);
     computer.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
+    computer.setComputedValue(.box_gen, .insets, computed.insets);
     computer.setComputedValue(.box_gen, .border_styles, border_styles);
 
     return used;

@@ -160,23 +160,23 @@ pub fn pushAbsoluteContainingBlock(
     box_style: used_values.BoxStyle,
     block_box: used_values.BlockBox,
 ) !?Absolute.ContainingBlock.Id {
-    return layout.absolute.pushAbsoluteContainingBlock(layout.allocator, box_style, block_box);
+    return layout.absolute.pushContainingBlock(layout.allocator, box_style, block_box);
 }
 
 pub fn pushInitialAbsoluteContainingBlock(layout: *Layout, block_box: used_values.BlockBox) !?Absolute.ContainingBlock.Id {
-    return try layout.absolute.pushInitialAbsoluteContainingBlock(layout.allocator, block_box);
+    return try layout.absolute.pushInitialContainingBlock(layout.allocator, block_box);
 }
 
 pub fn popAbsoluteContainingBlock(layout: *Layout) void {
-    return layout.absolute.popAbsoluteContainingBlock();
+    return layout.absolute.popContainingBlock();
 }
 
 pub fn fixupAbsoluteContainingBlock(layout: *Layout, id: Absolute.ContainingBlock.Id, block_box: used_values.BlockBox) void {
-    return layout.absolute.fixupAbsoluteContainingBlock(id, block_box);
+    return layout.absolute.fixupContainingBlock(id, block_box);
 }
 
 pub fn addAbsoluteBlock(layout: *Layout, element: Element, inner_box_style: used_values.BoxStyle.InnerBlock) !void {
-    return layout.absolute.addAbsoluteBlock(layout.allocator, element, inner_box_style);
+    return layout.absolute.addBlock(layout.allocator, element, inner_box_style);
 }
 
 pub const BlockComputedSizes = struct {
@@ -184,8 +184,11 @@ pub const BlockComputedSizes = struct {
     horizontal_edges: aggregates.HorizontalEdges,
     content_height: aggregates.ContentHeight,
     vertical_edges: aggregates.VerticalEdges,
+    insets: aggregates.Insets,
 };
 
+// TODO: The field names of this struct are misleading.
+//       zss currently does not support logical properties.
 pub const BlockUsedSizes = struct {
     border_inline_start: ZssUnit,
     border_inline_end: ZssUnit,
@@ -215,19 +218,29 @@ pub const BlockUsedSizes = struct {
     flags: Flags,
 
     pub const Flags = packed struct {
-        inline_size: IsAuto,
-        margin_inline_start: IsAuto,
-        margin_inline_end: IsAuto,
-        block_size: IsAuto,
-        inset_inline_start: IsAuto,
-        inset_inline_end: IsAuto,
-        inset_block_start: IsAutoOrPercentage,
-        inset_block_end: IsAutoOrPercentage,
-
-        pub const IsAuto = enum(u1) { value, auto };
-        pub const IsAutoOrPercentage = enum(u2) { value, auto, percentage };
+        inline_size: IsAutoTag,
+        margin_inline_start: IsAutoTag,
+        margin_inline_end: IsAutoTag,
+        block_size: IsAutoTag,
+        inset_inline_start: IsAutoOrPercentageTag,
+        inset_inline_end: IsAutoOrPercentageTag,
+        inset_block_start: IsAutoOrPercentageTag,
+        inset_block_end: IsAutoOrPercentageTag,
 
         const Field = std.meta.FieldEnum(Flags);
+    };
+
+    pub const IsAutoTag = enum(u1) { value, auto };
+    pub const IsAuto = union(IsAutoTag) {
+        value: ZssUnit,
+        auto,
+    };
+
+    pub const IsAutoOrPercentageTag = enum(u2) { value, auto, percentage };
+    pub const IsAutoOrPercentage = union(IsAutoOrPercentageTag) {
+        value: ZssUnit,
+        auto,
+        percentage: f32,
     };
 
     pub fn setValue(self: *BlockUsedSizes, comptime field: Flags.Field, value: ZssUnit) void {
@@ -257,12 +270,8 @@ pub const BlockUsedSizes = struct {
 
     pub fn GetReturnType(comptime field: Flags.Field) type {
         return switch (std.meta.FieldType(Flags, field)) {
-            Flags.IsAuto => ?ZssUnit,
-            Flags.IsAutoOrPercentage => union(Flags.IsAutoOrPercentage) {
-                value: ZssUnit,
-                auto,
-                percentage: f32,
-            },
+            IsAutoTag => ?ZssUnit,
+            IsAutoOrPercentageTag => IsAutoOrPercentage,
             else => comptime unreachable,
         };
     }
@@ -271,11 +280,11 @@ pub const BlockUsedSizes = struct {
         const flag = @field(self.flags, @tagName(field));
         const value = @field(self, @tagName(field) ++ "_untagged");
         return switch (std.meta.FieldType(Flags, field)) {
-            Flags.IsAuto => switch (flag) {
+            IsAutoTag => switch (flag) {
                 .value => value,
                 .auto => null,
             },
-            Flags.IsAutoOrPercentage => switch (flag) {
+            IsAutoOrPercentageTag => switch (flag) {
                 .value => .{ .value = value },
                 .auto => .auto,
                 .percentage => .{ .percentage = @bitCast(value) },

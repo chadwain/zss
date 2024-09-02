@@ -6,6 +6,7 @@ const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
+const IsAutoOrPercentage = BlockUsedSizes.IsAutoOrPercentage;
 const BlockComputedSizes = zss.Layout.BlockComputedSizes;
 const BlockUsedSizes = zss.Layout.BlockUsedSizes;
 const Element = zss.ElementTree.Element;
@@ -54,6 +55,7 @@ const Context = struct {
     const StackItem = struct {
         index: BlockBoxIndex,
         skip: BlockBoxSkip,
+        position: used_values.BoxStyle.Position,
         used: BlockUsedSizesSlim,
         auto_height: ZssUnit,
     };
@@ -88,7 +90,7 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
     switch (used_box_style.outer) {
         .block => |inner| switch (inner) {
             .flow => {
-                const used_sizes = solveAllSizes(&layout.computer, containing_block_width, containing_block_height);
+                const used_sizes = solveAllSizes(&layout.computer, used_box_style.position, containing_block_width, containing_block_height);
                 const stacking_context = solveStackingContext(&layout.computer, computed_box_style.position);
                 layout.computer.commitElement(.box_gen);
                 try pushBlock(layout, ctx, element, used_box_style, used_sizes, stacking_context);
@@ -109,6 +111,7 @@ fn pushMainBlock(ctx: *Context, used_sizes: BlockUsedSizes) void {
     ctx.stack.top = .{
         .index = undefined,
         .skip = 0,
+        .position = undefined,
         .used = BlockUsedSizesSlim.fromFull(used_sizes),
         .auto_height = 0,
     };
@@ -131,6 +134,7 @@ fn pushBlock(
     try ctx.stack.push(ctx.allocator, .{
         .index = block_index,
         .skip = 1,
+        .position = box_style.position,
         .used = BlockUsedSizesSlim.fromFull(used_sizes),
         .auto_height = 0,
     });
@@ -170,6 +174,10 @@ const BlockUsedSizesSlim = struct {
     block_size: ?ZssUnit,
     min_block_size: ZssUnit,
     max_block_size: ZssUnit,
+    inset_inline_start: IsAutoOrPercentage,
+    inset_inline_end: IsAutoOrPercentage,
+    inset_block_start: IsAutoOrPercentage,
+    inset_block_end: IsAutoOrPercentage,
 
     fn fromFull(used: BlockUsedSizes) BlockUsedSizesSlim {
         return .{
@@ -177,12 +185,17 @@ const BlockUsedSizesSlim = struct {
             .block_size = used.get(.block_size),
             .min_block_size = used.min_block_size,
             .max_block_size = used.max_block_size,
+            .inset_inline_start = used.get(.inset_inline_start),
+            .inset_inline_end = used.get(.inset_inline_end),
+            .inset_block_start = used.get(.inset_block_start),
+            .inset_block_end = used.get(.inset_block_end),
         };
     }
 };
 
 pub fn solveAllSizes(
     computer: *StyleComputer,
+    position: used_values.BoxStyle.Position,
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
 ) BlockUsedSizes {
@@ -192,6 +205,7 @@ pub fn solveAllSizes(
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
         .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
         .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
+        .insets = computer.getSpecifiedValue(.box_gen, .insets),
     };
 
     var computed_sizes: BlockComputedSizes = undefined;
@@ -201,11 +215,14 @@ pub fn solveAllSizes(
     solveHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &used_sizes);
     solveVerticalEdges(specified_sizes.vertical_edges, containing_block_width, border_styles, &computed_sizes.vertical_edges, &used_sizes);
     adjustWidthAndMargins(&used_sizes, containing_block_width);
+    computed_sizes.insets = solve.insets(specified_sizes.insets);
+    solveInsets(computed_sizes.insets, position, &used_sizes);
 
     computer.setComputedValue(.box_gen, .content_width, computed_sizes.content_width);
     computer.setComputedValue(.box_gen, .horizontal_edges, computed_sizes.horizontal_edges);
     computer.setComputedValue(.box_gen, .content_height, computed_sizes.content_height);
     computer.setComputedValue(.box_gen, .vertical_edges, computed_sizes.vertical_edges);
+    computer.setComputedValue(.box_gen, .insets, computed_sizes.insets);
     computer.setComputedValue(.box_gen, .border_styles, border_styles);
 
     return used_sizes;
@@ -522,6 +539,41 @@ pub fn solveVerticalEdges(
     }
 }
 
+pub fn solveInsets(
+    computed: aggregates.Insets,
+    position: used_values.BoxStyle.Position,
+    used: *BlockUsedSizes,
+) void {
+    switch (position) {
+        .static => {
+            inline for (&.{
+                .inset_inline_start,
+                .inset_inline_end,
+                .inset_block_start,
+                .inset_block_end,
+            }) |field| {
+                used.setValue(field, 0);
+            }
+        },
+        .relative => {
+            inline for (&.{
+                .{ "left", .inset_inline_start },
+                .{ "right", .inset_inline_end },
+                .{ "top", .inset_block_start },
+                .{ "bottom", .inset_block_end },
+            }) |pair| {
+                switch (@field(computed, pair[0])) {
+                    .px => |value| used.setValue(pair[1], solve.length(.px, value)),
+                    .percentage => |percentage| used.setPercentage(pair[1], percentage),
+                    .auto => used.setAuto(pair[1]),
+                    .initial, .inherit, .unset, .undeclared => unreachable,
+                }
+            }
+        },
+        .absolute => unreachable,
+    }
+}
+
 /// Changes the used sizes of a block that is in normal flow.
 /// This implements the constraints described in CSS2.2§10.3.3.
 pub fn adjustWidthAndMargins(used: *BlockUsedSizes, containing_block_width: ZssUnit) void {
@@ -638,6 +690,45 @@ pub fn solveUsedHeight(height: ?ZssUnit, min_height: ZssUnit, max_height: ZssUni
     return solve.clampSize(height orelse auto_height, min_height, max_height);
 }
 
+// pub fn solveUsedInsets(
+//     left: IsAutoOrPercentage,
+//     right: IsAutoOrPercentage,
+//     top: IsAutoOrPercentage,
+//     bottom: IsAutoOrPercentage,
+//     position: used_values.BoxStyle.Position,
+//     width: ZssUnit,
+//     height: ZssUnit,
+// ) ZssVector {
+//     switch (position) {
+//         .static => return .{ .x = 0, .y = 0 },
+//         .relative => {
+//             return .{
+//                 // TODO: In case both values are not auto, the one that gets ignored is determined by the 'direction' property.
+//                 .x = switch (left) {
+//                     .value => |value| value,
+//                     .percentage => |percentage| solve.percentage(percentage, width),
+//                     .auto => switch (right) {
+//                         .value => |value| -value,
+//                         .percentage => |percentage| -solve.percentage(percentage, width),
+//                         .auto => 0,
+//                     },
+//                 },
+//                 // TODO: In case both values are not auto, the one that gets ignored is determined by the 'direction' property.
+//                 .y = switch (top) {
+//                     .value => |value| value,
+//                     .percentage => |percentage| solve.percentage(percentage, height),
+//                     .auto => switch (bottom) {
+//                         .value => |value| -value,
+//                         .percentage => |percentage| -solve.percentage(percentage, height),
+//                         .auto => 0,
+//                     },
+//                 },
+//             };
+//         },
+//         .absolute => unreachable,
+//     }
+// }
+
 /// Writes data to the BoxTree that was left out during writeBlockDataPart1.
 fn writeBlockDataPart2(
     subtree_slice: SubtreeSlice,
@@ -647,9 +738,9 @@ fn writeBlockDataPart2(
 ) void {
     subtree_slice.items(.skip)[index] = skip;
 
-    const box_offsets_ptr = &subtree_slice.items(.box_offsets)[index];
-    box_offsets_ptr.content_size.h = height;
-    box_offsets_ptr.border_size.h += height;
+    const box_offsets = &subtree_slice.items(.box_offsets)[index];
+    box_offsets.content_size.h = height;
+    box_offsets.border_size.h += height;
 }
 
 pub fn addBlockToFlow(subtree_slice: SubtreeSlice, index: BlockBoxIndex, parent_auto_height: *ZssUnit) void {

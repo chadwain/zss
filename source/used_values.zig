@@ -177,6 +177,7 @@ pub const BoxStyle = struct {
         /// display: inline-block, inline-grid, etc.
         block: InnerBlock,
     };
+    pub const Position = enum { static, relative, absolute };
 
     /// Each field represents an "outer" display type, while each value represents an "inner" display type.
     outer: union(enum) {
@@ -187,11 +188,11 @@ pub const BoxStyle = struct {
         /// display: none
         none,
     },
-    positioned: bool,
+    position: Position,
 
     pub const text = BoxStyle{
         .outer = .{ .@"inline" = .text },
-        .positioned = false,
+        .position = .static,
     };
 };
 

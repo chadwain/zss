@@ -34,6 +34,7 @@ const BoxGenComputedValues = struct {
     content_height: ?aggregates.ContentHeight = null,
     vertical_edges: ?aggregates.VerticalEdges = null,
     border_styles: ?aggregates.BorderStyles = null,
+    insets: ?aggregates.Insets = null,
     z_index: ?aggregates.ZIndex = null,
     font: ?aggregates.Font = null,
 };

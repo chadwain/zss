@@ -77,7 +77,7 @@ fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockB
     switch (used_box_style.outer) {
         .block => |inner| switch (inner) {
             .flow => {
-                const used_sizes = flow.solveAllSizes(&layout.computer, layout.viewport.w, layout.viewport.h);
+                const used_sizes = flow.solveAllSizes(&layout.computer, used_box_style.position, layout.viewport.w, layout.viewport.h);
                 const stacking_context = rootFlowBlockSolveStackingContext(&layout.computer);
                 layout.computer.commitElement(.box_gen);
 

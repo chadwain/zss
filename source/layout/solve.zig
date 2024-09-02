@@ -90,10 +90,10 @@ pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggreg
 
     if (specified.display == .none) {
         computed.display = .none;
-        return .{ computed, .{ .outer = .none, .positioned = false } };
+        return .{ computed, .{ .outer = .none, .position = .static } };
     }
 
-    var positioned: bool = undefined;
+    var position: used_values.BoxStyle.Position = undefined;
     switch (is_root) {
         .NonRoot => {
             switch (specified.position) {
@@ -102,7 +102,7 @@ pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggreg
                     computed.float = .none;
                     const used: used_values.BoxStyle = .{
                         .outer = .{ .absolute = innerBlockType(computed.display) },
-                        .positioned = true,
+                        .position = .absolute,
                     };
                     return .{ computed, used };
                 },
@@ -116,9 +116,10 @@ pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggreg
             }
 
             computed.display = specified.display;
-            positioned = switch (computed.position) {
-                .static => false,
-                .relative, .sticky, .absolute, .fixed => true,
+            position = switch (computed.position) {
+                .static => .static,
+                .relative, .sticky => .relative,
+                .absolute, .fixed => .absolute,
                 .initial, .inherit, .unset, .undeclared => unreachable,
             };
         },
@@ -126,7 +127,7 @@ pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggreg
             computed.display = blockify(specified.display);
             computed.position = .static;
             computed.float = .none;
-            positioned = false;
+            position = .static;
         },
     }
 
@@ -138,7 +139,7 @@ pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggreg
             .none => unreachable,
             .initial, .inherit, .unset, .undeclared => unreachable,
         },
-        .positioned = positioned,
+        .position = position,
     };
 
     return .{ computed, used };
@@ -162,6 +163,19 @@ fn innerBlockType(computed_display: types.Display) used_values.BoxStyle.InnerBlo
         .@"inline", .inline_block, .none => unreachable,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
+}
+
+pub fn insets(specified: aggregates.Insets) aggregates.Insets {
+    var computed: aggregates.Insets = undefined;
+    inline for (std.meta.fields(aggregates.Insets)) |field_info| {
+        @field(computed, field_info.name) = switch (@field(specified, field_info.name)) {
+            .px => |value| .{ .px = value },
+            .percentage => |value| .{ .percentage = value },
+            .auto => .auto,
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        };
+    }
+    return computed;
 }
 
 pub fn borderColors(border_colors: aggregates.BorderColors, current_color: used_values.Color) used_values.BorderColor {
