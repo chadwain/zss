@@ -1,9 +1,37 @@
 //! zml - zss markup language
 //!
 //! zml is a lightweight & minimal markup language for creating documents.
-//! It's main purpose is to be able to assign CSS properties and features to
-//! document elements with as little syntax as possible. At the same time,
-//! the syntax should feel natural and obvious to anyone that has used CSS.
+//! Its main purpose is to be able to assign CSS properties and features to
+//! document elements with as little syntax as possible.
+//! The syntax should feel natural to anyone that has used CSS.
+//!
+//! The grammar of zml documents is presented below. It is derived from CSS grammar constructs.
+//! It uses the value definition syntax described in CSS Values and Units Level 4.
+//!
+//! <root>           = <element>
+//! <element>        = <normal-element> | <text-element>
+//! <normal-element> = <features> <inline-style-block>? <children>
+//! <text-element>   = <string-token>
+//!
+//! <features>        = '*' | [ <type> | <id> | <class> | <attribute> ]+
+//! <type>            = <ident-token>
+//! <id>              = <hash-token>
+//! <class>           = '.' <ident-token>
+//! <attribute>       = '[' <ident-token> [ '=' <attribute-value> ]? ']'
+//! <attribute-value> = <ident-token> | <string-token>
+//!
+//! <inline-style-block> = '(' <declaration-list> ')'
+//!
+//! <children> = '{' <element>* '}'
+//!
+//! <ident-token>      = <defined in CSS Syntax Level 3>
+//! <string-token>     = <defined in CSS Syntax Level 3>
+//! <hash-token>       = <defined in CSS Syntax Level 3>
+//! <declaration-list> = <defined in CSS Style Attributes>
+//!
+//! Whitespace or comments are required between the components of <features>.
+//! The <hash-token> component of <id> must be an "id" hash token.
+//! No whitespace or comments are allowed between the components of <class>.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -278,8 +306,6 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
             return;
         }
 
-        if (!has_preceding_whitespace) return parser.fail(.missing_space_between_features, location);
-
         if (token == .token_left_paren) {
             ast.finishComplexComponent(features_index);
             try parseInlineStyleBlock(parser, ast, location);
@@ -288,6 +314,8 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
             parsed_inline_styles = location;
             continue;
         }
+
+        if (!has_preceding_whitespace) return parser.fail(.missing_space_between_features, location);
 
         if (token == .token_delim and token.token_delim == '*') {
             _ = try ast.addBasicComponent(.zml_empty, location);
