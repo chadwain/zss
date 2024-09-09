@@ -151,6 +151,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                     const result = try layout.createBlock(subtree, .flow, used_box_style, used, stacking_context);
 
                     parent.object_skip += 1;
+                    // TODO: should probably use `result.width` instead of `inline_size`
                     parent.auto_width = @max(parent.auto_width, inline_size + edge_width);
                     try object_tree.append(layout.allocator, .{
                         .skip = 1,

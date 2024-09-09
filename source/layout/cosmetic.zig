@@ -211,30 +211,32 @@ fn solveInsetsStatic(
     computed: *aggregates.Insets,
     used: *used_values.Insets,
 ) void {
-    switch (specified.left) {
-        .px => |value| computed.left = .{ .px = value },
-        .percentage => |value| computed.left = .{ .percentage = value },
-        .auto => computed.left = .auto,
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
-    switch (specified.right) {
-        .px => |value| computed.right = .{ .px = value },
-        .percentage => |value| computed.right = .{ .percentage = value },
-        .auto => computed.right = .auto,
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
-    switch (specified.top) {
-        .px => |value| computed.top = .{ .px = value },
-        .percentage => |value| computed.top = .{ .percentage = value },
-        .auto => computed.top = .auto,
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
-    switch (specified.bottom) {
-        .px => |value| computed.bottom = .{ .px = value },
-        .percentage => |value| computed.bottom = .{ .percentage = value },
-        .auto => computed.bottom = .auto,
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
+    computed.* = .{
+        .left = switch (specified.left) {
+            .px => |value| .{ .px = value },
+            .percentage => |value| .{ .percentage = value },
+            .auto => .auto,
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        },
+        .right = switch (specified.right) {
+            .px => |value| .{ .px = value },
+            .percentage => |value| .{ .percentage = value },
+            .auto => .auto,
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        },
+        .top = switch (specified.top) {
+            .px => |value| .{ .px = value },
+            .percentage => |value| .{ .percentage = value },
+            .auto => .auto,
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        },
+        .bottom = switch (specified.bottom) {
+            .px => |value| .{ .px = value },
+            .percentage => |value| .{ .percentage = value },
+            .auto => .auto,
+            .initial, .inherit, .unset, .undeclared => unreachable,
+        },
+    };
     used.* = .{ .x = 0, .y = 0 };
 }
 
@@ -332,9 +334,9 @@ fn blockBoxBackgrounds(
 ) !void {
     background_ptr.color = solve.color(specified.background1.color, current_color);
 
-    const images = switch (specified.background2.image) {
+    const images: []const types.BackgroundImage = switch (specified.background2.image) {
         .many => |storage_handle| inputs.storage.get(types.BackgroundImage, storage_handle),
-        .image, .url => @as(*const [1]types.BackgroundImage, @ptrCast(&specified.background2.image)),
+        .image, .url => (&specified.background2.image)[0..1],
         .none => {
             background_ptr.images = .invalid;
             background_ptr.color_clip = comptime solve.backgroundClip(aggregates.Background1.initial_values.clip);
