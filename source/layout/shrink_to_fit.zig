@@ -146,8 +146,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                     used.padding_inline_start + used.padding_inline_end;
 
                 if (used.get(.inline_size)) |inline_size| {
-                    const new_subtree_id = try layout.box_tree.blocks.makeSubtree(layout.box_tree.allocator, null);
-                    const subtree = layout.box_tree.blocks.subtree(new_subtree_id);
+                    const subtree = try layout.makeSubtree();
                     const result = try layout.createBlock(subtree, .flow, used_box_style, used, stacking_context);
 
                     parent.object_skip += 1;
@@ -158,7 +157,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                         .tag = .flow_normal,
                         .element = element,
                         .data = .{ .flow_normal = .{
-                            .subtree_id = new_subtree_id,
+                            .subtree_id = subtree.id,
                             .index = result.index,
                         } },
                     });
@@ -170,8 +169,8 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
         },
         .none => layout.advanceElement(),
         .@"inline" => {
-            const new_subtree_id = try layout.box_tree.blocks.makeSubtree(layout.box_tree.allocator, null);
-            const result = try @"inline".runInlineLayout(layout, new_subtree_id, .ShrinkToFit, parent.available_width, parent.height);
+            const new_subtree = try layout.makeSubtree();
+            const result = try @"inline".runInlineLayout(layout, new_subtree.id, .ShrinkToFit, parent.available_width, parent.height);
 
             parent.auto_width = @max(parent.auto_width, result.min_width);
             parent.object_skip += 1;
@@ -180,7 +179,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                 .tag = .ifc,
                 .element = undefined,
                 .data = .{ .ifc = .{
-                    .subtree_id = new_subtree_id,
+                    .subtree_id = new_subtree.id,
                     .layout_result = result,
                 } },
             });

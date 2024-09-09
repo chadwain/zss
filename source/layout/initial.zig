@@ -28,12 +28,11 @@ pub fn run(layout: *Layout, ctx: *InitialLayoutContext) !void {
     const width = layout.viewport.w;
     const height = layout.viewport.h;
 
-    const subtree_id = try layout.box_tree.blocks.makeSubtree(layout.box_tree.allocator, null);
-    ctx.subtree_id = subtree_id;
-    const subtree = layout.box_tree.blocks.subtree(subtree_id);
+    const subtree = try layout.makeSubtree();
+    ctx.subtree_id = subtree.id;
 
     const block_index = try subtree.appendBlock(layout.box_tree.allocator);
-    const block_box = BlockBox{ .subtree = subtree_id, .index = block_index };
+    const block_box = BlockBox{ .subtree = subtree.id, .index = block_index };
     layout.box_tree.blocks.initial_containing_block = block_box;
 
     const stacking_context: StackingContexts.Info = .{ .is_parent = 0 };

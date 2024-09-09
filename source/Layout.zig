@@ -155,6 +155,10 @@ pub fn advanceElement(layout: *Layout) void {
     element.* = layout.computer.element_tree_slice.nextSibling(element.*);
 }
 
+pub fn makeSubtree(layout: *Layout) !*used_values.BlockSubtree {
+    return layout.box_tree.blocks.makeSubtree(layout.box_tree.allocator);
+}
+
 pub fn pushAbsoluteContainingBlock(
     layout: *Layout,
     box_style: used_values.BoxStyle,

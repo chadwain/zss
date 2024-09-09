@@ -350,14 +350,14 @@ pub const BlockBoxTree = struct {
         return blocks.subtrees.items[@intFromEnum(id)];
     }
 
-    pub fn makeSubtree(blocks: *BlockBoxTree, allocator: Allocator, parent: ?BlockBox) !SubtreeId {
+    pub fn makeSubtree(blocks: *BlockBoxTree, allocator: Allocator) !*BlockSubtree {
         const id: SubtreeId = @enumFromInt(blocks.subtrees.items.len);
         const tree_ptr = try blocks.subtrees.addOne(allocator);
         errdefer _ = blocks.subtrees.pop();
         const tree = try allocator.create(BlockSubtree);
         tree_ptr.* = tree;
-        tree.* = .{ .id = id, .parent = parent };
-        return id;
+        tree.* = .{ .id = id, .parent = null };
+        return tree;
     }
 };
 
