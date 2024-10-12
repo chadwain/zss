@@ -656,27 +656,6 @@ pub const BoxTree = struct {
         }){};
         defer stack.deinit(allocator);
 
-        const printBlock = struct {
-            fn printBlock(subtree: BlockSubtree.Slice, index: BlockBoxIndex, w: std.io.AnyWriter) !void {
-                try w.print("[{}, {}) ", .{ index, index + subtree.items(.skip)[index] });
-
-                switch (subtree.items(.type)[index]) {
-                    .block => try w.writeAll("block "),
-                    .ifc_container => |ifc_index| try w.print("ifc_container({}) ", .{ifc_index}),
-                    .subtree_proxy => |subtree_id| {
-                        try w.print("subtree_proxy({})\n", .{@intFromEnum(subtree_id)});
-                        return;
-                    },
-                }
-
-                if (subtree.items(.stacking_context)[index]) |sc_id| try w.print("stacking_context({}) ", .{@intFromEnum(sc_id)});
-
-                const bo = subtree.items(.box_offsets)[index];
-                try w.print("border_rect({}, {}, {}, {}) ", .{ bo.border_pos.x, bo.border_pos.y, bo.border_size.w, bo.border_size.h });
-                try w.print("content_rect({}, {}, {}, {})\n", .{ bo.content_pos.x, bo.content_pos.y, bo.content_size.w, bo.content_size.h });
-            }
-        }.printBlock;
-
         {
             const icb = box_tree.blocks.initial_containing_block;
             const subtree = box_tree.blocks.subtree(icb.subtree).slice();
@@ -702,6 +681,38 @@ pub const BoxTree = struct {
                 else => try stack.push(allocator, .{ .iterator = BlockSubtree.children(top.subtree, index), .subtree = top.subtree }),
             }
         }
+    }
+
+    pub fn printUnstructured(box_tree: BoxTree, writer: std.io.AnyWriter) !void {
+        for (box_tree.blocks.subtrees.items) |subtree| {
+            try writer.print("Subtree({}) size ({})\n", .{ @intFromEnum(subtree.id), subtree.blocks.len });
+
+            const slice = subtree.slice();
+            for (0..slice.len) |i| {
+                try printBlock(slice, @intCast(i), writer);
+            }
+
+            try writer.writeAll("\n");
+        }
+    }
+
+    fn printBlock(subtree: BlockSubtree.Slice, index: BlockBoxIndex, writer: std.io.AnyWriter) !void {
+        try writer.print("[{}, {}) ", .{ index, index + subtree.items(.skip)[index] });
+
+        switch (subtree.items(.type)[index]) {
+            .block => try writer.writeAll("block "),
+            .ifc_container => |ifc_index| try writer.print("ifc_container({}) ", .{ifc_index}),
+            .subtree_proxy => |subtree_id| {
+                try writer.print("subtree_proxy({})\n", .{@intFromEnum(subtree_id)});
+                return;
+            },
+        }
+
+        if (subtree.items(.stacking_context)[index]) |sc_id| try writer.print("stacking_context({}) ", .{@intFromEnum(sc_id)});
+
+        const bo = subtree.items(.box_offsets)[index];
+        try writer.print("border_rect({}, {}, {}, {}) ", .{ bo.border_pos.x, bo.border_pos.y, bo.border_size.w, bo.border_size.h });
+        try writer.print("content_rect({}, {}, {}, {})\n", .{ bo.content_pos.x, bo.content_pos.y, bo.content_size.w, bo.content_size.h });
     }
 };
 

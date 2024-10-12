@@ -30,15 +30,14 @@ const SubtreeSlice = used_values.BlockSubtree.Slice;
 const ZssUnit = used_values.ZssUnit;
 
 pub const Result = struct {
-    skip_of_children: BlockBoxSkip,
     auto_height: ZssUnit,
 };
 
-pub fn runFlowLayout(layout: *Layout, subtree_id: SubtreeId, used_sizes: BlockUsedSizes) !Result {
-    var ctx = Context{ .allocator = layout.allocator, .subtree_id = subtree_id };
+pub fn runFlowLayout(layout: *Layout, sizes: BlockUsedSizes) !Result {
+    var ctx = Context{ .allocator = layout.allocator };
     defer ctx.deinit();
 
-    pushMainBlock(&ctx, used_sizes);
+    pushMainBlock(&ctx, sizes);
     while (ctx.stack.top) |_| {
         try analyzeElement(layout, &ctx);
     }
@@ -48,16 +47,12 @@ pub fn runFlowLayout(layout: *Layout, subtree_id: SubtreeId, used_sizes: BlockUs
 
 const Context = struct {
     allocator: Allocator,
-    subtree_id: SubtreeId,
     result: Result = undefined,
     stack: Stack(StackItem) = .{},
 
     const StackItem = struct {
-        index: BlockBoxIndex,
-        skip: BlockBoxSkip,
-        position: used_values.BoxStyle.Position,
-        used: BlockUsedSizesSlim,
         auto_height: ZssUnit,
+        inline_size_clamped: ZssUnit,
     };
 
     fn deinit(ctx: *Context) void {
@@ -84,8 +79,8 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
     };
 
     const parent = &ctx.stack.top.?;
-    const containing_block_width = parent.used.inline_size_clamped;
-    const containing_block_height = parent.used.block_size;
+    const containing_block_width = parent.inline_size_clamped;
+    const containing_block_height = layout.blocks.top.?.sizes.get(.block_size);
 
     switch (used_box_style.outer) {
         .block => |inner| switch (inner) {
@@ -97,8 +92,7 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
             },
         },
         .@"inline" => {
-            const result = try @"inline".runInlineLayout(layout, ctx.subtree_id, .Normal, containing_block_width, containing_block_height);
-            parent.skip += result.skip;
+            const result = try @"inline".runInlineLayout(layout, .Normal, containing_block_width, containing_block_height);
             advanceFlow(&parent.auto_height, result.height);
         },
         .none => layout.advanceElement(),
@@ -106,14 +100,11 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
     }
 }
 
-fn pushMainBlock(ctx: *Context, used_sizes: BlockUsedSizes) void {
+fn pushMainBlock(ctx: *Context, sizes: BlockUsedSizes) void {
     // The allocations here must have corresponding deallocations in popBlock.
     ctx.stack.top = .{
-        .index = undefined,
-        .skip = 0,
-        .position = undefined,
-        .used = BlockUsedSizesSlim.fromFull(used_sizes),
         .auto_height = 0,
+        .inline_size_clamped = solveUsedWidth(sizes.get(.inline_size).?, sizes.min_inline_size, sizes.max_inline_size),
     };
 }
 
@@ -125,25 +116,14 @@ fn pushBlock(
     used_sizes: BlockUsedSizes,
     stacking_context: StackingContexts.Info,
 ) !void {
-    const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
-    const block_index = try subtree.appendBlock(layout.box_tree.allocator);
-    const generated_box = GeneratedBox{ .block_box = .{ .subtree = ctx.subtree_id, .index = block_index } };
-    try layout.box_tree.mapElementToBox(element, generated_box);
-
     // The allocations here must have corresponding deallocations in popBlock.
+    const block_box = try layout.pushFlowBlock(box_style, used_sizes, stacking_context);
+    try layout.box_tree.mapElementToBox(element, .{ .block_box = block_box });
     try ctx.stack.push(ctx.allocator, .{
-        .index = block_index,
-        .skip = 1,
-        .position = box_style.position,
-        .used = BlockUsedSizesSlim.fromFull(used_sizes),
         .auto_height = 0,
+        .inline_size_clamped = solveUsedWidth(used_sizes.get(.inline_size).?, used_sizes.min_inline_size, used_sizes.max_inline_size),
     });
-    const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, generated_box.block_box);
-    _ = try layout.pushAbsoluteContainingBlock(box_style, generated_box.block_box);
     try layout.pushElement();
-
-    const width = solveUsedWidth(used_sizes.get(.inline_size).?, used_sizes.min_inline_size, used_sizes.max_inline_size);
-    writeBlockDataPart1(subtree.slice(), block_index, used_sizes, width, stacking_context_id);
 }
 
 fn popBlock(layout: *Layout, ctx: *Context) void {
@@ -151,22 +131,16 @@ fn popBlock(layout: *Layout, ctx: *Context) void {
     const this = ctx.stack.pop();
     const parent = if (ctx.stack.top) |*top| top else {
         ctx.result = .{
-            .skip_of_children = this.skip,
             .auto_height = this.auto_height,
         };
         return;
     };
 
-    layout.sc.pop(layout.box_tree);
-    layout.popAbsoluteContainingBlock();
+    const block_box = layout.popFlowBlock(this.auto_height);
     layout.popElement();
 
-    const subtree_slice = layout.box_tree.blocks.subtree(ctx.subtree_id).slice();
-    const height = solveUsedHeight(this.used.block_size, this.used.min_block_size, this.used.max_block_size, this.auto_height);
-    writeBlockDataPart2(subtree_slice, this.index, this.skip, height);
-
-    parent.skip += this.skip;
-    addBlockToFlow(subtree_slice, this.index, &parent.auto_height);
+    const subtree_slice = layout.box_tree.blocks.subtree(block_box.subtree).slice();
+    addBlockToFlow(subtree_slice, block_box.index, &parent.auto_height);
 }
 
 const BlockUsedSizesSlim = struct {

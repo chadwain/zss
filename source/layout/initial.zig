@@ -19,47 +19,19 @@ const SubtreeId = used_values.SubtreeId;
 
 const hb = @import("mach-harfbuzz").c;
 
-pub const InitialLayoutContext = struct {
-    allocator: std.mem.Allocator,
-    subtree_id: SubtreeId = undefined,
-};
-
-pub fn run(layout: *Layout, ctx: *InitialLayoutContext) !void {
-    const width = layout.viewport.w;
-    const height = layout.viewport.h;
-
-    const subtree = try layout.makeSubtree();
-    ctx.subtree_id = subtree.id;
-
-    const block_index = try subtree.appendBlock(layout.box_tree.allocator);
-    const block_box = BlockBox{ .subtree = subtree.id, .index = block_index };
+pub fn run(layout: *Layout) !void {
+    try layout.pushInitialSubtree();
+    const block_box = try layout.pushInitialContainingBlock(layout.viewport);
     layout.box_tree.blocks.initial_containing_block = block_box;
 
-    const stacking_context: StackingContexts.Info = .{ .is_parent = 0 };
-
-    const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, block_box);
-    _ = try layout.pushInitialAbsoluteContainingBlock(block_box);
-    const skip = try analyzeRootElement(layout, ctx);
-    layout.sc.pop(layout.box_tree);
-    layout.popAbsoluteContainingBlock();
-
-    const subtree_slice = subtree.slice();
-    subtree_slice.items(.skip)[block_index] = 1 + skip;
-    subtree_slice.items(.type)[block_index] = .block;
-    subtree_slice.items(.stacking_context)[block_index] = stacking_context_id;
-    subtree_slice.items(.box_offsets)[block_index] = .{
-        .border_pos = .{ .x = 0, .y = 0 },
-        .content_pos = .{ .x = 0, .y = 0 },
-        .content_size = .{ .w = width, .h = height },
-        .border_size = .{ .w = width, .h = height },
-    };
-    subtree_slice.items(.borders)[block_index] = .{};
-    subtree_slice.items(.margins)[block_index] = .{};
+    try analyzeRootElement(layout);
+    layout.popInitialContainingBlock();
+    layout.popSubtree();
 }
 
-fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockBoxSkip {
+fn analyzeRootElement(layout: *Layout) !void {
     const element = layout.currentElement();
-    if (element.eqlNull()) return 0;
+    if (element.eqlNull()) return;
     try layout.computer.setCurrentElement(.box_gen, element);
 
     const used_box_style: used_values.BoxStyle = blk: {
@@ -80,26 +52,26 @@ fn analyzeRootElement(layout: *Layout, ctx: *const InitialLayoutContext) !BlockB
                 const stacking_context = rootFlowBlockSolveStackingContext(&layout.computer);
                 layout.computer.commitElement(.box_gen);
 
-                const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
-                const result = try layout.createBlock(subtree, .flow, used_box_style, used_sizes, stacking_context);
-                return result.skip;
+                const block_box = try layout.pushFlowBlock(used_box_style, used_sizes, stacking_context);
+                try layout.box_tree.mapElementToBox(element, .{ .block_box = block_box });
+                try layout.pushElement();
+                const result = try flow.runFlowLayout(layout, used_sizes);
+                _ = layout.popFlowBlock(result.auto_height);
+                layout.popElement();
             },
         },
         .none => {
             layout.advanceElement();
-            return 0;
         },
         .@"inline" => |inner| switch (inner) {
             .text => {
-                const result = try @"inline".runInlineLayout(layout, ctx.subtree_id, .Normal, layout.viewport.w, layout.viewport.h);
-                return result.skip;
+                const result = try @"inline".runInlineLayout(layout, .Normal, layout.viewport.w, layout.viewport.h);
+                _ = result;
             },
             .@"inline", .block => unreachable,
         },
         .absolute => unreachable,
     }
-
-    layout.popElement();
 }
 
 fn rootFlowBlockSolveStackingContext(computer: *StyleComputer) StackingContexts.Info {

@@ -42,14 +42,12 @@ const BoxTree = used_values.BoxTree;
 const hb = @import("mach-harfbuzz").c;
 
 pub const Result = struct {
-    skip: BlockBoxSkip,
     min_width: ZssUnit,
     height: ZssUnit,
 };
 
 pub fn runInlineLayout(
     layout: *Layout,
-    subtree_id: SubtreeId,
     mode: enum { Normal, ShrinkToFit },
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
@@ -57,10 +55,8 @@ pub fn runInlineLayout(
     assert(containing_block_width >= 0);
     if (containing_block_height) |h| assert(h >= 0);
 
-    const subtree = layout.box_tree.blocks.subtree(subtree_id);
-    const ifc_container_index = try subtree.appendBlock(layout.box_tree.allocator);
-
-    const ifc = try layout.box_tree.makeIfc(.{ .subtree = subtree_id, .index = ifc_container_index });
+    const ifc_container = try layout.pushIfcContainerBlock();
+    const ifc = try layout.box_tree.makeIfc(ifc_container);
 
     const sc_ifcs = &layout.box_tree.stacking_contexts.items(.ifcs)[layout.sc.current_index];
     try sc_ifcs.append(layout.box_tree.allocator, ifc.id);
@@ -72,7 +68,6 @@ pub fn runInlineLayout(
 
     var ctx = InlineLayoutContext{
         .allocator = layout.allocator,
-        .subtree_id = subtree_id,
         .containing_block_width = containing_block_width,
         .containing_block_height = containing_block_height,
         .percentage_base_unit = percentage_base_unit,
@@ -80,23 +75,13 @@ pub fn runInlineLayout(
     defer ctx.deinit();
     try analyzeElements(layout, &ctx, ifc);
 
+    const subtree = layout.box_tree.blocks.subtree(ifc_container.subtree);
     const line_split_result = try splitIntoLineBoxes(layout, subtree, ifc, containing_block_width);
-
-    const skip = 1 + ctx.total_inline_block_skip;
-    const height = line_split_result.height;
-    subtree.setIfcContainer(
-        ifc.id,
-        ifc_container_index,
-        skip,
-        0, // TODO: This should have a real value, not 0.
-        containing_block_width,
-        height,
-    );
+    layout.popIfcContainerBlock(ifc.id, 0, containing_block_width, line_split_result.height);
 
     return .{
-        .skip = skip,
         .min_width = line_split_result.longest_line_box_length,
-        .height = height,
+        .height = line_split_result.height,
     };
 }
 
@@ -104,7 +89,6 @@ const InlineLayoutContext = struct {
     const Self = @This();
 
     allocator: Allocator,
-    subtree_id: SubtreeId,
     containing_block_width: ZssUnit,
     containing_block_height: ?ZssUnit,
     percentage_base_unit: ZssUnit,
@@ -138,7 +122,7 @@ fn analyzeElements(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineForma
     try ifcPopRootInlineBox(ctx, layout.box_tree, ifc);
 
     try ifc.metrics.resize(layout.box_tree.allocator, ifc.glyph_indeces.items.len);
-    const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
+    const subtree = layout.box_tree.blocks.subtree(layout.currentSubtree());
     ifcSolveMetrics(ifc, subtree, layout.inputs.fonts);
 }
 
@@ -239,18 +223,43 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
             },
             .block => |block_inner| switch (block_inner) {
                 .flow => {
-                    const used_sizes = inlineBlockSolveSizes(&layout.computer, used_box_style.position, ctx.containing_block_width, ctx.containing_block_height);
+                    const sizes = inlineBlockSolveSizes(&layout.computer, used_box_style.position, ctx.containing_block_width, ctx.containing_block_height);
                     const stacking_context = inlineBlockCreateStackingContext(&layout.computer, computed.position);
                     layout.computer.commitElement(.box_gen);
 
-                    const subtree = layout.box_tree.blocks.subtree(ctx.subtree_id);
-                    const result = if (used_sizes.get(.inline_size)) |_|
-                        try layout.createBlock(subtree, .flow, used_box_style, used_sizes, stacking_context)
-                    else
-                        try layout.createStfBlock(subtree, .flow, used_box_style, used_sizes, ctx.containing_block_width, stacking_context);
+                    const index = blk: {
+                        if (sizes.get(.inline_size)) |_| {
+                            // TODO: Recursive call here
+                            const block_box = try layout.pushFlowBlock(used_box_style, sizes, stacking_context);
+                            try layout.box_tree.mapElementToBox(element, .{ .block_box = block_box });
+                            try layout.pushElement();
 
-                    ctx.total_inline_block_skip += result.skip;
-                    try ifcAddInlineBlock(layout.box_tree, ifc, result.index);
+                            const result = try flow.runFlowLayout(layout, sizes);
+                            _ = layout.popFlowBlock(result.auto_height);
+                            layout.popElement();
+
+                            break :blk block_box.index;
+                        } else {
+                            // TODO: Recursive call here
+                            const block_box = try layout.pushStfFlowMainBlock(used_box_style, sizes, stacking_context);
+                            try layout.box_tree.mapElementToBox(element, .{ .block_box = block_box });
+                            try layout.pushElement();
+
+                            const available_width_unclamped = ctx.containing_block_width -
+                                (sizes.margin_inline_start_untagged + sizes.margin_inline_end_untagged +
+                                sizes.border_inline_start + sizes.border_inline_end +
+                                sizes.padding_inline_start + sizes.padding_inline_end);
+                            const available_width = solve.clampSize(available_width_unclamped, sizes.min_inline_size, sizes.max_inline_size);
+
+                            const result = try stf.runShrinkToFitLayout(layout, sizes, available_width);
+                            _ = layout.popStfFlowMainBlock(result.auto_width, result.auto_height);
+                            layout.popElement();
+
+                            break :blk block_box.index;
+                        }
+                    };
+
+                    try ifcAddInlineBlock(layout.box_tree, ifc, index);
                 },
             },
         },

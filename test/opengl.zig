@@ -113,6 +113,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
         }
 
         if (image_pixels.len == 0) {
+            // TODO: Delete the output file if it already exists
             try stdout.writeAll("success, no file written");
         } else {
             const image_path = try std.mem.concat(allocator, u8, &.{ t.name, ".png" });
