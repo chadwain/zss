@@ -10,14 +10,14 @@ const Fonts = zss.Fonts;
 const Images = zss.Images;
 const Storage = zss.values.Storage;
 
-const initial = @import("layout/initial.zig");
-const cosmetic = @import("layout/cosmetic.zig");
-const flow = @import("layout/flow.zig");
-const solve = @import("layout/solve.zig");
-const stf = @import("layout/shrink_to_fit.zig");
-pub const Absolute = @import("layout/AbsoluteContainingBlocks.zig");
-const StyleComputer = @import("layout/StyleComputer.zig");
-const StackingContexts = @import("layout/StackingContexts.zig");
+const initial = @import("Layout/initial.zig");
+const cosmetic = @import("Layout/cosmetic.zig");
+const flow = @import("Layout/flow.zig");
+const solve = @import("Layout/solve.zig");
+const stf = @import("Layout/shrink_to_fit.zig");
+pub const Absolute = @import("Layout/AbsoluteContainingBlocks.zig");
+const StyleComputer = @import("Layout/StyleComputer.zig");
+const StackingContexts = @import("Layout/StackingContexts.zig");
 
 const used_values = zss.used_values;
 const units_per_pixel = used_values.units_per_pixel;

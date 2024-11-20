@@ -5,29 +5,29 @@
 //! document elements with as little syntax as possible.
 //! The syntax should feel natural to anyone that has used CSS.
 //!
-//! The grammar of zml documents is presented below. It is derived from CSS grammar constructs.
+//! The grammar of zml documents is presented below.
 //! It uses the value definition syntax described in CSS Values and Units Level 4.
 //!
-//! <root>           = <element>
-//! <element>        = <normal-element> | <text-element>
-//! <normal-element> = <features> <inline-style-block>? <children>
-//! <text-element>   = <string-token>
+//! <root>               = <element>
+//! <element>            = <normal-element> | <text-element>
+//! <normal-element>     = <features> <inline-style-block>? <children>
+//! <text-element>       = <string-token>
 //!
-//! <features>        = '*' | [ <type> | <id> | <class> | <attribute> ]+
-//! <type>            = <ident-token>
-//! <id>              = <hash-token>
-//! <class>           = '.' <ident-token>
-//! <attribute>       = '[' <ident-token> [ '=' <attribute-value> ]? ']'
-//! <attribute-value> = <ident-token> | <string-token>
+//! <features>           = '*' | [ <type> | <id> | <class> | <attribute> ]+
+//! <type>               = <ident-token>
+//! <id>                 = <hash-token>
+//! <class>              = '.' <ident-token>
+//! <attribute>          = '[' <ident-token> [ '=' <attribute-value> ]? ']'
+//! <attribute-value>    = <ident-token> | <string-token>
 //!
 //! <inline-style-block> = '(' <declaration-list> ')'
 //!
-//! <children> = '{' <element>* '}'
+//! <children>           = '{' <element>* '}'
 //!
-//! <ident-token>      = <defined in CSS Syntax Level 3>
-//! <string-token>     = <defined in CSS Syntax Level 3>
-//! <hash-token>       = <defined in CSS Syntax Level 3>
-//! <declaration-list> = <defined in CSS Style Attributes>
+//! <ident-token>        = <defined in CSS Syntax Level 3>
+//! <string-token>       = <defined in CSS Syntax Level 3>
+//! <hash-token>         = <defined in CSS Syntax Level 3>
+//! <declaration-list>   = <defined in CSS Style Attributes>
 //!
 //! Whitespace or comments are required between the components of <features>.
 //! The <hash-token> component of <id> must be an "id" hash token.
