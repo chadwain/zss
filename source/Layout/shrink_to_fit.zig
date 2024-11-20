@@ -223,7 +223,7 @@ fn pushFlowObject(
     box_style: used_values.BoxStyle,
     used_sizes: BlockUsedSizes,
     available_width: ZssUnit,
-    stacking_context: StackingContexts.Info,
+    stacking_context: StackingContexts.Type,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowObject.
     try ctx.stack.push(layout.allocator, .{

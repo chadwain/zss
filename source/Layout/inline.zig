@@ -859,16 +859,16 @@ fn inlineBlockSolveSizes(
 fn inlineBlockCreateStackingContext(
     computer: *StyleComputer,
     position: zss.values.types.Position,
-) StackingContexts.Info {
+) StackingContexts.Type {
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
     computer.setComputedValue(.box_gen, .z_index, z_index);
 
     switch (position) {
-        .static => return .{ .is_non_parent = 0 },
+        .static => return .{ .non_parentable = 0 },
         // TODO: Position the block using the values of the 'inset' family of properties.
         .relative => switch (z_index.z_index) {
-            .integer => |integer| return .{ .is_parent = integer },
-            .auto => return .{ .is_non_parent = 0 },
+            .integer => |integer| return .{ .parentable = integer },
+            .auto => return .{ .non_parentable = 0 },
             .initial, .inherit, .unset, .undeclared => unreachable,
         },
         .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),

@@ -82,7 +82,7 @@ pub fn init(
     return .{
         .box_tree = undefined,
         .computer = StyleComputer.init(element_tree_slice, allocator),
-        .sc = .{ .allocator = allocator },
+        .sc = .{},
         .absolute = .{},
         .viewport = undefined,
         .inputs = .{
@@ -102,7 +102,7 @@ pub fn init(
 
 pub fn deinit(layout: *Layout) void {
     layout.computer.deinit();
-    layout.sc.deinit();
+    layout.sc.deinit(layout.allocator);
     layout.absolute.deinit(layout.allocator);
     layout.element_stack.deinit(layout.allocator);
     layout.subtrees.deinit(layout.allocator);
@@ -207,7 +207,7 @@ fn addSkip(layout: *Layout, skip: Subtree.Size) void {
 
 pub fn pushInitialContainingBlock(layout: *Layout, size: ZssSize) !BlockRef {
     const ref = try layout.newBlock();
-    const stacking_context_id = try layout.sc.push(.{ .is_parent = 0 }, layout.box_tree, ref);
+    const stacking_context_id = try layout.sc.push(layout.allocator, .{ .parentable = 0 }, layout.box_tree, ref);
     const absolute_containing_block_id = try layout.absolute.pushInitialContainingBlock(layout.allocator, ref);
     layout.blocks.top = .{
         .index = ref.index,
@@ -250,10 +250,10 @@ pub fn pushFlowBlock(
     layout: *Layout,
     box_style: used_values.BoxStyle,
     sizes: BlockUsedSizes,
-    stacking_context: StackingContexts.Info,
+    stacking_context: StackingContexts.Type,
 ) !BlockRef {
     const ref = try layout.newBlock();
-    const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, ref);
+    const stacking_context_id = try layout.sc.push(layout.allocator, stacking_context, layout.box_tree, ref);
     const absolute_containing_block_id = try layout.pushAbsoluteContainingBlock(box_style, ref);
     try layout.blocks.push(layout.allocator, .{
         .index = ref.index,
@@ -315,10 +315,10 @@ pub fn pushStfFlowMainBlock(
     layout: *Layout,
     box_style: used_values.BoxStyle,
     sizes: BlockUsedSizes,
-    stacking_context: StackingContexts.Info,
+    stacking_context: StackingContexts.Type,
 ) !BlockRef {
     const ref = try layout.newBlock();
-    const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, ref);
+    const stacking_context_id = try layout.sc.push(layout.allocator, stacking_context, layout.box_tree, ref);
     const absolute_containing_block_id = try layout.pushAbsoluteContainingBlock(box_style, ref);
     try layout.blocks.push(layout.allocator, .{
         .index = ref.index,
@@ -352,9 +352,9 @@ pub fn pushStfFlowBlock(
     layout: *Layout,
     box_style: used_values.BoxStyle,
     sizes: BlockUsedSizes,
-    stacking_context: StackingContexts.Info,
+    stacking_context: StackingContexts.Type,
 ) !void {
-    const stacking_context_id = try layout.sc.push(stacking_context, layout.box_tree, undefined);
+    const stacking_context_id = try layout.sc.pushWithoutBlock(layout.allocator, stacking_context, layout.box_tree);
     const absolute_containing_block_id = try layout.pushAbsoluteContainingBlock(box_style, undefined);
     try layout.blocks.push(layout.allocator, .{
         .index = undefined,
@@ -408,7 +408,7 @@ pub fn popStfFlowBlock2(
     flow.writeBlockData(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
 
     const ref: BlockRef = .{ .subtree = subtree_id, .index = block.index };
-    if (block.stacking_context_id) |id| StackingContexts.fixup(layout.box_tree, id, ref);
+    if (block.stacking_context_id) |id| StackingContexts.setBlock(layout.box_tree, id, ref);
     if (block.absolute_containing_block_id) |id| layout.fixupAbsoluteContainingBlock(id, ref);
 
     return ref;

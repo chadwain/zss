@@ -72,9 +72,9 @@ fn analyzeRootElement(layout: *Layout) !void {
     }
 }
 
-fn rootFlowBlockSolveStackingContext(computer: *StyleComputer) StackingContexts.Info {
+fn rootFlowBlockSolveStackingContext(computer: *StyleComputer) StackingContexts.Type {
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
     computer.setComputedValue(.box_gen, .z_index, z_index);
     // TODO: Use z-index?
-    return .{ .is_parent = 0 };
+    return .{ .parentable = 0 };
 }
