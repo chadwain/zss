@@ -14,11 +14,6 @@ const ZssRange = zss.used_values.ZssRange;
 const ZssRect = zss.used_values.ZssRect;
 const ZssSize = zss.used_values.ZssSize;
 const ZssVector = zss.used_values.ZssVector;
-const BlockBoxIndex = zss.used_values.BlockBoxIndex;
-const BlockSubtree = zss.used_values.BlockSubtree;
-const BlockSubtreeIndex = zss.used_values.BlockSubtreeIndex;
-const BlockBox = zss.used_values.BlockBox;
-const BlockBoxTree = zss.used_values.BlockBoxTree;
 const Color = zss.used_values.Color;
 const InlineBoxIndex = zss.used_values.InlineBoxIndex;
 const InlineFormattingContext = zss.used_values.InlineFormattingContext;
@@ -26,6 +21,7 @@ const InlineFormattingContextIndex = zss.used_values.InlineFormattingContextInde
 const GlyphIndex = InlineFormattingContext.GlyphIndex;
 const StackingContext = zss.used_values.StackingContext;
 const StackingContextTree = zss.used_values.StackingContextTree;
+const Subtree = zss.used_values.Subtree;
 const ZIndex = zss.used_values.ZIndex;
 const BoxTree = zss.used_values.BoxTree;
 
@@ -509,13 +505,13 @@ pub fn drawBoxTree(
             .block_box => |block_box| {
                 const border_top_left = block_box.border_top_left;
 
-                const subtree_slice = box_tree.blocks.subtree(block_box.block_box.subtree).slice();
-                const index = block_box.block_box.index;
+                const subtree = box_tree.blocks.subtree(block_box.ref.subtree).view();
+                const index = block_box.ref.index;
 
-                const box_offsets = subtree_slice.items(.box_offsets)[index];
-                const borders = subtree_slice.items(.borders)[index];
-                const background = subtree_slice.items(.background)[index];
-                const border_colors = subtree_slice.items(.border_colors)[index];
+                const box_offsets = subtree.items(.box_offsets)[index];
+                const borders = subtree.items(.borders)[index];
+                const background = subtree.items(.background)[index];
+                const border_colors = subtree.items(.border_colors)[index];
                 const boxes = getThreeBoxes(border_top_left, box_offsets, borders);
 
                 try drawBlockContainer(renderer, box_tree, images, boxes, background, border_colors);

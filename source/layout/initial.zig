@@ -11,18 +11,16 @@ const StyleComputer = @import("./StyleComputer.zig");
 const StackingContexts = @import("./StackingContexts.zig");
 
 const used_values = zss.used_values;
-const BlockBox = used_values.BlockBox;
-const BlockBoxSkip = used_values.BlockBoxSkip;
 const BoxTree = used_values.BoxTree;
 const GeneratedBox = used_values.GeneratedBox;
-const SubtreeId = used_values.SubtreeId;
+const Subtree = used_values.Subtree;
 
 const hb = @import("mach-harfbuzz").c;
 
 pub fn run(layout: *Layout) !void {
     try layout.pushInitialSubtree();
-    const block_box = try layout.pushInitialContainingBlock(layout.viewport);
-    layout.box_tree.blocks.initial_containing_block = block_box;
+    const ref = try layout.pushInitialContainingBlock(layout.viewport);
+    layout.box_tree.blocks.initial_containing_block = ref;
 
     try analyzeRootElement(layout);
     layout.popInitialContainingBlock();
@@ -52,8 +50,8 @@ fn analyzeRootElement(layout: *Layout) !void {
                 const stacking_context = rootFlowBlockSolveStackingContext(&layout.computer);
                 layout.computer.commitElement(.box_gen);
 
-                const block_box = try layout.pushFlowBlock(used_box_style, used_sizes, stacking_context);
-                try layout.box_tree.mapElementToBox(element, .{ .block_box = block_box });
+                const ref = try layout.pushFlowBlock(used_box_style, used_sizes, stacking_context);
+                try layout.box_tree.mapElementToBox(element, .{ .block_ref = ref });
                 try layout.pushElement();
                 const result = try flow.runFlowLayout(layout, used_sizes);
                 _ = layout.popFlowBlock(result.auto_height);

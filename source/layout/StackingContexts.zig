@@ -8,7 +8,7 @@ const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
 const used_values = zss.used_values;
-const BlockBox = used_values.BlockBox;
+const BlockRef = used_values.BlockRef;
 const BoxTree = used_values.BoxTree;
 const ZIndex = used_values.ZIndex;
 const StackingContext = used_values.StackingContext;
@@ -38,7 +38,7 @@ pub const Info = union(enum) {
     is_non_parent: ZIndex,
 };
 
-pub fn push(sc: *StackingContexts, info: Info, box_tree: *BoxTree, block_box: BlockBox) !?Id {
+pub fn push(sc: *StackingContexts, info: Info, box_tree: *BoxTree, ref: BlockRef) !?Id {
     try sc.tag.append(sc.allocator, info);
 
     const z_index = switch (info) {
@@ -78,7 +78,7 @@ pub fn push(sc: *StackingContexts, info: Info, box_tree: *BoxTree, block_box: Bl
             .skip = skip,
             .id = id,
             .z_index = z_index,
-            .block_box = block_box,
+            .ref = ref,
             .ifcs = .{},
         },
     );
@@ -108,9 +108,9 @@ pub fn pop(sc: *StackingContexts, box_tree: *BoxTree) void {
     }
 }
 
-pub fn fixup(box_tree: *BoxTree, id: Id, block_box: BlockBox) void {
+pub fn fixup(box_tree: *BoxTree, id: Id, ref: BlockRef) void {
     const slice = box_tree.stacking_contexts.slice();
     const ids = slice.items(.id);
     const index: Index = @intCast(std.mem.indexOfScalar(Id, ids, id).?);
-    slice.items(.block_box)[index] = block_box;
+    slice.items(.ref)[index] = ref;
 }

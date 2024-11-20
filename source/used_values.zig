@@ -1,6 +1,5 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const expect = std.testing.expect;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
@@ -92,6 +91,22 @@ pub const ZssRect = struct {
         };
     }
 };
+
+test "ZssRect" {
+    const r1 = ZssRect{ .x = 0, .y = 0, .w = 10, .h = 10 };
+    const r2 = ZssRect{ .x = 3, .y = 5, .w = 17, .h = 4 };
+    const r3 = ZssRect{ .x = 15, .y = 0, .w = 20, .h = 9 };
+    const r4 = ZssRect{ .x = 20, .y = 1, .w = 10, .h = 0 };
+
+    const expect = std.testing.expect;
+    const intersect = ZssRect.intersect;
+    try expect(std.meta.eql(intersect(r1, r2), ZssRect{ .x = 3, .y = 5, .w = 7, .h = 4 }));
+    try expect(intersect(r1, r3).isEmpty());
+    try expect(intersect(r1, r4).isEmpty());
+    try expect(std.meta.eql(intersect(r2, r3), ZssRect{ .x = 15, .y = 5, .w = 5, .h = 4 }));
+    try expect(intersect(r2, r4).isEmpty());
+    try expect(!intersect(r3, r4).isEmpty());
+}
 
 pub const Color = extern struct {
     r: u8,
@@ -230,25 +245,24 @@ pub const BackgroundImage = struct {
 pub const BlockType = union(enum) {
     block,
     ifc_container: InlineFormattingContextId,
-    subtree_proxy: SubtreeId,
+    subtree_proxy: Subtree.Id,
 };
 
-pub const SubtreeId = enum(u16) { _ };
-pub const BlockBoxIndex = u16;
-pub const BlockBox = struct {
-    subtree: SubtreeId,
-    index: BlockBoxIndex,
+pub const BlockRef = struct {
+    subtree: Subtree.Id,
+    index: Subtree.Size,
 };
 
-pub const BlockBoxSkip = BlockBoxIndex;
+pub const Subtree = struct {
+    id: Subtree.Id,
+    parent: ?BlockRef,
+    blocks: List = .{},
 
-pub const BlockSubtree = struct {
-    id: SubtreeId,
-    parent: ?BlockBox,
-    blocks: BlockList = .{},
+    pub const Size = u16;
+    pub const Id = enum(u16) { _ };
 
-    pub const BlockList = MultiArrayList(struct {
-        skip: BlockBoxIndex,
+    pub const List = MultiArrayList(struct {
+        skip: Size,
         type: BlockType,
         stacking_context: ?StackingContext.Id,
         box_offsets: BoxOffsets,
@@ -258,63 +272,63 @@ pub const BlockSubtree = struct {
         border_colors: BorderColor,
         background: BlockBoxBackground,
     });
-    pub const Slice = BlockList.Slice;
+    pub const View = List.Slice;
 
-    pub fn deinit(subtree: *BlockSubtree, allocator: Allocator) void {
+    pub fn deinit(subtree: *Subtree, allocator: Allocator) void {
         subtree.blocks.deinit(allocator);
     }
 
     pub const Iterator = struct {
-        current: BlockBoxIndex,
-        end: BlockBoxIndex,
+        current: Size,
+        end: Size,
 
-        pub fn next(it: *Iterator, subtree: Slice) ?BlockBoxIndex {
+        pub fn next(it: *Iterator, v: View) ?Size {
             if (it.current == it.end) return null;
-            defer it.current += subtree.items(.skip)[it.current];
+            defer it.current += v.items(.skip)[it.current];
             return it.current;
         }
     };
 
-    fn root(s: Slice) Iterator {
-        return .{ .current = 0, .end = s.items(.skip)[0] };
+    fn root(v: View) Iterator {
+        return .{ .current = 0, .end = v.items(.skip)[0] };
     }
 
-    fn children(s: Slice, index: BlockBoxIndex) Iterator {
-        return .{ .current = index + 1, .end = index + s.items(.skip)[index] };
+    fn children(v: View, index: Size) Iterator {
+        return .{ .current = index + 1, .end = index + v.items(.skip)[index] };
     }
 
-    pub fn size(subtree: BlockSubtree) BlockBoxSkip {
-        return @intCast(subtree.blocks.len);
-    }
-
-    pub fn slice(subtree: BlockSubtree) Slice {
+    pub fn view(subtree: Subtree) View {
         return subtree.blocks.slice();
     }
 
-    pub fn ensureTotalCapacity(subtree: *BlockSubtree, allocator: Allocator, capacity: usize) !void {
+    pub fn size(subtree: Subtree) Size {
+        return @intCast(subtree.blocks.len);
+    }
+
+    pub fn ensureTotalCapacity(subtree: *Subtree, allocator: Allocator, capacity: Size) !void {
         try subtree.blocks.ensureTotalCapacity(allocator, capacity);
     }
 
-    pub fn appendBlock(subtree: *BlockSubtree, allocator: Allocator) !BlockBoxIndex {
-        const new_size = std.math.add(BlockBoxIndex, subtree.size(), 1) catch return error.TooManyBlocks;
+    pub fn appendBlock(subtree: *Subtree, allocator: Allocator) !Size {
+        const new_size = std.math.add(Size, subtree.size(), 1) catch return error.TooManyBlocks;
         assert(new_size - 1 == try subtree.blocks.addOne(allocator));
         return new_size - 1;
     }
 
     pub fn setIfcContainer(
-        subtree: *BlockSubtree,
+        subtree: *Subtree,
         ifc: InlineFormattingContextId,
-        index: BlockBoxIndex,
-        skip: BlockBoxIndex,
+        index: Size,
+        skip: Size,
         y_pos: ZssUnit,
         width: ZssUnit,
         height: ZssUnit,
     ) void {
-        const s = subtree.slice();
-        s.items(.skip)[index] = skip;
-        s.items(.type)[index] = .{ .ifc_container = ifc };
-        s.items(.stacking_context)[index] = null;
-        s.items(.box_offsets)[index] = .{
+        const v = subtree.view();
+        v.items(.skip)[index] = skip;
+        v.items(.type)[index] = .{ .ifc_container = ifc };
+        v.items(.stacking_context)[index] = null;
+        v.items(.box_offsets)[index] = .{
             .border_pos = .{ .x = 0, .y = y_pos },
             .border_size = .{ .w = width, .h = height },
             .content_pos = .{ .x = 0, .y = 0 },
@@ -323,20 +337,20 @@ pub const BlockSubtree = struct {
     }
 
     pub fn setSubtreeProxy(
-        subtree: *BlockSubtree,
-        index: BlockBoxIndex,
-        proxied_subtree: SubtreeId,
+        subtree: *Subtree,
+        index: Size,
+        proxied_subtree: Id,
     ) void {
-        const s = subtree.slice();
-        s.items(.skip)[index] = 1;
-        s.items(.type)[index] = .{ .subtree_proxy = proxied_subtree };
-        s.items(.stacking_context)[index] = null;
+        const v = subtree.view();
+        v.items(.skip)[index] = 1;
+        v.items(.type)[index] = .{ .subtree_proxy = proxied_subtree };
+        v.items(.stacking_context)[index] = null;
     }
 };
 
 pub const BlockBoxTree = struct {
-    subtrees: ArrayListUnmanaged(*BlockSubtree) = .{},
-    initial_containing_block: BlockBox = undefined,
+    subtrees: ArrayListUnmanaged(*Subtree) = .{},
+    initial_containing_block: BlockRef = undefined,
 
     fn deinit(blocks: *BlockBoxTree, allocator: Allocator) void {
         for (blocks.subtrees.items) |tree| {
@@ -346,15 +360,15 @@ pub const BlockBoxTree = struct {
         blocks.subtrees.deinit(allocator);
     }
 
-    pub fn subtree(blocks: BlockBoxTree, id: SubtreeId) *BlockSubtree {
+    pub fn subtree(blocks: BlockBoxTree, id: Subtree.Id) *Subtree {
         return blocks.subtrees.items[@intFromEnum(id)];
     }
 
-    pub fn makeSubtree(blocks: *BlockBoxTree, allocator: Allocator) !*BlockSubtree {
-        const id: SubtreeId = @enumFromInt(blocks.subtrees.items.len);
+    pub fn makeSubtree(blocks: *BlockBoxTree, allocator: Allocator) !*Subtree {
+        const id: Subtree.Id = @enumFromInt(blocks.subtrees.items.len);
         const tree_ptr = try blocks.subtrees.addOne(allocator);
         errdefer _ = blocks.subtrees.pop();
-        const tree = try allocator.create(BlockSubtree);
+        const tree = try allocator.create(Subtree);
         tree_ptr.* = tree;
         tree.* = .{ .id = id, .parent = null };
         return tree;
@@ -376,7 +390,7 @@ pub const InlineFormattingContextId = enum(u16) { _ };
 /// That metrics data is found in the same array index as that of the first glyph index (the one that was 0).
 pub const InlineFormattingContext = struct {
     id: InlineFormattingContextId,
-    parent_block: BlockBox,
+    parent_block: BlockRef,
 
     glyph_indeces: ArrayListUnmanaged(GlyphIndex) = .{},
     metrics: ArrayListUnmanaged(Metrics) = .{},
@@ -502,7 +516,7 @@ pub const InlineFormattingContext = struct {
             return @bitCast(Special{ .kind = .BoxEnd, .data = index });
         }
 
-        pub fn encodeInlineBlock(index: BlockBoxIndex) GlyphIndex {
+        pub fn encodeInlineBlock(index: Subtree.Size) GlyphIndex {
             return @bitCast(Special{ .kind = .InlineBlock, .data = index });
         }
 
@@ -554,7 +568,7 @@ pub const StackingContext = struct {
     /// The z-index of this stacking context.
     z_index: ZIndex,
     /// The block box that created this stacking context.
-    block_box: BlockBox,
+    ref: BlockRef,
     /// The list of inline formatting contexts contained within this stacking context.
     ifcs: ArrayListUnmanaged(InlineFormattingContextId),
 };
@@ -564,7 +578,7 @@ pub const StackingContextTree = MultiArrayList(StackingContext);
 /// The type of box(es) that an element generates.
 pub const GeneratedBox = union(enum) {
     /// The element generated a single block box.
-    block_box: BlockBox,
+    block_ref: BlockRef,
     /// The element generated a single inline box.
     inline_box: struct { ifc_id: InlineFormattingContextId, index: InlineBoxIndex },
     /// The element generated text.
@@ -640,7 +654,7 @@ pub const BoxTree = struct {
         return box_tree.ifcs.items[@intFromEnum(id)];
     }
 
-    pub fn makeIfc(box_tree: *BoxTree, parent_block: BlockBox) !*InlineFormattingContext {
+    pub fn makeIfc(box_tree: *BoxTree, parent_block: BlockRef) !*InlineFormattingContext {
         const id = std.math.cast(std.meta.Tag(InlineFormattingContextId), box_tree.ifcs.items.len) orelse return error.TooManyIfcs;
         try box_tree.ifcs.ensureUnusedCapacity(box_tree.allocator, 1);
         const ptr = try box_tree.allocator.create(InlineFormattingContext);
@@ -651,16 +665,16 @@ pub const BoxTree = struct {
 
     pub fn print(box_tree: BoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
         var stack = zss.util.Stack(struct {
-            iterator: BlockSubtree.Iterator,
-            subtree: BlockSubtree.Slice,
+            iterator: Subtree.Iterator,
+            subtree: Subtree.View,
         }){};
         defer stack.deinit(allocator);
 
         {
             const icb = box_tree.blocks.initial_containing_block;
-            const subtree = box_tree.blocks.subtree(icb.subtree).slice();
+            const subtree = box_tree.blocks.subtree(icb.subtree).view();
             try printBlock(subtree, icb.index, writer);
-            stack.top = .{ .iterator = BlockSubtree.children(subtree, icb.index), .subtree = subtree };
+            stack.top = .{ .iterator = Subtree.children(subtree, icb.index), .subtree = subtree };
         }
 
         while (stack.top) |*top| {
@@ -673,12 +687,12 @@ pub const BoxTree = struct {
 
             switch (top.subtree.items(.type)[index]) {
                 .subtree_proxy => |subtree_id| {
-                    const subtree = box_tree.blocks.subtree(subtree_id).slice();
+                    const subtree = box_tree.blocks.subtree(subtree_id).view();
                     try writer.writeByteNTimes(' ', stack.len() * 4);
                     try writer.print("Subtree({}) size ({})\n", .{ @intFromEnum(subtree_id), subtree.len });
-                    try stack.push(allocator, .{ .iterator = BlockSubtree.root(subtree), .subtree = subtree });
+                    try stack.push(allocator, .{ .iterator = Subtree.root(subtree), .subtree = subtree });
                 },
-                else => try stack.push(allocator, .{ .iterator = BlockSubtree.children(top.subtree, index), .subtree = top.subtree }),
+                else => try stack.push(allocator, .{ .iterator = Subtree.children(top.subtree, index), .subtree = top.subtree }),
             }
         }
     }
@@ -687,16 +701,16 @@ pub const BoxTree = struct {
         for (box_tree.blocks.subtrees.items) |subtree| {
             try writer.print("Subtree({}) size ({})\n", .{ @intFromEnum(subtree.id), subtree.blocks.len });
 
-            const slice = subtree.slice();
-            for (0..slice.len) |i| {
-                try printBlock(slice, @intCast(i), writer);
+            const view = subtree.view();
+            for (0..view.len) |i| {
+                try printBlock(view, @intCast(i), writer);
             }
 
             try writer.writeAll("\n");
         }
     }
 
-    fn printBlock(subtree: BlockSubtree.Slice, index: BlockBoxIndex, writer: std.io.AnyWriter) !void {
+    fn printBlock(subtree: Subtree.View, index: Subtree.Size, writer: std.io.AnyWriter) !void {
         try writer.print("[{}, {}) ", .{ index, index + subtree.items(.skip)[index] });
 
         switch (subtree.items(.type)[index]) {
@@ -715,18 +729,3 @@ pub const BoxTree = struct {
         try writer.print("content_rect({}, {}, {}, {})\n", .{ bo.content_pos.x, bo.content_pos.y, bo.content_size.w, bo.content_size.h });
     }
 };
-
-test "ZssRect" {
-    const r1 = ZssRect{ .x = 0, .y = 0, .w = 10, .h = 10 };
-    const r2 = ZssRect{ .x = 3, .y = 5, .w = 17, .h = 4 };
-    const r3 = ZssRect{ .x = 15, .y = 0, .w = 20, .h = 9 };
-    const r4 = ZssRect{ .x = 20, .y = 1, .w = 10, .h = 0 };
-
-    const intersect = ZssRect.intersect;
-    try expect(std.meta.eql(intersect(r1, r2), ZssRect{ .x = 3, .y = 5, .w = 7, .h = 4 }));
-    try expect(intersect(r1, r3).isEmpty());
-    try expect(intersect(r1, r4).isEmpty());
-    try expect(std.meta.eql(intersect(r2, r3), ZssRect{ .x = 15, .y = 5, .w = 5, .h = 4 }));
-    try expect(intersect(r2, r4).isEmpty());
-    try expect(!intersect(r3, r4).isEmpty());
-}

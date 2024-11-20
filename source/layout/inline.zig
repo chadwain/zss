@@ -23,12 +23,7 @@ const used_values = zss.used_values;
 const ZssUnit = used_values.ZssUnit;
 const ZssVector = used_values.ZssVector;
 const units_per_pixel = used_values.units_per_pixel;
-const BlockBoxIndex = used_values.BlockBoxIndex;
-const BlockBox = used_values.BlockBox;
-const BlockBoxSkip = used_values.BlockBoxSkip;
-const BlockSubtree = used_values.BlockSubtree;
-const SubtreeId = used_values.SubtreeId;
-const BlockBoxTree = used_values.BlockBoxTree;
+const BoxTree = used_values.BoxTree;
 const StackingContextIndex = used_values.StackingContextIndex;
 const StackingContextRef = used_values.StackingContextRef;
 const InlineBoxIndex = used_values.InlineBoxIndex;
@@ -37,7 +32,7 @@ const InlineFormattingContext = used_values.InlineFormattingContext;
 const InlineFormattingContextId = used_values.InlineFormattingContextId;
 const GlyphIndex = InlineFormattingContext.GlyphIndex;
 const GeneratedBox = used_values.GeneratedBox;
-const BoxTree = used_values.BoxTree;
+const Subtree = used_values.Subtree;
 
 const hb = @import("mach-harfbuzz").c;
 
@@ -75,7 +70,7 @@ pub fn runInlineLayout(
     defer ctx.deinit();
     try analyzeElements(layout, &ctx, ifc);
 
-    const subtree = layout.box_tree.blocks.subtree(ifc_container.subtree);
+    const subtree = layout.box_tree.blocks.subtree(ifc_container.subtree).view();
     const line_split_result = try splitIntoLineBoxes(layout, subtree, ifc, containing_block_width);
     layout.popIfcContainerBlock(ifc.id, 0, containing_block_width, line_split_result.height);
 
@@ -96,7 +91,7 @@ const InlineLayoutContext = struct {
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
     skip: ArrayListUnmanaged(InlineBoxSkip) = .{},
-    total_inline_block_skip: BlockBoxSkip = 0,
+    total_inline_block_skip: Subtree.Size = 0,
     font_handle: ?Fonts.Handle = null,
 
     fn deinit(self: *Self) void {
@@ -122,7 +117,7 @@ fn analyzeElements(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineForma
     try ifcPopRootInlineBox(ctx, layout.box_tree, ifc);
 
     try ifc.metrics.resize(layout.box_tree.allocator, ifc.glyph_indeces.items.len);
-    const subtree = layout.box_tree.blocks.subtree(layout.currentSubtree());
+    const subtree = layout.box_tree.blocks.subtree(layout.currentSubtree()).view();
     ifcSolveMetrics(ifc, subtree, layout.inputs.fonts);
 }
 
@@ -230,19 +225,19 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
                     const index = blk: {
                         if (sizes.get(.inline_size)) |_| {
                             // TODO: Recursive call here
-                            const block_box = try layout.pushFlowBlock(used_box_style, sizes, stacking_context);
-                            try layout.box_tree.mapElementToBox(element, .{ .block_box = block_box });
+                            const ref = try layout.pushFlowBlock(used_box_style, sizes, stacking_context);
+                            try layout.box_tree.mapElementToBox(element, .{ .block_ref = ref });
                             try layout.pushElement();
 
                             const result = try flow.runFlowLayout(layout, sizes);
                             _ = layout.popFlowBlock(result.auto_height);
                             layout.popElement();
 
-                            break :blk block_box.index;
+                            break :blk ref.index;
                         } else {
                             // TODO: Recursive call here
-                            const block_box = try layout.pushStfFlowMainBlock(used_box_style, sizes, stacking_context);
-                            try layout.box_tree.mapElementToBox(element, .{ .block_box = block_box });
+                            const ref = try layout.pushStfFlowMainBlock(used_box_style, sizes, stacking_context);
+                            try layout.box_tree.mapElementToBox(element, .{ .block_ref = ref });
                             try layout.pushElement();
 
                             const available_width_unclamped = ctx.containing_block_width -
@@ -255,7 +250,7 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
                             _ = layout.popStfFlowMainBlock(result.auto_width, result.auto_height);
                             layout.popElement();
 
-                            break :blk block_box.index;
+                            break :blk ref.index;
                         }
                     };
 
@@ -296,7 +291,7 @@ fn ifcAddBoxEnd(box_tree: *BoxTree, ifc: *InlineFormattingContext, inline_box_in
     try ifc.glyph_indeces.appendSlice(box_tree.allocator, &glyphs);
 }
 
-fn ifcAddInlineBlock(box_tree: *BoxTree, ifc: *InlineFormattingContext, block_box_index: BlockBoxIndex) !void {
+fn ifcAddInlineBlock(box_tree: *BoxTree, ifc: *InlineFormattingContext, block_box_index: Subtree.Size) !void {
     const glyphs = [2]GlyphIndex{ 0, InlineFormattingContext.Special.encodeInlineBlock(block_box_index) };
     try ifc.glyph_indeces.appendSlice(box_tree.allocator, &glyphs);
 }
@@ -881,10 +876,9 @@ fn inlineBlockCreateStackingContext(
     }
 }
 
-fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree, fonts: *const Fonts) void {
+fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: Subtree.View, fonts: *const Fonts) void {
     const font = fonts.get(ifc.font);
     const ifc_slice = ifc.slice();
-    const subtree_slice = subtree.slice();
 
     const num_glyphs = ifc.glyph_indeces.items.len;
     var i: usize = 0;
@@ -907,8 +901,8 @@ fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: *BlockSubtree, fonts:
                     setMetricsBoxEnd(metrics, ifc_slice, inline_box_index);
                 },
                 .InlineBlock => {
-                    const block_box_index = @as(BlockBoxIndex, special.data);
-                    setMetricsInlineBlock(metrics, subtree_slice, block_box_index);
+                    const block_box_index = @as(Subtree.Size, special.data);
+                    setMetricsInlineBlock(metrics, subtree, block_box_index);
                 },
                 .LineBreak => setMetricsLineBreak(metrics),
                 .ContinuationBlock => panic("TODO: Continuation block metrics", .{}),
@@ -953,9 +947,9 @@ fn setMetricsLineBreak(metrics: *InlineFormattingContext.Metrics) void {
     metrics.* = .{ .offset = 0, .advance = 0, .width = 0 };
 }
 
-fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, subtree_slice: BlockSubtree.Slice, block_box_index: BlockBoxIndex) void {
-    const box_offsets = subtree_slice.items(.box_offsets)[block_box_index];
-    const margins = subtree_slice.items(.margins)[block_box_index];
+fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, subtree: Subtree.View, block_box_index: Subtree.Size) void {
+    const box_offsets = subtree.items(.box_offsets)[block_box_index];
+    const margins = subtree.items(.margins)[block_box_index];
 
     const width = box_offsets.border_size.w;
     const advance = width + margins.left + margins.right;
@@ -1043,12 +1037,11 @@ pub const IFCLineSplitResult = struct {
 
 pub fn splitIntoLineBoxes(
     layout: *Layout,
-    subtree: *const BlockSubtree,
+    subtree: Subtree.View,
     ifc: *InlineFormattingContext,
     max_line_box_length: ZssUnit,
 ) !IFCLineSplitResult {
     assert(max_line_box_length >= 0);
-    assert(ifc.parent_block.subtree == subtree.id);
 
     var top_height: ZssUnit = undefined;
     var bottom_height: ZssUnit = undefined;
@@ -1066,8 +1059,6 @@ pub fn splitIntoLineBoxes(
         top_height = 0;
         bottom_height = 0;
     }
-
-    const subtree_slice = subtree.slice();
 
     var s = IFCLineSplitState.init(top_height, bottom_height);
     defer s.deinit(layout.allocator);
@@ -1116,9 +1107,9 @@ pub fn splitIntoLineBoxes(
             const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
             switch (@as(InlineFormattingContext.Special.LayoutInternalKind, @enumFromInt(@intFromEnum(special.kind)))) {
                 .InlineBlock => {
-                    const block_box_index = @as(BlockBoxIndex, special.data);
-                    const box_offsets = &subtree_slice.items(.box_offsets)[block_box_index];
-                    const margins = subtree_slice.items(.margins)[block_box_index];
+                    const block_box_index = @as(Subtree.Size, special.data);
+                    const box_offsets = &subtree.items(.box_offsets)[block_box_index];
+                    const margins = subtree.items(.margins)[block_box_index];
                     const margin_box_height = box_offsets.border_size.h + margins.top + margins.bottom;
                     s.max_top_height = @max(s.max_top_height, margin_box_height);
                     try s.inline_blocks_in_this_line_box.append(

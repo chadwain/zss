@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
-const BlockBox = zss.used_values.BlockBox;
+const BlockRef = zss.used_values.BlockRef;
 const Element = zss.ElementTree.Element;
 const BoxStyle = zss.used_values.BoxStyle;
 const Position = zss.values.types.Position;
@@ -26,7 +26,7 @@ pub fn deinit(absolute: *Absolute, allocator: Allocator) void {
 
 pub const ContainingBlock = struct {
     id: Id,
-    block_box: BlockBox,
+    ref: BlockRef,
 
     pub const Id = enum(u32) { _ };
 };
@@ -42,24 +42,24 @@ const Tag = enum {
     exists,
 };
 
-pub fn pushContainingBlock(absolute: *Absolute, allocator: Allocator, box_style: BoxStyle, block_box: BlockBox) !?ContainingBlock.Id {
+pub fn pushContainingBlock(absolute: *Absolute, allocator: Allocator, box_style: BoxStyle, ref: BlockRef) !?ContainingBlock.Id {
     switch (box_style.position) {
         .static => {
             try absolute.containing_block_tag.append(allocator, .none);
             return null;
         },
-        .relative, .absolute => return try absolute.newContainingBlock(allocator, block_box),
+        .relative, .absolute => return try absolute.newContainingBlock(allocator, ref),
     }
 }
 
 pub const pushInitialContainingBlock = newContainingBlock;
 
-fn newContainingBlock(absolute: *Absolute, allocator: Allocator, block_box: BlockBox) !ContainingBlock.Id {
+fn newContainingBlock(absolute: *Absolute, allocator: Allocator, ref: BlockRef) !ContainingBlock.Id {
     const id: ContainingBlock.Id = @enumFromInt(absolute.next_containing_block_id);
     const index: u32 = @intCast(absolute.containing_blocks.len);
     try absolute.containing_block_tag.append(allocator, .exists);
     try absolute.containing_block_index.append(allocator, index);
-    try absolute.containing_blocks.append(allocator, .{ .id = id, .block_box = block_box });
+    try absolute.containing_blocks.append(allocator, .{ .id = id, .ref = ref });
     absolute.current_containing_block_index = index;
     absolute.next_containing_block_id += 1;
     return id;
@@ -77,10 +77,10 @@ pub fn popContainingBlock(absolute: *Absolute) void {
     }
 }
 
-pub fn fixupContainingBlock(absolute: *Absolute, id: ContainingBlock.Id, block_box: BlockBox) void {
+pub fn fixupContainingBlock(absolute: *Absolute, id: ContainingBlock.Id, ref: BlockRef) void {
     const slice = absolute.containing_blocks.slice();
     const index: u32 = @intCast(std.mem.indexOfScalar(ContainingBlock.Id, slice.items(.id), id).?);
-    slice.items(.block_box)[index] = block_box;
+    slice.items(.ref)[index] = ref;
 }
 
 pub fn addBlock(absolute: *Absolute, allocator: Allocator, element: Element, inner_box_style: BoxStyle.InnerBlock) !void {

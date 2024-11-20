@@ -134,13 +134,13 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
 fn rootBlockSize(box_tree: *BoxTree, root_element: zss.ElementTree.Element) struct { x: u32, y: u32, width: u32, height: u32 } {
     if (root_element.eqlNull()) return .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     const generated_box = box_tree.element_to_generated_box.get(root_element) orelse return .{ .x = 0, .y = 0, .width = 0, .height = 0 };
-    const block_box = switch (generated_box) {
-        .block_box => |block_box| block_box,
+    const ref = switch (generated_box) {
+        .block_ref => |ref| ref,
         .text => |ifc_id| box_tree.ifc(ifc_id).parent_block,
         .inline_box => unreachable,
     };
-    const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
-    const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
+    const subtree = box_tree.blocks.subtree(ref.subtree).view();
+    const box_offsets = subtree.items(.box_offsets)[ref.index];
     return .{
         .x = @intCast(@divFloor(box_offsets.border_pos.x, units_per_pixel)),
         .y = @intCast(@divFloor(box_offsets.border_pos.y, units_per_pixel)),
@@ -151,7 +151,7 @@ fn rootBlockSize(box_tree: *BoxTree, root_element: zss.ElementTree.Element) stru
 
 fn setIcbBackgroundColor(box_tree: *BoxTree, color: zss.used_values.Color) void {
     const icb = box_tree.blocks.initial_containing_block;
-    const subtree_slice = box_tree.blocks.subtree(icb.subtree).slice();
-    const background = &subtree_slice.items(.background)[icb.index];
+    const subtree = box_tree.blocks.subtree(icb.subtree).view();
+    const background = &subtree.items(.background)[icb.index];
     background.color = color;
 }

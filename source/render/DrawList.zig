@@ -9,19 +9,17 @@ const DrawList = @This();
 
 const zss = @import("../zss.zig");
 const used_values = zss.used_values;
-const ZssUnit = used_values.ZssUnit;
-const ZssVector = used_values.ZssVector;
-const ZssRect = used_values.ZssRect;
 const BoxOffsets = used_values.BoxOffsets;
-const BlockBoxIndex = used_values.BlockBoxIndex;
-const BlockBoxSkip = used_values.BlockBoxSkip;
-const BlockSubtree = used_values.BlockSubtree;
-const SubtreeId = used_values.SubtreeId;
+const BoxTree = used_values.BoxTree;
 const InlineFormattingContextId = used_values.InlineFormattingContextId;
 const StackingContextIndex = used_values.StackingContext.Index;
 const StackingContextId = used_values.StackingContext.Id;
 const StackingContextTree = used_values.StackingContextTree;
-const BoxTree = used_values.BoxTree;
+const Subtree = used_values.Subtree;
+const ZssRect = used_values.ZssRect;
+const ZssUnit = used_values.ZssUnit;
+const ZssVector = used_values.ZssVector;
+
 const QuadTree = @import("./QuadTree.zig");
 
 const std = @import("std");
@@ -44,7 +42,7 @@ pub const Drawable = union(enum) {
     line_box: LineBox,
 
     pub const BlockBox = struct {
-        block_box: used_values.BlockBox,
+        ref: used_values.BlockRef,
         border_top_left: ZssVector,
     };
 
@@ -59,7 +57,7 @@ pub const Drawable = union(enum) {
         _ = options;
 
         switch (drawable) {
-            .block_box => |block_box| try writer.print("BlockBox subtree={} index={}", .{ block_box.block_box.subtree, block_box.block_box.index }),
+            .block_box => |block_box| try writer.print("BlockBox subtree={} index={}", .{ block_box.ref.subtree, block_box.ref.index }),
             .line_box => |line_box| try writer.print("LineBox ifc={} index={}", .{ line_box.ifc_id, line_box.line_box_index }),
         }
     }
@@ -290,10 +288,10 @@ const PopulateSubListContext = struct {
     ) = .{},
 
     const Stack = zss.util.Stack(struct {
-        begin: BlockBoxIndex,
-        end: BlockBoxIndex,
-        subtree_index: SubtreeId,
-        subtree: BlockSubtree.Slice,
+        begin: Subtree.Size,
+        end: Subtree.Size,
+        subtree_index: Subtree.Id,
+        subtree: Subtree.View,
         vector: ZssVector,
     });
 
@@ -341,8 +339,8 @@ fn populateSubList(
 
     {
         // Add the root block to the draw order list
-        const root_block_box = slice.items(.block_box)[stacking_context];
-        const root_block_subtree = box_tree.blocks.subtree(root_block_box.subtree).slice();
+        const root_block_box = slice.items(.ref)[stacking_context];
+        const root_block_subtree = box_tree.blocks.subtree(root_block_box.subtree).view();
         const root_block_skip = root_block_subtree.items(.skip)[root_block_box.index];
         const initial_item = PopulateSubListContext.Stack.Item{
             .begin = undefined,
@@ -411,8 +409,8 @@ fn populateSubList(
 fn analyzeBlock(
     ctx: *PopulateSubListContext,
     allocator: Allocator,
-    block_index: BlockBoxIndex,
-    block_skip: BlockBoxSkip,
+    block_index: Subtree.Size,
+    block_skip: Subtree.Size,
     top: *const PopulateSubListContext.Stack.Item,
 ) !PopulateSubListContext.Stack.Item {
     const block_type = top.subtree.items(.type)[block_index];
@@ -427,7 +425,7 @@ fn analyzeBlock(
                 allocator,
                 Drawable{
                     .block_box = .{
-                        .block_box = .{ .subtree = top.subtree_index, .index = block_index },
+                        .ref = .{ .subtree = top.subtree_index, .index = block_index },
                         .border_top_left = border_top_left,
                     },
                 },
@@ -469,7 +467,7 @@ fn analyzeBlock(
                 .begin = 0,
                 .end = child_subtree.size(),
                 .subtree_index = proxy_subtree_index,
-                .subtree = child_subtree.slice(),
+                .subtree = child_subtree.view(),
                 .vector = top.vector,
             };
         },

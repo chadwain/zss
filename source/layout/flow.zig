@@ -19,14 +19,10 @@ const StyleComputer = @import("./StyleComputer.zig");
 const StackingContexts = @import("./StackingContexts.zig");
 
 const used_values = zss.used_values;
-const BlockBox = used_values.BlockBox;
-const BlockBoxIndex = used_values.BlockBoxIndex;
-const BlockBoxSkip = used_values.BlockBoxSkip;
-const SubtreeId = used_values.SubtreeId;
 const BoxTree = used_values.BoxTree;
 const GeneratedBox = used_values.GeneratedBox;
 const StackingContext = used_values.StackingContext;
-const SubtreeSlice = used_values.BlockSubtree.Slice;
+const Subtree = used_values.Subtree;
 const ZssUnit = used_values.ZssUnit;
 
 pub const Result = struct {
@@ -117,8 +113,8 @@ fn pushBlock(
     stacking_context: StackingContexts.Info,
 ) !void {
     // The allocations here must have corresponding deallocations in popBlock.
-    const block_box = try layout.pushFlowBlock(box_style, used_sizes, stacking_context);
-    try layout.box_tree.mapElementToBox(element, .{ .block_box = block_box });
+    const ref = try layout.pushFlowBlock(box_style, used_sizes, stacking_context);
+    try layout.box_tree.mapElementToBox(element, .{ .block_ref = ref });
     try ctx.stack.push(ctx.allocator, .{
         .auto_height = 0,
         .inline_size_clamped = solveUsedWidth(used_sizes.get(.inline_size).?, used_sizes.min_inline_size, used_sizes.max_inline_size),
@@ -136,11 +132,11 @@ fn popBlock(layout: *Layout, ctx: *Context) void {
         return;
     };
 
-    const block_box = layout.popFlowBlock(this.auto_height);
+    const ref = layout.popFlowBlock(this.auto_height);
     layout.popElement();
 
-    const subtree_slice = layout.box_tree.blocks.subtree(block_box.subtree).slice();
-    addBlockToFlow(subtree_slice, block_box.index, &parent.auto_height);
+    const subtree = layout.box_tree.blocks.subtree(ref.subtree).view();
+    addBlockToFlow(subtree, ref.index, &parent.auto_height);
 }
 
 const BlockUsedSizesSlim = struct {
@@ -603,33 +599,33 @@ pub fn solveStackingContext(
 
 /// Writes all of a flow block's data to the BoxTree.
 pub fn writeBlockData(
-    subtree_slice: SubtreeSlice,
-    index: BlockBoxIndex,
+    subtree: Subtree.View,
+    index: Subtree.Size,
     used: BlockUsedSizes,
-    skip: BlockBoxSkip,
+    skip: Subtree.Size,
     width: ZssUnit,
     height: ZssUnit,
     stacking_context: ?StackingContext.Id,
 ) void {
-    writeBlockDataPart1(subtree_slice, index, used, width, stacking_context);
-    writeBlockDataPart2(subtree_slice, index, skip, height);
+    writeBlockDataPart1(subtree, index, used, width, stacking_context);
+    writeBlockDataPart2(subtree, index, skip, height);
 }
 
 /// Partially writes a flow block's data to the BoxTree.
 /// Must eventually be followed by a call to writeBlockDataPart2.
 fn writeBlockDataPart1(
-    subtree_slice: SubtreeSlice,
-    index: BlockBoxIndex,
+    subtree: Subtree.View,
+    index: Subtree.Size,
     used: BlockUsedSizes,
     width: ZssUnit,
     stacking_context: ?StackingContext.Id,
 ) void {
-    subtree_slice.items(.type)[index] = .block;
-    subtree_slice.items(.stacking_context)[index] = stacking_context;
+    subtree.items(.type)[index] = .block;
+    subtree.items(.stacking_context)[index] = stacking_context;
 
-    const box_offsets = &subtree_slice.items(.box_offsets)[index];
-    const borders = &subtree_slice.items(.borders)[index];
-    const margins = &subtree_slice.items(.margins)[index];
+    const box_offsets = &subtree.items(.box_offsets)[index];
+    const borders = &subtree.items(.borders)[index];
+    const margins = &subtree.items(.margins)[index];
 
     // Horizontal sizes
     box_offsets.border_pos.x = used.get(.margin_inline_start).?;
@@ -705,21 +701,21 @@ pub fn solveUsedHeight(height: ?ZssUnit, min_height: ZssUnit, max_height: ZssUni
 
 /// Writes data to the BoxTree that was left out during writeBlockDataPart1.
 fn writeBlockDataPart2(
-    subtree_slice: SubtreeSlice,
-    index: BlockBoxIndex,
-    skip: BlockBoxSkip,
+    subtree: Subtree.View,
+    index: Subtree.Size,
+    skip: Subtree.Size,
     height: ZssUnit,
 ) void {
-    subtree_slice.items(.skip)[index] = skip;
+    subtree.items(.skip)[index] = skip;
 
-    const box_offsets = &subtree_slice.items(.box_offsets)[index];
+    const box_offsets = &subtree.items(.box_offsets)[index];
     box_offsets.content_size.h = height;
     box_offsets.border_size.h += height;
 }
 
-pub fn addBlockToFlow(subtree_slice: SubtreeSlice, index: BlockBoxIndex, parent_auto_height: *ZssUnit) void {
-    const box_offsets = &subtree_slice.items(.box_offsets)[index];
-    const margin_bottom = subtree_slice.items(.margins)[index].bottom;
+pub fn addBlockToFlow(subtree: Subtree.View, index: Subtree.Size, parent_auto_height: *ZssUnit) void {
+    const box_offsets = &subtree.items(.box_offsets)[index];
+    const margin_bottom = subtree.items(.margins)[index].bottom;
 
     const margin_top = box_offsets.border_pos.y;
     box_offsets.border_pos.y += parent_auto_height.*;

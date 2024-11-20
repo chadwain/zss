@@ -21,13 +21,10 @@ const StyleComputer = @import("./StyleComputer.zig");
 
 const used_values = zss.used_values;
 const BoxTree = used_values.BoxTree;
-const BlockBox = used_values.BlockBox;
-const BlockBoxIndex = used_values.BlockBoxIndex;
-const BlockBoxSkip = used_values.BlockBoxSkip;
-const BlockSubtree = used_values.BlockSubtree;
+const BlockRef = used_values.BlockRef;
 const GeneratedBox = used_values.GeneratedBox;
 const StackingContext = used_values.StackingContext;
-const SubtreeId = used_values.SubtreeId;
+const Subtree = used_values.Subtree;
 const ZssUnit = used_values.ZssUnit;
 
 pub const Result = struct {
@@ -69,9 +66,9 @@ const Object = struct {
             stacking_context_id: ?StackingContext.Id,
             absolute_containing_block_id: ?Layout.Absolute.ContainingBlock.Id,
         },
-        flow_normal: BlockBox,
+        flow_normal: BlockRef,
         ifc: struct {
-            subtree_id: SubtreeId,
+            subtree_id: Subtree.Id,
             layout_result: @"inline".Result,
         },
     };
@@ -143,8 +140,8 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
 
                 if (used.get(.inline_size)) |inline_size| { // TODO: clamp the inline size
                     try layout.pushSubtree();
-                    const block_box = try layout.pushFlowBlock(used_box_style, used, stacking_context);
-                    try layout.box_tree.mapElementToBox(element, .{ .block_box = block_box });
+                    const ref = try layout.pushFlowBlock(used_box_style, used, stacking_context);
+                    try layout.box_tree.mapElementToBox(element, .{ .block_ref = ref });
                     try layout.pushElement();
 
                     const result = try flow.runFlowLayout(layout, used);
@@ -159,7 +156,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                         .skip = 1,
                         .tag = .flow_normal,
                         .element = element,
-                        .data = .{ .flow_normal = block_box },
+                        .data = .{ .flow_normal = ref },
                     });
                 } else {
                     const available_width = solve.clampSize(parent.available_width - edge_width, used.min_inline_size, used.max_inline_size);
@@ -356,8 +353,8 @@ fn realizeObjects(
                         // TODO: width/margins were used to set the parent block's auto_height earlier, but are being changed again here
                         flow.adjustWidthAndMargins(&data.used, containing_block_width);
 
-                        const block_box = try layout.pushStfFlowBlock2(data.used, data.stacking_context_id, data.absolute_containing_block_id);
-                        try layout.box_tree.mapElementToBox(element, .{ .block_box = block_box });
+                        const ref = try layout.pushStfFlowBlock2(data.used, data.stacking_context_id, data.absolute_containing_block_id);
+                        try layout.box_tree.mapElementToBox(element, .{ .block_ref = ref });
 
                         try ctx.stack.push(allocator, .{
                             .object_index = object_index,
@@ -372,7 +369,7 @@ fn realizeObjects(
                         const data = &datas[object_index].flow_normal;
                         try layout.addSubtreeProxy(data.subtree);
 
-                        const new_subtree = layout.box_tree.blocks.subtree(data.subtree).slice();
+                        const new_subtree = layout.box_tree.blocks.subtree(data.subtree).view();
                         flow.addBlockToFlow(new_subtree, data.index, &parent.auto_height);
                     },
                     .ifc => {
@@ -403,12 +400,12 @@ fn popFlowBlock(layout: *Layout, ctx: *RealizeObjectsContext, object_tree_slice:
     };
 
     const data = object_tree_slice.items(.data)[this.object_index].flow_stf;
-    const block_box = layout.popStfFlowBlock2(data.width_clamped, this.auto_height);
+    const ref = layout.popStfFlowBlock2(data.width_clamped, this.auto_height);
 
     switch (parent.object_tag) {
         .flow_stf => {
-            const subtree = layout.box_tree.blocks.subtree(block_box.subtree).slice();
-            flow.addBlockToFlow(subtree, block_box.index, &parent.auto_height);
+            const subtree = layout.box_tree.blocks.subtree(ref.subtree).view();
+            flow.addBlockToFlow(subtree, ref.index, &parent.auto_height);
         },
         .flow_normal, .ifc => unreachable,
     }

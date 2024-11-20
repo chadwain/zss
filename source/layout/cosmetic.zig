@@ -12,7 +12,7 @@ const solve = @import("./solve.zig");
 const types = zss.values.types;
 
 const used_values = zss.used_values;
-const BlockBox = used_values.BlockBox;
+const BlockRef = used_values.BlockRef;
 const BoxTree = used_values.BoxTree;
 const InlineBoxIndex = used_values.InlineBoxIndex;
 const InlineFormattingContext = used_values.InlineFormattingContext;
@@ -54,7 +54,7 @@ pub fn run(layout: *Layout) !void {
 
     {
         const initial_containing_block_subtree = layout.box_tree.blocks.subtree(initial_containing_block.subtree);
-        const box_offsets = initial_containing_block_subtree.slice().items(.box_offsets)[initial_containing_block.index];
+        const box_offsets = initial_containing_block_subtree.view().items(.box_offsets)[initial_containing_block.index];
         try context.mode.append(context.allocator, .InitialContainingBlock);
         try context.containing_block_size.append(context.allocator, box_offsets.content_size);
     }
@@ -62,8 +62,8 @@ pub fn run(layout: *Layout) !void {
     {
         const box_type = layout.box_tree.element_to_generated_box.get(root_element) orelse return;
         switch (box_type) {
-            .block_box => |block_box| {
-                try blockBoxCosmeticLayout(layout, context, block_box, .Root);
+            .block_ref => |ref| {
+                try blockBoxCosmeticLayout(layout, context, ref, .Root);
                 layout.computer.commitElement(.cosmetic);
 
                 // TODO: Temporary jank to set the text color.
@@ -74,8 +74,8 @@ pub fn run(layout: *Layout) !void {
                 }
 
                 if (!layout.computer.element_tree_slice.firstChild(root_element).eqlNull()) {
-                    const subtree_slice = layout.box_tree.blocks.subtree(block_box.subtree).slice();
-                    const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
+                    const subtree = layout.box_tree.blocks.subtree(ref.subtree).view();
+                    const box_offsets = subtree.items(.box_offsets)[ref.index];
                     try context.mode.append(context.allocator, .Flow);
                     try context.containing_block_size.append(context.allocator, box_offsets.content_size);
                     try layout.pushElement();
@@ -99,13 +99,13 @@ pub fn run(layout: *Layout) !void {
             const has_children = !layout.computer.element_tree_slice.firstChild(element).eqlNull();
             switch (box_type) {
                 .text => layout.advanceElement(),
-                .block_box => |block_box| {
-                    try blockBoxCosmeticLayout(layout, context, block_box, .NonRoot);
+                .block_ref => |ref| {
+                    try blockBoxCosmeticLayout(layout, context, ref, .NonRoot);
                     layout.computer.commitElement(.cosmetic);
 
                     if (has_children) {
-                        const subtree_slice = layout.box_tree.blocks.subtree(block_box.subtree).slice();
-                        const box_offsets = subtree_slice.items(.box_offsets)[block_box.index];
+                        const subtree = layout.box_tree.blocks.subtree(ref.subtree).view();
+                        const box_offsets = subtree.items(.box_offsets)[ref.index];
                         try context.mode.append(context.allocator, .Flow);
                         try context.containing_block_size.append(context.allocator, box_offsets.content_size);
                         try layout.pushElement();
@@ -143,7 +143,7 @@ pub fn run(layout: *Layout) !void {
     layout.popElement();
 }
 
-fn blockBoxCosmeticLayout(layout: *Layout, context: Context, block_box: BlockBox, comptime is_root: solve.IsRoot) !void {
+fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comptime is_root: solve.IsRoot) !void {
     const specified = .{
         .box_style = layout.computer.getSpecifiedValue(.cosmetic, .box_style),
         .color = layout.computer.getSpecifiedValue(.cosmetic, .color),
@@ -154,14 +154,14 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, block_box: BlockBox
         .insets = layout.computer.getSpecifiedValue(.cosmetic, .insets),
     };
 
-    const subtree_slice = layout.box_tree.blocks.subtree(block_box.subtree).slice();
+    const subtree = layout.box_tree.blocks.subtree(ref.subtree).view();
 
     const computed_box_style, _ = solve.boxStyle(specified.box_style, is_root);
     const current_color = solve.currentColor(specified.color.color);
 
     var computed_insets: aggregates.Insets = undefined;
     {
-        const used_insets = &subtree_slice.items(.insets)[block_box.index];
+        const used_insets = &subtree.items(.insets)[ref.index];
         switch (computed_box_style.position) {
             .static => solveInsetsStatic(specified.insets, &computed_insets, used_insets),
             .relative => {
@@ -173,18 +173,18 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, block_box: BlockBox
         }
     }
 
-    const box_offsets_ptr = &subtree_slice.items(.box_offsets)[block_box.index];
-    const borders_ptr = &subtree_slice.items(.borders)[block_box.index];
+    const box_offsets_ptr = &subtree.items(.box_offsets)[ref.index];
+    const borders_ptr = &subtree.items(.borders)[ref.index];
 
     {
-        const border_colors_ptr = &subtree_slice.items(.border_colors)[block_box.index];
+        const border_colors_ptr = &subtree.items(.border_colors)[ref.index];
         border_colors_ptr.* = solve.borderColors(specified.border_colors, current_color);
     }
 
     solve.borderStyles(specified.border_styles);
 
     {
-        const background_ptr = &subtree_slice.items(.background)[block_box.index];
+        const background_ptr = &subtree.items(.background)[ref.index];
         try blockBoxBackgrounds(
             layout.box_tree,
             layout.inputs,
@@ -391,11 +391,11 @@ fn getBackgroundPropertyArray(inputs: Layout.Inputs, ptr_to_value: anytype) []co
     }
 }
 
-fn anonymousBlockBoxCosmeticLayout(box_tree: *BoxTree, block_box: BlockBox) void {
-    const subtree_slice = box_tree.blocks.subtree(block_box.subtree).slice();
-    subtree_slice.items(.border_colors)[block_box.index] = .{};
-    subtree_slice.items(.background)[block_box.index] = .{};
-    subtree_slice.items(.insets)[block_box.index] = .{ .x = 0, .y = 0 };
+fn anonymousBlockBoxCosmeticLayout(box_tree: *BoxTree, ref: BlockRef) void {
+    const subtree = box_tree.blocks.subtree(ref.subtree).view();
+    subtree.items(.border_colors)[ref.index] = .{};
+    subtree.items(.background)[ref.index] = .{};
+    subtree.items(.insets)[ref.index] = .{ .x = 0, .y = 0 };
 }
 
 fn inlineBoxCosmeticLayout(
