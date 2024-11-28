@@ -408,7 +408,7 @@ pub fn popStfFlowBlock2(
     flow.writeBlockData(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
 
     const ref: BlockRef = .{ .subtree = subtree_id, .index = block.index };
-    if (block.stacking_context_id) |id| StackingContexts.setBlock(layout.box_tree, id, ref);
+    if (block.stacking_context_id) |id| layout.sc.setBlock(id, layout.box_tree, ref);
     if (block.absolute_containing_block_id) |id| layout.fixupAbsoluteContainingBlock(id, ref);
 
     return ref;

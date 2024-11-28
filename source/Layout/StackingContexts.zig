@@ -23,11 +23,47 @@ context: MultiArrayList(ParentableStackingContext) = .{},
 /// The index of the currently active stacking context.
 current_index: Index = undefined,
 next_id: std.meta.Tag(Id) = 0,
+/// The set of stacking contexts which do not yet have an associated block box, and are therefore "incomplete".
+/// This is only effective if runtime safety is enabled.
+incompletes: IncompleteStackingContexts = .{},
 
 const ParentableStackingContext = struct {
     index: Index,
     skip: Skip,
     id: Id,
+};
+
+const IncompleteStackingContexts = switch (std.debug.runtime_safety) {
+    true => struct {
+        set: std.AutoHashMapUnmanaged(Id, void) = .empty,
+
+        fn deinit(self: *IncompleteStackingContexts, allocator: Allocator) void {
+            self.set.deinit(allocator);
+        }
+
+        fn insert(self: *IncompleteStackingContexts, allocator: Allocator, id: Id) !void {
+            try self.set.putNoClobber(allocator, id, {});
+        }
+
+        fn remove(self: *IncompleteStackingContexts, id: Id) void {
+            assert(self.set.remove(id));
+        }
+
+        fn empty(self: *IncompleteStackingContexts) bool {
+            return self.set.count() == 0;
+        }
+    },
+    false => struct {
+        fn deinit(_: *IncompleteStackingContexts, _: Allocator) void {}
+
+        fn insert(_: *IncompleteStackingContexts, _: Allocator, _: Id) !void {}
+
+        fn remove(_: *IncompleteStackingContexts, _: Id) void {}
+
+        fn empty(_: *IncompleteStackingContexts) bool {
+            return true;
+        }
+    },
 };
 
 pub const Type = union(enum) {
@@ -42,6 +78,8 @@ pub const Type = union(enum) {
 };
 
 pub fn deinit(sc: *StackingContexts, allocator: Allocator) void {
+    assert(sc.incompletes.empty());
+    sc.incompletes.deinit(allocator);
     sc.tag.deinit(allocator);
     sc.context.deinit(allocator);
 }
@@ -97,8 +135,11 @@ pub fn push(sc: *StackingContexts, allocator: Allocator, ty: Type, box_tree: *Bo
 }
 
 /// If the return value is not null, caller must eventually follow up with a call to `setBlock`.
+/// Failure to do so is safety-checked undefined behavior.
 pub fn pushWithoutBlock(sc: *StackingContexts, allocator: Allocator, ty: Type, box_tree: *BoxTree) !?Id {
-    return push(sc, allocator, ty, box_tree, undefined);
+    const id_opt = try push(sc, allocator, ty, box_tree, undefined);
+    if (id_opt) |id| try sc.incompletes.insert(allocator, id);
+    return id_opt;
 }
 
 pub fn pop(sc: *StackingContexts, box_tree: *BoxTree) void {
@@ -121,9 +162,10 @@ pub fn pop(sc: *StackingContexts, box_tree: *BoxTree) void {
     }
 }
 
-pub fn setBlock(box_tree: *BoxTree, id: Id, ref: BlockRef) void {
+pub fn setBlock(sc: *StackingContexts, id: Id, box_tree: *BoxTree, ref: BlockRef) void {
     const slice = box_tree.stacking_contexts.slice();
     const ids = slice.items(.id);
     const index: Index = @intCast(std.mem.indexOfScalar(Id, ids, id).?);
     slice.items(.ref)[index] = ref;
+    sc.incompletes.remove(id);
 }
