@@ -79,8 +79,7 @@ test "parse a zml document" {
     };
 }
 
-test "zml parser fuzz test" {
-    const input = std.testing.fuzzInput(.{});
+fn fuzzOne(input: []const u8) !void {
     const token_source = try TokenSource.init(input);
     const allocator = std.testing.allocator;
 
@@ -93,6 +92,11 @@ test "zml parser fuzz test" {
         error.OutOfMemory => return error.OutOfMemory,
         else => {},
     };
+}
+
+test "zml parser fuzz test" {
+    // TODO: It could be useful to include a corpus.
+    try std.testing.fuzz(fuzzOne, .{});
 }
 
 pub const Parser = struct {

@@ -48,7 +48,9 @@ pub fn create(ast: Ast.Slice, source: Source, child_allocator: Allocator, env: *
 
                 try rules.ensureUnusedCapacity(allocator, 1);
                 const selector_list = (try zss.selectors.parseSelectorList(env, &arena, source, ast, index + 1, end_of_prelude)) orelse continue;
-                const decls = try zss.properties.declaration.parseDeclarationsFromAst(&arena, ast, source, end_of_prelude);
+                const last_declaration = ast.extra(end_of_prelude).index();
+                var value_source = zss.values.parse.Source.init(ast, source, arena.allocator());
+                const decls = try zss.properties.declaration.parseDeclarationsFromAst(&value_source, &arena, last_declaration);
                 rules.appendAssumeCapacity(.{ .selector = selector_list, .declarations = decls });
             },
             else => unreachable,

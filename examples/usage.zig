@@ -35,6 +35,9 @@ pub fn main() !void {
     var storage = zss.values.Storage{ .allocator = allocator };
     defer storage.deinit();
 
-    var box_tree = try zss.layout.doLayout(slice, root, allocator, 100, 100, images.slice(), &fonts, &storage);
+    var layout = zss.Layout.init(slice, root, allocator, 100, 100, images.slice(), &fonts, &storage);
+    defer layout.deinit();
+
+    var box_tree = try layout.run(allocator);
     defer box_tree.deinit();
 }

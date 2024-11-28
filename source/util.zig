@@ -9,7 +9,7 @@ const Element = zss.ElementTree.Element;
 pub const unicode = @import("util/unicode.zig");
 pub const Stack = @import("util/Stack.zig").Stack;
 
-fn expectSuccess(error_union: anytype, expected: @typeInfo(@TypeOf(error_union)).ErrorUnion.payload) !void {
+fn expectSuccess(error_union: anytype, expected: @typeInfo(@TypeOf(error_union)).error_union.payload) !void {
     if (error_union) |success| {
         return std.testing.expectEqual(expected, success);
     } else |err| {
@@ -19,7 +19,7 @@ fn expectSuccess(error_union: anytype, expected: @typeInfo(@TypeOf(error_union))
 }
 
 pub fn Ratio(comptime T: type) type {
-    const typeInfo = @typeInfo(T).Int;
+    const typeInfo = @typeInfo(T).int;
     const Unsigned = std.meta.Int(.unsigned, typeInfo.bits);
     return struct {
         num: T,

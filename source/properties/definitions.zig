@@ -7,10 +7,10 @@ pub const Property = union(enum) {
 
 pub const SimpleProperty = struct {
     aggregate_tag: AggregateTag,
-    field: @Type(.EnumLiteral),
+    field: @Type(.enum_literal),
 };
 
-fn simpleProperty(comptime aggregate_tag: AggregateTag, comptime field: @Type(.EnumLiteral)) SimpleProperty {
+fn simpleProperty(comptime aggregate_tag: AggregateTag, comptime field: @Type(.enum_literal)) SimpleProperty {
     return SimpleProperty{ .aggregate_tag = aggregate_tag, .field = field };
 }
 

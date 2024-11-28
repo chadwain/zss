@@ -19,7 +19,7 @@ pub const CssWideKeyword = enum {
         }
     }
 
-    fn toEnumLiteral(comptime cwk: CssWideKeyword) @Type(.EnumLiteral) {
+    fn toEnumLiteral(comptime cwk: CssWideKeyword) @Type(.enum_literal) {
         return switch (cwk) {
             .initial => .initial,
             .inherit => .inherit,

@@ -42,7 +42,7 @@ const Lists = blk: {
             .alignment = @alignOf(List),
         };
     }
-    break :blk @Type(std.builtin.Type{ .Struct = .{
+    break :blk @Type(std.builtin.Type{ .@"struct" = .{
         .layout = .auto,
         .fields = &fields,
         .decls = &.{},

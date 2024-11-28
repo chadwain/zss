@@ -18,6 +18,7 @@ pub const ParsedDeclarations = struct {
 pub fn parseDeclarationsFromAst(
     value_source: *ValueSource,
     arena: *ArenaAllocator,
+    /// The last declaration in a list of declarations, or 0 if the list is empty.
     last_declaration_index: Ast.Size,
 ) Allocator.Error!ParsedDeclarations {
     var normal = CascadedValues{};

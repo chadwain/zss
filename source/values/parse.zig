@@ -12,7 +12,7 @@ const Unit = zss.syntax.Token.Unit;
 pub const Source = struct {
     ast: Ast.Slice,
     token_source: TokenSource,
-    arena: Allocator,
+    arena: Allocator, // TODO: Store an actual ArenaAllocator
     sequence: Ast.Sequence,
 
     pub const ComponentRange = struct {
