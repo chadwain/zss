@@ -3,12 +3,12 @@ const assert = std.debug.assert;
 
 const zss = @import("../zss.zig");
 const Layout = zss.Layout;
+const SctBuilder = Layout.StackingContextTreeBuilder;
 
 const flow = @import("./flow.zig");
 const @"inline" = @import("./inline.zig");
 const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
-const StackingContexts = @import("./StackingContexts.zig");
 
 const used_values = zss.used_values;
 const BoxTree = used_values.BoxTree;
@@ -72,7 +72,7 @@ fn analyzeRootElement(layout: *Layout) !void {
     }
 }
 
-fn rootFlowBlockSolveStackingContext(computer: *StyleComputer) StackingContexts.Type {
+fn rootFlowBlockSolveStackingContext(computer: *StyleComputer) SctBuilder.Type {
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
     computer.setComputedValue(.box_gen, .z_index, z_index);
     // TODO: Use z-index?

@@ -11,12 +11,12 @@ const BlockUsedSizes = zss.Layout.BlockUsedSizes;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Layout = zss.Layout;
+const SctBuilder = Layout.StackingContextTreeBuilder;
 const Stack = zss.util.Stack;
 
 const flow = @import("./flow.zig");
 const @"inline" = @import("./inline.zig");
 const solve = @import("./solve.zig");
-const StackingContexts = @import("./StackingContexts.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 
 const used_values = zss.used_values;
@@ -223,7 +223,7 @@ fn pushFlowObject(
     box_style: used_values.BoxStyle,
     used_sizes: BlockUsedSizes,
     available_width: ZssUnit,
-    stacking_context: StackingContexts.Type,
+    stacking_context: SctBuilder.Type,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowObject.
     try ctx.stack.push(layout.allocator, .{

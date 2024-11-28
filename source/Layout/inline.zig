@@ -12,11 +12,11 @@ const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Fonts = zss.Fonts;
 const Layout = zss.Layout;
+const SctBuilder = Layout.StackingContextTreeBuilder;
 
 const flow = @import("./flow.zig");
 const stf = @import("./shrink_to_fit.zig");
 const solve = @import("./solve.zig");
-const StackingContexts = @import("./StackingContexts.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 
 const used_values = zss.used_values;
@@ -859,7 +859,7 @@ fn inlineBlockSolveSizes(
 fn inlineBlockCreateStackingContext(
     computer: *StyleComputer,
     position: zss.values.types.Position,
-) StackingContexts.Type {
+) SctBuilder.Type {
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
     computer.setComputedValue(.box_gen, .z_index, z_index);
 

@@ -11,12 +11,12 @@ const BlockComputedSizes = zss.Layout.BlockComputedSizes;
 const BlockUsedSizes = zss.Layout.BlockUsedSizes;
 const Element = zss.ElementTree.Element;
 const Layout = zss.Layout;
+const SctBuilder = Layout.StackingContextTreeBuilder;
 const Stack = zss.util.Stack;
 
 const solve = @import("./solve.zig");
 const @"inline" = @import("./inline.zig");
 const StyleComputer = @import("./StyleComputer.zig");
-const StackingContexts = @import("./StackingContexts.zig");
 
 const used_values = zss.used_values;
 const BoxTree = used_values.BoxTree;
@@ -110,7 +110,7 @@ fn pushBlock(
     element: Element,
     box_style: used_values.BoxStyle,
     used_sizes: BlockUsedSizes,
-    stacking_context: StackingContexts.Type,
+    stacking_context: SctBuilder.Type,
 ) !void {
     // The allocations here must have corresponding deallocations in popBlock.
     const ref = try layout.pushFlowBlock(box_style, used_sizes, stacking_context);
@@ -580,7 +580,7 @@ pub fn adjustWidthAndMargins(used: *BlockUsedSizes, containing_block_width: ZssU
 pub fn solveStackingContext(
     computer: *StyleComputer,
     position: zss.values.types.Position,
-) StackingContexts.Type {
+) SctBuilder.Type {
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
     computer.setComputedValue(.box_gen, .z_index, z_index);
 

@@ -1,4 +1,4 @@
-const StackingContexts = @This();
+const Builder = @This();
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -21,10 +21,11 @@ tag: ArrayListUnmanaged(std.meta.Tag(Type)) = .{},
 /// A stack. A value is appended for every new parentable stacking context.
 context: MultiArrayList(ParentableStackingContext) = .{},
 /// The index of the currently active stacking context.
+/// If there is no active stacking context, the value is undefined.
 current_index: Index = undefined,
 next_id: std.meta.Tag(Id) = 0,
 /// The set of stacking contexts which do not yet have an associated block box, and are therefore "incomplete".
-/// This is only effective if runtime safety is enabled.
+/// This is for debugging purposes only, and will have no effect if runtime safety is disabled.
 incompletes: IncompleteStackingContexts = .{},
 
 const ParentableStackingContext = struct {
@@ -77,15 +78,15 @@ pub const Type = union(enum) {
     non_parentable: ZIndex,
 };
 
-pub fn deinit(sc: *StackingContexts, allocator: Allocator) void {
-    assert(sc.incompletes.empty());
-    sc.incompletes.deinit(allocator);
-    sc.tag.deinit(allocator);
-    sc.context.deinit(allocator);
+pub fn deinit(b: *Builder, allocator: Allocator) void {
+    assert(b.incompletes.empty());
+    b.incompletes.deinit(allocator);
+    b.tag.deinit(allocator);
+    b.context.deinit(allocator);
 }
 
-pub fn push(sc: *StackingContexts, allocator: Allocator, ty: Type, box_tree: *BoxTree, ref: BlockRef) !?Id {
-    try sc.tag.append(allocator, ty);
+pub fn push(b: *Builder, allocator: Allocator, ty: Type, box_tree: *BoxTree, ref: BlockRef) !?Id {
+    try b.tag.append(allocator, ty);
 
     const z_index = switch (ty) {
         .none => return null,
@@ -94,11 +95,11 @@ pub fn push(sc: *StackingContexts, allocator: Allocator, ty: Type, box_tree: *Bo
 
     const sc_tree = &box_tree.stacking_contexts;
 
-    const index: Index = if (sc.context.len == 0) 0 else blk: {
+    const index: Index = if (b.context.len == 0) 0 else blk: {
         const slice = sc_tree.slice();
         const skips, const z_indeces = .{ slice.items(.skip), slice.items(.z_index) };
 
-        const parent = sc.context.get(sc.context.len - 1);
+        const parent = b.context.get(b.context.len - 1);
         var index = parent.index + 1;
         const end = parent.index + parent.skip;
         while (index < end and z_index >= z_indeces[index]) {
@@ -108,11 +109,11 @@ pub fn push(sc: *StackingContexts, allocator: Allocator, ty: Type, box_tree: *Bo
         break :blk index;
     };
 
-    const id: Id = @enumFromInt(sc.next_id);
+    const id: Id = @enumFromInt(b.next_id);
     const skip: Skip = switch (ty) {
         .none => unreachable,
         .parentable => blk: {
-            try sc.context.append(allocator, .{ .index = index, .skip = 1, .id = id });
+            try b.context.append(allocator, .{ .index = index, .skip = 1, .id = id });
             break :blk undefined;
         },
         .non_parentable => 1,
@@ -129,43 +130,43 @@ pub fn push(sc: *StackingContexts, allocator: Allocator, ty: Type, box_tree: *Bo
         },
     );
 
-    sc.current_index = index;
-    sc.next_id += 1;
+    b.current_index = index;
+    b.next_id += 1;
     return id;
 }
 
 /// If the return value is not null, caller must eventually follow up with a call to `setBlock`.
 /// Failure to do so is safety-checked undefined behavior.
-pub fn pushWithoutBlock(sc: *StackingContexts, allocator: Allocator, ty: Type, box_tree: *BoxTree) !?Id {
-    const id_opt = try push(sc, allocator, ty, box_tree, undefined);
-    if (id_opt) |id| try sc.incompletes.insert(allocator, id);
+pub fn pushWithoutBlock(b: *Builder, allocator: Allocator, ty: Type, box_tree: *BoxTree) !?Id {
+    const id_opt = try push(b, allocator, ty, box_tree, undefined);
+    if (id_opt) |id| try b.incompletes.insert(allocator, id);
     return id_opt;
 }
 
-pub fn pop(sc: *StackingContexts, box_tree: *BoxTree) void {
-    const tag = sc.tag.pop();
+pub fn pop(b: *Builder, box_tree: *BoxTree) void {
+    const tag = b.tag.pop();
     const skip: Skip = switch (tag) {
         .none => return,
         .parentable => blk: {
-            const context = sc.context.pop();
+            const context = b.context.pop();
             box_tree.stacking_contexts.items(.skip)[context.index] = context.skip;
             break :blk context.skip;
         },
         .non_parentable => 1,
     };
 
-    if (sc.tag.items.len > 0) {
-        sc.current_index = sc.context.items(.index)[sc.context.len - 1];
-        sc.context.items(.skip)[sc.context.len - 1] += skip;
+    if (b.tag.items.len > 0) {
+        b.current_index = b.context.items(.index)[b.context.len - 1];
+        b.context.items(.skip)[b.context.len - 1] += skip;
     } else {
-        sc.current_index = undefined;
+        b.current_index = undefined;
     }
 }
 
-pub fn setBlock(sc: *StackingContexts, id: Id, box_tree: *BoxTree, ref: BlockRef) void {
+pub fn setBlock(b: *Builder, id: Id, box_tree: *BoxTree, ref: BlockRef) void {
     const slice = box_tree.stacking_contexts.slice();
     const ids = slice.items(.id);
     const index: Index = @intCast(std.mem.indexOfScalar(Id, ids, id).?);
     slice.items(.ref)[index] = ref;
-    sc.incompletes.remove(id);
+    b.incompletes.remove(id);
 }
