@@ -346,6 +346,25 @@ pub const Subtree = struct {
         v.items(.type)[index] = .{ .subtree_proxy = proxied_subtree };
         v.items(.stacking_context)[index] = null;
     }
+
+    fn printBlock(subtree: Subtree.View, index: Subtree.Size, writer: std.io.AnyWriter) !void {
+        try writer.print("[{}, {}) ", .{ index, index + subtree.items(.skip)[index] });
+
+        switch (subtree.items(.type)[index]) {
+            .block => try writer.writeAll("block "),
+            .ifc_container => |ifc_index| try writer.print("ifc_container({}) ", .{ifc_index}),
+            .subtree_proxy => |subtree_id| {
+                try writer.print("subtree_proxy({})\n", .{@intFromEnum(subtree_id)});
+                return;
+            },
+        }
+
+        if (subtree.items(.stacking_context)[index]) |sc_id| try writer.print("stacking_context({}) ", .{@intFromEnum(sc_id)});
+
+        const bo = subtree.items(.box_offsets)[index];
+        try writer.print("border_rect({}, {}, {}, {}) ", .{ bo.border_pos.x, bo.border_pos.y, bo.border_size.w, bo.border_size.h });
+        try writer.print("content_rect({}, {}, {}, {})\n", .{ bo.content_pos.x, bo.content_pos.y, bo.content_size.w, bo.content_size.h });
+    }
 };
 
 pub const BlockBoxTree = struct {
@@ -372,6 +391,53 @@ pub const BlockBoxTree = struct {
         tree_ptr.* = tree;
         tree.* = .{ .id = id, .parent = null };
         return tree;
+    }
+
+    pub fn print(block_box_tree: *const BlockBoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
+        var stack = zss.util.Stack(struct {
+            iterator: Subtree.Iterator,
+            view: Subtree.View,
+        }){};
+        defer stack.deinit(allocator);
+
+        {
+            const icb = block_box_tree.initial_containing_block;
+            const view = block_box_tree.subtree(icb.subtree).view();
+            try Subtree.printBlock(view, icb.index, writer);
+            stack.top = .{ .iterator = Subtree.children(view, icb.index), .view = view };
+        }
+
+        while (stack.top) |*top| {
+            const index = top.iterator.next(top.view) orelse {
+                _ = stack.pop();
+                continue;
+            };
+            try writer.writeByteNTimes(' ', stack.len() * 4);
+            try Subtree.printBlock(top.view, index, writer);
+
+            switch (top.view.items(.type)[index]) {
+                .subtree_proxy => |subtree_id| {
+                    const view = block_box_tree.subtree(subtree_id).view();
+                    try writer.writeByteNTimes(' ', stack.len() * 4);
+                    try writer.print("Subtree({}) size({})\n", .{ @intFromEnum(subtree_id), view.len });
+                    try stack.push(allocator, .{ .iterator = Subtree.root(view), .view = view });
+                },
+                else => try stack.push(allocator, .{ .iterator = Subtree.children(top.view, index), .view = top.view }),
+            }
+        }
+    }
+
+    pub fn printUnstructured(block_box_tree: *const BlockBoxTree, writer: std.io.AnyWriter) !void {
+        for (block_box_tree.subtrees.items) |s| {
+            try writer.print("Subtree({}) size({})\n", .{ @intFromEnum(s.id), s.blocks.len });
+
+            const view = s.view();
+            for (0..view.len) |i| {
+                try Subtree.printBlock(view, @intCast(i), writer);
+            }
+
+            try writer.writeAll("\n");
+        }
     }
 };
 
@@ -575,6 +641,30 @@ pub const StackingContext = struct {
 
 pub const StackingContextTree = MultiArrayList(StackingContext);
 
+pub fn printStackingContextTree(sct: *const StackingContextTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
+    const Size = StackingContext.Skip;
+    const Context = struct {
+        slice: StackingContextTree.Slice,
+        writer: std.io.AnyWriter,
+    };
+    const callback = struct {
+        fn f(ctx: Context, index: Size, depth: Size) !void {
+            const item = ctx.slice.get(index);
+            try ctx.writer.writeByteNTimes(' ', depth * 4);
+            try ctx.writer.print(
+                "[{}, {}) id({}) z-index({}) ref=({}) ifcs({any})\n",
+                .{ index, index + item.skip, @intFromEnum(item.id), item.z_index, item.ref, item.ifcs.items },
+            );
+        }
+    }.f;
+
+    const context = Context{
+        .slice = sct.slice(),
+        .writer = writer,
+    };
+    try zss.util.skipTreeIterate(Size, context.slice.items(.skip), context, callback, allocator);
+}
+
 /// The type of box(es) that an element generates.
 pub const GeneratedBox = union(enum) {
     /// The element generated a single block box.
@@ -663,69 +753,9 @@ pub const BoxTree = struct {
         return ptr;
     }
 
-    pub fn print(box_tree: BoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
-        var stack = zss.util.Stack(struct {
-            iterator: Subtree.Iterator,
-            subtree: Subtree.View,
-        }){};
-        defer stack.deinit(allocator);
-
-        {
-            const icb = box_tree.blocks.initial_containing_block;
-            const subtree = box_tree.blocks.subtree(icb.subtree).view();
-            try printBlock(subtree, icb.index, writer);
-            stack.top = .{ .iterator = Subtree.children(subtree, icb.index), .subtree = subtree };
-        }
-
-        while (stack.top) |*top| {
-            const index = top.iterator.next(top.subtree) orelse {
-                _ = stack.pop();
-                continue;
-            };
-            try writer.writeByteNTimes(' ', stack.len() * 4);
-            try printBlock(top.subtree, index, writer);
-
-            switch (top.subtree.items(.type)[index]) {
-                .subtree_proxy => |subtree_id| {
-                    const subtree = box_tree.blocks.subtree(subtree_id).view();
-                    try writer.writeByteNTimes(' ', stack.len() * 4);
-                    try writer.print("Subtree({}) size ({})\n", .{ @intFromEnum(subtree_id), subtree.len });
-                    try stack.push(allocator, .{ .iterator = Subtree.root(subtree), .subtree = subtree });
-                },
-                else => try stack.push(allocator, .{ .iterator = Subtree.children(top.subtree, index), .subtree = top.subtree }),
-            }
-        }
-    }
-
-    pub fn printUnstructured(box_tree: BoxTree, writer: std.io.AnyWriter) !void {
-        for (box_tree.blocks.subtrees.items) |subtree| {
-            try writer.print("Subtree({}) size ({})\n", .{ @intFromEnum(subtree.id), subtree.blocks.len });
-
-            const view = subtree.view();
-            for (0..view.len) |i| {
-                try printBlock(view, @intCast(i), writer);
-            }
-
-            try writer.writeAll("\n");
-        }
-    }
-
-    fn printBlock(subtree: Subtree.View, index: Subtree.Size, writer: std.io.AnyWriter) !void {
-        try writer.print("[{}, {}) ", .{ index, index + subtree.items(.skip)[index] });
-
-        switch (subtree.items(.type)[index]) {
-            .block => try writer.writeAll("block "),
-            .ifc_container => |ifc_index| try writer.print("ifc_container({}) ", .{ifc_index}),
-            .subtree_proxy => |subtree_id| {
-                try writer.print("subtree_proxy({})\n", .{@intFromEnum(subtree_id)});
-                return;
-            },
-        }
-
-        if (subtree.items(.stacking_context)[index]) |sc_id| try writer.print("stacking_context({}) ", .{@intFromEnum(sc_id)});
-
-        const bo = subtree.items(.box_offsets)[index];
-        try writer.print("border_rect({}, {}, {}, {}) ", .{ bo.border_pos.x, bo.border_pos.y, bo.border_size.w, bo.border_size.h });
-        try writer.print("content_rect({}, {}, {}, {})\n", .{ bo.content_pos.x, bo.content_pos.y, bo.content_size.w, bo.content_size.h });
+    pub fn print(box_tree: *const BoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
+        try box_tree.blocks.print(writer, allocator);
+        try writer.writeAll("\n");
+        try printStackingContextTree(&box_tree.stacking_contexts, writer, allocator);
     }
 };

@@ -97,7 +97,8 @@ pub fn push(b: *Builder, allocator: Allocator, ty: Type, box_tree: *BoxTree, ref
 
     const index: Index = if (b.context.len == 0) 0 else blk: {
         const slice = sc_tree.slice();
-        const skips, const z_indeces = .{ slice.items(.skip), slice.items(.z_index) };
+        const skips = slice.items(.skip);
+        const z_indeces = slice.items(.z_index);
 
         const parent = b.context.get(b.context.len - 1);
         var index = parent.index + 1;
@@ -155,6 +156,7 @@ pub fn pop(b: *Builder, box_tree: *BoxTree) void {
         .non_parentable => 1,
     };
 
+    // TODO: Non-parentable stacking contexts are skipped over here?
     if (b.tag.items.len > 0) {
         b.current_index = b.context.items(.index)[b.context.len - 1];
         b.context.items(.skip)[b.context.len - 1] += skip;

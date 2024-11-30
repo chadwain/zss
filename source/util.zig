@@ -279,3 +279,38 @@ pub fn ensureCompatibleEnums(comptime Base: type, comptime Derived: type) void {
             ));
     }
 }
+
+pub fn skipTreeIterate(
+    comptime Size: type,
+    skips: []const Size,
+    context: anytype,
+    comptime callback: fn (@TypeOf(context), Size, Size) anyerror!void,
+    allocator: std.mem.Allocator,
+) !void {
+    if (skips.len == 0) return;
+
+    const Interval = struct {
+        begin: Size,
+        end: Size,
+    };
+
+    var stack: Stack(Interval) = .{};
+    defer stack.deinit(allocator);
+    stack.top = .{ .begin = 0, .end = skips[0] };
+
+    while (stack.top) |*top| {
+        const index = index: {
+            if (top.begin == top.end) {
+                _ = stack.pop();
+                continue;
+            }
+            defer top.begin += skips[top.begin];
+            break :index top.begin;
+        };
+        try callback(context, index, @intCast(stack.rest.len));
+        const skip = skips[index];
+        if (skip != 1) {
+            try stack.push(allocator, .{ .begin = index + 1, .end = index + skip });
+        }
+    }
+}
