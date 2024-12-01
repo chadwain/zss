@@ -25,6 +25,7 @@ const BlockRef = used_values.BlockRef;
 const BoxTree = used_values.BoxTree;
 const InlineFormattingContext = used_values.InlineFormattingContext;
 const StackingContext = used_values.StackingContext;
+const StackingContextTree = used_values.StackingContextTree;
 const Subtree = used_values.Subtree;
 const ZssUnit = used_values.ZssUnit;
 const ZssSize = used_values.ZssSize;
@@ -191,7 +192,7 @@ pub const Block = struct {
     index: Subtree.Size,
     skip: Subtree.Size,
     sizes: BlockUsedSizes,
-    stacking_context_id: ?StackingContext.Id,
+    stacking_context_id: ?StackingContextTree.Id,
     absolute_containing_block_id: ?Absolute.ContainingBlock.Id,
 };
 
@@ -379,7 +380,7 @@ pub fn popStfFlowBlock(layout: *Layout) Block {
 pub fn pushStfFlowBlock2(
     layout: *Layout,
     sizes: BlockUsedSizes,
-    stacking_context_id: ?StackingContext.Id,
+    stacking_context_id: ?StackingContextTree.Id,
     absolute_containing_block_id: ?Absolute.ContainingBlock.Id,
 ) !BlockRef {
     const ref = try layout.newBlock();

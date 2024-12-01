@@ -12,8 +12,6 @@ const used_values = zss.used_values;
 const BoxOffsets = used_values.BoxOffsets;
 const BoxTree = used_values.BoxTree;
 const InlineFormattingContextId = used_values.InlineFormattingContextId;
-const StackingContextIndex = used_values.StackingContext.Index;
-const StackingContextId = used_values.StackingContext.Id;
 const StackingContextTree = used_values.StackingContextTree;
 const Subtree = used_values.Subtree;
 const ZssRect = used_values.ZssRect;
@@ -110,7 +108,7 @@ pub const SubList = struct {
         /// The position of the top left corner of the stacking context.
         initial_vector: ZssVector,
         /// The stacking context that caused the SubList to be created.
-        stacking_context: StackingContextIndex,
+        stacking_context: StackingContextTree.Size,
     };
 
     /// Returns the entry index.
@@ -141,7 +139,7 @@ const Builder = struct {
     //     "pending" - it has been allocated, but lacks the information needed to populate it
     //     "ready" - there is enough information to populate it
 
-    pending_sub_lists: AutoHashMapUnmanaged(StackingContextIndex, SubListIndex) = .{},
+    pending_sub_lists: AutoHashMapUnmanaged(StackingContextTree.Size, SubListIndex) = .{},
     ready_sub_lists: ArrayListUnmanaged(SubList.Description) = .{},
 
     fn deinit(builder: *Builder, allocator: Allocator) void {
@@ -149,7 +147,7 @@ const Builder = struct {
         builder.ready_sub_lists.deinit(allocator);
     }
 
-    fn makeSublistReady(builder: *Builder, allocator: Allocator, stacking_context: StackingContextIndex, initial_vector: ZssVector) !void {
+    fn makeSublistReady(builder: *Builder, allocator: Allocator, stacking_context: StackingContextTree.Size, initial_vector: ZssVector) !void {
         const sublist_index = (builder.pending_sub_lists.fetchRemove(stacking_context) orelse unreachable).value;
         try builder.ready_sub_lists.append(allocator, SubList.Description{
             .index = sublist_index,
@@ -170,7 +168,7 @@ pub fn create(box_tree: *const BoxTree, allocator: Allocator) !DrawList {
         var builder = Builder{};
         defer builder.deinit(allocator);
 
-        const slice = box_tree.stacking_contexts.slice();
+        const view = box_tree.stacking_contexts.view();
 
         {
             // Add the initial containing block stacking context to the draw order list
@@ -178,12 +176,12 @@ pub fn create(box_tree: *const BoxTree, allocator: Allocator) !DrawList {
             try builder.makeSublistReady(allocator, 0, .{ .x = 0, .y = 0 });
             const description = builder.ready_sub_lists.pop();
             root_sub_list = description.index;
-            try populateSubList(&draw_list, &builder, description, allocator, box_tree, slice);
+            try populateSubList(&draw_list, &builder, description, allocator, box_tree, view);
         }
 
         while (builder.ready_sub_lists.items.len > 0) {
             const description = builder.ready_sub_lists.pop();
-            try populateSubList(&draw_list, &builder, description, allocator, box_tree, slice);
+            try populateSubList(&draw_list, &builder, description, allocator, box_tree, view);
         }
 
         assert(builder.pending_sub_lists.size == 0);
@@ -262,7 +260,7 @@ fn allocateSubList(
     draw_list: *DrawList,
     allocator: Allocator,
     parent: SubListIndex,
-    stacking_context: StackingContextIndex,
+    stacking_context: StackingContextTree.Size,
 ) !void {
     if (draw_list.sub_lists.items.len == std.math.maxInt(SubListIndex)) return error.Overflow;
     const index = @as(SubListIndex, @intCast(draw_list.sub_lists.items.len));
@@ -277,7 +275,7 @@ fn allocateSubList(
 const PopulateSubListContext = struct {
     quad_tree: *QuadTree,
     box_tree: *const BoxTree,
-    sc_tree: StackingContextTree.Slice,
+    sc_tree: StackingContextTree.View,
 
     sub_list: *SubList,
     sublist_index: SubListIndex,
@@ -307,14 +305,14 @@ fn populateSubList(
     description: SubList.Description,
     allocator: Allocator,
     box_tree: *const BoxTree,
-    slice: StackingContextTree.Slice,
+    view: StackingContextTree.View,
 ) !void {
     const stacking_context = description.stacking_context;
 
     {
         // Allocate sub-lists for child stacking contexts
-        const skips = slice.items(.skip);
-        const z_indeces = slice.items(.z_index);
+        const skips = view.items(.skip);
+        const z_indeces = view.items(.z_index);
         var child_stacking_context = stacking_context + 1;
         const end = stacking_context + skips[stacking_context];
         while (child_stacking_context < end and z_indeces[child_stacking_context] < 0) : (child_stacking_context += skips[child_stacking_context]) {
@@ -333,13 +331,13 @@ fn populateSubList(
         .sublist_index = description.index,
         .quad_tree = &draw_list.quad_tree,
         .box_tree = box_tree,
-        .sc_tree = slice,
+        .sc_tree = view,
     };
     defer ctx.deinit(allocator);
 
     {
         // Add the root block to the draw order list
-        const root_block_box = slice.items(.ref)[stacking_context];
+        const root_block_box = view.items(.ref)[stacking_context];
         const root_block_subtree = box_tree.blocks.subtree(root_block_box.subtree).view();
         const root_block_skip = root_block_subtree.items(.skip)[root_block_box.index];
         const initial_item = PopulateSubListContext.Stack.Item{
@@ -364,8 +362,8 @@ fn populateSubList(
         top.begin += block_skip;
 
         if (top.subtree.items(.stacking_context)[block_index]) |child_stacking_context_id| {
-            const child_stacking_context: StackingContextIndex =
-                @intCast(std.mem.indexOfScalar(StackingContextId, slice.items(.id), child_stacking_context_id).?);
+            const child_stacking_context: StackingContextTree.Size =
+                @intCast(std.mem.indexOfScalar(StackingContextTree.Id, view.items(.id), child_stacking_context_id).?);
             try builder.makeSublistReady(allocator, child_stacking_context, top.vector);
             continue;
         }

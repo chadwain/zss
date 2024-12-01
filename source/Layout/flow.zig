@@ -21,7 +21,7 @@ const StyleComputer = @import("./StyleComputer.zig");
 const used_values = zss.used_values;
 const BoxTree = used_values.BoxTree;
 const GeneratedBox = used_values.GeneratedBox;
-const StackingContext = used_values.StackingContext;
+const StackingContextTree = used_values.StackingContextTree;
 const Subtree = used_values.Subtree;
 const ZssUnit = used_values.ZssUnit;
 
@@ -605,7 +605,7 @@ pub fn writeBlockData(
     skip: Subtree.Size,
     width: ZssUnit,
     height: ZssUnit,
-    stacking_context: ?StackingContext.Id,
+    stacking_context: ?StackingContextTree.Id,
 ) void {
     writeBlockDataPart1(subtree, index, used, width, stacking_context);
     writeBlockDataPart2(subtree, index, skip, height);
@@ -618,7 +618,7 @@ fn writeBlockDataPart1(
     index: Subtree.Size,
     used: BlockUsedSizes,
     width: ZssUnit,
-    stacking_context: ?StackingContext.Id,
+    stacking_context: ?StackingContextTree.Id,
 ) void {
     subtree.items(.type)[index] = .block;
     subtree.items(.stacking_context)[index] = stacking_context;

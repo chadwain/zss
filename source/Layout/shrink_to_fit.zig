@@ -23,7 +23,7 @@ const used_values = zss.used_values;
 const BoxTree = used_values.BoxTree;
 const BlockRef = used_values.BlockRef;
 const GeneratedBox = used_values.GeneratedBox;
-const StackingContext = used_values.StackingContext;
+const StackingContextTree = used_values.StackingContextTree;
 const Subtree = used_values.Subtree;
 const ZssUnit = used_values.ZssUnit;
 
@@ -63,7 +63,7 @@ const Object = struct {
         flow_stf: struct {
             width_clamped: ZssUnit,
             used: BlockUsedSizes,
-            stacking_context_id: ?StackingContext.Id,
+            stacking_context_id: ?StackingContextTree.Id,
             absolute_containing_block_id: ?Layout.Absolute.ContainingBlock.Id,
         },
         flow_normal: BlockRef,

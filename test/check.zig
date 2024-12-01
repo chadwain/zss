@@ -69,15 +69,15 @@ fn validateInline(inl: *used.InlineFormattingContext, allocator: Allocator) !voi
 
 fn validateStackingContexts(box_tree: *zss.used_values.BoxTree, allocator: Allocator) !void {
     @setRuntimeSafety(true);
-    const Index = used.StackingContext.Index;
+    const Size = used.StackingContextTree.Size;
     const ZIndex = used.ZIndex;
 
-    const slice = box_tree.stacking_contexts.slice();
-    if (slice.len == 0) return;
-    const skips = slice.items(.skip);
-    const z_indeces = slice.items(.z_index);
+    const view = box_tree.stacking_contexts.view();
+    if (view.len == 0) return;
+    const skips = view.items(.skip);
+    const z_indeces = view.items(.z_index);
 
-    var stack = std.ArrayList(struct { current: Index, end: Index }).init(allocator);
+    var stack = std.ArrayList(struct { current: Size, end: Size }).init(allocator);
     defer stack.deinit();
 
     try expect(z_indeces[0] == 0);

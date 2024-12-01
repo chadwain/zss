@@ -264,7 +264,7 @@ pub const Subtree = struct {
     pub const List = MultiArrayList(struct {
         skip: Size,
         type: BlockType,
-        stacking_context: ?StackingContext.Id,
+        stacking_context: ?StackingContextTree.Id,
         box_offsets: BoxOffsets,
         borders: Borders,
         margins: Margins,
@@ -624,13 +624,9 @@ pub const InlineFormattingContext = struct {
 pub const ZIndex = i32;
 
 pub const StackingContext = struct {
-    pub const Index = u16;
-    pub const Skip = Index;
-    pub const Id = enum(u16) { _ };
-
-    skip: Skip,
+    skip: StackingContextTree.Size,
     /// A unique identifier.
-    id: Id,
+    id: StackingContextTree.Id,
     /// The z-index of this stacking context.
     z_index: ZIndex,
     /// The block box that created this stacking context.
@@ -639,17 +635,32 @@ pub const StackingContext = struct {
     ifcs: ArrayListUnmanaged(InlineFormattingContextId),
 };
 
-pub const StackingContextTree = MultiArrayList(StackingContext);
+pub const StackingContextTree = struct {
+    list: List = .{},
+
+    pub const Size = u16;
+    pub const Id = enum(u16) { _ };
+    const List = MultiArrayList(StackingContext);
+    pub const View = List.Slice;
+
+    pub fn deinit(sct: *StackingContextTree, allocator: Allocator) void {
+        sct.list.deinit(allocator);
+    }
+
+    pub fn view(sct: *const StackingContextTree) View {
+        return sct.list.slice();
+    }
+};
 
 pub fn printStackingContextTree(sct: *const StackingContextTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
-    const Size = StackingContext.Skip;
+    const Size = StackingContextTree.Size;
     const Context = struct {
-        slice: StackingContextTree.Slice,
+        view: StackingContextTree.View,
         writer: std.io.AnyWriter,
     };
     const callback = struct {
         fn f(ctx: Context, index: Size, depth: Size) !void {
-            const item = ctx.slice.get(index);
+            const item = ctx.view.get(index);
             try ctx.writer.writeByteNTimes(' ', depth * 4);
             try ctx.writer.print(
                 "[{}, {}) id({}) z-index({}) ref({}) ifcs({any})\n",
@@ -659,10 +670,10 @@ pub fn printStackingContextTree(sct: *const StackingContextTree, writer: std.io.
     }.f;
 
     const context = Context{
-        .slice = sct.slice(),
+        .view = sct.view(),
         .writer = writer,
     };
-    try zss.util.skipTreeIterate(Size, context.slice.items(.skip), context, callback, allocator);
+    try zss.util.skipTreeIterate(Size, context.view.items(.skip), context, callback, allocator);
 }
 
 /// The type of box(es) that an element generates.
@@ -728,7 +739,7 @@ pub const BoxTree = struct {
             self.allocator.destroy(ctx);
         }
         self.ifcs.deinit(self.allocator);
-        for (self.stacking_contexts.items(.ifcs)) |*ifc_list| {
+        for (self.stacking_contexts.view().items(.ifcs)) |*ifc_list| {
             ifc_list.deinit(self.allocator);
         }
         self.stacking_contexts.deinit(self.allocator);
