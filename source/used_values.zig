@@ -652,7 +652,7 @@ pub fn printStackingContextTree(sct: *const StackingContextTree, writer: std.io.
             const item = ctx.slice.get(index);
             try ctx.writer.writeByteNTimes(' ', depth * 4);
             try ctx.writer.print(
-                "[{}, {}) id({}) z-index({}) ref=({}) ifcs({any})\n",
+                "[{}, {}) id({}) z-index({}) ref({}) ifcs({any})\n",
                 .{ index, index + item.skip, @intFromEnum(item.id), item.z_index, item.ref, item.ifcs.items },
             );
         }

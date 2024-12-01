@@ -207,7 +207,7 @@ fn addSkip(layout: *Layout, skip: Subtree.Size) void {
 
 pub fn pushInitialContainingBlock(layout: *Layout, size: ZssSize) !BlockRef {
     const ref = try layout.newBlock();
-    const stacking_context_id = try layout.sct_builder.push(layout.allocator, .{ .parentable = 0 }, layout.box_tree, ref);
+    const stacking_context_id = try layout.sct_builder.pushInitial(layout.allocator, layout.box_tree, ref);
     const absolute_containing_block_id = try layout.absolute.pushInitialContainingBlock(layout.allocator, ref);
     layout.blocks.top = .{
         .index = ref.index,
@@ -223,7 +223,7 @@ pub fn pushInitialContainingBlock(layout: *Layout, size: ZssSize) !BlockRef {
 }
 
 pub fn popInitialContainingBlock(layout: *Layout) void {
-    layout.sct_builder.pop(layout.box_tree);
+    layout.sct_builder.popInitial();
     layout.popAbsoluteContainingBlock();
     const block = layout.blocks.pop();
     layout.subtrees.top.?.depth -= 1;
