@@ -51,11 +51,7 @@ pub fn runInlineLayout(
     if (containing_block_height) |h| assert(h >= 0);
 
     const ifc_container = try layout.pushIfcContainerBlock();
-    const ifc = try layout.box_tree.makeIfc(ifc_container);
-
-    // TODO: Don't read straight from `sct_builder`
-    const sc_ifcs = &layout.box_tree.stacking_contexts.items(.ifcs)[layout.sct_builder.current_index];
-    try sc_ifcs.append(layout.box_tree.allocator, ifc.id);
+    const ifc = try layout.newIfc(ifc_container);
 
     const percentage_base_unit: ZssUnit = switch (mode) {
         .Normal => containing_block_width,

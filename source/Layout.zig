@@ -23,6 +23,7 @@ const used_values = zss.used_values;
 const units_per_pixel = used_values.units_per_pixel;
 const BlockRef = used_values.BlockRef;
 const BoxTree = used_values.BoxTree;
+const InlineFormattingContext = used_values.InlineFormattingContext;
 const StackingContext = used_values.StackingContext;
 const Subtree = used_values.Subtree;
 const ZssUnit = used_values.ZssUnit;
@@ -135,6 +136,7 @@ fn boxGeneration(layout: *Layout) !void {
     layout.element_stack.top = layout.inputs.root_element;
 
     try initial.run(layout);
+    layout.sct_builder.endFrame();
 }
 
 fn cosmeticLayout(layout: *Layout) !void {
@@ -207,7 +209,7 @@ fn addSkip(layout: *Layout, skip: Subtree.Size) void {
 
 pub fn pushInitialContainingBlock(layout: *Layout, size: ZssSize) !BlockRef {
     const ref = try layout.newBlock();
-    const stacking_context_id = try layout.sct_builder.pushInitial(layout.allocator, layout.box_tree, ref);
+    const stacking_context_id = try layout.sct_builder.pushInitial(layout.box_tree, ref);
     const absolute_containing_block_id = try layout.absolute.pushInitialContainingBlock(layout.allocator, ref);
     layout.blocks.top = .{
         .index = ref.index,
@@ -422,6 +424,12 @@ pub fn addSubtreeProxy(layout: *Layout, id: Subtree.Id) !void {
     const child_subtree = layout.box_tree.blocks.subtree(id);
     parent_subtree.setSubtreeProxy(ref.index, id);
     child_subtree.parent = ref;
+}
+
+pub fn newIfc(layout: *Layout, ifc_container: BlockRef) !*InlineFormattingContext {
+    const ifc = try layout.box_tree.makeIfc(ifc_container);
+    try layout.sct_builder.addIfc(layout.box_tree, ifc.id);
+    return ifc;
 }
 
 pub fn pushAbsoluteContainingBlock(
