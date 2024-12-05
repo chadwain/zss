@@ -3,13 +3,6 @@ const QuadTree = @This();
 const zss = @import("../zss.zig");
 const ZssUnit = zss.used_values.ZssUnit;
 const ZssRect = zss.used_values.ZssRect;
-const ZssVector = zss.used_values.ZssVector;
-const BlockBox = zss.used_values.BlockBox;
-const BlockBoxIndex = zss.used_values.BlockBoxIndex;
-const SubtreeIndex = zss.used_values.SubtreeIndex;
-const BlockSubtree = zss.used_values.BlockSubtree;
-const InlineFormattingContextIndex = zss.used_values.InlineFormattingContextIndex;
-const BoxTree = zss.used_values.BoxTree;
 const DrawList = @import("./DrawList.zig");
 
 const std = @import("std");

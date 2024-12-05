@@ -62,6 +62,7 @@ const AdapterGeneric = struct {
     pub fn eql(adapter: AdapterGeneric, key: anytype, _: void, index: usize) bool {
         var key_it = key.iterator();
 
+        // TODO: It's unclear whether accessing the values array is UB or not.
         var slice = adapter.set.map.values()[index];
         var string_it = adapter.set.string_data.constIterator(slice.begin);
         var buffer: [4]u8 = undefined;

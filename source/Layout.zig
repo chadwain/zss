@@ -10,13 +10,14 @@ const Fonts = zss.Fonts;
 const Images = zss.Images;
 const Storage = zss.values.Storage;
 
-const initial = @import("Layout/initial.zig");
 const cosmetic = @import("Layout/cosmetic.zig");
 const flow = @import("Layout/flow.zig");
+const initial = @import("Layout/initial.zig");
+const @"inline" = @import("Layout/inline.zig");
 const solve = @import("Layout/solve.zig");
 const stf = @import("Layout/shrink_to_fit.zig");
 pub const Absolute = @import("Layout/AbsoluteContainingBlocks.zig");
-const StyleComputer = @import("Layout/StyleComputer.zig");
+pub const StyleComputer = @import("Layout/StyleComputer.zig");
 pub const StackingContextTreeBuilder = @import("Layout/StackingContextTreeBuilder.zig");
 
 const used_values = zss.used_values;
@@ -281,7 +282,7 @@ pub fn popFlowBlock(layout: *Layout, auto_height: ZssUnit) BlockRef {
     const subtree = layout.box_tree.blocks.subtree(subtree_id).view();
     const width = flow.solveUsedWidth(block.sizes.get(.inline_size).?, block.sizes.min_inline_size, block.sizes.max_inline_size);
     const height = flow.solveUsedHeight(block.sizes.get(.block_size), block.sizes.min_block_size, block.sizes.max_block_size, auto_height);
-    flow.writeBlockData(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
+    setDataBlock(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
 
     return .{ .subtree = subtree_id, .index = block.index };
 }
@@ -310,8 +311,8 @@ pub fn popIfcContainerBlock(
     layout.subtrees.top.?.depth -= 1;
     layout.addSkip(block.skip);
 
-    const subtree = layout.box_tree.blocks.subtree(layout.subtrees.top.?.id);
-    subtree.setIfcContainer(ifc, block.index, block.skip, y_pos, containing_block_width, height);
+    const subtree = layout.box_tree.blocks.subtree(layout.subtrees.top.?.id).view();
+    setDataIfcContainer(subtree, ifc, block.index, block.skip, y_pos, containing_block_width, height);
 }
 
 pub fn pushStfFlowMainBlock(
@@ -348,7 +349,7 @@ pub fn popStfFlowMainBlock(
     const subtree = layout.box_tree.blocks.subtree(layout.subtrees.top.?.id).view();
     const width = flow.solveUsedWidth(auto_width, block.sizes.min_inline_size, block.sizes.max_inline_size); // TODO This is probably redundant
     const height = flow.solveUsedHeight(block.sizes.get(.block_size), block.sizes.min_block_size, block.sizes.max_block_size, auto_height);
-    flow.writeBlockData(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
+    setDataBlock(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
 }
 
 pub fn pushStfFlowBlock(
@@ -408,7 +409,7 @@ pub fn popStfFlowBlock2(
     const subtree = layout.box_tree.blocks.subtree(subtree_id).view();
     const width = flow.solveUsedWidth(auto_width, block.sizes.min_inline_size, block.sizes.max_inline_size); // TODO This is probably redundant
     const height = flow.solveUsedHeight(block.sizes.get(.block_size), block.sizes.min_block_size, block.sizes.max_block_size, auto_height);
-    flow.writeBlockData(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
+    setDataBlock(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
 
     const ref: BlockRef = .{ .subtree = subtree_id, .index = block.index };
     if (block.stacking_context_id) |id| layout.sct_builder.setBlock(id, layout.box_tree, ref);
@@ -423,7 +424,7 @@ pub fn addSubtreeProxy(layout: *Layout, id: Subtree.Id) !void {
     const ref = try layout.newBlock();
     const parent_subtree = layout.box_tree.blocks.subtree(layout.subtrees.top.?.id);
     const child_subtree = layout.box_tree.blocks.subtree(id);
-    parent_subtree.setSubtreeProxy(ref.index, id);
+    setDataSubtreeProxy(parent_subtree.view(), ref.index, id);
     child_subtree.parent = ref;
 }
 
@@ -615,3 +616,77 @@ pub const BlockUsedSizes = struct {
         };
     }
 };
+
+/// Writes all of a block's data to the BoxTree.
+fn setDataBlock(
+    subtree: Subtree.View,
+    index: Subtree.Size,
+    used: BlockUsedSizes,
+    skip: Subtree.Size,
+    width: ZssUnit,
+    height: ZssUnit,
+    stacking_context: ?StackingContextTree.Id,
+) void {
+    subtree.items(.skip)[index] = skip;
+    subtree.items(.type)[index] = .block;
+    subtree.items(.stacking_context)[index] = stacking_context;
+
+    const box_offsets = &subtree.items(.box_offsets)[index];
+    const borders = &subtree.items(.borders)[index];
+    const margins = &subtree.items(.margins)[index];
+
+    // Horizontal sizes
+    box_offsets.border_pos.x = used.get(.margin_inline_start).?;
+    box_offsets.content_pos.x = used.border_inline_start + used.padding_inline_start;
+    box_offsets.content_size.w = width;
+    box_offsets.border_size.w = box_offsets.content_pos.x + box_offsets.content_size.w + used.padding_inline_end + used.border_inline_end;
+
+    borders.left = used.border_inline_start;
+    borders.right = used.border_inline_end;
+
+    margins.left = used.get(.margin_inline_start).?;
+    margins.right = used.get(.margin_inline_end).?;
+
+    // Vertical sizes
+    box_offsets.border_pos.y = used.margin_block_start;
+    box_offsets.content_pos.y = used.border_block_start + used.padding_block_start;
+    box_offsets.content_size.h = height;
+    box_offsets.border_size.h = box_offsets.content_pos.y + box_offsets.content_size.h + used.padding_block_end + used.border_block_end;
+
+    borders.top = used.border_block_start;
+    borders.bottom = used.border_block_end;
+
+    margins.top = used.margin_block_start;
+    margins.bottom = used.margin_block_end;
+}
+
+fn setDataIfcContainer(
+    subtree: Subtree.View,
+    ifc: used_values.InlineFormattingContextId,
+    index: Subtree.Size,
+    skip: Subtree.Size,
+    y_pos: ZssUnit,
+    width: ZssUnit,
+    height: ZssUnit,
+) void {
+    subtree.items(.skip)[index] = skip;
+    subtree.items(.type)[index] = .{ .ifc_container = ifc };
+    subtree.items(.stacking_context)[index] = null;
+    subtree.items(.box_offsets)[index] = .{
+        .border_pos = .{ .x = 0, .y = y_pos },
+        .border_size = .{ .w = width, .h = height },
+        .content_pos = .{ .x = 0, .y = 0 },
+        .content_size = .{ .w = width, .h = height },
+    };
+}
+
+fn setDataSubtreeProxy(
+    subtree: Subtree.View,
+    index: Subtree.Size,
+    proxied_subtree: Subtree.Id,
+) void {
+    subtree.items(.skip)[index] = 1;
+    subtree.items(.type)[index] = .{ .subtree_proxy = proxied_subtree };
+    subtree.items(.stacking_context)[index] = null;
+    subtree.items(.box_offsets)[index] = .{};
+}

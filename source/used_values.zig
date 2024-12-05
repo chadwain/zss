@@ -315,48 +315,13 @@ pub const Subtree = struct {
         return new_size - 1;
     }
 
-    pub fn setIfcContainer(
-        subtree: *Subtree,
-        ifc: InlineFormattingContextId,
-        index: Size,
-        skip: Size,
-        y_pos: ZssUnit,
-        width: ZssUnit,
-        height: ZssUnit,
-    ) void {
-        const v = subtree.view();
-        v.items(.skip)[index] = skip;
-        v.items(.type)[index] = .{ .ifc_container = ifc };
-        v.items(.stacking_context)[index] = null;
-        v.items(.box_offsets)[index] = .{
-            .border_pos = .{ .x = 0, .y = y_pos },
-            .border_size = .{ .w = width, .h = height },
-            .content_pos = .{ .x = 0, .y = 0 },
-            .content_size = .{ .w = width, .h = height },
-        };
-    }
-
-    pub fn setSubtreeProxy(
-        subtree: *Subtree,
-        index: Size,
-        proxied_subtree: Id,
-    ) void {
-        const v = subtree.view();
-        v.items(.skip)[index] = 1;
-        v.items(.type)[index] = .{ .subtree_proxy = proxied_subtree };
-        v.items(.stacking_context)[index] = null;
-    }
-
     fn printBlock(subtree: Subtree.View, index: Subtree.Size, writer: std.io.AnyWriter) !void {
         try writer.print("[{}, {}) ", .{ index, index + subtree.items(.skip)[index] });
 
         switch (subtree.items(.type)[index]) {
             .block => try writer.writeAll("block "),
             .ifc_container => |ifc_index| try writer.print("ifc_container({}) ", .{ifc_index}),
-            .subtree_proxy => |subtree_id| {
-                try writer.print("subtree_proxy({})\n", .{@intFromEnum(subtree_id)});
-                return;
-            },
+            .subtree_proxy => |subtree_id| try writer.print("subtree_proxy({}) ", .{@intFromEnum(subtree_id)}),
         }
 
         if (subtree.items(.stacking_context)[index]) |sc_id| try writer.print("stacking_context({}) ", .{@intFromEnum(sc_id)});

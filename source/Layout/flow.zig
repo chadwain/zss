@@ -13,10 +13,10 @@ const Element = zss.ElementTree.Element;
 const Layout = zss.Layout;
 const SctBuilder = Layout.StackingContextTreeBuilder;
 const Stack = zss.util.Stack;
+const StyleComputer = Layout.StyleComputer;
 
 const solve = @import("./solve.zig");
 const @"inline" = @import("./inline.zig");
-const StyleComputer = @import("./StyleComputer.zig");
 
 const used_values = zss.used_values;
 const BoxTree = used_values.BoxTree;
@@ -597,120 +597,12 @@ pub fn solveStackingContext(
     }
 }
 
-/// Writes all of a flow block's data to the BoxTree.
-pub fn writeBlockData(
-    subtree: Subtree.View,
-    index: Subtree.Size,
-    used: BlockUsedSizes,
-    skip: Subtree.Size,
-    width: ZssUnit,
-    height: ZssUnit,
-    stacking_context: ?StackingContextTree.Id,
-) void {
-    writeBlockDataPart1(subtree, index, used, width, stacking_context);
-    writeBlockDataPart2(subtree, index, skip, height);
-}
-
-/// Partially writes a flow block's data to the BoxTree.
-/// Must eventually be followed by a call to writeBlockDataPart2.
-fn writeBlockDataPart1(
-    subtree: Subtree.View,
-    index: Subtree.Size,
-    used: BlockUsedSizes,
-    width: ZssUnit,
-    stacking_context: ?StackingContextTree.Id,
-) void {
-    subtree.items(.type)[index] = .block;
-    subtree.items(.stacking_context)[index] = stacking_context;
-
-    const box_offsets = &subtree.items(.box_offsets)[index];
-    const borders = &subtree.items(.borders)[index];
-    const margins = &subtree.items(.margins)[index];
-
-    // Horizontal sizes
-    box_offsets.border_pos.x = used.get(.margin_inline_start).?;
-    box_offsets.content_pos.x = used.border_inline_start + used.padding_inline_start;
-    box_offsets.content_size.w = width;
-    box_offsets.border_size.w = box_offsets.content_pos.x + box_offsets.content_size.w + used.padding_inline_end + used.border_inline_end;
-
-    borders.left = used.border_inline_start;
-    borders.right = used.border_inline_end;
-
-    margins.left = used.get(.margin_inline_start).?;
-    margins.right = used.get(.margin_inline_end).?;
-
-    // Vertical sizes
-    box_offsets.border_pos.y = used.margin_block_start;
-    box_offsets.content_pos.y = used.border_block_start + used.padding_block_start;
-    box_offsets.content_size.h = undefined;
-    box_offsets.border_size.h = box_offsets.content_pos.y + used.padding_block_end + used.border_block_end;
-
-    borders.top = used.border_block_start;
-    borders.bottom = used.border_block_end;
-
-    margins.top = used.margin_block_start;
-    margins.bottom = used.margin_block_end;
-}
-
 pub fn solveUsedWidth(width: ZssUnit, min_width: ZssUnit, max_width: ZssUnit) ZssUnit {
     return solve.clampSize(width, min_width, max_width);
 }
 
 pub fn solveUsedHeight(height: ?ZssUnit, min_height: ZssUnit, max_height: ZssUnit, auto_height: ZssUnit) ZssUnit {
     return solve.clampSize(height orelse auto_height, min_height, max_height);
-}
-
-// pub fn solveUsedInsets(
-//     left: IsAutoOrPercentage,
-//     right: IsAutoOrPercentage,
-//     top: IsAutoOrPercentage,
-//     bottom: IsAutoOrPercentage,
-//     position: used_values.BoxStyle.Position,
-//     width: ZssUnit,
-//     height: ZssUnit,
-// ) ZssVector {
-//     switch (position) {
-//         .static => return .{ .x = 0, .y = 0 },
-//         .relative => {
-//             return .{
-//                 // TODO: In case both values are not auto, the one that gets ignored is determined by the 'direction' property.
-//                 .x = switch (left) {
-//                     .value => |value| value,
-//                     .percentage => |percentage| solve.percentage(percentage, width),
-//                     .auto => switch (right) {
-//                         .value => |value| -value,
-//                         .percentage => |percentage| -solve.percentage(percentage, width),
-//                         .auto => 0,
-//                     },
-//                 },
-//                 // TODO: In case both values are not auto, the one that gets ignored is determined by the 'direction' property.
-//                 .y = switch (top) {
-//                     .value => |value| value,
-//                     .percentage => |percentage| solve.percentage(percentage, height),
-//                     .auto => switch (bottom) {
-//                         .value => |value| -value,
-//                         .percentage => |percentage| -solve.percentage(percentage, height),
-//                         .auto => 0,
-//                     },
-//                 },
-//             };
-//         },
-//         .absolute => unreachable,
-//     }
-// }
-
-/// Writes data to the BoxTree that was left out during writeBlockDataPart1.
-fn writeBlockDataPart2(
-    subtree: Subtree.View,
-    index: Subtree.Size,
-    skip: Subtree.Size,
-    height: ZssUnit,
-) void {
-    subtree.items(.skip)[index] = skip;
-
-    const box_offsets = &subtree.items(.box_offsets)[index];
-    box_offsets.content_size.h = height;
-    box_offsets.border_size.h += height;
 }
 
 pub fn addBlockToFlow(subtree: Subtree.View, index: Subtree.Size, parent_auto_height: *ZssUnit) void {
