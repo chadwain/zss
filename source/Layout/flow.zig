@@ -614,6 +614,6 @@ pub fn addBlockToFlow(subtree: Subtree.View, index: Subtree.Size, parent_auto_he
     advanceFlow(parent_auto_height, box_offsets.border_size.h + margin_top + margin_bottom);
 }
 
-pub fn advanceFlow(parent_auto_height: *ZssUnit, amount: ZssUnit) void {
+fn advanceFlow(parent_auto_height: *ZssUnit, amount: ZssUnit) void {
     parent_auto_height.* += amount;
 }

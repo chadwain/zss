@@ -69,7 +69,7 @@ pub fn runInlineLayout(
 
     const subtree = layout.box_tree.blocks.subtree(ifc_container.subtree).view();
     const line_split_result = try splitIntoLineBoxes(layout, subtree, ifc, containing_block_width);
-    layout.popIfcContainerBlock(ifc.id, 0, containing_block_width, line_split_result.height);
+    layout.popIfcContainerBlock(ifc.id, containing_block_width, line_split_result.height);
 
     return .{
         .min_width = line_split_result.longest_line_box_length,

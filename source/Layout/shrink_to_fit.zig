@@ -367,16 +367,15 @@ fn realizeObjects(
                     },
                     .flow_normal => {
                         const data = &datas[object_index].flow_normal;
-                        try layout.addSubtreeProxy(data.subtree);
-
-                        const new_subtree = layout.box_tree.blocks.subtree(data.subtree).view();
-                        flow.addBlockToFlow(new_subtree, data.index, &parent.auto_height);
+                        const ref = try layout.addSubtreeProxy(data.subtree);
+                        const subtree = layout.box_tree.blocks.subtree(ref.subtree).view();
+                        flow.addBlockToFlow(subtree, ref.index, &parent.auto_height);
                     },
                     .ifc => {
                         const data = datas[object_index].ifc;
-                        _ = try layout.addSubtreeProxy(data.subtree_id);
-
-                        flow.advanceFlow(&parent.auto_height, data.layout_result.height);
+                        const ref = try layout.addSubtreeProxy(data.subtree_id);
+                        const subtree = layout.box_tree.blocks.subtree(ref.subtree).view();
+                        flow.addBlockToFlow(subtree, ref.index, &parent.auto_height);
                     },
                 }
             } else {

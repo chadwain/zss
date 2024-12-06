@@ -303,7 +303,6 @@ pub fn pushIfcContainerBlock(layout: *Layout) !BlockRef {
 pub fn popIfcContainerBlock(
     layout: *Layout,
     ifc: used_values.InlineFormattingContextId,
-    y_pos: ZssUnit,
     containing_block_width: ZssUnit,
     height: ZssUnit,
 ) void {
@@ -312,7 +311,7 @@ pub fn popIfcContainerBlock(
     layout.addSkip(block.skip);
 
     const subtree = layout.box_tree.blocks.subtree(layout.subtrees.top.?.id).view();
-    setDataIfcContainer(subtree, ifc, block.index, block.skip, y_pos, containing_block_width, height);
+    setDataIfcContainer(subtree, ifc, block.index, block.skip, containing_block_width, height);
 }
 
 pub fn pushStfFlowMainBlock(
@@ -418,14 +417,15 @@ pub fn popStfFlowBlock2(
     return ref;
 }
 
-pub fn addSubtreeProxy(layout: *Layout, id: Subtree.Id) !void {
+pub fn addSubtreeProxy(layout: *Layout, id: Subtree.Id) !BlockRef {
     layout.addSkip(1);
 
     const ref = try layout.newBlock();
     const parent_subtree = layout.box_tree.blocks.subtree(layout.subtrees.top.?.id);
     const child_subtree = layout.box_tree.blocks.subtree(id);
-    setDataSubtreeProxy(parent_subtree.view(), ref.index, id);
+    setDataSubtreeProxy(parent_subtree.view(), ref.index, child_subtree);
     child_subtree.parent = ref;
+    return ref;
 }
 
 pub fn newIfc(layout: *Layout, ifc_container: BlockRef) !*InlineFormattingContext {
@@ -665,7 +665,6 @@ fn setDataIfcContainer(
     ifc: used_values.InlineFormattingContextId,
     index: Subtree.Size,
     skip: Subtree.Size,
-    y_pos: ZssUnit,
     width: ZssUnit,
     height: ZssUnit,
 ) void {
@@ -673,20 +672,32 @@ fn setDataIfcContainer(
     subtree.items(.type)[index] = .{ .ifc_container = ifc };
     subtree.items(.stacking_context)[index] = null;
     subtree.items(.box_offsets)[index] = .{
-        .border_pos = .{ .x = 0, .y = y_pos },
+        .border_pos = .{ .x = 0, .y = 0 },
         .border_size = .{ .w = width, .h = height },
         .content_pos = .{ .x = 0, .y = 0 },
         .content_size = .{ .w = width, .h = height },
     };
+    subtree.items(.borders)[index] = .{};
+    subtree.items(.margins)[index] = .{};
 }
 
 fn setDataSubtreeProxy(
     subtree: Subtree.View,
     index: Subtree.Size,
-    proxied_subtree: Subtree.Id,
+    proxied_subtree: *Subtree,
 ) void {
+    const view = proxied_subtree.view();
+    const border_size = view.items(.box_offsets)[0].border_size;
+    const margins = view.items(.margins)[0];
+
     subtree.items(.skip)[index] = 1;
-    subtree.items(.type)[index] = .{ .subtree_proxy = proxied_subtree };
+    subtree.items(.type)[index] = .{ .subtree_proxy = proxied_subtree.id };
     subtree.items(.stacking_context)[index] = null;
-    subtree.items(.box_offsets)[index] = .{};
+    subtree.items(.box_offsets)[index] = .{
+        .border_pos = .{ .x = 0, .y = margins.top },
+        .border_size = border_size,
+        .content_size = border_size,
+    };
+    subtree.items(.borders)[index] = .{};
+    subtree.items(.margins)[index] = .{ .top = margins.top, .bottom = margins.bottom };
 }
