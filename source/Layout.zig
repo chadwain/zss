@@ -686,18 +686,23 @@ fn setDataSubtreeProxy(
     index: Subtree.Size,
     proxied_subtree: *Subtree,
 ) void {
-    const view = proxied_subtree.view();
-    const border_size = view.items(.box_offsets)[0].border_size;
-    const margins = view.items(.margins)[0];
+    const border_size, const margin_top, const margin_bottom = blk: {
+        const view = proxied_subtree.view();
+        var border_size = view.items(.box_offsets)[0].border_size;
+        const margins = view.items(.margins)[0];
+        border_size.w += margins.left + margins.right;
+        break :blk .{ border_size, margins.top, margins.bottom };
+    };
 
     subtree.items(.skip)[index] = 1;
     subtree.items(.type)[index] = .{ .subtree_proxy = proxied_subtree.id };
     subtree.items(.stacking_context)[index] = null;
     subtree.items(.box_offsets)[index] = .{
-        .border_pos = .{ .x = 0, .y = margins.top },
+        .border_pos = .{ .x = 0, .y = margin_top },
         .border_size = border_size,
+        .content_pos = .{ .x = 0, .y = 0 },
         .content_size = border_size,
     };
     subtree.items(.borders)[index] = .{};
-    subtree.items(.margins)[index] = .{ .top = margins.top, .bottom = margins.bottom };
+    subtree.items(.margins)[index] = .{ .top = margin_top, .bottom = margin_bottom };
 }
