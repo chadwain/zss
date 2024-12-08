@@ -12,7 +12,7 @@ const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Layout = zss.Layout;
 const SctBuilder = Layout.StackingContextTreeBuilder;
-const Stack = zss.util.Stack;
+const Stack = zss.Stack;
 
 const flow = @import("./flow.zig");
 const @"inline" = @import("./inline.zig");

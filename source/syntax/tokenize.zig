@@ -5,8 +5,8 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
-const hexDigitToNumber = zss.util.unicode.hexDigitToNumber;
-const toLowercase = zss.util.unicode.toLowercase;
+const hexDigitToNumber = zss.unicode.hexDigitToNumber;
+const toLowercase = zss.unicode.toLowercase;
 const CheckedInt = zss.util.CheckedInt;
 const Component = zss.syntax.Component;
 const Token = zss.syntax.Token;

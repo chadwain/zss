@@ -285,7 +285,7 @@ const PopulateSubListContext = struct {
         struct { vector: ZssVector, containing_block_width: ZssUnit },
     ) = .{},
 
-    const Stack = zss.util.Stack(struct {
+    const Stack = zss.Stack(struct {
         begin: Subtree.Size,
         end: Subtree.Size,
         subtree_index: Subtree.Id,

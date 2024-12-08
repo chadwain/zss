@@ -9,7 +9,7 @@ const null_element = Element.null_element;
 const CascadedValues = zss.CascadedValues;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
-const Stack = zss.util.Stack;
+const Stack = zss.Stack;
 
 const solve = @import("./solve.zig");
 

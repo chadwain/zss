@@ -9,7 +9,7 @@ const tokenize = syntax.tokenize;
 const Ast = syntax.Ast;
 const Component = syntax.Component;
 const Extra = Component.Extra;
-const Stack = zss.util.Stack;
+const Stack = zss.Stack;
 const Token = syntax.Token;
 const TokenSource = syntax.TokenSource;
 

@@ -6,7 +6,6 @@ const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("zss.zig");
 const Element = zss.ElementTree.Element;
-const ElementHashMap = zss.util.ElementHashMap;
 
 /// The smallest unit of space in the zss coordinate system.
 pub const ZssUnit = i32;
@@ -359,7 +358,7 @@ pub const BlockBoxTree = struct {
     }
 
     pub fn print(block_box_tree: *const BlockBoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
-        var stack = zss.util.Stack(struct {
+        var stack = zss.Stack(struct {
             iterator: Subtree.Iterator,
             view: Subtree.View,
         }){};
@@ -638,7 +637,7 @@ pub fn printStackingContextTree(sct: *const StackingContextTree, writer: std.io.
         .view = sct.view(),
         .writer = writer,
     };
-    try zss.util.skipTreeIterate(Size, context.view.items(.skip), context, callback, allocator);
+    try zss.debug.skipArrayIterate(Size, context.view.items(.skip), context, callback, allocator);
 }
 
 /// The type of box(es) that an element generates.
@@ -696,6 +695,16 @@ pub const BoxTree = struct {
     allocator: Allocator,
 
     const Self = @This();
+
+    fn ElementHashMap(comptime V: type) type {
+        const Context = struct {
+            pub fn eql(_: @This(), lhs: Element, rhs: Element) bool {
+                return lhs.eql(rhs);
+            }
+            pub const hash = std.hash_map.getAutoHashFn(Element, @This());
+        };
+        return std.HashMapUnmanaged(Element, V, Context, std.hash_map.default_max_load_percentage);
+    }
 
     pub fn deinit(self: *Self) void {
         self.blocks.deinit(self.allocator);

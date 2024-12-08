@@ -9,7 +9,7 @@ const CascadedValues = zss.CascadedValues;
 const Environment = zss.Environment;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
-const Stack = zss.util.Stack;
+const Stack = zss.Stack;
 const TokenSource = zss.syntax.TokenSource;
 
 const parse_zml = @import("syntax/zml.zig");

@@ -46,7 +46,7 @@ const AstManaged = zss.syntax.parse.AstManaged;
 const Component = zss.syntax.Component;
 const Last3NonWhitespaceComponents = zss.syntax.parse.Last3NonWhitespaceComponents;
 const Location = TokenSource.Location;
-const Stack = zss.util.Stack;
+const Stack = zss.Stack;
 const Token = zss.syntax.Token;
 const TokenSource = zss.syntax.TokenSource;
 

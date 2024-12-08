@@ -12,7 +12,7 @@ const BlockUsedSizes = zss.Layout.BlockUsedSizes;
 const Element = zss.ElementTree.Element;
 const Layout = zss.Layout;
 const SctBuilder = Layout.StackingContextTreeBuilder;
-const Stack = zss.util.Stack;
+const Stack = zss.Stack;
 const StyleComputer = Layout.StyleComputer;
 
 const solve = @import("./solve.zig");

@@ -116,7 +116,7 @@ pub const Token = union(enum) {
     };
 
     pub fn cast(token: Token, comptime Derived: type) Derived {
-        comptime zss.util.ensureCompatibleEnums(std.meta.Tag(Token), Derived);
+        comptime zss.debug.ensureCompatibleEnums(std.meta.Tag(Token), Derived);
         @setRuntimeSafety(false);
         return @enumFromInt(@intFromEnum(token));
     }

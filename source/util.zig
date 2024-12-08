@@ -6,19 +6,6 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 const zss = @import("zss.zig");
-const Element = zss.ElementTree.Element;
-
-pub const unicode = @import("util/unicode.zig");
-pub const Stack = @import("util/Stack.zig").Stack;
-
-fn expectSuccess(error_union: anytype, expected: @typeInfo(@TypeOf(error_union)).error_union.payload) !void {
-    if (error_union) |success| {
-        return std.testing.expectEqual(expected, success);
-    } else |err| {
-        std.debug.print("unexpected error error.{s}\n", .{@errorName(err)});
-        return error.TestUnexpectedError;
-    }
-}
 
 pub fn Ratio(comptime T: type) type {
     const typeInfo = @typeInfo(T).int;
@@ -123,7 +110,7 @@ pub fn gcd(comptime T: type, a: T, b: T) T {
     return y;
 }
 
-test "gcd" {
+test gcd {
     try expectEqual(@as(u32, 4), gcd(u32, 20, 16));
     try expectEqual(@as(u32, 1), gcd(u32, 7, 16));
     try expectEqual(@as(u32, 12), gcd(u32, 96, 60));
@@ -147,7 +134,7 @@ pub fn roundUp(a: anytype, comptime multiple: comptime_int) @TypeOf(a) {
     return a + (multiple - mod) * @as(Return, @intFromBool(mod != 0));
 }
 
-test "roundUp" {
+test roundUp {
     try expect(roundUp(0, 4) == 0);
     try expect(roundUp(1, 4) == 4);
     try expect(roundUp(3, 4) == 4);
@@ -204,115 +191,16 @@ test "CheckedInt.alignForward" {
         }
     }.f;
 
-    try expectSuccess(alignForward(0, 1), 0);
-    try expectSuccess(alignForward(1, 1), 1);
+    try expectEqual(@as(usize, 0), try alignForward(0, 1));
+    try expectEqual(@as(usize, 1), try alignForward(1, 1));
 
-    try expectSuccess(alignForward(0, 2), 0);
-    try expectSuccess(alignForward(1, 2), 2);
-    try expectSuccess(alignForward(2, 2), 2);
-    try expectSuccess(alignForward(3, 2), 4);
+    try expectEqual(@as(usize, 0), try alignForward(0, 2));
+    try expectEqual(@as(usize, 2), try alignForward(1, 2));
+    try expectEqual(@as(usize, 2), try alignForward(2, 2));
+    try expectEqual(@as(usize, 4), try alignForward(3, 2));
 
-    try expectSuccess(alignForward(0, 4), 0);
-    try expectSuccess(alignForward(1, 4), 4);
-    try expectSuccess(alignForward(2, 4), 4);
-    try expectSuccess(alignForward(3, 4), 4);
-}
-
-pub fn ElementHashMap(comptime V: type) type {
-    const Context = struct {
-        pub fn eql(_: @This(), lhs: Element, rhs: Element) bool {
-            return lhs.eql(rhs);
-        }
-        pub fn hash(_: @This(), element: Element) u64 {
-            return @as(u32, @bitCast(element));
-        }
-    };
-    return std.HashMapUnmanaged(Element, V, Context, 80);
-}
-
-pub fn ascii8ToAscii7(comptime string: []const u8) *const [string.len]u7 {
-    return comptime blk: {
-        var result: [string.len]u7 = undefined;
-        for (string, &result) |s, *r| {
-            r.* = std.math.cast(u7, s) orelse @compileError("Invalid 7-bit ASCII");
-        }
-        break :blk &result;
-    };
-}
-
-pub fn ascii8ToUnicode(comptime string: []const u8) *const [string.len]u21 {
-    return comptime blk: {
-        var result: [string.len]u21 = undefined;
-        for (string, &result) |in, *out| {
-            if (in >= 0x80) @compileError("Invalid 7-bit ASCII");
-            out.* = in;
-        }
-        break :blk &result;
-    };
-}
-
-pub const UnicodeString = struct {
-    data: []const u21,
-
-    pub fn format(value: UnicodeString, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        var buf: [4]u8 = undefined;
-        for (value.data) |codepoint| {
-            const len = std.unicode.utf8Encode(codepoint, &buf) catch unreachable;
-            try writer.print("{s}", .{buf[0..len]});
-        }
-    }
-};
-
-pub fn unicodeString(data: []const u21) UnicodeString {
-    return .{ .data = data };
-}
-
-/// Two enums `Base` and `Derived` are compatible if, for every field of `Base`, there is a field in `Derived` with the same name and value.
-pub fn ensureCompatibleEnums(comptime Base: type, comptime Derived: type) void {
-    @setEvalBranchQuota(std.meta.fields(Derived).len * 1000);
-    for (std.meta.fields(Base)) |field_info| {
-        const derived_field = std.meta.stringToEnum(Derived, field_info.name) orelse
-            @compileError(@typeName(Derived) ++ " has no field named " ++ field_info.name);
-        const derived_value = @intFromEnum(derived_field);
-        if (field_info.value != derived_value)
-            @compileError(std.fmt.comptimePrint(
-                "{s}.{s} has value {}, expected {}",
-                .{ @typeName(Derived), field_info.name, derived_value, field_info.value },
-            ));
-    }
-}
-
-pub fn skipTreeIterate(
-    comptime Size: type,
-    skips: []const Size,
-    context: anytype,
-    comptime callback: fn (@TypeOf(context), Size, Size) anyerror!void,
-    allocator: std.mem.Allocator,
-) !void {
-    if (skips.len == 0) return;
-
-    const Interval = struct {
-        begin: Size,
-        end: Size,
-    };
-
-    var stack: Stack(Interval) = .{};
-    defer stack.deinit(allocator);
-    stack.top = .{ .begin = 0, .end = skips[0] };
-
-    while (stack.top) |*top| {
-        const index = index: {
-            if (top.begin == top.end) {
-                _ = stack.pop();
-                continue;
-            }
-            defer top.begin += skips[top.begin];
-            break :index top.begin;
-        };
-        try callback(context, index, @intCast(stack.rest.len));
-        const skip = skips[index];
-        if (skip != 1) {
-            try stack.push(allocator, .{ .begin = index + 1, .end = index + skip });
-        }
-    }
+    try expectEqual(@as(usize, 0), try alignForward(0, 4));
+    try expectEqual(@as(usize, 4), try alignForward(1, 4));
+    try expectEqual(@as(usize, 4), try alignForward(2, 4));
+    try expectEqual(@as(usize, 4), try alignForward(3, 4));
 }

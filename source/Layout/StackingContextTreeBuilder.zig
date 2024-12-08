@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
-const Stack = zss.util.Stack;
+const Stack = zss.Stack;
 const used_values = zss.used_values;
 const BlockRef = used_values.BlockRef;
 const BoxTree = used_values.BoxTree;

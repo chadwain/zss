@@ -40,12 +40,12 @@ absolute: Absolute,
 viewport: ZssSize,
 inputs: Inputs,
 allocator: Allocator,
-element_stack: zss.util.Stack(Element),
-subtrees: zss.util.Stack(struct {
+element_stack: zss.Stack(Element),
+subtrees: zss.Stack(struct {
     id: Subtree.Id,
     depth: Subtree.Size,
 }),
-blocks: zss.util.Stack(Block),
+blocks: zss.Stack(Block),
 
 pub const Inputs = struct {
     root_element: Element,
