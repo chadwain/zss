@@ -14,9 +14,11 @@ const BoxTree = used_values.BoxTree;
 const InlineFormattingContextId = used_values.InlineFormattingContextId;
 const StackingContextTree = used_values.StackingContextTree;
 const Subtree = used_values.Subtree;
-const ZssRect = used_values.ZssRect;
-const ZssUnit = used_values.ZssUnit;
-const ZssVector = used_values.ZssVector;
+
+const math = zss.math;
+const Rect = math.Rect;
+const Unit = math.Unit;
+const Vector = math.Vector;
 
 const QuadTree = @import("./QuadTree.zig");
 
@@ -41,13 +43,13 @@ pub const Drawable = union(enum) {
 
     pub const BlockBox = struct {
         ref: used_values.BlockRef,
-        border_top_left: ZssVector,
+        border_top_left: Vector,
     };
 
     pub const LineBox = struct {
         ifc_id: InlineFormattingContextId,
         line_box_index: usize,
-        origin: ZssVector,
+        origin: Vector,
     };
 
     pub fn format(drawable: Drawable, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -106,7 +108,7 @@ pub const SubList = struct {
     const Description = struct {
         index: SubListIndex,
         /// The position of the top left corner of the stacking context.
-        initial_vector: ZssVector,
+        initial_vector: Vector,
         /// The stacking context that caused the SubList to be created.
         stacking_context: StackingContextTree.Size,
     };
@@ -147,7 +149,7 @@ const Builder = struct {
         builder.ready_sub_lists.deinit(allocator);
     }
 
-    fn makeSublistReady(builder: *Builder, allocator: Allocator, stacking_context: StackingContextTree.Size, initial_vector: ZssVector) !void {
+    fn makeSublistReady(builder: *Builder, allocator: Allocator, stacking_context: StackingContextTree.Size, initial_vector: Vector) !void {
         const sublist_index = (builder.pending_sub_lists.fetchRemove(stacking_context) orelse unreachable).value;
         try builder.ready_sub_lists.append(allocator, SubList.Description{
             .index = sublist_index,
@@ -282,7 +284,7 @@ const PopulateSubListContext = struct {
     stack: Stack = .{},
     ifc_infos: AutoHashMapUnmanaged(
         InlineFormattingContextId,
-        struct { vector: ZssVector, containing_block_width: ZssUnit },
+        struct { vector: Vector, containing_block_width: Unit },
     ) = .{},
 
     const Stack = zss.Stack(struct {
@@ -290,7 +292,7 @@ const PopulateSubListContext = struct {
         end: Subtree.Size,
         subtree_index: Subtree.Id,
         subtree: Subtree.View,
-        vector: ZssVector,
+        vector: Vector,
     });
 
     fn deinit(ctx: *PopulateSubListContext, allocator: Allocator) void {
@@ -378,7 +380,7 @@ fn populateSubList(
         const ifc = box_tree.ifc(ifc_id);
         const line_box_height = ifc.ascender + ifc.descender;
         for (ifc.line_boxes.items, 0..) |line_box, line_box_index| {
-            const bounding_box = ZssRect{
+            const bounding_box = Rect{
                 .x = info.vector.x,
                 .y = info.vector.y + line_box.baseline - ifc.ascender,
                 .w = info.containing_block_width,
@@ -472,8 +474,8 @@ fn analyzeBlock(
     }
 }
 
-fn calcBoundingBox(border_top_left: ZssVector, box_offsets: BoxOffsets) ZssRect {
-    return ZssRect{
+fn calcBoundingBox(border_top_left: Vector, box_offsets: BoxOffsets) Rect {
+    return Rect{
         .x = border_top_left.x,
         .y = border_top_left.y,
         .w = box_offsets.border_size.w,

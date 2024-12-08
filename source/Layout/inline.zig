@@ -13,6 +13,8 @@ const Element = ElementTree.Element;
 const Fonts = zss.Fonts;
 const Layout = zss.Layout;
 const SctBuilder = Layout.StackingContextTreeBuilder;
+const Unit = zss.math.Unit;
+const units_per_pixel = zss.math.units_per_pixel;
 
 const flow = @import("./flow.zig");
 const stf = @import("./shrink_to_fit.zig");
@@ -20,9 +22,6 @@ const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 
 const used_values = zss.used_values;
-const ZssUnit = used_values.ZssUnit;
-const ZssVector = used_values.ZssVector;
-const units_per_pixel = used_values.units_per_pixel;
 const BoxTree = used_values.BoxTree;
 const StackingContextIndex = used_values.StackingContextIndex;
 const StackingContextRef = used_values.StackingContextRef;
@@ -37,15 +36,15 @@ const Subtree = used_values.Subtree;
 const hb = @import("mach-harfbuzz").c;
 
 pub const Result = struct {
-    min_width: ZssUnit,
-    height: ZssUnit,
+    min_width: Unit,
+    height: Unit,
 };
 
 pub fn runInlineLayout(
     layout: *Layout,
     mode: enum { Normal, ShrinkToFit },
-    containing_block_width: ZssUnit,
-    containing_block_height: ?ZssUnit,
+    containing_block_width: Unit,
+    containing_block_height: ?Unit,
 ) zss.Layout.Error!Result {
     assert(containing_block_width >= 0);
     if (containing_block_height) |h| assert(h >= 0);
@@ -53,7 +52,7 @@ pub fn runInlineLayout(
     const ifc_container = try layout.pushIfcContainerBlock();
     const ifc = try layout.newIfc(ifc_container);
 
-    const percentage_base_unit: ZssUnit = switch (mode) {
+    const percentage_base_unit: Unit = switch (mode) {
         .Normal => containing_block_width,
         .ShrinkToFit => 0,
     };
@@ -81,9 +80,9 @@ const InlineLayoutContext = struct {
     const Self = @This();
 
     allocator: Allocator,
-    containing_block_width: ZssUnit,
-    containing_block_height: ?ZssUnit,
-    percentage_base_unit: ZssUnit,
+    containing_block_width: Unit,
+    containing_block_height: ?Unit,
+    percentage_base_unit: Unit,
 
     inline_box_depth: InlineBoxIndex = 0,
     index: ArrayListUnmanaged(InlineBoxIndex) = .{},
@@ -389,16 +388,16 @@ fn inlineBoxSetData(ctx: *InlineLayoutContext, computer: *StyleComputer, ifc: *I
     } = undefined;
 
     var used: struct {
-        margin_inline_start: ZssUnit,
-        border_inline_start: ZssUnit,
-        padding_inline_start: ZssUnit,
-        margin_inline_end: ZssUnit,
-        border_inline_end: ZssUnit,
-        padding_inline_end: ZssUnit,
-        border_block_start: ZssUnit,
-        padding_block_start: ZssUnit,
-        border_block_end: ZssUnit,
-        padding_block_end: ZssUnit,
+        margin_inline_start: Unit,
+        border_inline_start: Unit,
+        padding_inline_start: Unit,
+        margin_inline_end: Unit,
+        border_inline_end: Unit,
+        padding_inline_end: Unit,
+        border_block_start: Unit,
+        padding_block_start: Unit,
+        border_block_end: Unit,
+        padding_block_end: Unit,
     } = undefined;
 
     switch (specified.horizontal_edges.margin_left) {
@@ -559,8 +558,8 @@ fn inlineBoxSetData(ctx: *InlineLayoutContext, computer: *StyleComputer, ifc: *I
 fn inlineBlockSolveSizes(
     computer: *StyleComputer,
     position: used_values.BoxStyle.Position,
-    containing_block_width: ZssUnit,
-    containing_block_height: ?ZssUnit,
+    containing_block_width: Unit,
+    containing_block_height: ?Unit,
 ) BlockUsedSizes {
     assert(containing_block_width >= 0);
     if (containing_block_height) |h| assert(h >= 0);
@@ -684,7 +683,7 @@ fn inlineBlockSolveSizes(
         },
         .none => {
             computed.content_width.max_width = .none;
-            used.max_inline_size = std.math.maxInt(ZssUnit);
+            used.max_inline_size = std.math.maxInt(Unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -813,11 +812,11 @@ fn inlineBlockSolveSizes(
             used.max_block_size = if (containing_block_height) |h|
                 solve.positivePercentage(value, h)
             else
-                std.math.maxInt(ZssUnit);
+                std.math.maxInt(Unit);
         },
         .none => {
             computed.content_height.max_height = .none;
-            used.max_block_size = std.math.maxInt(ZssUnit);
+            used.max_block_size = std.math.maxInt(Unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -954,23 +953,23 @@ fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, subtree: Sub
 }
 
 const IFCLineSplitState = struct {
-    cursor: ZssUnit,
+    cursor: Unit,
     line_box: InlineFormattingContext.LineBox,
     inline_blocks_in_this_line_box: ArrayListUnmanaged(InlineBlockInfo),
-    top_height: ZssUnit,
-    max_top_height: ZssUnit,
-    bottom_height: ZssUnit,
-    longest_line_box_length: ZssUnit,
+    top_height: Unit,
+    max_top_height: Unit,
+    bottom_height: Unit,
+    longest_line_box_length: Unit,
     inline_box_stack: ArrayListUnmanaged(InlineBoxIndex) = .{},
     current_inline_box: InlineBoxIndex = undefined,
 
     const InlineBlockInfo = struct {
         box_offsets: *used_values.BoxOffsets,
-        cursor: ZssUnit,
-        height: ZssUnit,
+        cursor: Unit,
+        height: Unit,
     };
 
-    fn init(top_height: ZssUnit, bottom_height: ZssUnit) IFCLineSplitState {
+    fn init(top_height: Unit, bottom_height: Unit) IFCLineSplitState {
         return IFCLineSplitState{
             .cursor = 0,
             .line_box = .{ .baseline = 0, .elements = [2]usize{ 0, 0 }, .inline_box = undefined },
@@ -1028,20 +1027,20 @@ const IFCLineSplitState = struct {
 };
 
 pub const IFCLineSplitResult = struct {
-    height: ZssUnit,
-    longest_line_box_length: ZssUnit,
+    height: Unit,
+    longest_line_box_length: Unit,
 };
 
 pub fn splitIntoLineBoxes(
     layout: *Layout,
     subtree: Subtree.View,
     ifc: *InlineFormattingContext,
-    max_line_box_length: ZssUnit,
+    max_line_box_length: Unit,
 ) !IFCLineSplitResult {
     assert(max_line_box_length >= 0);
 
-    var top_height: ZssUnit = undefined;
-    var bottom_height: ZssUnit = undefined;
+    var top_height: Unit = undefined;
+    var bottom_height: Unit = undefined;
     if (layout.inputs.fonts.get(ifc.font)) |font| {
         // TODO assuming ltr direction
         var font_extents: hb.hb_font_extents_t = undefined;

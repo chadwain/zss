@@ -8,8 +8,8 @@ const zgl = @import("zgl");
 const zigimg = @import("zigimg");
 const glfw = @import("mach-glfw");
 
-const ZssUnit = zss.used_values.ZssUnit;
-const zss_units_per_pixel = zss.used_values.units_per_pixel;
+const ZssUnit = zss.math.Unit;
+const zss_units_per_pixel = zss.math.units_per_pixel;
 
 const ProgramState = struct {
     main_window: glfw.Window,
@@ -223,7 +223,7 @@ pub fn main() !u8 {
         zgl.clearColor(0, 0, 0, 0);
         zgl.clear(.{ .color = true });
 
-        const viewport_rect = zss.used_values.ZssRect{
+        const viewport_rect = zss.math.Rect{
             .x = 0,
             .y = program_state.current_scroll,
             .w = @intCast(program_state.main_window_width * zss_units_per_pixel),

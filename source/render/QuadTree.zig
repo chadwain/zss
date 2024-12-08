@@ -1,8 +1,8 @@
 const QuadTree = @This();
 
 const zss = @import("../zss.zig");
-const ZssUnit = zss.used_values.ZssUnit;
-const ZssRect = zss.used_values.ZssRect;
+const Unit = zss.math.Unit;
+const Rect = zss.math.Rect;
 const DrawList = @import("./DrawList.zig");
 
 const std = @import("std");
@@ -16,7 +16,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 // Patches can be subdivided into 4 equally sized smaller squares called quadrants.
 // Each quadrant can also be subdivided recursively, up to a maximum of `maximum_node_depth` times.
 
-const top_level_size: ZssUnit = 1024 * zss.used_values.units_per_pixel;
+const top_level_size: Unit = 1024 * zss.math.units_per_pixel;
 const maximum_node_depth = 7;
 
 /// The coordinates of a patch.
@@ -78,7 +78,7 @@ const Node = struct {
         allocator.destroy(node);
     }
 
-    fn insert(node: *Node, allocator: Allocator, patch_intersect: ZssRect, object: Object) error{OutOfMemory}!void {
+    fn insert(node: *Node, allocator: Allocator, patch_intersect: Rect, object: Object) error{OutOfMemory}!void {
         assert(!patch_intersect.isEmpty());
         const patch_size = top_level_size >> node.depth;
         const quadrant_size = patch_size >> 1;
@@ -87,15 +87,15 @@ const Node = struct {
             return;
         }
 
-        const quadrant_rects = [4]ZssRect{
-            ZssRect{ .x = 0, .y = 0, .w = quadrant_size, .h = quadrant_size },
-            ZssRect{ .x = quadrant_size, .y = 0, .w = quadrant_size, .h = quadrant_size },
-            ZssRect{ .x = 0, .y = quadrant_size, .w = quadrant_size, .h = quadrant_size },
-            ZssRect{ .x = quadrant_size, .y = quadrant_size, .w = quadrant_size, .h = quadrant_size },
+        const quadrant_rects = [4]Rect{
+            Rect{ .x = 0, .y = 0, .w = quadrant_size, .h = quadrant_size },
+            Rect{ .x = quadrant_size, .y = 0, .w = quadrant_size, .h = quadrant_size },
+            Rect{ .x = 0, .y = quadrant_size, .w = quadrant_size, .h = quadrant_size },
+            Rect{ .x = quadrant_size, .y = quadrant_size, .w = quadrant_size, .h = quadrant_size },
         };
 
         var quadrant_index: u2 = undefined;
-        var quadrant_intersect: ZssRect = undefined;
+        var quadrant_intersect: Rect = undefined;
         var num_intersects: u3 = 0;
         for (quadrant_rects, 0..) |rect, i| {
             const intersection = rect.intersect(patch_intersect);
@@ -133,7 +133,7 @@ const Node = struct {
 
     fn findObjectsInRect(
         node: *const Node,
-        patch_intersect: ZssRect,
+        patch_intersect: Rect,
         list: *ArrayListUnmanaged(Object),
         allocator: Allocator,
     ) error{OutOfMemory}!void {
@@ -146,11 +146,11 @@ const Node = struct {
 
         const patch_size = top_level_size >> node.depth;
         const quadrant_size = patch_size >> 1;
-        const quadrant_rects = [4]ZssRect{
-            ZssRect{ .x = 0, .y = 0, .w = quadrant_size, .h = quadrant_size },
-            ZssRect{ .x = quadrant_size, .y = 0, .w = quadrant_size, .h = quadrant_size },
-            ZssRect{ .x = 0, .y = quadrant_size, .w = quadrant_size, .h = quadrant_size },
-            ZssRect{ .x = quadrant_size, .y = quadrant_size, .w = quadrant_size, .h = quadrant_size },
+        const quadrant_rects = [4]Rect{
+            Rect{ .x = 0, .y = 0, .w = quadrant_size, .h = quadrant_size },
+            Rect{ .x = quadrant_size, .y = 0, .w = quadrant_size, .h = quadrant_size },
+            Rect{ .x = 0, .y = quadrant_size, .w = quadrant_size, .h = quadrant_size },
+            Rect{ .x = quadrant_size, .y = quadrant_size, .w = quadrant_size, .h = quadrant_size },
         };
 
         for (quadrant_rects, node.children) |rect, child_opt| {
@@ -191,7 +191,7 @@ const Node = struct {
 };
 
 /// Insert an object into the QuadTree.
-pub fn insert(quad_tree: *QuadTree, allocator: Allocator, bounding_box: ZssRect, object: Object) !void {
+pub fn insert(quad_tree: *QuadTree, allocator: Allocator, bounding_box: Rect, object: Object) !void {
     const patch_span = rectToPatchSpan(bounding_box);
 
     if (patch_span.bottom_right.x - patch_span.top_left.x > 1 or patch_span.bottom_right.y - patch_span.top_left.y > 1) {
@@ -248,7 +248,7 @@ pub fn print(quad_tree: QuadTree, writer: anytype) !void {
 /// The memory is owned by the caller.
 
 // TODO: Return a list of patches, instead of a list of individual objects
-pub fn findObjectsInRect(quad_tree: QuadTree, rect: ZssRect, allocator: Allocator) ![]Object {
+pub fn findObjectsInRect(quad_tree: QuadTree, rect: Rect, allocator: Allocator) ![]Object {
     var result = ArrayListUnmanaged(Object){};
     defer result.deinit(allocator);
 
@@ -275,10 +275,10 @@ pub fn findObjectsInRect(quad_tree: QuadTree, rect: ZssRect, allocator: Allocato
 }
 
 /// Given a rectangle, returns a span of all patches that the rectangle intersects.
-fn rectToPatchSpan(rect: ZssRect) PatchSpan {
+fn rectToPatchSpan(rect: Rect) PatchSpan {
     assert(rect.w >= 0);
     assert(rect.h >= 0);
-    const roundUp = zss.util.roundUp;
+    const roundUp = zss.math.roundUp;
     return PatchSpan{
         .top_left = .{
             .x = @divFloor(rect.x, top_level_size),
@@ -292,7 +292,7 @@ fn rectToPatchSpan(rect: ZssRect) PatchSpan {
 }
 
 /// Returns the region of space associated with a patch.
-fn getPatchRect(patch_coord: PatchCoord) ZssRect {
+fn getPatchRect(patch_coord: PatchCoord) Rect {
     return .{
         .x = patch_coord.x * top_level_size,
         .y = patch_coord.y * top_level_size,

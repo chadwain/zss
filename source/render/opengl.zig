@@ -4,16 +4,9 @@ const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
-const Ratio = zss.util.Ratio;
 const Images = zss.Images;
 const DrawList = @import("./DrawList.zig");
 const QuadTree = @import("./QuadTree.zig");
-const units_per_pixel = zss.used_values.units_per_pixel;
-const ZssUnit = zss.used_values.ZssUnit;
-const ZssRange = zss.used_values.ZssRange;
-const ZssRect = zss.used_values.ZssRect;
-const ZssSize = zss.used_values.ZssSize;
-const ZssVector = zss.used_values.ZssVector;
 const Color = zss.used_values.Color;
 const InlineBoxIndex = zss.used_values.InlineBoxIndex;
 const InlineFormattingContext = zss.used_values.InlineFormattingContext;
@@ -24,6 +17,15 @@ const StackingContextTree = zss.used_values.StackingContextTree;
 const Subtree = zss.used_values.Subtree;
 const ZIndex = zss.used_values.ZIndex;
 const BoxTree = zss.used_values.BoxTree;
+
+const math = zss.math;
+const units_per_pixel = zss.math.units_per_pixel;
+const Unit = math.Unit;
+const Range = math.Range;
+const Rect = math.Rect;
+const Size = math.Size;
+const Vector = math.Vector;
+const Ratio = math.Ratio;
 
 const zgl = @import("zgl");
 const hb = @import("mach-harfbuzz");
@@ -275,12 +277,12 @@ pub const Renderer = struct {
         zgl.deleteTexture(renderer.glyphs.texture);
     }
 
-    pub fn showGlyphs(renderer: *Renderer, viewport: ZssRect) !void {
+    pub fn showGlyphs(renderer: *Renderer, viewport: Rect) !void {
         try renderer.beginDraw(viewport, 1);
         defer renderer.endDraw();
         renderer.setMode(.textured, renderer.glyphs.texture);
 
-        var rect = ZssRect{ .x = 0, .y = 0, .w = undefined, .h = undefined };
+        var rect = Rect{ .x = 0, .y = 0, .w = undefined, .h = undefined };
         const texture_width: i32 = @intCast(renderer.glyphs.max_width_px * glyphs_per_row);
         const texture_height: i32 = @intCast(renderer.glyphs.max_height_px * glyphs_per_column);
         if (texture_width >= texture_height) {
@@ -347,7 +349,7 @@ pub const Renderer = struct {
         return texture;
     }
 
-    fn beginDraw(renderer: *Renderer, viewport: ZssRect, num_objects: usize) !void {
+    fn beginDraw(renderer: *Renderer, viewport: Rect, num_objects: usize) !void {
         zgl.bindVertexArray(renderer.vao);
         zgl.bindBuffer(renderer.vb, .array_buffer);
         zgl.bindBuffer(renderer.ib, .element_array_buffer);
@@ -412,7 +414,7 @@ pub const Renderer = struct {
         }
     }
 
-    fn addTriangle(renderer: *Renderer, vertices: [3][2]ZssUnit, color: Color) !void {
+    fn addTriangle(renderer: *Renderer, vertices: [3][2]Unit, color: Color) !void {
         const start_index: u32 = @intCast(renderer.vertices.items.len);
         try renderer.vertices.appendSlice(renderer.allocator, &.{
             .{ .pos = vertices[0], .color = undefined, .tex_coords = .{ 0.0, 0.0 } },
@@ -438,7 +440,7 @@ pub const Renderer = struct {
     ///  |            |
     ///  ______________
     /// 3              2
-    fn addQuadFull(renderer: *Renderer, pos: [4][2]ZssUnit, color: Color, tex_coords: [4][2]f32) !void {
+    fn addQuadFull(renderer: *Renderer, pos: [4][2]Unit, color: Color, tex_coords: [4][2]f32) !void {
         const start_index: u32 = @intCast(renderer.vertices.items.len);
         try renderer.vertices.appendSlice(renderer.allocator, &.{
             .{ .pos = pos[0], .color = undefined, .tex_coords = tex_coords[0] },
@@ -457,11 +459,11 @@ pub const Renderer = struct {
         try renderer.indeces.appendSlice(renderer.allocator, &indeces);
     }
 
-    fn addQuad(renderer: *Renderer, vertices: [4][2]ZssUnit, color: Color) !void {
+    fn addQuad(renderer: *Renderer, vertices: [4][2]Unit, color: Color) !void {
         return renderer.addQuadFull(vertices, color, .{[2]f32{ 0.0, 0.0 }} ** 4);
     }
 
-    fn zssRectToVertices(rect: ZssRect) [4][2]ZssUnit {
+    fn zssRectToVertices(rect: Rect) [4][2]Unit {
         return .{
             .{ rect.x, rect.y },
             .{ rect.x + rect.w, rect.y },
@@ -470,11 +472,11 @@ pub const Renderer = struct {
         };
     }
 
-    fn addZssRect(renderer: *Renderer, rect: ZssRect, color: Color) !void {
+    fn addRect(renderer: *Renderer, rect: Rect, color: Color) !void {
         return renderer.addQuad(zssRectToVertices(rect), color);
     }
 
-    fn addTexturedRect(renderer: *Renderer, rect: ZssRect, tint: Color, tex_coords_x: [2]f32, tex_coords_y: [2]f32) !void {
+    fn addTexturedRect(renderer: *Renderer, rect: Rect, tint: Color, tex_coords_x: [2]f32, tex_coords_y: [2]f32) !void {
         const tex_coords = [4][2]f32{
             .{ tex_coords_x[0], tex_coords_y[0] },
             .{ tex_coords_x[1], tex_coords_y[0] },
@@ -491,7 +493,7 @@ pub fn drawBoxTree(
     box_tree: BoxTree,
     draw_list: DrawList,
     allocator: Allocator,
-    viewport: ZssRect,
+    viewport: Rect,
 ) !void {
     const objects = try getObjectsOnScreenInDrawOrder(draw_list, allocator, viewport);
     defer allocator.free(objects);
@@ -527,7 +529,7 @@ pub fn drawBoxTree(
     }
 }
 
-fn getObjectsOnScreenInDrawOrder(draw_list: DrawList, allocator: Allocator, viewport: ZssRect) ![]QuadTree.Object {
+fn getObjectsOnScreenInDrawOrder(draw_list: DrawList, allocator: Allocator, viewport: Rect) ![]QuadTree.Object {
     const objects = try draw_list.quad_tree.findObjectsInRect(viewport, allocator);
     errdefer allocator.free(objects);
 
@@ -555,30 +557,30 @@ fn getObjectsOnScreenInDrawOrder(draw_list: DrawList, allocator: Allocator, view
 }
 
 const ThreeBoxes = struct {
-    border: ZssRect,
-    padding: ZssRect,
-    content: ZssRect,
+    border: Rect,
+    padding: Rect,
+    content: Rect,
 };
 
 fn getThreeBoxes(
-    border_top_left: ZssVector,
+    border_top_left: Vector,
     box_offsets: zss.used_values.BoxOffsets,
     borders: zss.used_values.Borders,
 ) ThreeBoxes {
     return ThreeBoxes{
-        .border = ZssRect{
+        .border = Rect{
             .x = border_top_left.x,
             .y = border_top_left.y,
             .w = box_offsets.border_size.w,
             .h = box_offsets.border_size.h,
         },
-        .padding = ZssRect{
+        .padding = Rect{
             .x = border_top_left.x + borders.left,
             .y = border_top_left.y + borders.top,
             .w = box_offsets.border_size.w - borders.left - borders.right,
             .h = box_offsets.border_size.h - borders.top - borders.bottom,
         },
-        .content = ZssRect{
+        .content = Rect{
             .x = border_top_left.x + box_offsets.content_pos.x,
             .y = border_top_left.y + box_offsets.content_pos.y,
             .w = box_offsets.content_size.w,
@@ -604,7 +606,7 @@ fn drawBlockContainer(
                 .padding => boxes.padding,
                 .content => boxes.content,
             };
-            try renderer.addZssRect(bg_clip_rect, background.color);
+            try renderer.addRect(bg_clip_rect, background.color);
         },
     }
 
@@ -640,14 +642,14 @@ fn drawBlockContainer(
 
     // draw borders
     const border = boxes.border;
-    const border_vertices = [4][2]ZssUnit{
+    const border_vertices = [4][2]Unit{
         .{ border.x, border.y },
         .{ border.x + border.w, border.y },
         .{ border.x + border.w, border.y + border.h },
         .{ border.x, border.y + border.h },
     };
     const padding = boxes.padding;
-    const padding_vertices = [4][2]ZssUnit{
+    const padding_vertices = [4][2]Unit{
         .{ padding.x, padding.y },
         .{ padding.x + padding.w, padding.y },
         .{ padding.x + padding.w, padding.y + padding.h },
@@ -662,10 +664,10 @@ fn drawBlockContainer(
 
 fn drawBackgroundImage(
     renderer: *Renderer,
-    positioning_area: ZssRect,
-    painting_area: ZssRect,
-    position: ZssVector,
-    size: ZssSize,
+    positioning_area: Rect,
+    painting_area: Rect,
+    position: Vector,
+    size: Size,
     repeat: zss.used_values.BackgroundImage.Repeat,
 ) !void {
     const info_x = getBackgroundImageTilingInfo(
@@ -693,7 +695,7 @@ fn drawBackgroundImage(
         while (j < info_y.start_index + info_y.count) : (j += 1) {
             const tile_y = getBackgroundImageTileCoords(j, painting_area.yRange(), positioning_area.yRange(), size.h, info_y.space, info_y.offset);
 
-            const image_rect = ZssRect{
+            const image_rect = Rect{
                 .x = tile_x.coords.min,
                 .y = tile_y.coords.min,
                 .w = tile_x.coords.max - tile_x.coords.min,
@@ -750,23 +752,23 @@ const BackgroundImageTilingInfo = struct {
     /// The number of images to draw. Always positive.
     count: i32,
     /// The amount of space to leave between each image. Always positive.
-    space: Ratio(ZssUnit),
+    space: Ratio,
     /// The offset of the top/left of the image with index 0 from the top/left of the positioning area.
-    offset: ZssUnit,
+    offset: Unit,
 };
 
 fn getBackgroundImageTilingInfo(
     repeat: zss.used_values.BackgroundImage.Repeat.Style,
     /// Must be greater than or equal to 0.
-    painting_area_size: ZssUnit,
+    painting_area_size: Unit,
     /// The offset of the top/left of the positioning area from the top/left of the painting area.
-    positioning_area_offset: ZssUnit,
+    positioning_area_offset: Unit,
     /// Must be greater than or equal to 0.
-    positioning_area_size: ZssUnit,
+    positioning_area_size: Unit,
     /// The offset of the top/left of the image with index 0 from the top/left of the positioning area.
-    image_offset: ZssUnit,
+    image_offset: Unit,
     /// Must be strictly greater than 0.
-    image_size: ZssUnit,
+    image_size: Unit,
 ) BackgroundImageTilingInfo {
     assert(painting_area_size >= 0);
     assert(positioning_area_size >= 0);
@@ -785,10 +787,10 @@ fn getBackgroundImageTilingInfo(
         },
         .repeat => {
             const space_before_center = positioning_area_offset + image_offset;
-            const num_before_center = divCeil(ZssUnit, space_before_center, image_size) catch unreachable;
+            const num_before_center = divCeil(Unit, space_before_center, image_size) catch unreachable;
 
             const space_after_center = painting_area_size - positioning_area_offset - image_offset - image_size;
-            const num_after_center = divCeil(ZssUnit, space_after_center, image_size) catch unreachable;
+            const num_after_center = divCeil(Unit, space_after_center, image_size) catch unreachable;
 
             return .{
                 .start_index = -num_before_center,
@@ -827,11 +829,11 @@ fn getBackgroundImageTilingInfo(
 
             const space_before_positioning_area = positioning_area_offset;
             const num_before_positioning_area =
-                divCeil(ZssUnit, n * space_before_positioning_area - positioning_area_unused_space, denominator) catch unreachable;
+                divCeil(Unit, n * space_before_positioning_area - positioning_area_unused_space, denominator) catch unreachable;
 
             const space_after_positioning_area = painting_area_size - positioning_area_offset - positioning_area_size;
             const num_after_positioning_area =
-                divCeil(ZssUnit, n * space_after_positioning_area - positioning_area_unused_space, denominator) catch unreachable;
+                divCeil(Unit, n * space_after_positioning_area - positioning_area_unused_space, denominator) catch unreachable;
 
             return .{
                 .start_index = -num_before_positioning_area,
@@ -846,8 +848,8 @@ fn getBackgroundImageTilingInfo(
 
 const BackgroundImageTileCoords = struct {
     coords: struct {
-        min: ZssUnit,
-        max: ZssUnit,
+        min: Unit,
+        max: Unit,
     },
     tex_coords: struct {
         min: f32,
@@ -857,11 +859,11 @@ const BackgroundImageTileCoords = struct {
 
 fn getBackgroundImageTileCoords(
     tile_coord: i32,
-    painting_range: ZssRange,
-    positioning_range: ZssRange,
-    size: ZssUnit,
-    space: Ratio(ZssUnit),
-    offset: ZssUnit,
+    painting_range: Range,
+    positioning_range: Range,
+    size: Unit,
+    space: Ratio,
+    offset: Unit,
 ) BackgroundImageTileCoords {
     var result: BackgroundImageTileCoords = undefined;
 
@@ -890,7 +892,7 @@ fn drawLineBox(
     renderer: *Renderer,
     ifc: *const InlineFormattingContext,
     line_box: InlineFormattingContext.LineBox,
-    translation: ZssVector,
+    translation: Vector,
     allocator: Allocator,
 ) !void {
     const slice = ifc.slice();
@@ -919,7 +921,7 @@ fn drawLineBox(
                 ifc,
                 slice,
                 i,
-                ZssVector{ .x = offset.x, .y = offset.y + line_box.baseline },
+                Vector{ .x = offset.x, .y = offset.y + line_box.baseline },
                 match_info.advance,
                 false,
                 match_info.found,
@@ -939,7 +941,7 @@ fn drawLineBox(
     renderer.setMode(.textured, renderer.glyphs.texture);
     defer renderer.setMode(.flat_color, {});
 
-    var cursor: ZssUnit = 0;
+    var cursor: Unit = 0;
     var i: usize = 0;
     while (i < all_glyphs.len) : (i += 1) {
         const glyph_index = all_glyphs[i];
@@ -963,7 +965,7 @@ fn drawLineBox(
                         ifc,
                         slice,
                         special.data,
-                        ZssVector{ .x = offset.x + cursor + metrics.offset, .y = offset.y + line_box.baseline },
+                        Vector{ .x = offset.x + cursor + metrics.offset, .y = offset.y + line_box.baseline },
                         match_info.advance,
                         true,
                         match_info.found,
@@ -982,7 +984,7 @@ fn drawLineBox(
         }
 
         if (renderer.getGlyphInfo(glyph_index)) |info| {
-            const rect = ZssRect{
+            const rect = Rect{
                 .x = offset.x + cursor + metrics.offset,
                 .y = offset.y + line_box.baseline - (info.metrics.ascender_px * units_per_pixel),
                 .w = @intCast(info.metrics.width_px * units_per_pixel),
@@ -998,11 +1000,11 @@ fn findMatchingBoxEnd(
     metrics: []const InlineFormattingContext.Metrics,
     inline_box: InlineBoxIndex,
 ) struct {
-    advance: ZssUnit,
+    advance: Unit,
     found: bool,
 } {
     var found = false;
-    var advance: ZssUnit = 0;
+    var advance: Unit = 0;
     var i: usize = 0;
     while (i < glyph_indeces.len) : (i += 1) {
         const glyph_index = glyph_indeces[i];
@@ -1028,8 +1030,8 @@ fn drawInlineBox(
     ifc: *const InlineFormattingContext,
     slice: InlineFormattingContext.Slice,
     inline_box: InlineBoxIndex,
-    baseline_position: ZssVector,
-    middle_length: ZssUnit,
+    baseline_position: Vector,
+    middle_length: Unit,
     draw_start: bool,
     draw_end: bool,
 ) !void {
@@ -1070,7 +1072,7 @@ fn drawInlineBox(
     const border_bottom_y = padding_bottom_y + border.bottom;
 
     { // background color
-        var background_clip_rect = ZssRect{
+        var background_clip_rect = Rect{
             .x = baseline_position.x,
             .y = undefined,
             .w = middle_length,
@@ -1098,7 +1100,7 @@ fn drawInlineBox(
                 if (draw_start) background_clip_rect.x += padding.left + border.left;
             },
         }
-        try renderer.addZssRect(background_clip_rect, background.color);
+        try renderer.addRect(background_clip_rect, background.color);
     }
 
     var middle_border_x = baseline_position.x;
@@ -1111,7 +1113,7 @@ fn drawInlineBox(
         const section_start_x = baseline_position.x;
         const section_end_x = section_start_x + border.left;
 
-        const vertices = [6][2]ZssUnit{
+        const vertices = [6][2]Unit{
             .{ section_start_x, border_top_y },
             .{ section_end_x, border_top_y },
             .{ section_end_x, padding_top_y },
@@ -1131,7 +1133,7 @@ fn drawInlineBox(
         const section_start_x = middle_border_x + middle_border_w;
         const section_end_x = section_start_x + border.right;
 
-        const vertices = [6][2]ZssUnit{
+        const vertices = [6][2]Unit{
             .{ section_start_x, border_top_y },
             .{ section_end_x, border_top_y },
             .{ section_end_x, border_bottom_y },
@@ -1146,20 +1148,20 @@ fn drawInlineBox(
     }
 
     {
-        const top_rect = ZssRect{
+        const top_rect = Rect{
             .x = middle_border_x,
             .y = border_top_y,
             .w = middle_border_w,
             .h = border.top,
         };
-        const bottom_rect = ZssRect{
+        const bottom_rect = Rect{
             .x = middle_border_x,
             .y = padding_bottom_y,
             .w = middle_border_w,
             .h = border.bottom,
         };
 
-        try renderer.addZssRect(top_rect, border_colors.top);
-        try renderer.addZssRect(bottom_rect, border_colors.bottom);
+        try renderer.addRect(top_rect, border_colors.top);
+        try renderer.addRect(bottom_rect, border_colors.bottom);
     }
 }

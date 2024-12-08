@@ -7,6 +7,8 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const zss = @import("../zss.zig");
 const Layout = zss.Layout;
 const StyleComputer = @import("./StyleComputer.zig");
+const Size = zss.math.Size;
+const Unit = zss.math.Unit;
 const aggregates = zss.properties.aggregates;
 const solve = @import("./solve.zig");
 const types = zss.values.types;
@@ -16,8 +18,6 @@ const BlockRef = used_values.BlockRef;
 const BoxTree = used_values.BoxTree;
 const InlineBoxIndex = used_values.InlineBoxIndex;
 const InlineFormattingContext = used_values.InlineFormattingContext;
-const ZssSize = used_values.ZssSize;
-const ZssUnit = used_values.ZssUnit;
 
 const Mode = enum {
     InitialContainingBlock,
@@ -27,7 +27,7 @@ const Mode = enum {
 
 const Context = struct {
     mode: ArrayListUnmanaged(Mode) = .{},
-    containing_block_size: ArrayListUnmanaged(ZssSize) = .{},
+    containing_block_size: ArrayListUnmanaged(Size) = .{},
     allocator: Allocator,
 
     fn deinit(context: *Context) void {
@@ -242,14 +242,14 @@ fn solveInsetsStatic(
 
 fn solveInsetsRelative(
     specified: aggregates.Insets,
-    containing_block_size: ZssSize,
+    containing_block_size: Size,
     computed: *aggregates.Insets,
     used: *used_values.Insets,
 ) void {
-    var left: ?ZssUnit = undefined;
-    var right: ?ZssUnit = undefined;
-    var top: ?ZssUnit = undefined;
-    var bottom: ?ZssUnit = undefined;
+    var left: ?Unit = undefined;
+    var right: ?Unit = undefined;
+    var top: ?Unit = undefined;
+    var bottom: ?Unit = undefined;
 
     switch (specified.left) {
         .px => |value| {

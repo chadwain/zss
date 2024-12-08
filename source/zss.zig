@@ -1,11 +1,11 @@
 pub const debug = @import("debug.zig");
+pub const math = @import("math.zig");
 pub const properties = @import("properties.zig");
 pub const render = @import("render.zig");
 pub const selectors = @import("selectors.zig");
 pub const syntax = @import("syntax.zig");
 pub const unicode = @import("unicode.zig");
 pub const used_values = @import("used_values.zig");
-pub const util = @import("util.zig");
 pub const values = @import("values.zig");
 pub const zml = @import("zml.zig");
 

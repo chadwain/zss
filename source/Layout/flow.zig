@@ -14,6 +14,7 @@ const Layout = zss.Layout;
 const SctBuilder = Layout.StackingContextTreeBuilder;
 const Stack = zss.Stack;
 const StyleComputer = Layout.StyleComputer;
+const Unit = zss.math.Unit;
 
 const solve = @import("./solve.zig");
 const @"inline" = @import("./inline.zig");
@@ -23,10 +24,9 @@ const BoxTree = used_values.BoxTree;
 const GeneratedBox = used_values.GeneratedBox;
 const StackingContextTree = used_values.StackingContextTree;
 const Subtree = used_values.Subtree;
-const ZssUnit = used_values.ZssUnit;
 
 pub const Result = struct {
-    auto_height: ZssUnit,
+    auto_height: Unit,
 };
 
 pub fn runFlowLayout(layout: *Layout, sizes: BlockUsedSizes) !Result {
@@ -47,8 +47,8 @@ const Context = struct {
     stack: Stack(StackItem) = .{},
 
     const StackItem = struct {
-        auto_height: ZssUnit,
-        inline_size_clamped: ZssUnit,
+        auto_height: Unit,
+        inline_size_clamped: Unit,
     };
 
     fn deinit(ctx: *Context) void {
@@ -140,10 +140,10 @@ fn popBlock(layout: *Layout, ctx: *Context) void {
 }
 
 const BlockUsedSizesSlim = struct {
-    inline_size_clamped: ZssUnit,
-    block_size: ?ZssUnit,
-    min_block_size: ZssUnit,
-    max_block_size: ZssUnit,
+    inline_size_clamped: Unit,
+    block_size: ?Unit,
+    min_block_size: Unit,
+    max_block_size: Unit,
     inset_inline_start: IsAutoOrPercentage,
     inset_inline_end: IsAutoOrPercentage,
     inset_block_start: IsAutoOrPercentage,
@@ -166,8 +166,8 @@ const BlockUsedSizesSlim = struct {
 pub fn solveAllSizes(
     computer: *StyleComputer,
     position: used_values.BoxStyle.Position,
-    containing_block_width: ZssUnit,
-    containing_block_height: ?ZssUnit,
+    containing_block_width: Unit,
+    containing_block_height: ?Unit,
 ) BlockUsedSizes {
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     const specified_sizes = BlockComputedSizes{
@@ -202,7 +202,7 @@ pub fn solveAllSizes(
 /// Properties: 'min-width', 'max-width', 'width', 'margin-left', 'margin-right'
 fn solveWidthAndHorizontalMargins(
     specified: BlockComputedSizes,
-    containing_block_width: ZssUnit,
+    containing_block_width: Unit,
     computed: *BlockComputedSizes,
     used: *BlockUsedSizes,
 ) void {
@@ -232,7 +232,7 @@ fn solveWidthAndHorizontalMargins(
         },
         .none => {
             computed.content_width.max_width = .none;
-            used.max_inline_size = std.math.maxInt(ZssUnit);
+            used.max_inline_size = std.math.maxInt(Unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -286,7 +286,7 @@ fn solveWidthAndHorizontalMargins(
 
 pub fn solveHorizontalBorderPadding(
     specified: aggregates.HorizontalEdges,
-    containing_block_width: ZssUnit,
+    containing_block_width: Unit,
     border_styles: aggregates.BorderStyles,
     computed: *aggregates.HorizontalEdges,
     used: *BlockUsedSizes,
@@ -352,7 +352,7 @@ pub fn solveHorizontalBorderPadding(
 
 pub fn solveHeight(
     specified: aggregates.ContentHeight,
-    containing_block_height: ?ZssUnit,
+    containing_block_height: ?Unit,
     computed: *aggregates.ContentHeight,
     used: *BlockUsedSizes,
 ) void {
@@ -383,11 +383,11 @@ pub fn solveHeight(
             used.max_block_size = if (containing_block_height) |s|
                 solve.positivePercentage(value, s)
             else
-                std.math.maxInt(ZssUnit);
+                std.math.maxInt(Unit);
         },
         .none => {
             computed.max_height = .none;
-            used.max_block_size = std.math.maxInt(ZssUnit);
+            used.max_block_size = std.math.maxInt(Unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -414,7 +414,7 @@ pub fn solveHeight(
 /// This is an implementation of CSS2§10.5 and CSS2§10.6.3.
 pub fn solveVerticalEdges(
     specified: aggregates.VerticalEdges,
-    containing_block_width: ZssUnit,
+    containing_block_width: Unit,
     border_styles: aggregates.BorderStyles,
     computed: *aggregates.VerticalEdges,
     used: *BlockUsedSizes,
@@ -546,7 +546,7 @@ pub fn solveInsets(
 
 /// Changes the used sizes of a block that is in normal flow.
 /// This implements the constraints described in CSS2.2§10.3.3.
-pub fn adjustWidthAndMargins(used: *BlockUsedSizes, containing_block_width: ZssUnit) void {
+pub fn adjustWidthAndMargins(used: *BlockUsedSizes, containing_block_width: Unit) void {
     const width_margin_space = containing_block_width -
         (used.border_inline_start + used.border_inline_end + used.padding_inline_start + used.padding_inline_end);
     const auto = .{
@@ -597,15 +597,15 @@ pub fn solveStackingContext(
     }
 }
 
-pub fn solveUsedWidth(width: ZssUnit, min_width: ZssUnit, max_width: ZssUnit) ZssUnit {
+pub fn solveUsedWidth(width: Unit, min_width: Unit, max_width: Unit) Unit {
     return solve.clampSize(width, min_width, max_width);
 }
 
-pub fn solveUsedHeight(height: ?ZssUnit, min_height: ZssUnit, max_height: ZssUnit, auto_height: ZssUnit) ZssUnit {
+pub fn solveUsedHeight(height: ?Unit, min_height: Unit, max_height: Unit, auto_height: Unit) Unit {
     return solve.clampSize(height orelse auto_height, min_height, max_height);
 }
 
-pub fn addBlockToFlow(subtree: Subtree.View, index: Subtree.Size, parent_auto_height: *ZssUnit) void {
+pub fn addBlockToFlow(subtree: Subtree.View, index: Subtree.Size, parent_auto_height: *Unit) void {
     const box_offsets = &subtree.items(.box_offsets)[index];
     const margin_bottom = subtree.items(.margins)[index].bottom;
 
@@ -614,6 +614,6 @@ pub fn addBlockToFlow(subtree: Subtree.View, index: Subtree.Size, parent_auto_he
     advanceFlow(parent_auto_height, box_offsets.border_size.h + margin_top + margin_bottom);
 }
 
-fn advanceFlow(parent_auto_height: *ZssUnit, amount: ZssUnit) void {
+fn advanceFlow(parent_auto_height: *Unit, amount: Unit) void {
     parent_auto_height.* += amount;
 }

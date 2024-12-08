@@ -13,6 +13,7 @@ const Element = ElementTree.Element;
 const Layout = zss.Layout;
 const SctBuilder = Layout.StackingContextTreeBuilder;
 const Stack = zss.Stack;
+const Unit = zss.math.Unit;
 
 const flow = @import("./flow.zig");
 const @"inline" = @import("./inline.zig");
@@ -25,14 +26,13 @@ const BlockRef = used_values.BlockRef;
 const GeneratedBox = used_values.GeneratedBox;
 const StackingContextTree = used_values.StackingContextTree;
 const Subtree = used_values.Subtree;
-const ZssUnit = used_values.ZssUnit;
 
 pub const Result = struct {
-    auto_width: ZssUnit,
-    auto_height: ZssUnit,
+    auto_width: Unit,
+    auto_height: Unit,
 };
 
-pub fn runShrinkToFitLayout(layout: *Layout, used_sizes: BlockUsedSizes, available_width: ZssUnit) !Result {
+pub fn runShrinkToFitLayout(layout: *Layout, used_sizes: BlockUsedSizes, available_width: Unit) !Result {
     var object_tree = ObjectTree{};
     defer object_tree.deinit(layout.allocator);
 
@@ -61,7 +61,7 @@ const Object = struct {
 
     const Data = union {
         flow_stf: struct {
-            width_clamped: ZssUnit,
+            width_clamped: Unit,
             used: BlockUsedSizes,
             stacking_context_id: ?StackingContextTree.Id,
             absolute_containing_block_id: ?Layout.Absolute.ContainingBlock.Id,
@@ -82,9 +82,9 @@ const BuildObjectTreeContext = struct {
     const StackItem = struct {
         object_index: Object.Index,
         object_skip: Object.Index,
-        auto_width: ZssUnit,
-        available_width: ZssUnit,
-        height: ?ZssUnit, // TODO: clamp the height
+        auto_width: Unit,
+        available_width: Unit,
+        height: ?Unit, // TODO: clamp the height
     };
 
     fn deinit(self: *BuildObjectTreeContext, allocator: Allocator) void {
@@ -192,7 +192,7 @@ fn pushMainObject(
     object_tree: *ObjectTree,
     allocator: Allocator,
     used_sizes: BlockUsedSizes,
-    available_width: ZssUnit,
+    available_width: Unit,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowObject.
     ctx.stack.top = .{
@@ -222,7 +222,7 @@ fn pushFlowObject(
     element: Element,
     box_style: used_values.BoxStyle,
     used_sizes: BlockUsedSizes,
-    available_width: ZssUnit,
+    available_width: Unit,
     stacking_context: SctBuilder.Type,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowObject.
@@ -295,8 +295,8 @@ const RealizeObjectsContext = struct {
         object_tag: Object.Tag,
         object_interval: Interval,
 
-        width: ZssUnit,
-        auto_height: ZssUnit,
+        width: Unit,
+        auto_height: Unit,
     };
 
     fn deinit(ctx: *RealizeObjectsContext, allocator: Allocator) void {
@@ -414,7 +414,7 @@ fn solveBlockSizes(
     computer: *StyleComputer,
     used: *BlockUsedSizes,
     position: used_values.BoxStyle.Position,
-    containing_block_height: ?ZssUnit,
+    containing_block_height: ?Unit,
 ) void {
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     const specified = BlockComputedSizes{
@@ -465,11 +465,11 @@ fn flowBlockSolveWidthAndHorizontalMargins(
         },
         .percentage => |value| {
             computed.content_width.max_width = .{ .percentage = value };
-            used.max_inline_size = std.math.maxInt(ZssUnit);
+            used.max_inline_size = std.math.maxInt(Unit);
         },
         .none => {
             computed.content_width.max_width = .none;
-            used.max_inline_size = std.math.maxInt(ZssUnit);
+            used.max_inline_size = std.math.maxInt(Unit);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }

@@ -1,7 +1,7 @@
 const zss = @import("zss");
 const BoxTree = zss.used_values.BoxTree;
 const DrawList = zss.render.DrawList;
-const units_per_pixel = zss.used_values.units_per_pixel;
+const units_per_pixel = zss.math.units_per_pixel;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -74,7 +74,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
         setIcbBackgroundColor(&box_tree, zss.used_values.Color.fromRgbaInt(0x202020ff));
         const root_block_size = rootBlockSize(&box_tree, t.root_element);
 
-        const pages = zss.util.divCeil(root_block_size.height, t.height);
+        const pages = try std.math.divCeil(u32, root_block_size.height, t.height);
         var image = try zigimg.Image.create(allocator, root_block_size.width, pages * t.height, .rgba32);
         defer image.deinit();
         const image_pixels = image.pixels.asBytes();
@@ -88,7 +88,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
             zgl.clearColor(0, 0, 0, 0);
             zgl.clear(.{ .color = true });
 
-            const viewport = zss.used_values.ZssRect{
+            const viewport = zss.math.Rect{
                 .x = @intCast(root_block_size.x * units_per_pixel),
                 .y = @intCast((i * t.height + root_block_size.y) * units_per_pixel),
                 .w = @intCast(t.width * units_per_pixel),

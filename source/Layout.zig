@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("zss.zig");
 const aggregates = zss.properties.aggregates;
+const math = zss.math;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Fonts = zss.Fonts;
@@ -21,15 +22,12 @@ pub const StyleComputer = @import("Layout/StyleComputer.zig");
 pub const StackingContextTreeBuilder = @import("Layout/StackingContextTreeBuilder.zig");
 
 const used_values = zss.used_values;
-const units_per_pixel = used_values.units_per_pixel;
 const BlockRef = used_values.BlockRef;
 const BoxTree = used_values.BoxTree;
 const InlineFormattingContext = used_values.InlineFormattingContext;
 const StackingContext = used_values.StackingContext;
 const StackingContextTree = used_values.StackingContextTree;
 const Subtree = used_values.Subtree;
-const ZssUnit = used_values.ZssUnit;
-const ZssSize = used_values.ZssSize;
 
 const Layout = @This();
 
@@ -37,7 +35,7 @@ box_tree: *BoxTree,
 computer: StyleComputer,
 sct_builder: StackingContextTreeBuilder,
 absolute: Absolute,
-viewport: ZssSize,
+viewport: math.Size,
 inputs: Inputs,
 allocator: Allocator,
 element_stack: zss.Stack(Element),
@@ -113,7 +111,7 @@ pub fn deinit(layout: *Layout) void {
 }
 
 pub fn run(layout: *Layout, allocator: Allocator) Error!BoxTree {
-    const cast = used_values.pixelsToZssUnits;
+    const cast = math.pixelsToUnits;
     const width_units = cast(layout.inputs.width) orelse return error.ViewportTooLarge;
     const height_units = cast(layout.inputs.height) orelse return error.ViewportTooLarge;
     layout.viewport = .{
@@ -209,7 +207,7 @@ fn addSkip(layout: *Layout, skip: Subtree.Size) void {
     }
 }
 
-pub fn pushInitialContainingBlock(layout: *Layout, size: ZssSize) !BlockRef {
+pub fn pushInitialContainingBlock(layout: *Layout, size: math.Size) !BlockRef {
     const ref = try layout.newBlock();
     const stacking_context_id = try layout.sct_builder.pushInitial(layout.box_tree, ref);
     const absolute_containing_block_id = try layout.absolute.pushInitialContainingBlock(layout.allocator, ref);
@@ -271,7 +269,7 @@ pub fn pushFlowBlock(
     return ref;
 }
 
-pub fn popFlowBlock(layout: *Layout, auto_height: ZssUnit) BlockRef {
+pub fn popFlowBlock(layout: *Layout, auto_height: math.Unit) BlockRef {
     layout.sct_builder.pop(layout.box_tree);
     layout.popAbsoluteContainingBlock();
     const block = layout.blocks.pop();
@@ -303,8 +301,8 @@ pub fn pushIfcContainerBlock(layout: *Layout) !BlockRef {
 pub fn popIfcContainerBlock(
     layout: *Layout,
     ifc: used_values.InlineFormattingContextId,
-    containing_block_width: ZssUnit,
-    height: ZssUnit,
+    containing_block_width: math.Unit,
+    height: math.Unit,
 ) void {
     const block = layout.blocks.pop();
     layout.subtrees.top.?.depth -= 1;
@@ -336,8 +334,8 @@ pub fn pushStfFlowMainBlock(
 
 pub fn popStfFlowMainBlock(
     layout: *Layout,
-    auto_width: ZssUnit,
-    auto_height: ZssUnit,
+    auto_width: math.Unit,
+    auto_height: math.Unit,
 ) void {
     layout.sct_builder.pop(layout.box_tree);
     layout.popAbsoluteContainingBlock();
@@ -397,8 +395,8 @@ pub fn pushStfFlowBlock2(
 
 pub fn popStfFlowBlock2(
     layout: *Layout,
-    auto_width: ZssUnit,
-    auto_height: ZssUnit,
+    auto_width: math.Unit,
+    auto_height: math.Unit,
 ) BlockRef {
     const block = layout.blocks.pop();
     layout.subtrees.top.?.depth -= 1;
@@ -469,30 +467,30 @@ pub const BlockComputedSizes = struct {
 // TODO: The field names of this struct are misleading.
 //       zss currently does not support logical properties.
 pub const BlockUsedSizes = struct {
-    border_inline_start: ZssUnit,
-    border_inline_end: ZssUnit,
-    padding_inline_start: ZssUnit,
-    padding_inline_end: ZssUnit,
-    margin_inline_start_untagged: ZssUnit,
-    margin_inline_end_untagged: ZssUnit,
-    inline_size_untagged: ZssUnit,
-    min_inline_size: ZssUnit,
-    max_inline_size: ZssUnit,
+    border_inline_start: math.Unit,
+    border_inline_end: math.Unit,
+    padding_inline_start: math.Unit,
+    padding_inline_end: math.Unit,
+    margin_inline_start_untagged: math.Unit,
+    margin_inline_end_untagged: math.Unit,
+    inline_size_untagged: math.Unit,
+    min_inline_size: math.Unit,
+    max_inline_size: math.Unit,
 
-    border_block_start: ZssUnit,
-    border_block_end: ZssUnit,
-    padding_block_start: ZssUnit,
-    padding_block_end: ZssUnit,
-    margin_block_start: ZssUnit,
-    margin_block_end: ZssUnit,
-    block_size_untagged: ZssUnit,
-    min_block_size: ZssUnit,
-    max_block_size: ZssUnit,
+    border_block_start: math.Unit,
+    border_block_end: math.Unit,
+    padding_block_start: math.Unit,
+    padding_block_end: math.Unit,
+    margin_block_start: math.Unit,
+    margin_block_end: math.Unit,
+    block_size_untagged: math.Unit,
+    min_block_size: math.Unit,
+    max_block_size: math.Unit,
 
-    inset_inline_start_untagged: ZssUnit,
-    inset_inline_end_untagged: ZssUnit,
-    inset_block_start_untagged: ZssUnit,
-    inset_block_end_untagged: ZssUnit,
+    inset_inline_start_untagged: math.Unit,
+    inset_inline_end_untagged: math.Unit,
+    inset_block_start_untagged: math.Unit,
+    inset_block_end_untagged: math.Unit,
 
     flags: Flags,
 
@@ -511,18 +509,18 @@ pub const BlockUsedSizes = struct {
 
     pub const IsAutoTag = enum(u1) { value, auto };
     pub const IsAuto = union(IsAutoTag) {
-        value: ZssUnit,
+        value: math.Unit,
         auto,
     };
 
     pub const IsAutoOrPercentageTag = enum(u2) { value, auto, percentage };
     pub const IsAutoOrPercentage = union(IsAutoOrPercentageTag) {
-        value: ZssUnit,
+        value: math.Unit,
         auto,
         percentage: f32,
     };
 
-    pub fn setValue(self: *BlockUsedSizes, comptime field: Flags.Field, value: ZssUnit) void {
+    pub fn setValue(self: *BlockUsedSizes, comptime field: Flags.Field, value: math.Unit) void {
         @field(self.flags, @tagName(field)) = .value;
         const clamped_value = switch (field) {
             .inline_size => solve.clampSize(value, self.min_inline_size, self.max_inline_size),
@@ -549,7 +547,7 @@ pub const BlockUsedSizes = struct {
 
     pub fn GetReturnType(comptime field: Flags.Field) type {
         return switch (std.meta.FieldType(Flags, field)) {
-            IsAutoTag => ?ZssUnit,
+            IsAutoTag => ?math.Unit,
             IsAutoOrPercentageTag => IsAutoOrPercentage,
             else => comptime unreachable,
         };
@@ -576,7 +574,7 @@ pub const BlockUsedSizes = struct {
         return @field(self.flags, @tagName(field)) == .auto;
     }
 
-    fn icb(size: ZssSize) BlockUsedSizes {
+    fn icb(size: math.Size) BlockUsedSizes {
         return .{
             .border_inline_start = 0,
             .border_inline_end = 0,
@@ -623,8 +621,8 @@ fn setDataBlock(
     index: Subtree.Size,
     used: BlockUsedSizes,
     skip: Subtree.Size,
-    width: ZssUnit,
-    height: ZssUnit,
+    width: math.Unit,
+    height: math.Unit,
     stacking_context: ?StackingContextTree.Id,
 ) void {
     subtree.items(.skip)[index] = skip;
@@ -665,8 +663,8 @@ fn setDataIfcContainer(
     ifc: used_values.InlineFormattingContextId,
     index: Subtree.Size,
     skip: Subtree.Size,
-    width: ZssUnit,
-    height: ZssUnit,
+    width: math.Unit,
+    height: math.Unit,
 ) void {
     subtree.items(.skip)[index] = skip;
     subtree.items(.type)[index] = .{ .ifc_container = ifc };

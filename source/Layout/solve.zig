@@ -3,33 +3,33 @@ const std = @import("std");
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
 const types = zss.values.types;
-const units_per_pixel = used_values.units_per_pixel;
 const used_values = zss.used_values;
-const ZssUnit = used_values.ZssUnit;
+const units_per_pixel = zss.math.units_per_pixel;
+const Unit = zss.math.Unit;
 
 pub const LengthUnit = enum { px };
 
-pub fn length(comptime unit: LengthUnit, value: f32) ZssUnit {
+pub fn length(comptime unit: LengthUnit, value: f32) Unit {
     return switch (unit) {
-        .px => @as(ZssUnit, @intFromFloat(@round(value * units_per_pixel))),
+        .px => @as(Unit, @intFromFloat(@round(value * units_per_pixel))),
     };
 }
 
-pub fn positiveLength(comptime unit: LengthUnit, value: f32) ZssUnit {
+pub fn positiveLength(comptime unit: LengthUnit, value: f32) Unit {
     if (value < 0.0 or !std.math.isNormal(value)) return 0.0;
     return length(unit, value);
 }
 
-pub fn percentage(value: f32, unit: ZssUnit) ZssUnit {
+pub fn percentage(value: f32, unit: Unit) Unit {
     return @intFromFloat(@round(@as(f32, @floatFromInt(unit)) * value));
 }
 
-pub fn positivePercentage(value: f32, unit: ZssUnit) ZssUnit {
+pub fn positivePercentage(value: f32, unit: Unit) Unit {
     if (value < 0.0 or !std.math.isNormal(value)) return 0.0;
     return percentage(value, unit);
 }
 
-pub fn clampSize(size: ZssUnit, min_size: ZssUnit, max_size: ZssUnit) ZssUnit {
+pub fn clampSize(size: Unit, min_size: Unit, max_size: Unit) Unit {
     return @max(min_size, @min(size, max_size));
 }
 
@@ -243,8 +243,8 @@ pub fn backgroundImage(
     // TODO: Handle background-attachment
 
     const NaturalSize = struct {
-        width: ZssUnit,
-        height: ZssUnit,
+        width: Unit,
+        height: Unit,
         has_aspect_ratio: bool,
     };
 
@@ -264,7 +264,7 @@ pub fn backgroundImage(
     const padding_height = border_height - borders.top - borders.bottom;
     const content_width = box_offsets.content_size.w;
     const content_height = box_offsets.content_size.h;
-    const positioning_area: struct { origin: used_values.BackgroundImage.Origin, width: ZssUnit, height: ZssUnit } = switch (specified.origin) {
+    const positioning_area: struct { origin: used_values.BackgroundImage.Origin, width: Unit, height: Unit } = switch (specified.origin) {
         .border_box => .{ .origin = .border, .width = border_width, .height = border_height },
         .padding_box => .{ .origin = .padding, .width = padding_width, .height = padding_height },
         .content_box => .{ .origin = .content, .width = content_width, .height = content_height },
@@ -336,7 +336,7 @@ pub fn backgroundImage(
 
     // TODO: Needs review
     if (width_was_auto or height_was_auto or repeat.x == .round or repeat.y == .round) {
-        const divRound = zss.util.divRound;
+        const divRound = zss.math.divRound;
 
         if (width_was_auto and height_was_auto) {
             size.w = natural_size.width;

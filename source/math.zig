@@ -1,0 +1,190 @@
+const std = @import("std");
+const assert = std.debug.assert;
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
+
+/// The smallest unit of space in the zss coordinate system.
+pub const Unit = i32;
+
+/// The number of Units contained wthin the width or height of 1 screen pixel.
+pub const units_per_pixel = 4;
+
+pub fn pixelsToUnits(px: anytype) ?Unit {
+    const casted = std.math.cast(Unit, px) orelse return null;
+    return std.math.mul(Unit, casted, units_per_pixel) catch null;
+}
+
+pub const Vector = struct {
+    x: Unit,
+    y: Unit,
+
+    const Self = @This();
+
+    pub fn add(lhs: Self, rhs: Self) Self {
+        return Self{ .x = lhs.x + rhs.x, .y = lhs.y + rhs.y };
+    }
+
+    pub fn sub(lhs: Self, rhs: Self) Self {
+        return Self{ .x = lhs.x - rhs.x, .y = lhs.y - rhs.y };
+    }
+
+    pub fn eql(lhs: Self, rhs: Self) bool {
+        return lhs.x == rhs.x and lhs.y == rhs.y;
+    }
+};
+
+pub const Size = struct {
+    w: Unit,
+    h: Unit,
+};
+
+pub const Range = struct {
+    start: Unit,
+    length: Unit,
+};
+
+pub const Rect = struct {
+    x: Unit,
+    y: Unit,
+    w: Unit,
+    h: Unit,
+
+    const Self = @This();
+
+    pub fn xRange(rect: Rect) Range {
+        return .{ .start = rect.x, .length = rect.w };
+    }
+
+    pub fn yRange(rect: Rect) Range {
+        return .{ .start = rect.y, .length = rect.h };
+    }
+
+    pub fn isEmpty(self: Self) bool {
+        return self.w < 0 or self.h < 0;
+    }
+
+    pub fn translate(rect: Self, vec: Vector) Self {
+        return Self{
+            .x = rect.x + vec.x,
+            .y = rect.y + vec.y,
+            .w = rect.w,
+            .h = rect.h,
+        };
+    }
+
+    pub fn intersect(a: Self, b: Self) Self {
+        const left = @max(a.x, b.x);
+        const right = @min(a.x + a.w, b.x + b.w);
+        const top = @max(a.y, b.y);
+        const bottom = @min(a.y + a.h, b.y + b.h);
+
+        return Self{
+            .x = left,
+            .y = top,
+            .w = right - left,
+            .h = bottom - top,
+        };
+    }
+};
+
+test "Rect" {
+    const r1 = Rect{ .x = 0, .y = 0, .w = 10, .h = 10 };
+    const r2 = Rect{ .x = 3, .y = 5, .w = 17, .h = 4 };
+    const r3 = Rect{ .x = 15, .y = 0, .w = 20, .h = 9 };
+    const r4 = Rect{ .x = 20, .y = 1, .w = 10, .h = 0 };
+
+    const intersect = Rect.intersect;
+    try expect(std.meta.eql(intersect(r1, r2), Rect{ .x = 3, .y = 5, .w = 7, .h = 4 }));
+    try expect(intersect(r1, r3).isEmpty());
+    try expect(intersect(r1, r4).isEmpty());
+    try expect(std.meta.eql(intersect(r2, r3), Rect{ .x = 15, .y = 5, .w = 5, .h = 4 }));
+    try expect(intersect(r2, r4).isEmpty());
+    try expect(!intersect(r3, r4).isEmpty());
+}
+
+pub const Ratio = struct {
+    num: Unit,
+    den: Unit,
+};
+
+pub fn divRound(a: anytype, b: anytype) @TypeOf(a, b) {
+    const Return = @TypeOf(a, b);
+    return @divFloor(a, b) + @as(Return, @intFromBool(2 * @mod(a, b) >= b));
+}
+
+pub fn roundUp(a: anytype, comptime multiple: comptime_int) @TypeOf(a) {
+    const Return = @TypeOf(a);
+    const mod = @mod(a, multiple);
+    return a + (multiple - mod) * @as(Return, @intFromBool(mod != 0));
+}
+
+test roundUp {
+    try expect(roundUp(0, 4) == 0);
+    try expect(roundUp(1, 4) == 4);
+    try expect(roundUp(3, 4) == 4);
+    try expect(roundUp(62, 7) == 63);
+}
+
+pub fn CheckedInt(comptime Int: type) type {
+    return struct {
+        overflow: bool,
+        value: Int,
+
+        const Self = @This();
+
+        pub fn init(int: Int) Self {
+            return Self{
+                .overflow = false,
+                .value = int,
+            };
+        }
+
+        pub fn unwrap(checked: Self) error{Overflow}!Int {
+            if (checked.overflow) return error.Overflow;
+            return checked.value;
+        }
+
+        pub fn add(checked: *Self, int: Int) void {
+            const add_result = @addWithOverflow(checked.value, int);
+            checked.value = add_result[0];
+            checked.overflow = checked.overflow or @bitCast(add_result[1]);
+        }
+
+        pub fn multiply(checked: *Self, int: Int) void {
+            const mul_result = @mulWithOverflow(checked.value, int);
+            checked.value = mul_result[0];
+            checked.overflow = checked.overflow or @bitCast(mul_result[1]);
+        }
+
+        pub fn alignForward(checked: *Self, comptime alignment: Int) void {
+            comptime assert(std.mem.isValidAlign(alignment));
+            const lower_addr_bits = checked.value & (alignment - 1);
+            if (lower_addr_bits != 0) {
+                checked.add(alignment - lower_addr_bits);
+            }
+        }
+    };
+}
+
+test "CheckedInt.alignForward" {
+    const alignForward = struct {
+        fn f(addr: usize, comptime alignment: comptime_int) !usize {
+            var checked_int = CheckedInt(usize).init(addr);
+            checked_int.alignForward(alignment);
+            return checked_int.unwrap();
+        }
+    }.f;
+
+    try expectEqual(@as(usize, 0), try alignForward(0, 1));
+    try expectEqual(@as(usize, 1), try alignForward(1, 1));
+
+    try expectEqual(@as(usize, 0), try alignForward(0, 2));
+    try expectEqual(@as(usize, 2), try alignForward(1, 2));
+    try expectEqual(@as(usize, 2), try alignForward(2, 2));
+    try expectEqual(@as(usize, 4), try alignForward(3, 2));
+
+    try expectEqual(@as(usize, 0), try alignForward(0, 4));
+    try expectEqual(@as(usize, 4), try alignForward(1, 4));
+    try expectEqual(@as(usize, 4), try alignForward(2, 4));
+    try expectEqual(@as(usize, 4), try alignForward(3, 4));
+}

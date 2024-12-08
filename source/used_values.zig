@@ -5,107 +5,8 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("zss.zig");
+const math = zss.math;
 const Element = zss.ElementTree.Element;
-
-/// The smallest unit of space in the zss coordinate system.
-pub const ZssUnit = i32;
-
-/// The number of ZssUnits contained wthin the width or height of 1 screen pixel.
-pub const units_per_pixel = 4;
-
-pub fn pixelsToZssUnits(px: anytype) ?ZssUnit {
-    const casted = std.math.cast(ZssUnit, px) orelse return null;
-    return std.math.mul(ZssUnit, casted, units_per_pixel) catch null;
-}
-
-pub const ZssVector = struct {
-    x: ZssUnit,
-    y: ZssUnit,
-
-    const Self = @This();
-
-    pub fn add(lhs: Self, rhs: Self) Self {
-        return Self{ .x = lhs.x + rhs.x, .y = lhs.y + rhs.y };
-    }
-
-    pub fn sub(lhs: Self, rhs: Self) Self {
-        return Self{ .x = lhs.x - rhs.x, .y = lhs.y - rhs.y };
-    }
-
-    pub fn eql(lhs: Self, rhs: Self) bool {
-        return lhs.x == rhs.x and lhs.y == rhs.y;
-    }
-};
-
-pub const ZssSize = struct {
-    w: ZssUnit,
-    h: ZssUnit,
-};
-
-pub const ZssRange = struct {
-    start: ZssUnit,
-    length: ZssUnit,
-};
-
-pub const ZssRect = struct {
-    x: ZssUnit,
-    y: ZssUnit,
-    w: ZssUnit,
-    h: ZssUnit,
-
-    const Self = @This();
-
-    pub fn xRange(rect: ZssRect) ZssRange {
-        return .{ .start = rect.x, .length = rect.w };
-    }
-
-    pub fn yRange(rect: ZssRect) ZssRange {
-        return .{ .start = rect.y, .length = rect.h };
-    }
-
-    pub fn isEmpty(self: Self) bool {
-        return self.w < 0 or self.h < 0;
-    }
-
-    pub fn translate(rect: Self, vec: ZssVector) Self {
-        return Self{
-            .x = rect.x + vec.x,
-            .y = rect.y + vec.y,
-            .w = rect.w,
-            .h = rect.h,
-        };
-    }
-
-    pub fn intersect(a: Self, b: Self) Self {
-        const left = @max(a.x, b.x);
-        const right = @min(a.x + a.w, b.x + b.w);
-        const top = @max(a.y, b.y);
-        const bottom = @min(a.y + a.h, b.y + b.h);
-
-        return Self{
-            .x = left,
-            .y = top,
-            .w = right - left,
-            .h = bottom - top,
-        };
-    }
-};
-
-test "ZssRect" {
-    const r1 = ZssRect{ .x = 0, .y = 0, .w = 10, .h = 10 };
-    const r2 = ZssRect{ .x = 3, .y = 5, .w = 17, .h = 4 };
-    const r3 = ZssRect{ .x = 15, .y = 0, .w = 20, .h = 9 };
-    const r4 = ZssRect{ .x = 20, .y = 1, .w = 10, .h = 0 };
-
-    const expect = std.testing.expect;
-    const intersect = ZssRect.intersect;
-    try expect(std.meta.eql(intersect(r1, r2), ZssRect{ .x = 3, .y = 5, .w = 7, .h = 4 }));
-    try expect(intersect(r1, r3).isEmpty());
-    try expect(intersect(r1, r4).isEmpty());
-    try expect(std.meta.eql(intersect(r2, r3), ZssRect{ .x = 15, .y = 5, .w = 5, .h = 4 }));
-    try expect(intersect(r2, r4).isEmpty());
-    try expect(!intersect(r3, r4).isEmpty());
-}
 
 pub const Color = extern struct {
     r: u8,
@@ -145,21 +46,21 @@ pub const BoxOffsets = struct {
     /// The offset of the top-left corner of the border box, relative to
     /// the top-left corner of the parent block's content box (or the top-left
     /// corner of the screen, if this is the initial containing block).
-    border_pos: ZssVector = .{ .x = 0, .y = 0 },
+    border_pos: math.Vector = .{ .x = 0, .y = 0 },
     /// The width and height of the border box.
-    border_size: ZssSize = .{ .w = 0, .h = 0 },
+    border_size: math.Size = .{ .w = 0, .h = 0 },
     /// The offset of the top-left corner of the content box, relative to
     /// the top-left corner of this block's border box.
-    content_pos: ZssVector = .{ .x = 0, .y = 0 },
+    content_pos: math.Vector = .{ .x = 0, .y = 0 },
     /// The width and height of the content box.
-    content_size: ZssSize = .{ .w = 0, .h = 0 },
+    content_size: math.Size = .{ .w = 0, .h = 0 },
 };
 
 pub const Borders = struct {
-    left: ZssUnit = 0,
-    right: ZssUnit = 0,
-    top: ZssUnit = 0,
-    bottom: ZssUnit = 0,
+    left: math.Unit = 0,
+    right: math.Unit = 0,
+    top: math.Unit = 0,
+    bottom: math.Unit = 0,
 };
 
 pub const BorderColor = struct {
@@ -170,13 +71,13 @@ pub const BorderColor = struct {
 };
 
 pub const Margins = struct {
-    left: ZssUnit = 0,
-    right: ZssUnit = 0,
-    top: ZssUnit = 0,
-    bottom: ZssUnit = 0,
+    left: math.Unit = 0,
+    right: math.Unit = 0,
+    top: math.Unit = 0,
+    bottom: math.Unit = 0,
 };
 
-pub const Insets = ZssVector;
+pub const Insets = math.Vector;
 
 pub const BoxStyle = struct {
     pub const InnerBlock = enum {
@@ -225,8 +126,8 @@ pub const BlockBoxBackground = struct {
 
 pub const BackgroundImage = struct {
     pub const Origin = enum { padding, border, content };
-    pub const Position = ZssVector;
-    pub const Size = ZssSize;
+    pub const Position = math.Vector;
+    pub const Size = math.Size;
     pub const Repeat = struct {
         pub const Style = enum { none, repeat, space, round };
         x: Style = .none,
@@ -433,8 +334,8 @@ pub const InlineFormattingContext = struct {
     // NOTE: The descender is a positive value.
     font: zss.Fonts.Handle = .invalid,
     font_color: Color = undefined,
-    ascender: ZssUnit = undefined,
-    descender: ZssUnit = undefined,
+    ascender: math.Unit = undefined,
+    descender: math.Unit = undefined,
 
     inline_boxes: InlineBoxList = .{},
 
@@ -455,25 +356,25 @@ pub const InlineFormattingContext = struct {
     pub const GlyphIndex = hb.hb_codepoint_t;
 
     pub const BoxProperties = struct {
-        border: ZssUnit = 0,
-        padding: ZssUnit = 0,
+        border: math.Unit = 0,
+        padding: math.Unit = 0,
         border_color: Color = Color.transparent,
     };
 
     pub const Metrics = struct {
-        offset: ZssUnit,
-        advance: ZssUnit,
-        width: ZssUnit,
+        offset: math.Unit,
+        advance: math.Unit,
+        width: math.Unit,
     };
 
     pub const MarginsInline = struct {
-        start: ZssUnit = 0,
-        end: ZssUnit = 0,
+        start: math.Unit = 0,
+        end: math.Unit = 0,
     };
 
     pub const LineBox = struct {
         /// The vertical distance from the top of the containing block to this line box's baseline.
-        baseline: ZssUnit,
+        baseline: math.Unit,
         /// The interval of glyph indeces to take from the glyph_indeces array.
         /// It is a half-open interval of the form [a, b).
         elements: [2]usize,
