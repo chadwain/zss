@@ -20,12 +20,11 @@ const @"inline" = @import("./inline.zig");
 const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 
-const used_values = zss.used_values;
-const BoxTree = used_values.BoxTree;
-const BlockRef = used_values.BlockRef;
-const GeneratedBox = used_values.GeneratedBox;
-const StackingContextTree = used_values.StackingContextTree;
-const Subtree = used_values.Subtree;
+const BoxTree = zss.BoxTree;
+const BlockRef = BoxTree.BlockRef;
+const GeneratedBox = BoxTree.GeneratedBox;
+const StackingContextTree = BoxTree.StackingContextTree;
+const Subtree = BoxTree.Subtree;
 
 pub const Result = struct {
     auto_width: Unit,
@@ -115,7 +114,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
 
     const computed, const used_box_style = blk: {
         if (layout.computer.elementCategory(element) == .text) {
-            break :blk .{ undefined, used_values.BoxStyle.text };
+            break :blk .{ undefined, BoxTree.BoxStyle.text };
         }
 
         const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
@@ -220,7 +219,7 @@ fn pushFlowObject(
     ctx: *BuildObjectTreeContext,
     object_tree: *ObjectTree,
     element: Element,
-    box_style: used_values.BoxStyle,
+    box_style: BoxTree.BoxStyle,
     used_sizes: BlockUsedSizes,
     available_width: Unit,
     stacking_context: SctBuilder.Type,
@@ -413,7 +412,7 @@ fn popFlowBlock(layout: *Layout, ctx: *RealizeObjectsContext, object_tree_slice:
 fn solveBlockSizes(
     computer: *StyleComputer,
     used: *BlockUsedSizes,
-    position: used_values.BoxStyle.Position,
+    position: BoxTree.BoxStyle.Position,
     containing_block_height: ?Unit,
 ) void {
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);

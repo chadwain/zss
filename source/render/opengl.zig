@@ -7,16 +7,17 @@ const zss = @import("../zss.zig");
 const Images = zss.Images;
 const DrawList = @import("./DrawList.zig");
 const QuadTree = @import("./QuadTree.zig");
-const Color = zss.used_values.Color;
-const InlineBoxIndex = zss.used_values.InlineBoxIndex;
-const InlineFormattingContext = zss.used_values.InlineFormattingContext;
-const InlineFormattingContextIndex = zss.used_values.InlineFormattingContextIndex;
+
+const BoxTree = zss.BoxTree;
+const Color = BoxTree.Color;
+const InlineBoxIndex = BoxTree.InlineBoxIndex;
+const InlineFormattingContext = BoxTree.InlineFormattingContext;
+const InlineFormattingContextIndex = BoxTree.InlineFormattingContextIndex;
 const GlyphIndex = InlineFormattingContext.GlyphIndex;
-const StackingContext = zss.used_values.StackingContext;
-const StackingContextTree = zss.used_values.StackingContextTree;
-const Subtree = zss.used_values.Subtree;
-const ZIndex = zss.used_values.ZIndex;
-const BoxTree = zss.used_values.BoxTree;
+const StackingContext = BoxTree.StackingContext;
+const StackingContextTree = BoxTree.StackingContextTree;
+const Subtree = BoxTree.Subtree;
+const ZIndex = BoxTree.ZIndex;
 
 const math = zss.math;
 const units_per_pixel = zss.math.units_per_pixel;
@@ -520,7 +521,7 @@ pub fn drawBoxTree(
             },
             .line_box => |line_box_info| {
                 const origin = line_box_info.origin;
-                const ifc = box_tree.ifc(line_box_info.ifc_id);
+                const ifc = box_tree.getIfc(line_box_info.ifc_id);
                 const line_box = ifc.line_boxes.items[line_box_info.line_box_index];
 
                 try drawLineBox(renderer, ifc, line_box, origin, allocator);
@@ -564,8 +565,8 @@ const ThreeBoxes = struct {
 
 fn getThreeBoxes(
     border_top_left: Vector,
-    box_offsets: zss.used_values.BoxOffsets,
-    borders: zss.used_values.Borders,
+    box_offsets: zss.BoxTree.BoxOffsets,
+    borders: zss.BoxTree.Borders,
 ) ThreeBoxes {
     return ThreeBoxes{
         .border = Rect{
@@ -594,8 +595,8 @@ fn drawBlockContainer(
     box_tree: BoxTree,
     images: Images.Slice,
     boxes: ThreeBoxes,
-    background: zss.used_values.BlockBoxBackground,
-    border_colors: zss.used_values.BorderColor,
+    background: zss.BoxTree.BlockBoxBackground,
+    border_colors: zss.BoxTree.BorderColor,
 ) !void {
     // draw background color
     switch (background.color.a) {
@@ -668,7 +669,7 @@ fn drawBackgroundImage(
     painting_area: Rect,
     position: Vector,
     size: Size,
-    repeat: zss.used_values.BackgroundImage.Repeat,
+    repeat: zss.BoxTree.BackgroundImage.Repeat,
 ) !void {
     const info_x = getBackgroundImageTilingInfo(
         repeat.x,
@@ -758,7 +759,7 @@ const BackgroundImageTilingInfo = struct {
 };
 
 fn getBackgroundImageTilingInfo(
-    repeat: zss.used_values.BackgroundImage.Repeat.Style,
+    repeat: zss.BoxTree.BackgroundImage.Repeat.Style,
     /// Must be greater than or equal to 0.
     painting_area_size: Unit,
     /// The offset of the top/left of the positioning area from the top/left of the painting area.

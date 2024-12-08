@@ -1,5 +1,5 @@
 const zss = @import("zss");
-const BoxTree = zss.used_values.BoxTree;
+const BoxTree = zss.BoxTree;
 const DrawList = zss.render.DrawList;
 const units_per_pixel = zss.math.units_per_pixel;
 
@@ -71,7 +71,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
         var draw_list = try DrawList.create(&box_tree, allocator);
         defer draw_list.deinit(allocator);
 
-        setIcbBackgroundColor(&box_tree, zss.used_values.Color.fromRgbaInt(0x202020ff));
+        setIcbBackgroundColor(&box_tree, BoxTree.Color.fromRgbaInt(0x202020ff));
         const root_block_size = rootBlockSize(&box_tree, t.root_element);
 
         const pages = try std.math.divCeil(u32, root_block_size.height, t.height);
@@ -136,7 +136,7 @@ fn rootBlockSize(box_tree: *BoxTree, root_element: zss.ElementTree.Element) stru
     const generated_box = box_tree.element_to_generated_box.get(root_element) orelse return .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     const ref = switch (generated_box) {
         .block_ref => |ref| ref,
-        .text => |ifc_id| box_tree.ifc(ifc_id).parent_block,
+        .text => |ifc_id| box_tree.getIfc(ifc_id).parent_block,
         .inline_box => unreachable,
     };
     const subtree = box_tree.blocks.subtree(ref.subtree).view();
@@ -149,7 +149,7 @@ fn rootBlockSize(box_tree: *BoxTree, root_element: zss.ElementTree.Element) stru
     };
 }
 
-fn setIcbBackgroundColor(box_tree: *BoxTree, color: zss.used_values.Color) void {
+fn setIcbBackgroundColor(box_tree: *BoxTree, color: BoxTree.Color) void {
     const icb = box_tree.blocks.initial_containing_block;
     const subtree = box_tree.blocks.subtree(icb.subtree).view();
     const background = &subtree.items(.background)[icb.index];

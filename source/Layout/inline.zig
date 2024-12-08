@@ -21,17 +21,16 @@ const stf = @import("./shrink_to_fit.zig");
 const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 
-const used_values = zss.used_values;
-const BoxTree = used_values.BoxTree;
-const StackingContextIndex = used_values.StackingContextIndex;
-const StackingContextRef = used_values.StackingContextRef;
-const InlineBoxIndex = used_values.InlineBoxIndex;
-const InlineBoxSkip = used_values.InlineBoxSkip;
-const InlineFormattingContext = used_values.InlineFormattingContext;
-const InlineFormattingContextId = used_values.InlineFormattingContextId;
+const BoxTree = zss.BoxTree;
+const StackingContextIndex = BoxTree.StackingContextIndex;
+const StackingContextRef = BoxTree.StackingContextRef;
+const InlineBoxIndex = BoxTree.InlineBoxIndex;
+const InlineBoxSkip = BoxTree.InlineBoxSkip;
+const InlineFormattingContext = BoxTree.InlineFormattingContext;
+const InlineFormattingContextId = BoxTree.InlineFormattingContextId;
 const GlyphIndex = InlineFormattingContext.GlyphIndex;
-const GeneratedBox = used_values.GeneratedBox;
-const Subtree = used_values.Subtree;
+const GeneratedBox = BoxTree.GeneratedBox;
+const Subtree = BoxTree.Subtree;
 
 const hb = @import("mach-harfbuzz").c;
 
@@ -147,7 +146,7 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
 
     const computed, const used_box_style = blk: {
         if (layout.computer.elementCategory(element) == .text) {
-            break :blk .{ undefined, used_values.BoxStyle.text };
+            break :blk .{ undefined, BoxTree.BoxStyle.text };
         }
 
         const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
@@ -557,7 +556,7 @@ fn inlineBoxSetData(ctx: *InlineLayoutContext, computer: *StyleComputer, ifc: *I
 
 fn inlineBlockSolveSizes(
     computer: *StyleComputer,
-    position: used_values.BoxStyle.Position,
+    position: BoxTree.BoxStyle.Position,
     containing_block_width: Unit,
     containing_block_height: ?Unit,
 ) BlockUsedSizes {
@@ -964,7 +963,7 @@ const IFCLineSplitState = struct {
     current_inline_box: InlineBoxIndex = undefined,
 
     const InlineBlockInfo = struct {
-        box_offsets: *used_values.BoxOffsets,
+        box_offsets: *BoxTree.BoxOffsets,
         cursor: Unit,
         height: Unit,
     };

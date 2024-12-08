@@ -13,11 +13,10 @@ const aggregates = zss.properties.aggregates;
 const solve = @import("./solve.zig");
 const types = zss.values.types;
 
-const used_values = zss.used_values;
-const BlockRef = used_values.BlockRef;
-const BoxTree = used_values.BoxTree;
-const InlineBoxIndex = used_values.InlineBoxIndex;
-const InlineFormattingContext = used_values.InlineFormattingContext;
+const BoxTree = zss.BoxTree;
+const BlockRef = BoxTree.BlockRef;
+const InlineBoxIndex = BoxTree.InlineBoxIndex;
+const InlineFormattingContext = BoxTree.InlineFormattingContext;
 
 const Mode = enum {
     InitialContainingBlock,
@@ -114,7 +113,7 @@ pub fn run(layout: *Layout) !void {
                     }
                 },
                 .inline_box => |inline_box| {
-                    const ifc = layout.box_tree.ifc(inline_box.ifc_id);
+                    const ifc = layout.box_tree.getIfc(inline_box.ifc_id);
                     inlineBoxCosmeticLayout(layout, context, ifc, inline_box.index);
                     layout.computer.commitElement(.cosmetic);
 
@@ -209,7 +208,7 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comp
 fn solveInsetsStatic(
     specified: aggregates.Insets,
     computed: *aggregates.Insets,
-    used: *used_values.Insets,
+    used: *BoxTree.Insets,
 ) void {
     computed.* = .{
         .left = switch (specified.left) {
@@ -244,7 +243,7 @@ fn solveInsetsRelative(
     specified: aggregates.Insets,
     containing_block_size: Size,
     computed: *aggregates.Insets,
-    used: *used_values.Insets,
+    used: *BoxTree.Insets,
 ) void {
     var left: ?Unit = undefined;
     var right: ?Unit = undefined;
@@ -323,14 +322,14 @@ fn solveInsetsRelative(
 fn blockBoxBackgrounds(
     box_tree: *BoxTree,
     inputs: Layout.Inputs,
-    box_offsets: *const used_values.BoxOffsets,
-    borders: *const used_values.Borders,
-    current_color: used_values.Color,
+    box_offsets: *const BoxTree.BoxOffsets,
+    borders: *const BoxTree.Borders,
+    current_color: BoxTree.Color,
     specified: struct {
         background1: *const aggregates.Background1,
         background2: *const aggregates.Background2,
     },
-    background_ptr: *used_values.BlockBoxBackground,
+    background_ptr: *BoxTree.BlockBoxBackground,
 ) !void {
     background_ptr.color = solve.color(specified.background1.color, current_color);
 
@@ -470,10 +469,10 @@ fn inlineBoxCosmeticLayout(
 fn rootInlineBoxCosmeticLayout(ifc: *InlineFormattingContext) void {
     const ifc_slice = ifc.slice();
 
-    ifc_slice.items(.inline_start)[0].border_color = used_values.Color.transparent;
-    ifc_slice.items(.inline_end)[0].border_color = used_values.Color.transparent;
-    ifc_slice.items(.block_start)[0].border_color = used_values.Color.transparent;
-    ifc_slice.items(.block_end)[0].border_color = used_values.Color.transparent;
+    ifc_slice.items(.inline_start)[0].border_color = BoxTree.Color.transparent;
+    ifc_slice.items(.inline_end)[0].border_color = BoxTree.Color.transparent;
+    ifc_slice.items(.block_start)[0].border_color = BoxTree.Color.transparent;
+    ifc_slice.items(.block_end)[0].border_color = BoxTree.Color.transparent;
 
     ifc_slice.items(.background)[0] = .{};
     ifc_slice.items(.insets)[0] = .{ .x = 0, .y = 0 };

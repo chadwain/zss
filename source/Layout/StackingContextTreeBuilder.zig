@@ -6,13 +6,13 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
 const Stack = zss.Stack;
-const used_values = zss.used_values;
-const BlockRef = used_values.BlockRef;
-const BoxTree = used_values.BoxTree;
-const IfcId = used_values.InlineFormattingContextId;
-const ZIndex = used_values.ZIndex;
-const StackingContext = used_values.StackingContext;
-const StackingContextTree = used_values.StackingContextTree;
+
+const BoxTree = zss.BoxTree;
+const BlockRef = BoxTree.BlockRef;
+const IfcId = BoxTree.InlineFormattingContextId;
+const ZIndex = BoxTree.ZIndex;
+const StackingContext = BoxTree.StackingContext;
+const StackingContextTree = BoxTree.StackingContextTree;
 const Size = StackingContextTree.Size;
 const Id = StackingContextTree.Id;
 

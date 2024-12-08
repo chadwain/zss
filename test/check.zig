@@ -1,6 +1,5 @@
 const zss = @import("zss");
-const used = zss.used_values;
-const ZssUnit = used.ZssUnit;
+const BoxTree = zss.BoxTree;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -46,9 +45,9 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
     try stdout.print("check: all {} tests passed\n", .{tests.len});
 }
 
-fn validateInline(inl: *used.InlineFormattingContext, allocator: Allocator) !void {
+fn validateInline(inl: *BoxTree.InlineFormattingContext, allocator: Allocator) !void {
     @setRuntimeSafety(true);
-    const InlineBoxIndex = used.InlineBoxIndex;
+    const InlineBoxIndex = BoxTree.InlineBoxIndex;
 
     var stack = std.ArrayList(InlineBoxIndex).init(allocator);
     defer stack.deinit();
@@ -56,7 +55,7 @@ fn validateInline(inl: *used.InlineFormattingContext, allocator: Allocator) !voi
     while (i < inl.glyph_indeces.items.len) : (i += 1) {
         if (inl.glyph_indeces.items[i] == 0) {
             i += 1;
-            const special = used.InlineFormattingContext.Special.decode(inl.glyph_indeces.items[i]);
+            const special = BoxTree.InlineFormattingContext.Special.decode(inl.glyph_indeces.items[i]);
             switch (special.kind) {
                 .BoxStart => stack.append(@as(InlineBoxIndex, special.data)) catch unreachable,
                 .BoxEnd => _ = stack.pop(),
@@ -67,10 +66,10 @@ fn validateInline(inl: *used.InlineFormattingContext, allocator: Allocator) !voi
     try expect(stack.items.len == 0);
 }
 
-fn validateStackingContexts(box_tree: *zss.used_values.BoxTree, allocator: Allocator) !void {
+fn validateStackingContexts(box_tree: *zss.BoxTree, allocator: Allocator) !void {
     @setRuntimeSafety(true);
-    const Size = used.StackingContextTree.Size;
-    const ZIndex = used.ZIndex;
+    const Size = BoxTree.StackingContextTree.Size;
+    const ZIndex = BoxTree.ZIndex;
 
     const view = box_tree.stacking_contexts.view();
     if (view.len == 0) return;

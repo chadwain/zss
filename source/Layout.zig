@@ -21,13 +21,12 @@ pub const Absolute = @import("Layout/AbsoluteContainingBlocks.zig");
 pub const StyleComputer = @import("Layout/StyleComputer.zig");
 pub const StackingContextTreeBuilder = @import("Layout/StackingContextTreeBuilder.zig");
 
-const used_values = zss.used_values;
-const BlockRef = used_values.BlockRef;
-const BoxTree = used_values.BoxTree;
-const InlineFormattingContext = used_values.InlineFormattingContext;
-const StackingContext = used_values.StackingContext;
-const StackingContextTree = used_values.StackingContextTree;
-const Subtree = used_values.Subtree;
+const BoxTree = zss.BoxTree;
+const BlockRef = BoxTree.BlockRef;
+const InlineFormattingContext = BoxTree.InlineFormattingContext;
+const StackingContext = BoxTree.StackingContext;
+const StackingContextTree = BoxTree.StackingContextTree;
+const Subtree = BoxTree.Subtree;
 
 const Layout = @This();
 
@@ -250,7 +249,7 @@ pub fn popInitialContainingBlock(layout: *Layout) void {
 
 pub fn pushFlowBlock(
     layout: *Layout,
-    box_style: used_values.BoxStyle,
+    box_style: BoxTree.BoxStyle,
     sizes: BlockUsedSizes,
     stacking_context: StackingContextTreeBuilder.Type,
 ) !BlockRef {
@@ -300,7 +299,7 @@ pub fn pushIfcContainerBlock(layout: *Layout) !BlockRef {
 
 pub fn popIfcContainerBlock(
     layout: *Layout,
-    ifc: used_values.InlineFormattingContextId,
+    ifc: BoxTree.InlineFormattingContextId,
     containing_block_width: math.Unit,
     height: math.Unit,
 ) void {
@@ -314,7 +313,7 @@ pub fn popIfcContainerBlock(
 
 pub fn pushStfFlowMainBlock(
     layout: *Layout,
-    box_style: used_values.BoxStyle,
+    box_style: BoxTree.BoxStyle,
     sizes: BlockUsedSizes,
     stacking_context: StackingContextTreeBuilder.Type,
 ) !BlockRef {
@@ -351,7 +350,7 @@ pub fn popStfFlowMainBlock(
 
 pub fn pushStfFlowBlock(
     layout: *Layout,
-    box_style: used_values.BoxStyle,
+    box_style: BoxTree.BoxStyle,
     sizes: BlockUsedSizes,
     stacking_context: StackingContextTreeBuilder.Type,
 ) !void {
@@ -434,7 +433,7 @@ pub fn newIfc(layout: *Layout, ifc_container: BlockRef) !*InlineFormattingContex
 
 pub fn pushAbsoluteContainingBlock(
     layout: *Layout,
-    box_style: used_values.BoxStyle,
+    box_style: BoxTree.BoxStyle,
     ref: BlockRef,
 ) !?Absolute.ContainingBlock.Id {
     return layout.absolute.pushContainingBlock(layout.allocator, box_style, ref);
@@ -452,7 +451,7 @@ pub fn fixupAbsoluteContainingBlock(layout: *Layout, id: Absolute.ContainingBloc
     return layout.absolute.fixupContainingBlock(id, ref);
 }
 
-pub fn addAbsoluteBlock(layout: *Layout, element: Element, inner_box_style: used_values.BoxStyle.InnerBlock) !void {
+pub fn addAbsoluteBlock(layout: *Layout, element: Element, inner_box_style: BoxTree.BoxStyle.InnerBlock) !void {
     return layout.absolute.addBlock(layout.allocator, element, inner_box_style);
 }
 
@@ -660,7 +659,7 @@ fn setDataBlock(
 
 fn setDataIfcContainer(
     subtree: Subtree.View,
-    ifc: used_values.InlineFormattingContextId,
+    ifc: BoxTree.InlineFormattingContextId,
     index: Subtree.Size,
     skip: Subtree.Size,
     width: math.Unit,

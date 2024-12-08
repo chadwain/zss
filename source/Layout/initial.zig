@@ -10,10 +10,9 @@ const @"inline" = @import("./inline.zig");
 const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 
-const used_values = zss.used_values;
-const BoxTree = used_values.BoxTree;
-const GeneratedBox = used_values.GeneratedBox;
-const Subtree = used_values.Subtree;
+const BoxTree = zss.BoxTree;
+const GeneratedBox = BoxTree.GeneratedBox;
+const Subtree = BoxTree.Subtree;
 
 const hb = @import("mach-harfbuzz").c;
 
@@ -32,9 +31,9 @@ fn analyzeRootElement(layout: *Layout) !void {
     if (element.eqlNull()) return;
     try layout.computer.setCurrentElement(.box_gen, element);
 
-    const used_box_style: used_values.BoxStyle = blk: {
+    const used_box_style: BoxTree.BoxStyle = blk: {
         if (layout.computer.elementCategory(element) == .text) {
-            break :blk used_values.BoxStyle.text;
+            break :blk BoxTree.BoxStyle.text;
         }
 
         const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);

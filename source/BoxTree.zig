@@ -1,3 +1,6 @@
+//! The result of layout.
+const BoxTree = @This();
+
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -7,6 +10,61 @@ const MultiArrayList = std.MultiArrayList;
 const zss = @import("zss.zig");
 const math = zss.math;
 const Element = zss.ElementTree.Element;
+
+blocks: BlockBoxTree = .{},
+ifcs: ArrayListUnmanaged(*InlineFormattingContext) = .{},
+stacking_contexts: StackingContextTree = .{},
+element_to_generated_box: ElementHashMap(GeneratedBox) = .{},
+background_images: BackgroundImages = .{},
+allocator: Allocator,
+
+fn ElementHashMap(comptime V: type) type {
+    const Context = struct {
+        pub fn eql(_: @This(), lhs: Element, rhs: Element) bool {
+            return lhs.eql(rhs);
+        }
+        pub const hash = std.hash_map.getAutoHashFn(Element, @This());
+    };
+    return std.HashMapUnmanaged(Element, V, Context, std.hash_map.default_max_load_percentage);
+}
+
+pub fn deinit(box_tree: *BoxTree) void {
+    box_tree.blocks.deinit(box_tree.allocator);
+    for (box_tree.ifcs.items) |ctx| {
+        ctx.deinit(box_tree.allocator);
+        box_tree.allocator.destroy(ctx);
+    }
+    box_tree.ifcs.deinit(box_tree.allocator);
+    for (box_tree.stacking_contexts.view().items(.ifcs)) |*ifc_list| {
+        ifc_list.deinit(box_tree.allocator);
+    }
+    box_tree.stacking_contexts.deinit(box_tree.allocator);
+    box_tree.element_to_generated_box.deinit(box_tree.allocator);
+    box_tree.background_images.deinit(box_tree.allocator);
+}
+
+pub fn mapElementToBox(box_tree: *BoxTree, element: Element, generated_box: GeneratedBox) !void {
+    try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
+}
+
+pub fn getIfc(box_tree: BoxTree, id: InlineFormattingContextId) *InlineFormattingContext {
+    return box_tree.ifcs.items[@intFromEnum(id)];
+}
+
+pub fn makeIfc(box_tree: *BoxTree, parent_block: BlockRef) !*InlineFormattingContext {
+    const id = std.math.cast(std.meta.Tag(InlineFormattingContextId), box_tree.ifcs.items.len) orelse return error.TooManyIfcs;
+    try box_tree.ifcs.ensureUnusedCapacity(box_tree.allocator, 1);
+    const ptr = try box_tree.allocator.create(InlineFormattingContext);
+    box_tree.ifcs.appendAssumeCapacity(ptr);
+    ptr.* = .{ .id = @enumFromInt(id), .parent_block = parent_block };
+    return ptr;
+}
+
+pub fn print(box_tree: *const BoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
+    try box_tree.blocks.print(writer, allocator);
+    try writer.writeAll("\n");
+    try printStackingContextTree(&box_tree.stacking_contexts, writer, allocator);
+}
 
 pub const Color = extern struct {
     r: u8,
@@ -583,65 +641,5 @@ pub const BackgroundImages = struct {
         if (handle == .invalid) return null;
         const slice = self.slices.items[@intFromEnum(handle) - 1];
         return self.images.items[slice.begin..slice.end];
-    }
-};
-
-/// The result of layout.
-pub const BoxTree = struct {
-    blocks: BlockBoxTree = .{},
-    ifcs: ArrayListUnmanaged(*InlineFormattingContext) = .{},
-    stacking_contexts: StackingContextTree = .{},
-    element_to_generated_box: ElementHashMap(GeneratedBox) = .{},
-    background_images: BackgroundImages = .{},
-    allocator: Allocator,
-
-    const Self = @This();
-
-    fn ElementHashMap(comptime V: type) type {
-        const Context = struct {
-            pub fn eql(_: @This(), lhs: Element, rhs: Element) bool {
-                return lhs.eql(rhs);
-            }
-            pub const hash = std.hash_map.getAutoHashFn(Element, @This());
-        };
-        return std.HashMapUnmanaged(Element, V, Context, std.hash_map.default_max_load_percentage);
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.blocks.deinit(self.allocator);
-        for (self.ifcs.items) |ctx| {
-            ctx.deinit(self.allocator);
-            self.allocator.destroy(ctx);
-        }
-        self.ifcs.deinit(self.allocator);
-        for (self.stacking_contexts.view().items(.ifcs)) |*ifc_list| {
-            ifc_list.deinit(self.allocator);
-        }
-        self.stacking_contexts.deinit(self.allocator);
-        self.element_to_generated_box.deinit(self.allocator);
-        self.background_images.deinit(self.allocator);
-    }
-
-    pub fn mapElementToBox(box_tree: *BoxTree, element: Element, generated_box: GeneratedBox) !void {
-        try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
-    }
-
-    pub fn ifc(box_tree: BoxTree, id: InlineFormattingContextId) *InlineFormattingContext {
-        return box_tree.ifcs.items[@intFromEnum(id)];
-    }
-
-    pub fn makeIfc(box_tree: *BoxTree, parent_block: BlockRef) !*InlineFormattingContext {
-        const id = std.math.cast(std.meta.Tag(InlineFormattingContextId), box_tree.ifcs.items.len) orelse return error.TooManyIfcs;
-        try box_tree.ifcs.ensureUnusedCapacity(box_tree.allocator, 1);
-        const ptr = try box_tree.allocator.create(InlineFormattingContext);
-        box_tree.ifcs.appendAssumeCapacity(ptr);
-        ptr.* = .{ .id = @enumFromInt(id), .parent_block = parent_block };
-        return ptr;
-    }
-
-    pub fn print(box_tree: *const BoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
-        try box_tree.blocks.print(writer, allocator);
-        try writer.writeAll("\n");
-        try printStackingContextTree(&box_tree.stacking_contexts, writer, allocator);
     }
 };

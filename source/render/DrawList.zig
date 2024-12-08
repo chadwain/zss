@@ -8,12 +8,12 @@
 const DrawList = @This();
 
 const zss = @import("../zss.zig");
-const used_values = zss.used_values;
-const BoxOffsets = used_values.BoxOffsets;
-const BoxTree = used_values.BoxTree;
-const InlineFormattingContextId = used_values.InlineFormattingContextId;
-const StackingContextTree = used_values.StackingContextTree;
-const Subtree = used_values.Subtree;
+
+const BoxTree = zss.BoxTree;
+const BoxOffsets = BoxTree.BoxOffsets;
+const InlineFormattingContextId = BoxTree.InlineFormattingContextId;
+const StackingContextTree = BoxTree.StackingContextTree;
+const Subtree = BoxTree.Subtree;
 
 const math = zss.math;
 const Rect = math.Rect;
@@ -42,7 +42,7 @@ pub const Drawable = union(enum) {
     line_box: LineBox,
 
     pub const BlockBox = struct {
-        ref: used_values.BlockRef,
+        ref: BoxTree.BlockRef,
         border_top_left: Vector,
     };
 
@@ -377,7 +377,7 @@ fn populateSubList(
     // Add inline formatting context line boxes to the draw order list
     for (ctx.sc_tree.items(.ifcs)[stacking_context].items) |ifc_id| {
         const info = ctx.ifc_infos.get(ifc_id).?;
-        const ifc = box_tree.ifc(ifc_id);
+        const ifc = box_tree.getIfc(ifc_id);
         const line_box_height = ifc.ascender + ifc.descender;
         for (ifc.line_boxes.items, 0..) |line_box, line_box_index| {
             const bounding_box = Rect{

@@ -3,9 +3,9 @@ const std = @import("std");
 const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
 const types = zss.values.types;
-const used_values = zss.used_values;
-const units_per_pixel = zss.math.units_per_pixel;
+const BoxTree = zss.BoxTree;
 const Unit = zss.math.Unit;
+const units_per_pixel = zss.math.units_per_pixel;
 
 pub const LengthUnit = enum { px };
 
@@ -59,17 +59,17 @@ pub fn borderWidthMultiplier(border_style: types.BorderStyle) f32 {
     };
 }
 
-pub fn color(col: types.Color, current_color: used_values.Color) used_values.Color {
+pub fn color(col: types.Color, current_color: BoxTree.Color) BoxTree.Color {
     return switch (col) {
-        .rgba => |rgba| used_values.Color.fromRgbaInt(rgba),
+        .rgba => |rgba| BoxTree.Color.fromRgbaInt(rgba),
         .current_color => current_color,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
 }
 
-pub fn currentColor(col: types.Color) used_values.Color {
+pub fn currentColor(col: types.Color) BoxTree.Color {
     return switch (col) {
-        .rgba => |rgba| used_values.Color.fromRgbaInt(rgba),
+        .rgba => |rgba| BoxTree.Color.fromRgbaInt(rgba),
         .current_color => unreachable,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
@@ -81,7 +81,7 @@ pub const IsRoot = enum {
 };
 
 /// Implements the rules specified in section 9.7 of CSS2.2.
-pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggregates.BoxStyle, used_values.BoxStyle } {
+pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggregates.BoxStyle, BoxTree.BoxStyle } {
     var computed: aggregates.BoxStyle = .{
         .display = undefined,
         .position = specified.position,
@@ -93,14 +93,14 @@ pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggreg
         return .{ computed, .{ .outer = .none, .position = .static } };
     }
 
-    var position: used_values.BoxStyle.Position = undefined;
+    var position: BoxTree.BoxStyle.Position = undefined;
     switch (is_root) {
         .NonRoot => {
             switch (specified.position) {
                 .absolute => {
                     computed.display = blockify(specified.display);
                     computed.float = .none;
-                    const used: used_values.BoxStyle = .{
+                    const used: BoxTree.BoxStyle = .{
                         .outer = .{ .absolute = innerBlockType(computed.display) },
                         .position = .absolute,
                     };
@@ -131,7 +131,7 @@ pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggreg
         },
     }
 
-    const used: used_values.BoxStyle = .{
+    const used: BoxTree.BoxStyle = .{
         .outer = switch (computed.display) {
             .block => .{ .block = .flow },
             .@"inline" => .{ .@"inline" = .@"inline" },
@@ -157,7 +157,7 @@ fn blockify(display: types.Display) types.Display {
     };
 }
 
-fn innerBlockType(computed_display: types.Display) used_values.BoxStyle.InnerBlock {
+fn innerBlockType(computed_display: types.Display) BoxTree.BoxStyle.InnerBlock {
     return switch (computed_display) {
         .block => .flow,
         .@"inline", .inline_block, .none => unreachable,
@@ -178,8 +178,8 @@ pub fn insets(specified: aggregates.Insets) aggregates.Insets {
     return computed;
 }
 
-pub fn borderColors(border_colors: aggregates.BorderColors, current_color: used_values.Color) used_values.BorderColor {
-    return used_values.BorderColor{
+pub fn borderColors(border_colors: aggregates.BorderColors, current_color: BoxTree.Color) BoxTree.BorderColor {
+    return BoxTree.BorderColor{
         .left = color(border_colors.left, current_color),
         .right = color(border_colors.right, current_color),
         .top = color(border_colors.top, current_color),
@@ -210,7 +210,7 @@ pub fn borderStyles(border_styles: aggregates.BorderStyles) void {
     }
 }
 
-pub fn backgroundClip(clip: types.BackgroundClip) used_values.BackgroundClip {
+pub fn backgroundClip(clip: types.BackgroundClip) BoxTree.BackgroundClip {
     return switch (clip) {
         .border_box => .border,
         .padding_box => .padding,
@@ -220,7 +220,7 @@ pub fn backgroundClip(clip: types.BackgroundClip) used_values.BackgroundClip {
     };
 }
 
-pub fn inlineBoxBackground(col: types.Color, clip: types.BackgroundClip, current_color: used_values.Color) used_values.InlineBoxBackground {
+pub fn inlineBoxBackground(col: types.Color, clip: types.BackgroundClip, current_color: BoxTree.Color) BoxTree.InlineBoxBackground {
     return .{
         .color = color(col, current_color),
         .clip = backgroundClip(clip),
@@ -237,9 +237,9 @@ pub fn backgroundImage(
         repeat: types.BackgroundRepeat,
         clip: types.BackgroundClip,
     },
-    box_offsets: *const used_values.BoxOffsets,
-    borders: *const used_values.Borders,
-) used_values.BackgroundImage {
+    box_offsets: *const BoxTree.BoxOffsets,
+    borders: *const BoxTree.Borders,
+) BoxTree.BackgroundImage {
     // TODO: Handle background-attachment
 
     const NaturalSize = struct {
@@ -264,7 +264,7 @@ pub fn backgroundImage(
     const padding_height = border_height - borders.top - borders.bottom;
     const content_width = box_offsets.content_size.w;
     const content_height = box_offsets.content_size.h;
-    const positioning_area: struct { origin: used_values.BackgroundImage.Origin, width: Unit, height: Unit } = switch (specified.origin) {
+    const positioning_area: struct { origin: BoxTree.BackgroundImage.Origin, width: Unit, height: Unit } = switch (specified.origin) {
         .border_box => .{ .origin = .border, .width = border_width, .height = border_height },
         .padding_box => .{ .origin = .padding, .width = padding_width, .height = padding_height },
         .content_box => .{ .origin = .content, .width = content_width, .height = content_height },
@@ -274,7 +274,7 @@ pub fn backgroundImage(
 
     var width_was_auto = false;
     var height_was_auto = false;
-    var size: used_values.BackgroundImage.Size = switch (specified.size) {
+    var size: BoxTree.BackgroundImage.Size = switch (specified.size) {
         .size => |size| .{
             .w = switch (size.width) {
                 .px => |val| positiveLength(.px, val),
@@ -294,18 +294,18 @@ pub fn backgroundImage(
             },
         },
         .contain, .cover => blk: {
-            if (!natural_size.has_aspect_ratio) break :blk used_values.BackgroundImage.Size{ .w = natural_size.width, .h = natural_size.height };
+            if (!natural_size.has_aspect_ratio) break :blk BoxTree.BackgroundImage.Size{ .w = natural_size.width, .h = natural_size.height };
 
             const positioning_area_is_wider_than_image = positioning_area.width * natural_size.height > positioning_area.height * natural_size.width;
             const is_contain = (specified.size == .contain);
 
             if (positioning_area_is_wider_than_image == is_contain) {
-                break :blk used_values.BackgroundImage.Size{
+                break :blk BoxTree.BackgroundImage.Size{
                     .w = @divFloor(positioning_area.height * natural_size.width, natural_size.height),
                     .h = positioning_area.height,
                 };
             } else {
-                break :blk used_values.BackgroundImage.Size{
+                break :blk BoxTree.BackgroundImage.Size{
                     .w = positioning_area.width,
                     .h = @divFloor(positioning_area.width * natural_size.height, natural_size.width),
                 };
@@ -315,7 +315,7 @@ pub fn backgroundImage(
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
-    const repeat: used_values.BackgroundImage.Repeat = switch (specified.repeat) {
+    const repeat: BoxTree.BackgroundImage.Repeat = switch (specified.repeat) {
         .repeat => |repeat| .{
             .x = switch (repeat.x) {
                 .no_repeat => .none,
@@ -365,7 +365,7 @@ pub fn backgroundImage(
         }
     }
 
-    const position: used_values.BackgroundImage.Position = switch (specified.position) {
+    const position: BoxTree.BackgroundImage.Position = switch (specified.position) {
         .position => |position| .{
             .x = blk: {
                 const available_space = positioning_area.width - size.w;
@@ -412,7 +412,7 @@ pub fn backgroundImage(
 
     const clip = backgroundClip(specified.clip);
 
-    return used_values.BackgroundImage{
+    return BoxTree.BackgroundImage{
         .handle = handle,
         .origin = positioning_area.origin,
         .position = position,

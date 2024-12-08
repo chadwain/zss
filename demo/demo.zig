@@ -29,7 +29,7 @@ const ProgramState = struct {
     fonts: *const zss.Fonts,
     storage: *const zss.values.Storage,
 
-    box_tree: zss.used_values.BoxTree,
+    box_tree: zss.BoxTree,
     draw_list: zss.render.DrawList,
 
     fn deinit(self: *ProgramState) void {
@@ -101,7 +101,7 @@ const ProgramState = struct {
         var draw_list = try zss.render.DrawList.create(&box_tree, self.allocator);
         defer draw_list.deinit(self.allocator);
 
-        std.mem.swap(zss.used_values.BoxTree, &self.box_tree, &box_tree);
+        std.mem.swap(zss.BoxTree, &self.box_tree, &box_tree);
         std.mem.swap(zss.render.DrawList, &self.draw_list, &draw_list);
     }
 };

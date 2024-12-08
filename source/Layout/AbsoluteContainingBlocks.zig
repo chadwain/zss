@@ -2,9 +2,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
-const BlockRef = zss.used_values.BlockRef;
+const BlockRef = zss.BoxTree.BlockRef;
 const Element = zss.ElementTree.Element;
-const BoxStyle = zss.used_values.BoxStyle;
+const BoxStyle = zss.BoxTree.BoxStyle;
 const Position = zss.values.types.Position;
 
 const Absolute = @This();

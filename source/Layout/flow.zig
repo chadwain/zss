@@ -19,11 +19,10 @@ const Unit = zss.math.Unit;
 const solve = @import("./solve.zig");
 const @"inline" = @import("./inline.zig");
 
-const used_values = zss.used_values;
-const BoxTree = used_values.BoxTree;
-const GeneratedBox = used_values.GeneratedBox;
-const StackingContextTree = used_values.StackingContextTree;
-const Subtree = used_values.Subtree;
+const BoxTree = zss.BoxTree;
+const GeneratedBox = BoxTree.GeneratedBox;
+const StackingContextTree = BoxTree.StackingContextTree;
+const Subtree = BoxTree.Subtree;
 
 pub const Result = struct {
     auto_height: Unit,
@@ -65,7 +64,7 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
 
     const computed_box_style, const used_box_style = blk: {
         if (layout.computer.elementCategory(element) == .text) {
-            break :blk .{ undefined, used_values.BoxStyle.text };
+            break :blk .{ undefined, BoxTree.BoxStyle.text };
         }
 
         const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
@@ -108,7 +107,7 @@ fn pushBlock(
     layout: *Layout,
     ctx: *Context,
     element: Element,
-    box_style: used_values.BoxStyle,
+    box_style: BoxTree.BoxStyle,
     used_sizes: BlockUsedSizes,
     stacking_context: SctBuilder.Type,
 ) !void {
@@ -165,7 +164,7 @@ const BlockUsedSizesSlim = struct {
 
 pub fn solveAllSizes(
     computer: *StyleComputer,
-    position: used_values.BoxStyle.Position,
+    position: BoxTree.BoxStyle.Position,
     containing_block_width: Unit,
     containing_block_height: ?Unit,
 ) BlockUsedSizes {
@@ -511,7 +510,7 @@ pub fn solveVerticalEdges(
 
 pub fn solveInsets(
     computed: aggregates.Insets,
-    position: used_values.BoxStyle.Position,
+    position: BoxTree.BoxStyle.Position,
     used: *BlockUsedSizes,
 ) void {
     switch (position) {
