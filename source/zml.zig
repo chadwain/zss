@@ -12,12 +12,12 @@ const Element = ElementTree.Element;
 const Stack = zss.Stack;
 const TokenSource = zss.syntax.TokenSource;
 
-const parse_zml = @import("syntax/zml.zig");
-pub const Parser = parse_zml.Parser;
+const parse = @import("zml/parse.zig");
+pub const Parser = parse.Parser;
 
 comptime {
     if (@import("builtin").is_test) {
-        _ = parse_zml;
+        _ = parse;
     }
 }
 
