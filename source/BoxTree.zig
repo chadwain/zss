@@ -13,7 +13,7 @@ const Element = zss.ElementTree.Element;
 
 blocks: BlockBoxTree = .{},
 ifcs: ArrayListUnmanaged(*InlineFormattingContext) = .{},
-stacking_contexts: StackingContextTree = .{},
+sct: StackingContextTree = .{},
 element_to_generated_box: ElementHashMap(GeneratedBox) = .{},
 background_images: BackgroundImages = .{},
 allocator: Allocator,
@@ -35,10 +35,10 @@ pub fn deinit(box_tree: *BoxTree) void {
         box_tree.allocator.destroy(ctx);
     }
     box_tree.ifcs.deinit(box_tree.allocator);
-    for (box_tree.stacking_contexts.view().items(.ifcs)) |*ifc_list| {
+    for (box_tree.sct.view().items(.ifcs)) |*ifc_list| {
         ifc_list.deinit(box_tree.allocator);
     }
-    box_tree.stacking_contexts.deinit(box_tree.allocator);
+    box_tree.sct.deinit(box_tree.allocator);
     box_tree.element_to_generated_box.deinit(box_tree.allocator);
     box_tree.background_images.deinit(box_tree.allocator);
 }
@@ -63,7 +63,7 @@ pub fn makeIfc(box_tree: *BoxTree, parent_block: BlockRef) !*InlineFormattingCon
 pub fn print(box_tree: *const BoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
     try box_tree.blocks.print(writer, allocator);
     try writer.writeAll("\n");
-    try printStackingContextTree(&box_tree.stacking_contexts, writer, allocator);
+    try box_tree.sct.print(writer, allocator);
 }
 
 pub const Color = extern struct {
@@ -566,38 +566,37 @@ pub const StackingContextTree = struct {
     const List = MultiArrayList(StackingContext);
     pub const View = List.Slice;
 
-    pub fn deinit(sct: *StackingContextTree, allocator: Allocator) void {
+    fn deinit(sct: *StackingContextTree, allocator: Allocator) void {
         sct.list.deinit(allocator);
     }
 
     pub fn view(sct: *const StackingContextTree) View {
         return sct.list.slice();
     }
+
+    pub fn print(sct: *const StackingContextTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
+        const Context = struct {
+            view: View,
+            writer: std.io.AnyWriter,
+        };
+        const callback = struct {
+            fn f(ctx: Context, index: Size, depth: Size) !void {
+                const item = ctx.view.get(index);
+                try ctx.writer.writeByteNTimes(' ', depth * 4);
+                try ctx.writer.print(
+                    "[{}, {}) id({}) z-index({}) ref({}) ifcs({any})\n",
+                    .{ index, index + item.skip, @intFromEnum(item.id), item.z_index, item.ref, item.ifcs.items },
+                );
+            }
+        }.f;
+
+        const context = Context{
+            .view = sct.view(),
+            .writer = writer,
+        };
+        try zss.debug.skipArrayIterate(Size, context.view.items(.skip), context, callback, allocator);
+    }
 };
-
-pub fn printStackingContextTree(sct: *const StackingContextTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
-    const Size = StackingContextTree.Size;
-    const Context = struct {
-        view: StackingContextTree.View,
-        writer: std.io.AnyWriter,
-    };
-    const callback = struct {
-        fn f(ctx: Context, index: Size, depth: Size) !void {
-            const item = ctx.view.get(index);
-            try ctx.writer.writeByteNTimes(' ', depth * 4);
-            try ctx.writer.print(
-                "[{}, {}) id({}) z-index({}) ref({}) ifcs({any})\n",
-                .{ index, index + item.skip, @intFromEnum(item.id), item.z_index, item.ref, item.ifcs.items },
-            );
-        }
-    }.f;
-
-    const context = Context{
-        .view = sct.view(),
-        .writer = writer,
-    };
-    try zss.debug.skipArrayIterate(Size, context.view.items(.skip), context, callback, allocator);
-}
 
 /// The type of box(es) that an element generates.
 pub const GeneratedBox = union(enum) {

@@ -700,7 +700,7 @@ const ConsumeDigits = struct {
 };
 
 fn consumeDigits(source: Source, start: Source.Location, buffer: *NumberBuffer) !ConsumeDigits {
-    var value = CheckedInt(u31).init(0);
+    var value: CheckedInt(u31) = .init(0);
     var location = start;
     while (true) {
         const next = try nextCodepoint(source, location);
@@ -753,7 +753,7 @@ fn consumeUnit(source: Source, start: Source.Location) !ConsumeUnit {
             unit_buffer[count] = @intCast(next.codepoint);
             count += 1;
         } else {
-            count = std.math.maxInt(usize);
+            count = comptime max_unit_len + 1;
         }
         location = next.next_location;
     }

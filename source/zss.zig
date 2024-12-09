@@ -15,7 +15,7 @@ pub const Environment = @import("Environment.zig");
 pub const Fonts = @import("Fonts.zig");
 pub const Images = @import("Images.zig");
 pub const Layout = @import("Layout.zig");
-pub const Stack = @import("Stack.zig").Stack;
+pub const Stack = @import("stack.zig").Stack;
 pub const Stylesheet = @import("Stylesheet.zig");
 
 pub const log = @import("std").log.scoped(.zss);

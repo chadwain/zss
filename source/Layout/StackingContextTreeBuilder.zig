@@ -29,8 +29,8 @@ next_id: std.meta.Tag(Id) = 0,
 /// This is for debugging purposes only, and will have no effect if runtime safety is disabled.
 incompletes: IncompleteStackingContexts = .{},
 
-const IncompleteStackingContexts = switch (std.debug.runtime_safety) {
-    true => struct {
+const IncompleteStackingContexts = switch (@import("builtin").mode) {
+    .Debug, .ReleaseSafe => struct {
         set: std.AutoHashMapUnmanaged(Id, void) = .empty,
 
         fn deinit(self: *IncompleteStackingContexts, allocator: Allocator) void {
@@ -45,18 +45,18 @@ const IncompleteStackingContexts = switch (std.debug.runtime_safety) {
             assert(self.set.remove(id));
         }
 
-        fn empty(self: *IncompleteStackingContexts) bool {
+        fn empty(self: *const IncompleteStackingContexts) bool {
             return self.set.count() == 0;
         }
     },
-    false => struct {
+    .ReleaseFast, .ReleaseSmall => struct {
         fn deinit(_: *IncompleteStackingContexts, _: Allocator) void {}
 
         fn insert(_: *IncompleteStackingContexts, _: Allocator, _: Id) !void {}
 
         fn remove(_: *IncompleteStackingContexts, _: Id) void {}
 
-        fn empty(_: *IncompleteStackingContexts) bool {
+        fn empty(_: *const IncompleteStackingContexts) bool {
             return true;
         }
     },
@@ -86,7 +86,7 @@ pub fn endFrame(b: *Builder) void {
 pub fn pushInitial(b: *Builder, box_tree: *BoxTree, ref: BlockRef) !Id {
     assert(b.contexts.top == null);
     assert(b.parentables.top == null);
-    assert(box_tree.stacking_contexts.list.len == 0);
+    assert(box_tree.sct.list.len == 0);
 
     const index: Size = 0;
     b.contexts.top = .{
@@ -110,7 +110,7 @@ pub fn push(b: *Builder, allocator: Allocator, ty: Type, box_tree: *BoxTree, ref
         .parentable, .non_parentable => |z_index| z_index,
     };
 
-    const sct = box_tree.stacking_contexts.view();
+    const sct = box_tree.sct.list.slice();
     const parent_index = b.parentables.top.?.index;
     const index: Size = blk: {
         const skips = sct.items(.skip);
@@ -152,15 +152,9 @@ pub fn pushWithoutBlock(b: *Builder, allocator: Allocator, ty: Type, box_tree: *
     return id_opt;
 }
 
-fn newStackingContext(
-    b: *Builder,
-    index: Size,
-    z_index: ZIndex,
-    box_tree: *BoxTree,
-    ref: BlockRef,
-) !?Id {
+fn newStackingContext(b: *Builder, index: Size, z_index: ZIndex, box_tree: *BoxTree, ref: BlockRef) !?Id {
     const id: Id = @enumFromInt(b.next_id);
-    try box_tree.stacking_contexts.list.insert(
+    try box_tree.sct.list.insert(
         box_tree.allocator,
         index,
         .{
@@ -196,14 +190,14 @@ pub fn pop(b: *Builder, box_tree: *BoxTree) void {
     const this = b.contexts.pop();
     if (this.parentable) {
         assert(this.index == b.parentables.pop().index);
-        const skips = box_tree.stacking_contexts.view().items(.skip);
+        const skips = box_tree.sct.list.items(.skip);
         const parent_index = b.parentables.top.?.index;
         skips[parent_index] += skips[this.index];
     }
 }
 
 pub fn setBlock(b: *Builder, id: Id, box_tree: *BoxTree, ref: BlockRef) void {
-    const sct = box_tree.stacking_contexts.view();
+    const sct = box_tree.sct.list.slice();
     const ids = sct.items(.id);
     const index: Size = @intCast(std.mem.indexOfScalar(Id, ids, id).?);
     sct.items(.ref)[index] = ref;
@@ -212,6 +206,6 @@ pub fn setBlock(b: *Builder, id: Id, box_tree: *BoxTree, ref: BlockRef) void {
 
 pub fn addIfc(b: *Builder, box_tree: *BoxTree, ifc_id: IfcId) !void {
     const index = b.contexts.top.?.index;
-    const list = &box_tree.stacking_contexts.view().items(.ifcs)[index];
+    const list = &box_tree.sct.list.items(.ifcs)[index];
     try list.append(box_tree.allocator, ifc_id);
 }

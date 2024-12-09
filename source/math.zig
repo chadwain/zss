@@ -1,7 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
 
 /// The smallest unit of space in the zss coordinate system.
 pub const Unit = i32;
@@ -18,17 +17,15 @@ pub const Vector = struct {
     x: Unit,
     y: Unit,
 
-    const Self = @This();
-
-    pub fn add(lhs: Self, rhs: Self) Self {
-        return Self{ .x = lhs.x + rhs.x, .y = lhs.y + rhs.y };
+    pub fn add(lhs: Vector, rhs: Vector) Vector {
+        return Vector{ .x = lhs.x + rhs.x, .y = lhs.y + rhs.y };
     }
 
-    pub fn sub(lhs: Self, rhs: Self) Self {
-        return Self{ .x = lhs.x - rhs.x, .y = lhs.y - rhs.y };
+    pub fn sub(lhs: Vector, rhs: Vector) Vector {
+        return Vector{ .x = lhs.x - rhs.x, .y = lhs.y - rhs.y };
     }
 
-    pub fn eql(lhs: Self, rhs: Self) bool {
+    pub fn eql(lhs: Vector, rhs: Vector) bool {
         return lhs.x == rhs.x and lhs.y == rhs.y;
     }
 };
@@ -49,8 +46,6 @@ pub const Rect = struct {
     w: Unit,
     h: Unit,
 
-    const Self = @This();
-
     pub fn xRange(rect: Rect) Range {
         return .{ .start = rect.x, .length = rect.w };
     }
@@ -59,12 +54,12 @@ pub const Rect = struct {
         return .{ .start = rect.y, .length = rect.h };
     }
 
-    pub fn isEmpty(self: Self) bool {
-        return self.w < 0 or self.h < 0;
+    pub fn isEmpty(rect: Rect) bool {
+        return rect.w < 0 or rect.h < 0;
     }
 
-    pub fn translate(rect: Self, vec: Vector) Self {
-        return Self{
+    pub fn translate(rect: Rect, vec: Vector) Rect {
+        return Rect{
             .x = rect.x + vec.x,
             .y = rect.y + vec.y,
             .w = rect.w,
@@ -72,13 +67,13 @@ pub const Rect = struct {
         };
     }
 
-    pub fn intersect(a: Self, b: Self) Self {
+    pub fn intersect(a: Rect, b: Rect) Rect {
         const left = @max(a.x, b.x);
         const right = @min(a.x + a.w, b.x + b.w);
         const top = @max(a.y, b.y);
         const bottom = @min(a.y + a.h, b.y + b.h);
 
-        return Self{
+        return Rect{
             .x = left,
             .y = top,
             .w = right - left,
@@ -87,7 +82,7 @@ pub const Rect = struct {
     }
 };
 
-test "Rect" {
+test Rect {
     const r1 = Rect{ .x = 0, .y = 0, .w = 10, .h = 10 };
     const r2 = Rect{ .x = 3, .y = 5, .w = 17, .h = 4 };
     const r3 = Rect{ .x = 15, .y = 0, .w = 20, .h = 9 };
@@ -130,61 +125,28 @@ pub fn CheckedInt(comptime Int: type) type {
         overflow: bool,
         value: Int,
 
-        const Self = @This();
-
-        pub fn init(int: Int) Self {
-            return Self{
+        pub fn init(int: Int) CheckedInt(Int) {
+            return .{
                 .overflow = false,
                 .value = int,
             };
         }
 
-        pub fn unwrap(checked: Self) error{Overflow}!Int {
+        pub fn unwrap(checked: CheckedInt(Int)) error{Overflow}!Int {
             if (checked.overflow) return error.Overflow;
             return checked.value;
         }
 
-        pub fn add(checked: *Self, int: Int) void {
+        pub fn add(checked: *CheckedInt(Int), int: Int) void {
             const add_result = @addWithOverflow(checked.value, int);
             checked.value = add_result[0];
             checked.overflow = checked.overflow or @bitCast(add_result[1]);
         }
 
-        pub fn multiply(checked: *Self, int: Int) void {
+        pub fn multiply(checked: *CheckedInt(Int), int: Int) void {
             const mul_result = @mulWithOverflow(checked.value, int);
             checked.value = mul_result[0];
             checked.overflow = checked.overflow or @bitCast(mul_result[1]);
         }
-
-        pub fn alignForward(checked: *Self, comptime alignment: Int) void {
-            comptime assert(std.mem.isValidAlign(alignment));
-            const lower_addr_bits = checked.value & (alignment - 1);
-            if (lower_addr_bits != 0) {
-                checked.add(alignment - lower_addr_bits);
-            }
-        }
     };
-}
-
-test "CheckedInt.alignForward" {
-    const alignForward = struct {
-        fn f(addr: usize, comptime alignment: comptime_int) !usize {
-            var checked_int = CheckedInt(usize).init(addr);
-            checked_int.alignForward(alignment);
-            return checked_int.unwrap();
-        }
-    }.f;
-
-    try expectEqual(@as(usize, 0), try alignForward(0, 1));
-    try expectEqual(@as(usize, 1), try alignForward(1, 1));
-
-    try expectEqual(@as(usize, 0), try alignForward(0, 2));
-    try expectEqual(@as(usize, 2), try alignForward(1, 2));
-    try expectEqual(@as(usize, 2), try alignForward(2, 2));
-    try expectEqual(@as(usize, 4), try alignForward(3, 2));
-
-    try expectEqual(@as(usize, 0), try alignForward(0, 4));
-    try expectEqual(@as(usize, 4), try alignForward(1, 4));
-    try expectEqual(@as(usize, 4), try alignForward(2, 4));
-    try expectEqual(@as(usize, 4), try alignForward(3, 4));
 }

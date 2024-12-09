@@ -71,7 +71,7 @@ fn validateStackingContexts(box_tree: *zss.BoxTree, allocator: Allocator) !void 
     const Size = BoxTree.StackingContextTree.Size;
     const ZIndex = BoxTree.ZIndex;
 
-    const view = box_tree.stacking_contexts.view();
+    const view = box_tree.sct.view();
     if (view.len == 0) return;
     const skips = view.items(.skip);
     const z_indeces = view.items(.z_index);

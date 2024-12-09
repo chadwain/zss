@@ -170,7 +170,7 @@ pub fn create(box_tree: *const BoxTree, allocator: Allocator) !DrawList {
         var builder = Builder{};
         defer builder.deinit(allocator);
 
-        const view = box_tree.stacking_contexts.view();
+        const view = box_tree.sct.view();
 
         {
             // Add the initial containing block stacking context to the draw order list
