@@ -22,15 +22,19 @@ pub const StyleComputer = @import("Layout/StyleComputer.zig");
 pub const StackingContextTreeBuilder = @import("Layout/StackingContextTreeBuilder.zig");
 
 const BoxTree = zss.BoxTree;
+const BackgroundImage = BoxTree.BackgroundImage;
+const BackgroundImages = BoxTree.BackgroundImages;
 const BlockRef = BoxTree.BlockRef;
+const GeneratedBox = BoxTree.GeneratedBox;
 const InlineFormattingContext = BoxTree.InlineFormattingContext;
+const InlineFormattingContextId = BoxTree.InlineFormattingContextId;
 const StackingContext = BoxTree.StackingContext;
 const StackingContextTree = BoxTree.StackingContextTree;
 const Subtree = BoxTree.Subtree;
 
 const Layout = @This();
 
-box_tree: *BoxTree,
+box_tree: BoxTreeManaged,
 computer: StyleComputer,
 sct_builder: StackingContextTreeBuilder,
 absolute: Absolute,
@@ -56,8 +60,7 @@ pub const Inputs = struct {
 pub const Error = error{
     OutOfMemory,
     OutOfRefs,
-    TooManyBlocks,
-    TooManyIfcs,
+    SizeLimitExceeded,
     TooManyInlineBoxes,
     ViewportTooLarge,
 };
@@ -109,6 +112,112 @@ pub fn deinit(layout: *Layout) void {
     layout.blocks.deinit(layout.allocator);
 }
 
+pub const BoxTreeManaged = struct {
+    ptr: *BoxTree,
+
+    pub fn setGeneratedBox(box_tree: BoxTreeManaged, element: Element, generated_box: GeneratedBox) !void {
+        try box_tree.ptr.element_to_generated_box.putNoClobber(box_tree.ptr.allocator, element, generated_box);
+    }
+
+    fn newSubtree(box_tree: BoxTreeManaged) !*Subtree {
+        const all_subtrees = &box_tree.ptr.blocks.subtrees;
+        const id_int = std.math.cast(std.meta.Tag(Subtree.Id), all_subtrees.items.len) orelse return error.SizeLimitExceeded;
+
+        try all_subtrees.ensureUnusedCapacity(box_tree.ptr.allocator, 1);
+        const subtree = try box_tree.ptr.allocator.create(Subtree);
+        all_subtrees.appendAssumeCapacity(subtree);
+        subtree.* = .{ .id = @enumFromInt(id_int), .parent = null };
+        return subtree;
+    }
+
+    fn appendBlockBox(box_tree: BoxTreeManaged, subtree: *Subtree) !Subtree.Size {
+        const new_len = std.math.add(Subtree.Size, @intCast(subtree.blocks.len), 1) catch return error.SizeLimitExceeded;
+        try subtree.blocks.resize(box_tree.ptr.allocator, new_len);
+        return new_len - 1;
+    }
+
+    pub fn newIfc(box_tree: BoxTreeManaged, parent_block: BlockRef) !*InlineFormattingContext {
+        const all_ifcs = &box_tree.ptr.ifcs;
+        const id_int = std.math.cast(std.meta.Tag(InlineFormattingContextId), all_ifcs.items.len) orelse return error.SizeLimitExceeded;
+
+        try all_ifcs.ensureUnusedCapacity(box_tree.ptr.allocator, 1);
+        const ifc = try box_tree.ptr.allocator.create(InlineFormattingContext);
+        all_ifcs.appendAssumeCapacity(ifc);
+        ifc.* = .{ .id = @enumFromInt(id_int), .parent_block = parent_block };
+        return ifc;
+    }
+
+    pub fn appendInlineBox(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext) !BoxTree.InlineBoxIndex {
+        const new_len = std.math.add(BoxTree.InlineBoxIndex, @intCast(ifc.inline_boxes.len), 1) catch return error.SizeLimitExceeded;
+        try ifc.inline_boxes.resize(box_tree.ptr.allocator, new_len);
+        return new_len - 1;
+    }
+
+    pub fn appendGlyph(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, glyph: InlineFormattingContext.GlyphIndex) !void {
+        try ifc.glyph_indeces.append(box_tree.ptr.allocator, glyph);
+    }
+
+    /// This enum is derived from `InlineFormattingContext.Special.Kind`
+    pub const SpecialGlyph = union(enum(u16)) {
+        Reserved,
+        ZeroGlyphIndex,
+        BoxStart: BoxTree.InlineBoxIndex,
+        BoxEnd: BoxTree.InlineBoxIndex,
+        InlineBlock: Subtree.Size,
+        /// Represents a mandatory line break in the text.
+        /// data has no meaning.
+        LineBreak,
+        /// Represents a continuation block.
+        /// A "continuation block" is a block box that is the child of an inline box.
+        /// It causes the inline formatting context to be split around this block,
+        /// and creates anonymous block boxes, as per CSS2§9.2.1.1.
+        /// data is the used id of the block box.
+        ContinuationBlock,
+    };
+
+    pub fn appendSpecialGlyph(
+        box_tree: BoxTreeManaged,
+        ifc: *InlineFormattingContext,
+        comptime tag: std.meta.Tag(SpecialGlyph),
+        data: @TypeOf(@field(@as(SpecialGlyph, undefined), @tagName(tag))),
+    ) !void {
+        const special: InlineFormattingContext.Special = .{
+            .kind = blk: {
+                comptime zss.debug.ensureCompatibleEnums(InlineFormattingContext.Special.Kind, std.meta.Tag(SpecialGlyph));
+                @setRuntimeSafety(false);
+                break :blk @enumFromInt(@intFromEnum(tag));
+            },
+            .data = switch (tag) {
+                .Reserved, .ContinuationBlock => comptime unreachable,
+                .ZeroGlyphIndex, .LineBreak => undefined,
+                .BoxStart, .BoxEnd, .InlineBlock => data,
+            },
+        };
+        try ifc.glyph_indeces.appendSlice(box_tree.ptr.allocator, &[2]InlineFormattingContext.GlyphIndex{ 0, @bitCast(special) });
+    }
+
+    pub fn allocMetrics(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext) !void {
+        try ifc.metrics.resize(box_tree.ptr.allocator, ifc.glyph_indeces.items.len);
+    }
+
+    pub fn appendLineBox(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, line_box: InlineFormattingContext.LineBox) !void {
+        try ifc.line_boxes.append(box_tree.ptr.allocator, line_box);
+    }
+
+    pub fn allocBackgroundImages(box_tree: BoxTreeManaged, count: BackgroundImages.Size) !struct { BackgroundImages.Handle, []BackgroundImage } {
+        const bi = &box_tree.ptr.background_images;
+        const handle_int = std.math.add(std.meta.Tag(BackgroundImages.Handle), @intCast(bi.slices.items.len), 1) catch return error.SizeLimitExceeded;
+        const begin: BackgroundImages.Size = @intCast(bi.images.items.len);
+        const end = std.math.add(BackgroundImages.Size, begin, count) catch return error.SizeLimitExceeded;
+
+        try bi.slices.ensureUnusedCapacity(box_tree.ptr.allocator, 1);
+        const images = try bi.images.addManyAsSlice(box_tree.ptr.allocator, count);
+        bi.slices.appendAssumeCapacity(.{ .begin = begin, .end = end });
+
+        return .{ @enumFromInt(handle_int), images };
+    }
+};
+
 pub fn run(layout: *Layout, allocator: Allocator) Error!BoxTree {
     const cast = math.pixelsToUnits;
     const width_units = cast(layout.inputs.width) orelse return error.ViewportTooLarge;
@@ -120,7 +229,7 @@ pub fn run(layout: *Layout, allocator: Allocator) Error!BoxTree {
 
     var box_tree = BoxTree{ .allocator = allocator };
     errdefer box_tree.deinit();
-    layout.box_tree = &box_tree;
+    layout.box_tree = .{ .ptr = &box_tree };
 
     try boxGeneration(layout);
     try cosmeticLayout(layout);
@@ -172,12 +281,12 @@ pub fn currentSubtree(layout: *Layout) Subtree.Id {
 }
 
 pub fn pushInitialSubtree(layout: *Layout) !void {
-    const subtree = try layout.box_tree.blocks.makeSubtree(layout.box_tree.allocator);
+    const subtree = try layout.box_tree.newSubtree();
     layout.subtrees.top = .{ .id = subtree.id, .depth = 0 };
 }
 
 pub fn pushSubtree(layout: *Layout) !void {
-    const subtree = try layout.box_tree.blocks.makeSubtree(layout.box_tree.allocator);
+    const subtree = try layout.box_tree.newSubtree();
     try layout.subtrees.push(layout.allocator, .{ .id = subtree.id, .depth = 0 });
 }
 
@@ -195,8 +304,8 @@ pub const Block = struct {
 };
 
 fn newBlock(layout: *Layout) !BlockRef {
-    const subtree = layout.box_tree.blocks.subtree(layout.subtrees.top.?.id);
-    const index = try subtree.appendBlock(layout.box_tree.allocator);
+    const subtree = layout.box_tree.ptr.blocks.subtree(layout.subtrees.top.?.id);
+    const index = try layout.box_tree.appendBlockBox(subtree);
     return .{ .subtree = subtree.id, .index = index };
 }
 
@@ -208,7 +317,7 @@ fn addSkip(layout: *Layout, skip: Subtree.Size) void {
 
 pub fn pushInitialContainingBlock(layout: *Layout, size: math.Size) !BlockRef {
     const ref = try layout.newBlock();
-    const stacking_context_id = try layout.sct_builder.pushInitial(layout.box_tree, ref);
+    const stacking_context_id = try layout.sct_builder.pushInitial(layout.box_tree.ptr, ref);
     const absolute_containing_block_id = try layout.absolute.pushInitialContainingBlock(layout.allocator, ref);
     layout.blocks.top = .{
         .index = ref.index,
@@ -230,7 +339,7 @@ pub fn popInitialContainingBlock(layout: *Layout) void {
     layout.subtrees.top.?.depth -= 1;
     assert(layout.subtrees.top.?.depth == 0);
 
-    const subtree = layout.box_tree.blocks.subtree(layout.subtrees.top.?.id).view();
+    const subtree = layout.box_tree.ptr.blocks.subtree(layout.subtrees.top.?.id).view();
     const index = block.index;
     const width = block.sizes.get(.inline_size).?;
     const height = block.sizes.get(.block_size).?;
@@ -254,7 +363,7 @@ pub fn pushFlowBlock(
     stacking_context: StackingContextTreeBuilder.Type,
 ) !BlockRef {
     const ref = try layout.newBlock();
-    const stacking_context_id = try layout.sct_builder.push(layout.allocator, stacking_context, layout.box_tree, ref);
+    const stacking_context_id = try layout.sct_builder.push(layout.allocator, stacking_context, layout.box_tree.ptr, ref);
     const absolute_containing_block_id = try layout.pushAbsoluteContainingBlock(box_style, ref);
     try layout.blocks.push(layout.allocator, .{
         .index = ref.index,
@@ -269,14 +378,14 @@ pub fn pushFlowBlock(
 }
 
 pub fn popFlowBlock(layout: *Layout, auto_height: math.Unit) BlockRef {
-    layout.sct_builder.pop(layout.box_tree);
+    layout.sct_builder.pop(layout.box_tree.ptr);
     layout.popAbsoluteContainingBlock();
     const block = layout.blocks.pop();
     layout.subtrees.top.?.depth -= 1;
     layout.addSkip(block.skip);
 
     const subtree_id = layout.subtrees.top.?.id;
-    const subtree = layout.box_tree.blocks.subtree(subtree_id).view();
+    const subtree = layout.box_tree.ptr.blocks.subtree(subtree_id).view();
     const width = flow.solveUsedWidth(block.sizes.get(.inline_size).?, block.sizes.min_inline_size, block.sizes.max_inline_size);
     const height = flow.solveUsedHeight(block.sizes.get(.block_size), block.sizes.min_block_size, block.sizes.max_block_size, auto_height);
     setDataBlock(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
@@ -307,7 +416,7 @@ pub fn popIfcContainerBlock(
     layout.subtrees.top.?.depth -= 1;
     layout.addSkip(block.skip);
 
-    const subtree = layout.box_tree.blocks.subtree(layout.subtrees.top.?.id).view();
+    const subtree = layout.box_tree.ptr.blocks.subtree(layout.subtrees.top.?.id).view();
     setDataIfcContainer(subtree, ifc, block.index, block.skip, containing_block_width, height);
 }
 
@@ -318,7 +427,7 @@ pub fn pushStfFlowMainBlock(
     stacking_context: StackingContextTreeBuilder.Type,
 ) !BlockRef {
     const ref = try layout.newBlock();
-    const stacking_context_id = try layout.sct_builder.push(layout.allocator, stacking_context, layout.box_tree, ref);
+    const stacking_context_id = try layout.sct_builder.push(layout.allocator, stacking_context, layout.box_tree.ptr, ref);
     const absolute_containing_block_id = try layout.pushAbsoluteContainingBlock(box_style, ref);
     try layout.blocks.push(layout.allocator, .{
         .index = ref.index,
@@ -336,13 +445,13 @@ pub fn popStfFlowMainBlock(
     auto_width: math.Unit,
     auto_height: math.Unit,
 ) void {
-    layout.sct_builder.pop(layout.box_tree);
+    layout.sct_builder.pop(layout.box_tree.ptr);
     layout.popAbsoluteContainingBlock();
     const block = layout.blocks.pop();
     layout.subtrees.top.?.depth -= 1;
     layout.addSkip(block.skip);
 
-    const subtree = layout.box_tree.blocks.subtree(layout.subtrees.top.?.id).view();
+    const subtree = layout.box_tree.ptr.blocks.subtree(layout.subtrees.top.?.id).view();
     const width = flow.solveUsedWidth(auto_width, block.sizes.min_inline_size, block.sizes.max_inline_size); // TODO This is probably redundant
     const height = flow.solveUsedHeight(block.sizes.get(.block_size), block.sizes.min_block_size, block.sizes.max_block_size, auto_height);
     setDataBlock(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
@@ -354,7 +463,7 @@ pub fn pushStfFlowBlock(
     sizes: BlockUsedSizes,
     stacking_context: StackingContextTreeBuilder.Type,
 ) !void {
-    const stacking_context_id = try layout.sct_builder.pushWithoutBlock(layout.allocator, stacking_context, layout.box_tree);
+    const stacking_context_id = try layout.sct_builder.pushWithoutBlock(layout.allocator, stacking_context, layout.box_tree.ptr);
     const absolute_containing_block_id = try layout.pushAbsoluteContainingBlock(box_style, undefined);
     try layout.blocks.push(layout.allocator, .{
         .index = undefined,
@@ -367,7 +476,7 @@ pub fn pushStfFlowBlock(
 }
 
 pub fn popStfFlowBlock(layout: *Layout) Block {
-    layout.sct_builder.pop(layout.box_tree);
+    layout.sct_builder.pop(layout.box_tree.ptr);
     layout.popAbsoluteContainingBlock();
     const block = layout.blocks.pop();
     layout.subtrees.top.?.depth -= 1;
@@ -402,13 +511,13 @@ pub fn popStfFlowBlock2(
     layout.addSkip(block.skip);
 
     const subtree_id = layout.subtrees.top.?.id;
-    const subtree = layout.box_tree.blocks.subtree(subtree_id).view();
+    const subtree = layout.box_tree.ptr.blocks.subtree(subtree_id).view();
     const width = flow.solveUsedWidth(auto_width, block.sizes.min_inline_size, block.sizes.max_inline_size); // TODO This is probably redundant
     const height = flow.solveUsedHeight(block.sizes.get(.block_size), block.sizes.min_block_size, block.sizes.max_block_size, auto_height);
     setDataBlock(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
 
     const ref: BlockRef = .{ .subtree = subtree_id, .index = block.index };
-    if (block.stacking_context_id) |id| layout.sct_builder.setBlock(id, layout.box_tree, ref);
+    if (block.stacking_context_id) |id| layout.sct_builder.setBlock(id, layout.box_tree.ptr, ref);
     if (block.absolute_containing_block_id) |id| layout.fixupAbsoluteContainingBlock(id, ref);
 
     return ref;
@@ -418,16 +527,16 @@ pub fn addSubtreeProxy(layout: *Layout, id: Subtree.Id) !BlockRef {
     layout.addSkip(1);
 
     const ref = try layout.newBlock();
-    const parent_subtree = layout.box_tree.blocks.subtree(layout.subtrees.top.?.id);
-    const child_subtree = layout.box_tree.blocks.subtree(id);
+    const parent_subtree = layout.box_tree.ptr.blocks.subtree(layout.subtrees.top.?.id);
+    const child_subtree = layout.box_tree.ptr.blocks.subtree(id);
     setDataSubtreeProxy(parent_subtree.view(), ref.index, child_subtree);
     child_subtree.parent = ref;
     return ref;
 }
 
 pub fn newIfc(layout: *Layout, ifc_container: BlockRef) !*InlineFormattingContext {
-    const ifc = try layout.box_tree.makeIfc(ifc_container);
-    try layout.sct_builder.addIfc(layout.box_tree, ifc.id);
+    const ifc = try layout.box_tree.newIfc(ifc_container);
+    try layout.sct_builder.addIfc(layout.box_tree.ptr, ifc.id);
     return ifc;
 }
 

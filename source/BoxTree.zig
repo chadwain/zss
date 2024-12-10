@@ -43,21 +43,8 @@ pub fn deinit(box_tree: *BoxTree) void {
     box_tree.background_images.deinit(box_tree.allocator);
 }
 
-pub fn mapElementToBox(box_tree: *BoxTree, element: Element, generated_box: GeneratedBox) !void {
-    try box_tree.element_to_generated_box.putNoClobber(box_tree.allocator, element, generated_box);
-}
-
 pub fn getIfc(box_tree: BoxTree, id: InlineFormattingContextId) *InlineFormattingContext {
     return box_tree.ifcs.items[@intFromEnum(id)];
-}
-
-pub fn makeIfc(box_tree: *BoxTree, parent_block: BlockRef) !*InlineFormattingContext {
-    const id = std.math.cast(std.meta.Tag(InlineFormattingContextId), box_tree.ifcs.items.len) orelse return error.TooManyIfcs;
-    try box_tree.ifcs.ensureUnusedCapacity(box_tree.allocator, 1);
-    const ptr = try box_tree.allocator.create(InlineFormattingContext);
-    box_tree.ifcs.appendAssumeCapacity(ptr);
-    ptr.* = .{ .id = @enumFromInt(id), .parent_block = parent_block };
-    return ptr;
 }
 
 pub fn print(box_tree: *const BoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
@@ -232,7 +219,7 @@ pub const Subtree = struct {
     });
     pub const View = List.Slice;
 
-    pub fn deinit(subtree: *Subtree, allocator: Allocator) void {
+    fn deinit(subtree: *Subtree, allocator: Allocator) void {
         subtree.blocks.deinit(allocator);
     }
 
@@ -261,16 +248,6 @@ pub const Subtree = struct {
 
     pub fn size(subtree: Subtree) Size {
         return @intCast(subtree.blocks.len);
-    }
-
-    pub fn ensureTotalCapacity(subtree: *Subtree, allocator: Allocator, capacity: Size) !void {
-        try subtree.blocks.ensureTotalCapacity(allocator, capacity);
-    }
-
-    pub fn appendBlock(subtree: *Subtree, allocator: Allocator) !Size {
-        const new_size = std.math.add(Size, subtree.size(), 1) catch return error.TooManyBlocks;
-        assert(new_size - 1 == try subtree.blocks.addOne(allocator));
-        return new_size - 1;
     }
 
     fn printBlock(subtree: Subtree.View, index: Subtree.Size, writer: std.io.AnyWriter) !void {
@@ -304,16 +281,6 @@ pub const BlockBoxTree = struct {
 
     pub fn subtree(blocks: BlockBoxTree, id: Subtree.Id) *Subtree {
         return blocks.subtrees.items[@intFromEnum(id)];
-    }
-
-    pub fn makeSubtree(blocks: *BlockBoxTree, allocator: Allocator) !*Subtree {
-        const id: Subtree.Id = @enumFromInt(blocks.subtrees.items.len);
-        const tree_ptr = try blocks.subtrees.addOne(allocator);
-        errdefer _ = blocks.subtrees.pop();
-        const tree = try allocator.create(Subtree);
-        tree_ptr.* = tree;
-        tree.* = .{ .id = id, .parent = null };
-        return tree;
     }
 
     pub fn print(block_box_tree: *const BlockBoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
@@ -466,59 +433,19 @@ pub const InlineFormattingContext = struct {
             _,
         };
 
+        comptime {
+            for (std.meta.fields(Kind)) |field| {
+                assert(field.value != 0);
+            }
+        }
+
         /// Recovers the data contained within a glyph index.
         pub fn decode(encoded_glyph_index: GlyphIndex) Special {
             return @bitCast(encoded_glyph_index);
         }
-
-        // End users should not concern themselves with anything below this comment.
-
-        pub const LayoutInternalKind = enum(u16) {
-            // The explanations for some of these are above.
-            ZeroGlyphIndex = 1,
-            BoxStart,
-            BoxEnd,
-            InlineBlock,
-            /// Represents a mandatory line break in the text.
-            /// data has no meaning.
-            LineBreak,
-            /// Represents a continuation block.
-            /// A "continuation block" is a block box that is the child of an inline box.
-            /// It causes the inline formatting context to be split around this block,
-            /// and creates anonymous block boxes, as per CSS2§9.2.1.1.
-            /// data is the used id of the block box.
-            ContinuationBlock,
-        };
-
-        comptime {
-            for (std.meta.fields(Kind)) |field| {
-                assert(field.value != 0);
-                assert(std.mem.eql(u8, field.name, @tagName(@as(LayoutInternalKind, @enumFromInt(field.value)))));
-            }
-        }
-
-        pub fn encodeBoxStart(index: InlineBoxIndex) GlyphIndex {
-            return @bitCast(Special{ .kind = .BoxStart, .data = index });
-        }
-
-        pub fn encodeBoxEnd(index: InlineBoxIndex) GlyphIndex {
-            return @bitCast(Special{ .kind = .BoxEnd, .data = index });
-        }
-
-        pub fn encodeInlineBlock(index: Subtree.Size) GlyphIndex {
-            return @bitCast(Special{ .kind = .InlineBlock, .data = index });
-        }
-
-        pub fn encodeZeroGlyphIndex() GlyphIndex {
-            return @bitCast(Special{ .kind = .ZeroGlyphIndex, .data = undefined });
-        }
-
-        pub fn encodeLineBreak() GlyphIndex {
-            return @bitCast(Special{ .kind = @as(Kind, @enumFromInt(@intFromEnum(LayoutInternalKind.LineBreak))), .data = undefined });
-        }
     };
 
-    pub fn deinit(ifc: *InlineFormattingContext, allocator: Allocator) void {
+    fn deinit(ifc: *InlineFormattingContext, allocator: Allocator) void {
         ifc.glyph_indeces.deinit(allocator);
         ifc.metrics.deinit(allocator);
         ifc.line_boxes.deinit(allocator);
@@ -531,16 +458,6 @@ pub const InlineFormattingContext = struct {
 
     pub fn slice(ifc: InlineFormattingContext) Slice {
         return ifc.inline_boxes.slice();
-    }
-
-    pub fn ensureTotalCapacity(ifc: *InlineFormattingContext, allocator: Allocator, count: usize) !void {
-        ifc.inline_boxes.ensureTotalCapacity(allocator, count);
-    }
-
-    pub fn appendInlineBox(ifc: *InlineFormattingContext, allocator: Allocator) !InlineBoxIndex {
-        const new_size = std.math.add(InlineBoxIndex, ifc.numInlineBoxes(), 1) catch return error.TooManyInlineBoxes;
-        assert(new_size - 1 == try ifc.inline_boxes.addOne(allocator));
-        return new_size - 1;
     }
 };
 
@@ -609,31 +526,23 @@ pub const GeneratedBox = union(enum) {
 };
 
 pub const BackgroundImages = struct {
-    pub const Handle = enum(u32) {
+    pub const Size = u32;
+    pub const Handle = enum(Size) {
         invalid = 0,
         _,
     };
 
     const Slice = struct {
-        begin: u32,
-        end: u32,
+        begin: Size,
+        end: Size,
     };
 
     slices: ArrayListUnmanaged(Slice) = .{},
     images: ArrayListUnmanaged(BackgroundImage) = .{},
 
-    pub fn deinit(self: *BackgroundImages, allocator: Allocator) void {
+    fn deinit(self: *BackgroundImages, allocator: Allocator) void {
         self.slices.deinit(allocator);
         self.images.deinit(allocator);
-    }
-
-    pub fn alloc(self: *BackgroundImages, allocator: Allocator, count: u32) !struct { Handle, []BackgroundImage } {
-        try self.slices.ensureUnusedCapacity(allocator, 1);
-        const begin: u32 = @intCast(self.images.items.len);
-        const images = try self.images.addManyAsSlice(allocator, count);
-        self.slices.appendAssumeCapacity(.{ .begin = begin, .end = begin + count });
-        const handle: Handle = @enumFromInt(self.slices.items.len);
-        return .{ handle, images };
     }
 
     pub fn get(self: BackgroundImages, handle: Handle) ?[]const BackgroundImage {

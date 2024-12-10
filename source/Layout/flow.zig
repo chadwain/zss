@@ -113,7 +113,7 @@ fn pushBlock(
 ) !void {
     // The allocations here must have corresponding deallocations in popBlock.
     const ref = try layout.pushFlowBlock(box_style, used_sizes, stacking_context);
-    try layout.box_tree.mapElementToBox(element, .{ .block_ref = ref });
+    try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
     try ctx.stack.push(ctx.allocator, .{
         .auto_height = 0,
         .inline_size_clamped = solveUsedWidth(used_sizes.get(.inline_size).?, used_sizes.min_inline_size, used_sizes.max_inline_size),
@@ -134,7 +134,7 @@ fn popBlock(layout: *Layout, ctx: *Context) void {
     const ref = layout.popFlowBlock(this.auto_height);
     layout.popElement();
 
-    const subtree = layout.box_tree.blocks.subtree(ref.subtree).view();
+    const subtree = layout.box_tree.ptr.blocks.subtree(ref.subtree).view();
     addBlockToFlow(subtree, ref.index, &parent.auto_height);
 }
 

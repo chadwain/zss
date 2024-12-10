@@ -140,7 +140,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                 if (used.get(.inline_size)) |inline_size| { // TODO: clamp the inline size
                     try layout.pushSubtree();
                     const ref = try layout.pushFlowBlock(used_box_style, used, stacking_context);
-                    try layout.box_tree.mapElementToBox(element, .{ .block_ref = ref });
+                    try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                     try layout.pushElement();
 
                     const result = try flow.runFlowLayout(layout, used);
@@ -353,7 +353,7 @@ fn realizeObjects(
                         flow.adjustWidthAndMargins(&data.used, containing_block_width);
 
                         const ref = try layout.pushStfFlowBlock2(data.used, data.stacking_context_id, data.absolute_containing_block_id);
-                        try layout.box_tree.mapElementToBox(element, .{ .block_ref = ref });
+                        try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
 
                         try ctx.stack.push(allocator, .{
                             .object_index = object_index,
@@ -367,13 +367,13 @@ fn realizeObjects(
                     .flow_normal => {
                         const data = &datas[object_index].flow_normal;
                         const ref = try layout.addSubtreeProxy(data.subtree);
-                        const subtree = layout.box_tree.blocks.subtree(ref.subtree).view();
+                        const subtree = layout.box_tree.ptr.blocks.subtree(ref.subtree).view();
                         flow.addBlockToFlow(subtree, ref.index, &parent.auto_height);
                     },
                     .ifc => {
                         const data = datas[object_index].ifc;
                         const ref = try layout.addSubtreeProxy(data.subtree_id);
-                        const subtree = layout.box_tree.blocks.subtree(ref.subtree).view();
+                        const subtree = layout.box_tree.ptr.blocks.subtree(ref.subtree).view();
                         flow.addBlockToFlow(subtree, ref.index, &parent.auto_height);
                     },
                 }
@@ -402,7 +402,7 @@ fn popFlowBlock(layout: *Layout, ctx: *RealizeObjectsContext, object_tree_slice:
 
     switch (parent.object_tag) {
         .flow_stf => {
-            const subtree = layout.box_tree.blocks.subtree(ref.subtree).view();
+            const subtree = layout.box_tree.ptr.blocks.subtree(ref.subtree).view();
             flow.addBlockToFlow(subtree, ref.index, &parent.auto_height);
         },
         .flow_normal, .ifc => unreachable,
