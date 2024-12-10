@@ -139,7 +139,7 @@ fn rootBlockSize(box_tree: *BoxTree, root_element: zss.ElementTree.Element) stru
         .text => |ifc_id| box_tree.getIfc(ifc_id).parent_block,
         .inline_box => unreachable,
     };
-    const subtree = box_tree.blocks.subtree(ref.subtree).view();
+    const subtree = box_tree.getSubtree(ref.subtree).view();
     const box_offsets = subtree.items(.box_offsets)[ref.index];
     return .{
         .x = @intCast(@divFloor(box_offsets.border_pos.x, units_per_pixel)),
@@ -150,8 +150,8 @@ fn rootBlockSize(box_tree: *BoxTree, root_element: zss.ElementTree.Element) stru
 }
 
 fn setIcbBackgroundColor(box_tree: *BoxTree, color: BoxTree.Color) void {
-    const icb = box_tree.blocks.initial_containing_block;
-    const subtree = box_tree.blocks.subtree(icb.subtree).view();
+    const icb = box_tree.initial_containing_block;
+    const subtree = box_tree.getSubtree(icb.subtree).view();
     const background = &subtree.items(.background)[icb.index];
     background.color = color;
 }

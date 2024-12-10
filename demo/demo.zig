@@ -57,12 +57,12 @@ const ProgramState = struct {
                 .block_ref => |ref| ref,
                 .inline_box, .text => unreachable,
             };
-            const subtree = self.box_tree.blocks.subtree(ref.subtree);
+            const subtree = self.box_tree.getSubtree(ref.subtree);
             const box_offsets = subtree.view().items(.box_offsets)[ref.index];
             break :blk box_offsets.border_size.h;
         } else blk: {
-            const icb = self.box_tree.blocks.initial_containing_block;
-            const subtree = self.box_tree.blocks.subtree(icb.subtree);
+            const icb = self.box_tree.initial_containing_block;
+            const subtree = self.box_tree.getSubtree(icb.subtree);
             const box_offsets = subtree.view().items(.box_offsets)[icb.index];
             break :blk box_offsets.border_size.h;
         };

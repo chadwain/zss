@@ -47,17 +47,18 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
 
 fn validateInline(inl: *BoxTree.InlineFormattingContext, allocator: Allocator) !void {
     @setRuntimeSafety(true);
-    const InlineBoxIndex = BoxTree.InlineBoxIndex;
+    const Index = BoxTree.InlineFormattingContext.Size;
+    const glyphs = inl.glyphs.items(.index);
 
-    var stack = std.ArrayList(InlineBoxIndex).init(allocator);
+    var stack = std.ArrayList(Index).init(allocator);
     defer stack.deinit();
     var i: usize = 0;
-    while (i < inl.glyph_indeces.items.len) : (i += 1) {
-        if (inl.glyph_indeces.items[i] == 0) {
+    while (i < glyphs.len) : (i += 1) {
+        if (glyphs[i] == 0) {
             i += 1;
-            const special = BoxTree.InlineFormattingContext.Special.decode(inl.glyph_indeces.items[i]);
+            const special = BoxTree.InlineFormattingContext.Special.decode(glyphs[i]);
             switch (special.kind) {
-                .BoxStart => stack.append(@as(InlineBoxIndex, special.data)) catch unreachable,
+                .BoxStart => stack.append(@as(Index, special.data)) catch unreachable,
                 .BoxEnd => _ = stack.pop(),
                 else => {},
             }

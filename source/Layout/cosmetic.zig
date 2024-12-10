@@ -15,8 +15,7 @@ const types = zss.values.types;
 
 const BoxTree = zss.BoxTree;
 const BlockRef = BoxTree.BlockRef;
-const InlineBoxIndex = BoxTree.InlineBoxIndex;
-const InlineFormattingContext = BoxTree.InlineFormattingContext;
+const Ifc = BoxTree.InlineFormattingContext;
 
 const Mode = enum {
     InitialContainingBlock,
@@ -36,7 +35,7 @@ const Context = struct {
 };
 
 pub fn run(layout: *Layout) !void {
-    const initial_containing_block = layout.box_tree.ptr.blocks.initial_containing_block;
+    const initial_containing_block = layout.box_tree.ptr.initial_containing_block;
     anonymousBlockBoxCosmeticLayout(layout.box_tree, initial_containing_block);
     // TODO: Also process any anonymous block boxes.
 
@@ -52,7 +51,7 @@ pub fn run(layout: *Layout) !void {
     defer context.deinit();
 
     {
-        const initial_containing_block_subtree = layout.box_tree.ptr.blocks.subtree(initial_containing_block.subtree);
+        const initial_containing_block_subtree = layout.box_tree.ptr.getSubtree(initial_containing_block.subtree);
         const box_offsets = initial_containing_block_subtree.view().items(.box_offsets)[initial_containing_block.index];
         try context.mode.append(context.allocator, .InitialContainingBlock);
         try context.containing_block_size.append(context.allocator, box_offsets.content_size);
@@ -73,7 +72,7 @@ pub fn run(layout: *Layout) !void {
                 }
 
                 if (!layout.computer.element_tree_slice.firstChild(root_element).eqlNull()) {
-                    const subtree = layout.box_tree.ptr.blocks.subtree(ref.subtree).view();
+                    const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
                     const box_offsets = subtree.items(.box_offsets)[ref.index];
                     try context.mode.append(context.allocator, .Flow);
                     try context.containing_block_size.append(context.allocator, box_offsets.content_size);
@@ -103,7 +102,7 @@ pub fn run(layout: *Layout) !void {
                     layout.computer.commitElement(.cosmetic);
 
                     if (has_children) {
-                        const subtree = layout.box_tree.ptr.blocks.subtree(ref.subtree).view();
+                        const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
                         const box_offsets = subtree.items(.box_offsets)[ref.index];
                         try context.mode.append(context.allocator, .Flow);
                         try context.containing_block_size.append(context.allocator, box_offsets.content_size);
@@ -153,7 +152,7 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comp
         .insets = layout.computer.getSpecifiedValue(.cosmetic, .insets),
     };
 
-    const subtree = layout.box_tree.ptr.blocks.subtree(ref.subtree).view();
+    const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
 
     const computed_box_style, _ = solve.boxStyle(specified.box_style, is_root);
     const current_color = solve.currentColor(specified.color.color);
@@ -391,7 +390,7 @@ fn getBackgroundPropertyArray(inputs: Layout.Inputs, ptr_to_value: anytype) []co
 }
 
 fn anonymousBlockBoxCosmeticLayout(box_tree: Layout.BoxTreeManaged, ref: BlockRef) void {
-    const subtree = box_tree.ptr.blocks.subtree(ref.subtree).view();
+    const subtree = box_tree.ptr.getSubtree(ref.subtree).view();
     subtree.items(.border_colors)[ref.index] = .{};
     subtree.items(.background)[ref.index] = .{};
     subtree.items(.insets)[ref.index] = .{ .x = 0, .y = 0 };
@@ -400,8 +399,8 @@ fn anonymousBlockBoxCosmeticLayout(box_tree: Layout.BoxTreeManaged, ref: BlockRe
 fn inlineBoxCosmeticLayout(
     layout: *Layout,
     context: Context,
-    ifc: *InlineFormattingContext,
-    inline_box_index: InlineBoxIndex,
+    ifc: *Ifc,
+    inline_box_index: Ifc.Size,
 ) void {
     const ifc_slice = ifc.slice();
 
@@ -466,7 +465,7 @@ fn inlineBoxCosmeticLayout(
     layout.computer.setComputedValue(.cosmetic, .background2, specified.background2);
 }
 
-fn rootInlineBoxCosmeticLayout(ifc: *InlineFormattingContext) void {
+fn rootInlineBoxCosmeticLayout(ifc: *Ifc) void {
     const ifc_slice = ifc.slice();
 
     ifc_slice.items(.inline_start)[0].border_color = BoxTree.Color.transparent;

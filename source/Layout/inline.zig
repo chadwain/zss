@@ -23,12 +23,7 @@ const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 
 const BoxTree = zss.BoxTree;
-const StackingContextIndex = BoxTree.StackingContextIndex;
-const StackingContextRef = BoxTree.StackingContextRef;
-const InlineBoxIndex = BoxTree.InlineBoxIndex;
-const InlineBoxSkip = BoxTree.InlineBoxSkip;
 const InlineFormattingContext = BoxTree.InlineFormattingContext;
-const InlineFormattingContextId = BoxTree.InlineFormattingContextId;
 const GlyphIndex = InlineFormattingContext.GlyphIndex;
 const GeneratedBox = BoxTree.GeneratedBox;
 const Subtree = BoxTree.Subtree;
@@ -66,7 +61,7 @@ pub fn runInlineLayout(
     defer ctx.deinit();
     try analyzeElements(layout, &ctx, ifc);
 
-    const subtree = layout.box_tree.ptr.blocks.subtree(ifc_container.subtree).view();
+    const subtree = layout.box_tree.ptr.getSubtree(ifc_container.subtree).view();
     const line_split_result = try splitIntoLineBoxes(layout, subtree, ifc, containing_block_width);
     layout.popIfcContainerBlock(ifc.id, containing_block_width, line_split_result.height);
 
@@ -84,9 +79,9 @@ const InlineLayoutContext = struct {
     containing_block_height: ?Unit,
     percentage_base_unit: Unit,
 
-    inline_box_depth: InlineBoxIndex = 0,
-    index: ArrayListUnmanaged(InlineBoxIndex) = .{},
-    skip: ArrayListUnmanaged(InlineBoxSkip) = .{},
+    inline_box_depth: InlineFormattingContext.Size = 0,
+    index: ArrayListUnmanaged(InlineFormattingContext.Size) = .{},
+    skip: ArrayListUnmanaged(InlineFormattingContext.Size) = .{},
     total_inline_block_skip: Subtree.Size = 0,
     font_handle: ?Fonts.Handle = null,
 
@@ -112,8 +107,7 @@ fn analyzeElements(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineForma
     while (!(try ifcRunOnce(layout, ctx, ifc))) {}
     try ifcPopRootInlineBox(ctx, layout.box_tree, ifc);
 
-    try layout.box_tree.allocMetrics(ifc);
-    const subtree = layout.box_tree.ptr.blocks.subtree(layout.currentSubtree()).view();
+    const subtree = layout.box_tree.ptr.getSubtree(layout.currentSubtree()).view();
     ifcSolveMetrics(ifc, subtree, layout.inputs.fonts);
 }
 
@@ -277,11 +271,11 @@ fn ifcPopInlineBox(ctx: *InlineLayoutContext, box_tree: BoxTreeManaged, ifc: *In
     ctx.skip.items[ctx.skip.items.len - 1] += skip;
 }
 
-fn ifcAddBoxStart(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
+fn ifcAddBoxStart(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, inline_box_index: InlineFormattingContext.Size) !void {
     try box_tree.appendSpecialGlyph(ifc, .BoxStart, inline_box_index);
 }
 
-fn ifcAddBoxEnd(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) !void {
+fn ifcAddBoxEnd(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, inline_box_index: InlineFormattingContext.Size) !void {
     try box_tree.appendSpecialGlyph(ifc, .BoxEnd, inline_box_index);
 }
 
@@ -362,7 +356,7 @@ fn ifcAddTextRun(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, buffer
     }
 }
 
-fn rootInlineBoxSetData(ifc: *const InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
+fn rootInlineBoxSetData(ifc: *const InlineFormattingContext, inline_box_index: InlineFormattingContext.Size) void {
     const ifc_slice = ifc.slice();
     ifc_slice.items(.inline_start)[inline_box_index] = .{};
     ifc_slice.items(.inline_end)[inline_box_index] = .{};
@@ -371,7 +365,7 @@ fn rootInlineBoxSetData(ifc: *const InlineFormattingContext, inline_box_index: I
     ifc_slice.items(.margins)[inline_box_index] = .{};
 }
 
-fn inlineBoxSetData(ctx: *InlineLayoutContext, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineBoxIndex) void {
+fn inlineBoxSetData(ctx: *InlineLayoutContext, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineFormattingContext.Size) void {
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
     const specified = .{
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
@@ -872,26 +866,25 @@ fn inlineBlockCreateStackingContext(
 fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: Subtree.View, fonts: *const Fonts) void {
     const font = fonts.get(ifc.font);
     const ifc_slice = ifc.slice();
+    const glyphs_slice = ifc.glyphs.slice();
 
-    const num_glyphs = ifc.glyph_indeces.items.len;
     var i: usize = 0;
-    while (i < num_glyphs) : (i += 1) {
-        const glyph_index = ifc.glyph_indeces.items[i];
-        const metrics = &ifc.metrics.items[i];
+    while (i < glyphs_slice.len) : (i += 1) {
+        const glyph_index = glyphs_slice.items(.index)[i];
+        const metrics = &glyphs_slice.items(.metrics)[i];
 
         if (glyph_index == 0) {
             i += 1;
-            const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
+            const special = InlineFormattingContext.Special.decode(glyphs_slice.items(.index)[i]);
             const kind = @as(std.meta.Tag(BoxTreeManaged.SpecialGlyph), @enumFromInt(@intFromEnum(special.kind)));
             switch (kind) {
-                .Reserved => unreachable,
                 .ZeroGlyphIndex => setMetricsGlyph(metrics, font.?.handle, 0),
                 .BoxStart => {
-                    const inline_box_index = @as(InlineBoxIndex, special.data);
+                    const inline_box_index = @as(InlineFormattingContext.Size, special.data);
                     setMetricsBoxStart(metrics, ifc_slice, inline_box_index);
                 },
                 .BoxEnd => {
-                    const inline_box_index = @as(InlineBoxIndex, special.data);
+                    const inline_box_index = @as(InlineFormattingContext.Size, special.data);
                     setMetricsBoxEnd(metrics, ifc_slice, inline_box_index);
                 },
                 .InlineBlock => {
@@ -899,7 +892,6 @@ fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: Subtree.View, fonts: 
                     setMetricsInlineBlock(metrics, subtree, block_box_index);
                 },
                 .LineBreak => setMetricsLineBreak(metrics),
-                .ContinuationBlock => panic("TODO: Continuation block metrics", .{}),
             }
         } else {
             setMetricsGlyph(metrics, font.?.handle, glyph_index);
@@ -921,7 +913,7 @@ fn setMetricsGlyph(metrics: *InlineFormattingContext.Metrics, font: *hb.hb_font_
     };
 }
 
-fn setMetricsBoxStart(metrics: *InlineFormattingContext.Metrics, ifc_slice: InlineFormattingContext.Slice, inline_box_index: InlineBoxIndex) void {
+fn setMetricsBoxStart(metrics: *InlineFormattingContext.Metrics, ifc_slice: InlineFormattingContext.Slice, inline_box_index: InlineFormattingContext.Size) void {
     const inline_start = ifc_slice.items(.inline_start)[inline_box_index];
     const margin = ifc_slice.items(.margins)[inline_box_index].start;
     const width = inline_start.border + inline_start.padding;
@@ -929,7 +921,7 @@ fn setMetricsBoxStart(metrics: *InlineFormattingContext.Metrics, ifc_slice: Inli
     metrics.* = .{ .offset = margin, .advance = advance, .width = width };
 }
 
-fn setMetricsBoxEnd(metrics: *InlineFormattingContext.Metrics, ifc_slice: InlineFormattingContext.Slice, inline_box_index: InlineBoxIndex) void {
+fn setMetricsBoxEnd(metrics: *InlineFormattingContext.Metrics, ifc_slice: InlineFormattingContext.Slice, inline_box_index: InlineFormattingContext.Size) void {
     const inline_end = ifc_slice.items(.inline_end)[inline_box_index];
     const margin = ifc_slice.items(.margins)[inline_box_index].end;
     const width = inline_end.border + inline_end.padding;
@@ -958,8 +950,8 @@ const IFCLineSplitState = struct {
     max_top_height: Unit,
     bottom_height: Unit,
     longest_line_box_length: Unit,
-    inline_box_stack: ArrayListUnmanaged(InlineBoxIndex) = .{},
-    current_inline_box: InlineBoxIndex = undefined,
+    inline_box_stack: ArrayListUnmanaged(InlineFormattingContext.Size) = .{},
+    current_inline_box: InlineFormattingContext.Size = undefined,
 
     const InlineBlockInfo = struct {
         box_offsets: *BoxTree.BoxOffsets,
@@ -1007,14 +999,14 @@ const IFCLineSplitState = struct {
         self.inline_blocks_in_this_line_box.clearRetainingCapacity();
     }
 
-    fn pushInlineBox(self: *IFCLineSplitState, allocator: Allocator, index: InlineBoxIndex) !void {
+    fn pushInlineBox(self: *IFCLineSplitState, allocator: Allocator, index: InlineFormattingContext.Size) !void {
         if (index != 0) {
             try self.inline_box_stack.append(allocator, self.current_inline_box);
         }
         self.current_inline_box = index;
     }
 
-    fn popInlineBox(self: *IFCLineSplitState, index: InlineBoxIndex) void {
+    fn popInlineBox(self: *IFCLineSplitState, index: InlineFormattingContext.Size) void {
         assert(self.current_inline_box == index);
         if (index != 0) {
             self.current_inline_box = self.inline_box_stack.pop();
@@ -1057,36 +1049,36 @@ pub fn splitIntoLineBoxes(
     var s = IFCLineSplitState.init(top_height, bottom_height);
     defer s.deinit(layout.allocator);
 
+    const glyphs = ifc.glyphs.slice();
+
     {
-        const gi = ifc.glyph_indeces.items[0];
+        const gi = glyphs.items(.index)[0];
         assert(gi == 0);
-        const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[1]);
+        const special = InlineFormattingContext.Special.decode(glyphs.items(.index)[1]);
         assert(special.kind == .BoxStart);
-        assert(@as(InlineBoxIndex, special.data) == 0);
+        assert(@as(InlineFormattingContext.Size, special.data) == 0);
         s.pushInlineBox(layout.allocator, 0) catch unreachable;
         s.line_box.elements[1] = 2;
         s.line_box.inline_box = null;
     }
 
     var i: usize = 2;
-    while (i < ifc.glyph_indeces.items.len) : (i += 1) {
-        const gi = ifc.glyph_indeces.items[i];
-        const metrics = ifc.metrics.items[i];
+    while (i < glyphs.len) : (i += 1) {
+        const gi = glyphs.items(.index)[i];
+        const metrics = glyphs.items(.metrics)[i];
 
         if (gi == 0) {
             i += 1;
-            const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
+            const special = InlineFormattingContext.Special.decode(glyphs.items(.index)[i]);
             switch (@as(std.meta.Tag(BoxTreeManaged.SpecialGlyph), @enumFromInt(@intFromEnum(special.kind)))) {
-                .Reserved => unreachable,
-                .BoxStart => try s.pushInlineBox(layout.allocator, @as(InlineBoxIndex, special.data)),
-                .BoxEnd => s.popInlineBox(@as(InlineBoxIndex, special.data)),
+                .BoxStart => try s.pushInlineBox(layout.allocator, @as(InlineFormattingContext.Size, special.data)),
+                .BoxEnd => s.popInlineBox(@as(InlineFormattingContext.Size, special.data)),
                 .LineBreak => {
                     s.finishLineBox();
                     try layout.box_tree.appendLineBox(ifc, s.line_box);
                     s.newLineBox(2);
                     continue;
                 },
-                .ContinuationBlock => panic("TODO: Continuation blocks", .{}),
                 else => {},
             }
         }
@@ -1099,9 +1091,8 @@ pub fn splitIntoLineBoxes(
         }
 
         if (gi == 0) {
-            const special = InlineFormattingContext.Special.decode(ifc.glyph_indeces.items[i]);
+            const special = InlineFormattingContext.Special.decode(glyphs.items(.index)[i]);
             switch (@as(std.meta.Tag(BoxTreeManaged.SpecialGlyph), @enumFromInt(@intFromEnum(special.kind)))) {
-                .Reserved => unreachable,
                 .InlineBlock => {
                     const block_box_index = @as(Subtree.Size, special.data);
                     const box_offsets = &subtree.items(.box_offsets)[block_box_index];
@@ -1114,7 +1105,6 @@ pub fn splitIntoLineBoxes(
                     );
                 },
                 .LineBreak => unreachable,
-                .ContinuationBlock => panic("TODO: Continuation blocks", .{}),
                 else => {},
             }
             s.line_box.elements[1] += 2;

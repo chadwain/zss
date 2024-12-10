@@ -10,10 +10,8 @@ const QuadTree = @import("./QuadTree.zig");
 
 const BoxTree = zss.BoxTree;
 const Color = BoxTree.Color;
-const InlineBoxIndex = BoxTree.InlineBoxIndex;
-const InlineFormattingContext = BoxTree.InlineFormattingContext;
-const InlineFormattingContextIndex = BoxTree.InlineFormattingContextIndex;
-const GlyphIndex = InlineFormattingContext.GlyphIndex;
+const Ifc = BoxTree.InlineFormattingContext;
+const GlyphIndex = Ifc.GlyphIndex;
 const StackingContext = BoxTree.StackingContext;
 const StackingContextTree = BoxTree.StackingContextTree;
 const Subtree = BoxTree.Subtree;
@@ -508,7 +506,7 @@ pub fn drawBoxTree(
             .block_box => |block_box| {
                 const border_top_left = block_box.border_top_left;
 
-                const subtree = box_tree.blocks.subtree(block_box.ref.subtree).view();
+                const subtree = box_tree.getSubtree(block_box.ref.subtree).view();
                 const index = block_box.ref.index;
 
                 const box_offsets = subtree.items(.box_offsets)[index];
@@ -891,25 +889,25 @@ fn getBackgroundImageTileCoords(
 
 fn drawLineBox(
     renderer: *Renderer,
-    ifc: *const InlineFormattingContext,
-    line_box: InlineFormattingContext.LineBox,
+    ifc: *const Ifc,
+    line_box: Ifc.LineBox,
     translation: Vector,
     allocator: Allocator,
 ) !void {
     const slice = ifc.slice();
 
-    var inline_box_stack = std.ArrayListUnmanaged(InlineBoxIndex){};
+    var inline_box_stack = std.ArrayListUnmanaged(Ifc.Size){};
     defer inline_box_stack.deinit(allocator);
 
     var offset = translation;
 
-    const all_glyphs = ifc.glyph_indeces.items[line_box.elements[0]..line_box.elements[1]];
-    const all_metrics = ifc.metrics.items[line_box.elements[0]..line_box.elements[1]];
+    const all_glyphs = ifc.glyphs.items(.index)[line_box.elements[0]..line_box.elements[1]];
+    const all_metrics = ifc.glyphs.items(.metrics)[line_box.elements[0]..line_box.elements[1]];
 
     if (line_box.inline_box) |initial_inline_box| {
         renderer.setMode(.flat_color, {});
 
-        var i: InlineBoxIndex = 0;
+        var i: Ifc.Size = 0;
         const skips = slice.items(.skip);
 
         while (true) {
@@ -951,7 +949,7 @@ fn drawLineBox(
 
         if (glyph_index == 0) blk: {
             i += 1;
-            const special = InlineFormattingContext.Special.decode(all_glyphs[i]);
+            const special = Ifc.Special.decode(all_glyphs[i]);
             switch (special.kind) {
                 .ZeroGlyphIndex => break :blk,
                 .BoxStart => {
@@ -998,8 +996,8 @@ fn drawLineBox(
 
 fn findMatchingBoxEnd(
     glyph_indeces: []const GlyphIndex,
-    metrics: []const InlineFormattingContext.Metrics,
-    inline_box: InlineBoxIndex,
+    metrics: []const Ifc.Metrics,
+    inline_box: Ifc.Size,
 ) struct {
     advance: Unit,
     found: bool,
@@ -1013,8 +1011,8 @@ fn findMatchingBoxEnd(
 
         if (glyph_index == 0) {
             i += 1;
-            const special = InlineFormattingContext.Special.decode(glyph_indeces[i]);
-            if (special.kind == .BoxEnd and @as(InlineBoxIndex, special.data) == inline_box) {
+            const special = Ifc.Special.decode(glyph_indeces[i]);
+            if (special.kind == .BoxEnd and @as(Ifc.Size, special.data) == inline_box) {
                 found = true;
                 break;
             }
@@ -1028,9 +1026,9 @@ fn findMatchingBoxEnd(
 
 fn drawInlineBox(
     renderer: *Renderer,
-    ifc: *const InlineFormattingContext,
-    slice: InlineFormattingContext.Slice,
-    inline_box: InlineBoxIndex,
+    ifc: *const Ifc,
+    slice: Ifc.Slice,
+    inline_box: Ifc.Size,
     baseline_position: Vector,
     middle_length: Unit,
     draw_start: bool,

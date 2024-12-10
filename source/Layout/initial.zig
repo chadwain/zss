@@ -19,7 +19,7 @@ const hb = @import("mach-harfbuzz").c;
 pub fn run(layout: *Layout) !void {
     try layout.pushInitialSubtree();
     const ref = try layout.pushInitialContainingBlock(layout.viewport);
-    layout.box_tree.ptr.blocks.initial_containing_block = ref;
+    layout.box_tree.ptr.initial_containing_block = ref;
 
     try analyzeRootElement(layout);
     layout.popInitialContainingBlock();

@@ -11,12 +11,14 @@ const zss = @import("zss.zig");
 const math = zss.math;
 const Element = zss.ElementTree.Element;
 
-blocks: BlockBoxTree = .{},
+subtrees: ArrayListUnmanaged(*Subtree) = .{},
+initial_containing_block: BlockRef = undefined,
 ifcs: ArrayListUnmanaged(*InlineFormattingContext) = .{},
 sct: StackingContextTree = .{},
 element_to_generated_box: ElementHashMap(GeneratedBox) = .{},
 background_images: BackgroundImages = .{},
 allocator: Allocator,
+debug: Debug = .{},
 
 fn ElementHashMap(comptime V: type) type {
     const Context = struct {
@@ -29,7 +31,11 @@ fn ElementHashMap(comptime V: type) type {
 }
 
 pub fn deinit(box_tree: *BoxTree) void {
-    box_tree.blocks.deinit(box_tree.allocator);
+    for (box_tree.subtrees.items) |subtree| {
+        subtree.deinit(box_tree.allocator);
+        box_tree.allocator.destroy(subtree);
+    }
+    box_tree.subtrees.deinit(box_tree.allocator);
     for (box_tree.ifcs.items) |ctx| {
         ctx.deinit(box_tree.allocator);
         box_tree.allocator.destroy(ctx);
@@ -43,14 +49,12 @@ pub fn deinit(box_tree: *BoxTree) void {
     box_tree.background_images.deinit(box_tree.allocator);
 }
 
-pub fn getIfc(box_tree: BoxTree, id: InlineFormattingContextId) *InlineFormattingContext {
+pub fn getIfc(box_tree: *const BoxTree, id: InlineFormattingContext.Id) *InlineFormattingContext {
     return box_tree.ifcs.items[@intFromEnum(id)];
 }
 
-pub fn print(box_tree: *const BoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
-    try box_tree.blocks.print(writer, allocator);
-    try writer.writeAll("\n");
-    try box_tree.sct.print(writer, allocator);
+pub fn getSubtree(box_tree: *const BoxTree, id: Subtree.Id) *Subtree {
+    return box_tree.subtrees.items[@intFromEnum(id)];
 }
 
 pub const Color = extern struct {
@@ -189,7 +193,7 @@ pub const BackgroundImage = struct {
 
 pub const BlockType = union(enum) {
     block,
-    ifc_container: InlineFormattingContextId,
+    ifc_container: InlineFormattingContext.Id,
     subtree_proxy: Subtree.Id,
 };
 
@@ -242,130 +246,47 @@ pub const Subtree = struct {
         return .{ .current = index + 1, .end = index + v.items(.skip)[index] };
     }
 
-    pub fn view(subtree: Subtree) View {
+    pub fn view(subtree: *const Subtree) View {
         return subtree.blocks.slice();
     }
 
-    pub fn size(subtree: Subtree) Size {
+    pub fn size(subtree: *const Subtree) Size {
         return @intCast(subtree.blocks.len);
     }
-
-    fn printBlock(subtree: Subtree.View, index: Subtree.Size, writer: std.io.AnyWriter) !void {
-        try writer.print("[{}, {}) ", .{ index, index + subtree.items(.skip)[index] });
-
-        switch (subtree.items(.type)[index]) {
-            .block => try writer.writeAll("block "),
-            .ifc_container => |ifc_index| try writer.print("ifc_container({}) ", .{ifc_index}),
-            .subtree_proxy => |subtree_id| try writer.print("subtree_proxy({}) ", .{@intFromEnum(subtree_id)}),
-        }
-
-        if (subtree.items(.stacking_context)[index]) |sc_id| try writer.print("stacking_context({}) ", .{@intFromEnum(sc_id)});
-
-        const bo = subtree.items(.box_offsets)[index];
-        try writer.print("border_rect({}, {}, {}, {}) ", .{ bo.border_pos.x, bo.border_pos.y, bo.border_size.w, bo.border_size.h });
-        try writer.print("content_rect({}, {}, {}, {})\n", .{ bo.content_pos.x, bo.content_pos.y, bo.content_size.w, bo.content_size.h });
-    }
 };
 
-pub const BlockBoxTree = struct {
-    subtrees: ArrayListUnmanaged(*Subtree) = .{},
-    initial_containing_block: BlockRef = undefined,
-
-    fn deinit(blocks: *BlockBoxTree, allocator: Allocator) void {
-        for (blocks.subtrees.items) |tree| {
-            tree.deinit(allocator);
-            allocator.destroy(tree);
-        }
-        blocks.subtrees.deinit(allocator);
-    }
-
-    pub fn subtree(blocks: BlockBoxTree, id: Subtree.Id) *Subtree {
-        return blocks.subtrees.items[@intFromEnum(id)];
-    }
-
-    pub fn print(block_box_tree: *const BlockBoxTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
-        var stack = zss.Stack(struct {
-            iterator: Subtree.Iterator,
-            view: Subtree.View,
-        }){};
-        defer stack.deinit(allocator);
-
-        {
-            const icb = block_box_tree.initial_containing_block;
-            const view = block_box_tree.subtree(icb.subtree).view();
-            try Subtree.printBlock(view, icb.index, writer);
-            stack.top = .{ .iterator = Subtree.children(view, icb.index), .view = view };
-        }
-
-        while (stack.top) |*top| {
-            const index = top.iterator.next(top.view) orelse {
-                _ = stack.pop();
-                continue;
-            };
-            try writer.writeByteNTimes(' ', stack.len() * 4);
-            try Subtree.printBlock(top.view, index, writer);
-
-            switch (top.view.items(.type)[index]) {
-                .subtree_proxy => |subtree_id| {
-                    const view = block_box_tree.subtree(subtree_id).view();
-                    try writer.writeByteNTimes(' ', stack.len() * 4);
-                    try writer.print("Subtree({}) size({})\n", .{ @intFromEnum(subtree_id), view.len });
-                    try stack.push(allocator, .{ .iterator = Subtree.root(view), .view = view });
-                },
-                else => try stack.push(allocator, .{ .iterator = Subtree.children(top.view, index), .view = top.view }),
-            }
-        }
-    }
-
-    pub fn printUnstructured(block_box_tree: *const BlockBoxTree, writer: std.io.AnyWriter) !void {
-        for (block_box_tree.subtrees.items) |s| {
-            try writer.print("Subtree({}) size({})\n", .{ @intFromEnum(s.id), s.blocks.len });
-
-            const view = s.view();
-            for (0..view.len) |i| {
-                try Subtree.printBlock(view, @intCast(i), writer);
-            }
-
-            try writer.writeAll("\n");
-        }
-    }
-};
-
-pub const InlineBoxIndex = u16;
-pub const InlineBoxSkip = InlineBoxIndex;
-pub const InlineFormattingContextId = enum(u16) { _ };
-
-/// Contains information about an inline formatting context.
-/// Each glyph and its corresponding metrics are placed into arrays. (glyph_indeces and metrics)
-/// Then, each element in line_boxes tells you which glyphs to include and the baseline position.
+/// An inline formatting context is a sequence of line boxes.
+/// Within each line box is a sequence of glyphs and other objects.
+/// Every glyph is represented by a glyph index.
 ///
-/// To represent things that are not glyphs (e.g. inline boxes), the glyph index 0 is reserved for special use.
-/// When a glyph index of 0 is found, it does not actually correspond to that glyph index. Instead it tells you
-/// that the next glyph index (which is guaranteed to exist) contains "special data." Use the Special.decode
-/// function to recover and interpret that data. Note that this data still has metrics associated with it.
-/// That metrics data is found in the same array index as that of the first glyph index (the one that was 0).
+/// To represent objects other than glyphs, the glyph index 0 is reserved.
+/// When a glyph index of 0 is found in a sequence of glyphs, it will always be succeeded by an encoded glyph,
+/// which must be reinterpreted (use `@bitCast`) as a `Special`.
+/// The `metrics` data for an encoded glyph is found together with the 0 glyph index.
 pub const InlineFormattingContext = struct {
-    id: InlineFormattingContextId,
+    id: Id,
     parent_block: BlockRef,
 
-    glyph_indeces: ArrayListUnmanaged(GlyphIndex) = .{},
-    metrics: ArrayListUnmanaged(Metrics) = .{},
+    glyphs: MultiArrayList(struct {
+        index: GlyphIndex,
+        metrics: Metrics,
+    }) = .{},
 
     line_boxes: ArrayListUnmanaged(LineBox) = .{},
 
-    // zss is currently limited with what it can do with text. As a result,
-    // font and font color will be the same for all glyphs, and
-    // ascender and descender will be the same for all line boxes.
-    // NOTE: The descender is a positive value.
     font: zss.Fonts.Handle = .invalid,
     font_color: Color = undefined,
     ascender: math.Unit = undefined,
+    /// This is a positive value.
     descender: math.Unit = undefined,
 
     inline_boxes: InlineBoxList = .{},
 
+    pub const Size = u16;
+    pub const Id = enum(u16) { _ };
+
     pub const InlineBoxList = MultiArrayList(struct {
-        skip: InlineBoxSkip,
+        skip: Size,
         inline_start: BoxProperties,
         inline_end: BoxProperties,
         block_start: BoxProperties,
@@ -402,15 +323,13 @@ pub const InlineFormattingContext = struct {
         baseline: math.Unit,
         /// The interval of glyph indeces to take from the glyph_indeces array.
         /// It is a half-open interval of the form [a, b).
+        // TODO: Stop using usize
         elements: [2]usize,
         /// The inline box that starts this line box.
         // TODO: Make this non-optional
-        inline_box: ?InlineBoxIndex,
+        inline_box: ?Size,
     };
 
-    /// Structure that represents things other than glyphs. It is guaranteed to never have a
-    /// bit representation of 0.
-    // NOTE Not making this an extern struct keeps crashing compiler
     pub const Special = extern struct {
         kind: Kind,
         data: u16,
@@ -421,13 +340,13 @@ pub const InlineFormattingContext = struct {
             /// data has no meaning.
             ZeroGlyphIndex = 1,
             /// Represents an inline box's start fragment.
-            /// data is the used id of the box.
+            /// data is the index of the box.
             BoxStart,
             /// Represents an inline box's end fragment.
-            /// data is the used id of the box.
+            /// data is the index of the box.
             BoxEnd,
-            /// Represents an inline block
-            /// data is the used id of the block box.
+            /// Represents an inline block.
+            /// data is the index of the block box.
             InlineBlock,
             /// Any other value of this enum should never appear in an end user's code.
             _,
@@ -440,23 +359,22 @@ pub const InlineFormattingContext = struct {
         }
 
         /// Recovers the data contained within a glyph index.
-        pub fn decode(encoded_glyph_index: GlyphIndex) Special {
-            return @bitCast(encoded_glyph_index);
+        pub fn decode(encoded: GlyphIndex) Special {
+            return @bitCast(encoded);
         }
     };
 
     fn deinit(ifc: *InlineFormattingContext, allocator: Allocator) void {
-        ifc.glyph_indeces.deinit(allocator);
-        ifc.metrics.deinit(allocator);
+        ifc.glyphs.deinit(allocator);
         ifc.line_boxes.deinit(allocator);
         ifc.inline_boxes.deinit(allocator);
     }
 
-    pub fn numInlineBoxes(ifc: InlineFormattingContext) InlineBoxSkip {
+    pub fn numInlineBoxes(ifc: *const InlineFormattingContext) Size {
         return @intCast(ifc.inline_boxes.len);
     }
 
-    pub fn slice(ifc: InlineFormattingContext) Slice {
+    pub fn slice(ifc: *const InlineFormattingContext) Slice {
         return ifc.inline_boxes.slice();
     }
 };
@@ -472,11 +390,12 @@ pub const StackingContext = struct {
     /// The block box that created this stacking context.
     ref: BlockRef,
     /// The list of inline formatting contexts contained within this stacking context.
-    ifcs: ArrayListUnmanaged(InlineFormattingContextId),
+    ifcs: ArrayListUnmanaged(InlineFormattingContext.Id),
 };
 
 pub const StackingContextTree = struct {
     list: List = .{},
+    debug: StackingContextTree.Debug = .{},
 
     pub const Size = u16;
     pub const Id = enum(u16) { _ };
@@ -491,28 +410,31 @@ pub const StackingContextTree = struct {
         return sct.list.slice();
     }
 
-    pub fn print(sct: *const StackingContextTree, writer: std.io.AnyWriter, allocator: Allocator) !void {
-        const Context = struct {
-            view: View,
-            writer: std.io.AnyWriter,
-        };
-        const callback = struct {
-            fn f(ctx: Context, index: Size, depth: Size) !void {
-                const item = ctx.view.get(index);
-                try ctx.writer.writeByteNTimes(' ', depth * 4);
-                try ctx.writer.print(
-                    "[{}, {}) id({}) z-index({}) ref({}) ifcs({any})\n",
-                    .{ index, index + item.skip, @intFromEnum(item.id), item.z_index, item.ref, item.ifcs.items },
-                );
-            }
-        }.f;
+    pub const Debug = struct {
+        pub fn print(debug: *const StackingContextTree.Debug, writer: std.io.AnyWriter, allocator: Allocator) !void {
+            const sct: *const StackingContextTree = @alignCast(@fieldParentPtr("debug", debug));
+            const Context = struct {
+                view: View,
+                writer: std.io.AnyWriter,
+            };
+            const callback = struct {
+                fn f(ctx: Context, index: Size, depth: Size) !void {
+                    const item = ctx.view.get(index);
+                    try ctx.writer.writeByteNTimes(' ', depth * 4);
+                    try ctx.writer.print(
+                        "[{}, {}) id({}) z-index({}) ref({}) ifcs({any})\n",
+                        .{ index, index + item.skip, @intFromEnum(item.id), item.z_index, item.ref, item.ifcs.items },
+                    );
+                }
+            }.f;
 
-        const context = Context{
-            .view = sct.view(),
-            .writer = writer,
-        };
-        try zss.debug.skipArrayIterate(Size, context.view.items(.skip), context, callback, allocator);
-    }
+            const context = Context{
+                .view = sct.view(),
+                .writer = writer,
+            };
+            try zss.debug.skipArrayIterate(Size, context.view.items(.skip), context, callback, allocator);
+        }
+    };
 };
 
 /// The type of box(es) that an element generates.
@@ -520,9 +442,9 @@ pub const GeneratedBox = union(enum) {
     /// The element generated a single block box.
     block_ref: BlockRef,
     /// The element generated a single inline box.
-    inline_box: struct { ifc_id: InlineFormattingContextId, index: InlineBoxIndex },
+    inline_box: struct { ifc_id: InlineFormattingContext.Id, index: InlineFormattingContext.Size },
     /// The element generated text.
-    text: InlineFormattingContextId,
+    text: InlineFormattingContext.Id,
 };
 
 pub const BackgroundImages = struct {
@@ -545,9 +467,69 @@ pub const BackgroundImages = struct {
         self.images.deinit(allocator);
     }
 
-    pub fn get(self: BackgroundImages, handle: Handle) ?[]const BackgroundImage {
+    pub fn get(self: *const BackgroundImages, handle: Handle) ?[]const BackgroundImage {
         if (handle == .invalid) return null;
         const slice = self.slices.items[@intFromEnum(handle) - 1];
         return self.images.items[slice.begin..slice.end];
+    }
+};
+
+pub const Debug = struct {
+    pub fn print(debug: *const Debug, writer: std.io.AnyWriter, allocator: Allocator) !void {
+        const box_tree: *const BoxTree = @alignCast(@fieldParentPtr("debug", debug));
+        try box_tree.debug.printBlocks(writer, allocator);
+        try writer.writeAll("\n");
+        try box_tree.sct.debug.print(writer, allocator);
+    }
+
+    pub fn printBlocks(debug: *const Debug, writer: std.io.AnyWriter, allocator: Allocator) !void {
+        const box_tree: *const BoxTree = @alignCast(@fieldParentPtr("debug", debug));
+        var stack = zss.Stack(struct {
+            iterator: Subtree.Iterator,
+            view: Subtree.View,
+        }){};
+        defer stack.deinit(allocator);
+
+        {
+            const icb = box_tree.initial_containing_block;
+            const view = box_tree.getSubtree(icb.subtree).view();
+            try printBlock(view, icb.index, writer);
+            stack.top = .{ .iterator = Subtree.children(view, icb.index), .view = view };
+        }
+
+        while (stack.top) |*top| {
+            const index = top.iterator.next(top.view) orelse {
+                _ = stack.pop();
+                continue;
+            };
+            try writer.writeByteNTimes(' ', stack.len() * 4);
+            try printBlock(top.view, index, writer);
+
+            switch (top.view.items(.type)[index]) {
+                .subtree_proxy => |subtree_id| {
+                    const view = box_tree.getSubtree(subtree_id).view();
+                    try writer.writeByteNTimes(' ', stack.len() * 4);
+                    try writer.print("Subtree({}) size({})\n", .{ @intFromEnum(subtree_id), view.len });
+                    try stack.push(allocator, .{ .iterator = Subtree.root(view), .view = view });
+                },
+                else => try stack.push(allocator, .{ .iterator = Subtree.children(top.view, index), .view = top.view }),
+            }
+        }
+    }
+
+    fn printBlock(subtree: Subtree.View, index: Subtree.Size, writer: std.io.AnyWriter) !void {
+        try writer.print("[{}, {}) ", .{ index, index + subtree.items(.skip)[index] });
+
+        switch (subtree.items(.type)[index]) {
+            .block => try writer.writeAll("block "),
+            .ifc_container => |ifc_index| try writer.print("ifc_container({}) ", .{ifc_index}),
+            .subtree_proxy => |subtree_id| try writer.print("subtree_proxy({}) ", .{@intFromEnum(subtree_id)}),
+        }
+
+        if (subtree.items(.stacking_context)[index]) |sc_id| try writer.print("stacking_context({}) ", .{@intFromEnum(sc_id)});
+
+        const bo = subtree.items(.box_offsets)[index];
+        try writer.print("border_rect({}, {}, {}, {}) ", .{ bo.border_pos.x, bo.border_pos.y, bo.border_size.w, bo.border_size.h });
+        try writer.print("content_rect({}, {}, {}, {})\n", .{ bo.content_pos.x, bo.content_pos.y, bo.content_size.w, bo.content_size.h });
     }
 };

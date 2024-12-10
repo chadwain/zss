@@ -9,7 +9,7 @@ const Stack = zss.Stack;
 
 const BoxTree = zss.BoxTree;
 const BlockRef = BoxTree.BlockRef;
-const IfcId = BoxTree.InlineFormattingContextId;
+const IfcId = BoxTree.InlineFormattingContext.Id;
 const ZIndex = BoxTree.ZIndex;
 const StackingContext = BoxTree.StackingContext;
 const StackingContextTree = BoxTree.StackingContextTree;

@@ -26,8 +26,7 @@ const BackgroundImage = BoxTree.BackgroundImage;
 const BackgroundImages = BoxTree.BackgroundImages;
 const BlockRef = BoxTree.BlockRef;
 const GeneratedBox = BoxTree.GeneratedBox;
-const InlineFormattingContext = BoxTree.InlineFormattingContext;
-const InlineFormattingContextId = BoxTree.InlineFormattingContextId;
+const Ifc = BoxTree.InlineFormattingContext;
 const StackingContext = BoxTree.StackingContext;
 const StackingContextTree = BoxTree.StackingContextTree;
 const Subtree = BoxTree.Subtree;
@@ -59,9 +58,7 @@ pub const Inputs = struct {
 
 pub const Error = error{
     OutOfMemory,
-    OutOfRefs,
     SizeLimitExceeded,
-    TooManyInlineBoxes,
     ViewportTooLarge,
 };
 
@@ -120,7 +117,7 @@ pub const BoxTreeManaged = struct {
     }
 
     fn newSubtree(box_tree: BoxTreeManaged) !*Subtree {
-        const all_subtrees = &box_tree.ptr.blocks.subtrees;
+        const all_subtrees = &box_tree.ptr.subtrees;
         const id_int = std.math.cast(std.meta.Tag(Subtree.Id), all_subtrees.items.len) orelse return error.SizeLimitExceeded;
 
         try all_subtrees.ensureUnusedCapacity(box_tree.ptr.allocator, 1);
@@ -136,71 +133,60 @@ pub const BoxTreeManaged = struct {
         return new_len - 1;
     }
 
-    pub fn newIfc(box_tree: BoxTreeManaged, parent_block: BlockRef) !*InlineFormattingContext {
+    pub fn newIfc(box_tree: BoxTreeManaged, parent_block: BlockRef) !*Ifc {
         const all_ifcs = &box_tree.ptr.ifcs;
-        const id_int = std.math.cast(std.meta.Tag(InlineFormattingContextId), all_ifcs.items.len) orelse return error.SizeLimitExceeded;
+        const id_int = std.math.cast(std.meta.Tag(Ifc.Id), all_ifcs.items.len) orelse return error.SizeLimitExceeded;
 
         try all_ifcs.ensureUnusedCapacity(box_tree.ptr.allocator, 1);
-        const ifc = try box_tree.ptr.allocator.create(InlineFormattingContext);
+        const ifc = try box_tree.ptr.allocator.create(Ifc);
         all_ifcs.appendAssumeCapacity(ifc);
         ifc.* = .{ .id = @enumFromInt(id_int), .parent_block = parent_block };
         return ifc;
     }
 
-    pub fn appendInlineBox(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext) !BoxTree.InlineBoxIndex {
-        const new_len = std.math.add(BoxTree.InlineBoxIndex, @intCast(ifc.inline_boxes.len), 1) catch return error.SizeLimitExceeded;
+    pub fn appendInlineBox(box_tree: BoxTreeManaged, ifc: *Ifc) !Ifc.Size {
+        const new_len = std.math.add(Ifc.Size, @intCast(ifc.inline_boxes.len), 1) catch return error.SizeLimitExceeded;
         try ifc.inline_boxes.resize(box_tree.ptr.allocator, new_len);
         return new_len - 1;
     }
 
-    pub fn appendGlyph(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, glyph: InlineFormattingContext.GlyphIndex) !void {
-        try ifc.glyph_indeces.append(box_tree.ptr.allocator, glyph);
+    pub fn appendGlyph(box_tree: BoxTreeManaged, ifc: *Ifc, glyph: Ifc.GlyphIndex) !void {
+        try ifc.glyphs.append(box_tree.ptr.allocator, .{ .index = glyph, .metrics = undefined });
     }
 
-    /// This enum is derived from `InlineFormattingContext.Special.Kind`
+    /// This enum is derived from `Ifc.Special.Kind`
     pub const SpecialGlyph = union(enum(u16)) {
-        Reserved,
-        ZeroGlyphIndex,
-        BoxStart: BoxTree.InlineBoxIndex,
-        BoxEnd: BoxTree.InlineBoxIndex,
+        ZeroGlyphIndex = 1,
+        BoxStart: Ifc.Size,
+        BoxEnd: Ifc.Size,
         InlineBlock: Subtree.Size,
         /// Represents a mandatory line break in the text.
         /// data has no meaning.
         LineBreak,
-        /// Represents a continuation block.
-        /// A "continuation block" is a block box that is the child of an inline box.
-        /// It causes the inline formatting context to be split around this block,
-        /// and creates anonymous block boxes, as per CSS2§9.2.1.1.
-        /// data is the used id of the block box.
-        ContinuationBlock,
     };
 
     pub fn appendSpecialGlyph(
         box_tree: BoxTreeManaged,
-        ifc: *InlineFormattingContext,
+        ifc: *Ifc,
         comptime tag: std.meta.Tag(SpecialGlyph),
         data: @TypeOf(@field(@as(SpecialGlyph, undefined), @tagName(tag))),
     ) !void {
-        const special: InlineFormattingContext.Special = .{
+        const special: Ifc.Special = .{
             .kind = blk: {
-                comptime zss.debug.ensureCompatibleEnums(InlineFormattingContext.Special.Kind, std.meta.Tag(SpecialGlyph));
+                comptime zss.debug.ensureCompatibleEnums(Ifc.Special.Kind, std.meta.Tag(SpecialGlyph));
                 @setRuntimeSafety(false);
                 break :blk @enumFromInt(@intFromEnum(tag));
             },
             .data = switch (tag) {
-                .Reserved, .ContinuationBlock => comptime unreachable,
                 .ZeroGlyphIndex, .LineBreak => undefined,
                 .BoxStart, .BoxEnd, .InlineBlock => data,
             },
         };
-        try ifc.glyph_indeces.appendSlice(box_tree.ptr.allocator, &[2]InlineFormattingContext.GlyphIndex{ 0, @bitCast(special) });
+        try ifc.glyphs.append(box_tree.ptr.allocator, .{ .index = 0, .metrics = undefined });
+        try ifc.glyphs.append(box_tree.ptr.allocator, .{ .index = @bitCast(special), .metrics = undefined });
     }
 
-    pub fn allocMetrics(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext) !void {
-        try ifc.metrics.resize(box_tree.ptr.allocator, ifc.glyph_indeces.items.len);
-    }
-
-    pub fn appendLineBox(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, line_box: InlineFormattingContext.LineBox) !void {
+    pub fn appendLineBox(box_tree: BoxTreeManaged, ifc: *Ifc, line_box: Ifc.LineBox) !void {
         try ifc.line_boxes.append(box_tree.ptr.allocator, line_box);
     }
 
@@ -304,7 +290,7 @@ pub const Block = struct {
 };
 
 fn newBlock(layout: *Layout) !BlockRef {
-    const subtree = layout.box_tree.ptr.blocks.subtree(layout.subtrees.top.?.id);
+    const subtree = layout.box_tree.ptr.getSubtree(layout.subtrees.top.?.id);
     const index = try layout.box_tree.appendBlockBox(subtree);
     return .{ .subtree = subtree.id, .index = index };
 }
@@ -339,7 +325,7 @@ pub fn popInitialContainingBlock(layout: *Layout) void {
     layout.subtrees.top.?.depth -= 1;
     assert(layout.subtrees.top.?.depth == 0);
 
-    const subtree = layout.box_tree.ptr.blocks.subtree(layout.subtrees.top.?.id).view();
+    const subtree = layout.box_tree.ptr.getSubtree(layout.subtrees.top.?.id).view();
     const index = block.index;
     const width = block.sizes.get(.inline_size).?;
     const height = block.sizes.get(.block_size).?;
@@ -385,7 +371,7 @@ pub fn popFlowBlock(layout: *Layout, auto_height: math.Unit) BlockRef {
     layout.addSkip(block.skip);
 
     const subtree_id = layout.subtrees.top.?.id;
-    const subtree = layout.box_tree.ptr.blocks.subtree(subtree_id).view();
+    const subtree = layout.box_tree.ptr.getSubtree(subtree_id).view();
     const width = flow.solveUsedWidth(block.sizes.get(.inline_size).?, block.sizes.min_inline_size, block.sizes.max_inline_size);
     const height = flow.solveUsedHeight(block.sizes.get(.block_size), block.sizes.min_block_size, block.sizes.max_block_size, auto_height);
     setDataBlock(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
@@ -408,7 +394,7 @@ pub fn pushIfcContainerBlock(layout: *Layout) !BlockRef {
 
 pub fn popIfcContainerBlock(
     layout: *Layout,
-    ifc: BoxTree.InlineFormattingContextId,
+    ifc: Ifc.Id,
     containing_block_width: math.Unit,
     height: math.Unit,
 ) void {
@@ -416,7 +402,7 @@ pub fn popIfcContainerBlock(
     layout.subtrees.top.?.depth -= 1;
     layout.addSkip(block.skip);
 
-    const subtree = layout.box_tree.ptr.blocks.subtree(layout.subtrees.top.?.id).view();
+    const subtree = layout.box_tree.ptr.getSubtree(layout.subtrees.top.?.id).view();
     setDataIfcContainer(subtree, ifc, block.index, block.skip, containing_block_width, height);
 }
 
@@ -451,7 +437,7 @@ pub fn popStfFlowMainBlock(
     layout.subtrees.top.?.depth -= 1;
     layout.addSkip(block.skip);
 
-    const subtree = layout.box_tree.ptr.blocks.subtree(layout.subtrees.top.?.id).view();
+    const subtree = layout.box_tree.ptr.getSubtree(layout.subtrees.top.?.id).view();
     const width = flow.solveUsedWidth(auto_width, block.sizes.min_inline_size, block.sizes.max_inline_size); // TODO This is probably redundant
     const height = flow.solveUsedHeight(block.sizes.get(.block_size), block.sizes.min_block_size, block.sizes.max_block_size, auto_height);
     setDataBlock(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
@@ -511,7 +497,7 @@ pub fn popStfFlowBlock2(
     layout.addSkip(block.skip);
 
     const subtree_id = layout.subtrees.top.?.id;
-    const subtree = layout.box_tree.ptr.blocks.subtree(subtree_id).view();
+    const subtree = layout.box_tree.ptr.getSubtree(subtree_id).view();
     const width = flow.solveUsedWidth(auto_width, block.sizes.min_inline_size, block.sizes.max_inline_size); // TODO This is probably redundant
     const height = flow.solveUsedHeight(block.sizes.get(.block_size), block.sizes.min_block_size, block.sizes.max_block_size, auto_height);
     setDataBlock(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
@@ -527,14 +513,14 @@ pub fn addSubtreeProxy(layout: *Layout, id: Subtree.Id) !BlockRef {
     layout.addSkip(1);
 
     const ref = try layout.newBlock();
-    const parent_subtree = layout.box_tree.ptr.blocks.subtree(layout.subtrees.top.?.id);
-    const child_subtree = layout.box_tree.ptr.blocks.subtree(id);
+    const parent_subtree = layout.box_tree.ptr.getSubtree(layout.subtrees.top.?.id);
+    const child_subtree = layout.box_tree.ptr.getSubtree(id);
     setDataSubtreeProxy(parent_subtree.view(), ref.index, child_subtree);
     child_subtree.parent = ref;
     return ref;
 }
 
-pub fn newIfc(layout: *Layout, ifc_container: BlockRef) !*InlineFormattingContext {
+pub fn newIfc(layout: *Layout, ifc_container: BlockRef) !*Ifc {
     const ifc = try layout.box_tree.newIfc(ifc_container);
     try layout.sct_builder.addIfc(layout.box_tree.ptr, ifc.id);
     return ifc;
@@ -768,7 +754,7 @@ fn setDataBlock(
 
 fn setDataIfcContainer(
     subtree: Subtree.View,
-    ifc: BoxTree.InlineFormattingContextId,
+    ifc: Ifc.Id,
     index: Subtree.Size,
     skip: Subtree.Size,
     width: math.Unit,

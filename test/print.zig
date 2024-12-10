@@ -29,7 +29,7 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
 
         var box_tree = try layout.run(allocator);
         defer box_tree.deinit();
-        try box_tree.print(stdout, allocator);
+        try box_tree.debug.print(stdout, allocator);
 
         try stdout.writeAll("\n");
     }

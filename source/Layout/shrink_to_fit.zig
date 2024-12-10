@@ -367,13 +367,13 @@ fn realizeObjects(
                     .flow_normal => {
                         const data = &datas[object_index].flow_normal;
                         const ref = try layout.addSubtreeProxy(data.subtree);
-                        const subtree = layout.box_tree.ptr.blocks.subtree(ref.subtree).view();
+                        const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
                         flow.addBlockToFlow(subtree, ref.index, &parent.auto_height);
                     },
                     .ifc => {
                         const data = datas[object_index].ifc;
                         const ref = try layout.addSubtreeProxy(data.subtree_id);
-                        const subtree = layout.box_tree.ptr.blocks.subtree(ref.subtree).view();
+                        const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
                         flow.addBlockToFlow(subtree, ref.index, &parent.auto_height);
                     },
                 }
@@ -402,7 +402,7 @@ fn popFlowBlock(layout: *Layout, ctx: *RealizeObjectsContext, object_tree_slice:
 
     switch (parent.object_tag) {
         .flow_stf => {
-            const subtree = layout.box_tree.ptr.blocks.subtree(ref.subtree).view();
+            const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
             flow.addBlockToFlow(subtree, ref.index, &parent.auto_height);
         },
         .flow_normal, .ifc => unreachable,

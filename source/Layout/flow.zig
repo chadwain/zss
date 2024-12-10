@@ -134,7 +134,7 @@ fn popBlock(layout: *Layout, ctx: *Context) void {
     const ref = layout.popFlowBlock(this.auto_height);
     layout.popElement();
 
-    const subtree = layout.box_tree.ptr.blocks.subtree(ref.subtree).view();
+    const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
     addBlockToFlow(subtree, ref.index, &parent.auto_height);
 }
 

@@ -11,7 +11,7 @@ const zss = @import("../zss.zig");
 
 const BoxTree = zss.BoxTree;
 const BoxOffsets = BoxTree.BoxOffsets;
-const InlineFormattingContextId = BoxTree.InlineFormattingContextId;
+const IfcId = BoxTree.InlineFormattingContext.Id;
 const StackingContextTree = BoxTree.StackingContextTree;
 const Subtree = BoxTree.Subtree;
 
@@ -47,7 +47,7 @@ pub const Drawable = union(enum) {
     };
 
     pub const LineBox = struct {
-        ifc_id: InlineFormattingContextId,
+        ifc_id: IfcId,
         line_box_index: usize,
         origin: Vector,
     };
@@ -282,10 +282,7 @@ const PopulateSubListContext = struct {
     sub_list: *SubList,
     sublist_index: SubListIndex,
     stack: Stack = .{},
-    ifc_infos: AutoHashMapUnmanaged(
-        InlineFormattingContextId,
-        struct { vector: Vector, containing_block_width: Unit },
-    ) = .{},
+    ifc_infos: AutoHashMapUnmanaged(IfcId, struct { vector: Vector, containing_block_width: Unit }) = .{},
 
     const Stack = zss.Stack(struct {
         begin: Subtree.Size,
@@ -340,7 +337,7 @@ fn populateSubList(
     {
         // Add the root block to the draw order list
         const root_block_box = view.items(.ref)[stacking_context];
-        const root_block_subtree = box_tree.blocks.subtree(root_block_box.subtree).view();
+        const root_block_subtree = box_tree.getSubtree(root_block_box.subtree).view();
         const root_block_skip = root_block_subtree.items(.skip)[root_block_box.index];
         const initial_item = PopulateSubListContext.Stack.Item{
             .begin = undefined,
@@ -461,7 +458,7 @@ fn analyzeBlock(
             };
         },
         .subtree_proxy => |proxy_subtree_index| {
-            const child_subtree = ctx.box_tree.blocks.subtree(proxy_subtree_index);
+            const child_subtree = ctx.box_tree.getSubtree(proxy_subtree_index);
             const content_top_left = top.vector.add(box_offsets.border_pos).add(box_offsets.content_pos);
             return .{
                 .begin = 0,
