@@ -23,8 +23,8 @@ const solve = @import("./solve.zig");
 const StyleComputer = @import("./StyleComputer.zig");
 
 const BoxTree = zss.BoxTree;
-const InlineFormattingContext = BoxTree.InlineFormattingContext;
-const GlyphIndex = InlineFormattingContext.GlyphIndex;
+const Ifc = BoxTree.InlineFormattingContext;
+const GlyphIndex = Ifc.GlyphIndex;
 const GeneratedBox = BoxTree.GeneratedBox;
 const Subtree = BoxTree.Subtree;
 
@@ -79,9 +79,9 @@ const InlineLayoutContext = struct {
     containing_block_height: ?Unit,
     percentage_base_unit: Unit,
 
-    inline_box_depth: InlineFormattingContext.Size = 0,
-    index: ArrayListUnmanaged(InlineFormattingContext.Size) = .{},
-    skip: ArrayListUnmanaged(InlineFormattingContext.Size) = .{},
+    inline_box_depth: Ifc.Size = 0,
+    index: ArrayListUnmanaged(Ifc.Size) = .{},
+    skip: ArrayListUnmanaged(Ifc.Size) = .{},
     total_inline_block_skip: Subtree.Size = 0,
     font_handle: ?Fonts.Handle = null,
 
@@ -90,7 +90,7 @@ const InlineLayoutContext = struct {
         self.skip.deinit(self.allocator);
     }
 
-    fn checkHandle(self: *Self, ifc: *InlineFormattingContext, handle: Fonts.Handle) void {
+    fn checkHandle(self: *Self, ifc: *Ifc, handle: Fonts.Handle) void {
         if (self.font_handle) |prev_handle| {
             if (handle != prev_handle) {
                 std.debug.panic("TODO: Only one font allowed per IFC", .{});
@@ -102,7 +102,7 @@ const InlineLayoutContext = struct {
     }
 };
 
-fn analyzeElements(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormattingContext) !void {
+fn analyzeElements(layout: *Layout, ctx: *InlineLayoutContext, ifc: *Ifc) !void {
     try ifcPushRootInlineBox(ctx, layout.box_tree, ifc);
     while (!(try ifcRunOnce(layout, ctx, ifc))) {}
     try ifcPopRootInlineBox(ctx, layout.box_tree, ifc);
@@ -111,7 +111,7 @@ fn analyzeElements(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineForma
     ifcSolveMetrics(ifc, subtree, layout.inputs.fonts);
 }
 
-fn ifcPushRootInlineBox(ctx: *InlineLayoutContext, box_tree: BoxTreeManaged, ifc: *InlineFormattingContext) !void {
+fn ifcPushRootInlineBox(ctx: *InlineLayoutContext, box_tree: BoxTreeManaged, ifc: *Ifc) !void {
     assert(ctx.inline_box_depth == 0);
     const root_inline_box_index = try box_tree.appendInlineBox(ifc);
     rootInlineBoxSetData(ifc, root_inline_box_index);
@@ -120,7 +120,7 @@ fn ifcPushRootInlineBox(ctx: *InlineLayoutContext, box_tree: BoxTreeManaged, ifc
     try ctx.skip.append(ctx.allocator, 1);
 }
 
-fn ifcPopRootInlineBox(ctx: *InlineLayoutContext, box_tree: BoxTreeManaged, ifc: *InlineFormattingContext) !void {
+fn ifcPopRootInlineBox(ctx: *InlineLayoutContext, box_tree: BoxTreeManaged, ifc: *Ifc) !void {
     assert(ctx.inline_box_depth == 0);
     const root_inline_box_index = ctx.index.pop();
     const skip = ctx.skip.pop();
@@ -129,7 +129,7 @@ fn ifcPopRootInlineBox(ctx: *InlineLayoutContext, box_tree: BoxTreeManaged, ifc:
 }
 
 /// A return value of true means that a terminating element was encountered.
-fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormattingContext) !bool {
+fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *Ifc) !bool {
     const element = layout.currentElement();
     if (element.eqlNull()) {
         if (ctx.inline_box_depth == 0) return true;
@@ -262,7 +262,7 @@ fn ifcRunOnce(layout: *Layout, ctx: *InlineLayoutContext, ifc: *InlineFormatting
     return false;
 }
 
-fn ifcPopInlineBox(ctx: *InlineLayoutContext, box_tree: BoxTreeManaged, ifc: *InlineFormattingContext) !void {
+fn ifcPopInlineBox(ctx: *InlineLayoutContext, box_tree: BoxTreeManaged, ifc: *Ifc) !void {
     ctx.inline_box_depth -= 1;
     const inline_box_index = ctx.index.pop();
     const skip = ctx.skip.pop();
@@ -271,23 +271,23 @@ fn ifcPopInlineBox(ctx: *InlineLayoutContext, box_tree: BoxTreeManaged, ifc: *In
     ctx.skip.items[ctx.skip.items.len - 1] += skip;
 }
 
-fn ifcAddBoxStart(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, inline_box_index: InlineFormattingContext.Size) !void {
+fn ifcAddBoxStart(box_tree: BoxTreeManaged, ifc: *Ifc, inline_box_index: Ifc.Size) !void {
     try box_tree.appendSpecialGlyph(ifc, .BoxStart, inline_box_index);
 }
 
-fn ifcAddBoxEnd(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, inline_box_index: InlineFormattingContext.Size) !void {
+fn ifcAddBoxEnd(box_tree: BoxTreeManaged, ifc: *Ifc, inline_box_index: Ifc.Size) !void {
     try box_tree.appendSpecialGlyph(ifc, .BoxEnd, inline_box_index);
 }
 
-fn ifcAddInlineBlock(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, block_box_index: Subtree.Size) !void {
+fn ifcAddInlineBlock(box_tree: BoxTreeManaged, ifc: *Ifc, block_box_index: Subtree.Size) !void {
     try box_tree.appendSpecialGlyph(ifc, .InlineBlock, block_box_index);
 }
 
-fn ifcAddLineBreak(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext) !void {
+fn ifcAddLineBreak(box_tree: BoxTreeManaged, ifc: *Ifc) !void {
     try box_tree.appendSpecialGlyph(ifc, .LineBreak, {});
 }
 
-fn ifcAddText(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, text: zss.values.types.Text, font: *hb.hb_font_t) !void {
+fn ifcAddText(box_tree: BoxTreeManaged, ifc: *Ifc, text: zss.values.types.Text, font: *hb.hb_font_t) !void {
     const buffer = hb.hb_buffer_create() orelse unreachable;
     defer hb.hb_buffer_destroy(buffer);
     _ = hb.hb_buffer_pre_allocate(buffer, @intCast(text.len));
@@ -329,7 +329,7 @@ fn ifcAddText(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, text: zss
     try ifcEndTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
 }
 
-fn ifcEndTextRun(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, text: zss.values.types.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
+fn ifcEndTextRun(box_tree: BoxTreeManaged, ifc: *Ifc, text: zss.values.types.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
     if (run_end > run_begin) {
         hb.hb_buffer_add_latin1(buffer, text.ptr, @intCast(text.len), @intCast(run_begin), @intCast(run_end - run_begin));
         if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;
@@ -338,7 +338,7 @@ fn ifcEndTextRun(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, text: 
     }
 }
 
-fn ifcAddTextRun(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t) !void {
+fn ifcAddTextRun(box_tree: BoxTreeManaged, ifc: *Ifc, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t) !void {
     hb.hb_shape(font, buffer, null, 0);
     const glyph_infos = blk: {
         var n: c_uint = 0;
@@ -356,7 +356,7 @@ fn ifcAddTextRun(box_tree: BoxTreeManaged, ifc: *InlineFormattingContext, buffer
     }
 }
 
-fn rootInlineBoxSetData(ifc: *const InlineFormattingContext, inline_box_index: InlineFormattingContext.Size) void {
+fn rootInlineBoxSetData(ifc: *const Ifc, inline_box_index: Ifc.Size) void {
     const ifc_slice = ifc.slice();
     ifc_slice.items(.inline_start)[inline_box_index] = .{};
     ifc_slice.items(.inline_end)[inline_box_index] = .{};
@@ -365,7 +365,7 @@ fn rootInlineBoxSetData(ifc: *const InlineFormattingContext, inline_box_index: I
     ifc_slice.items(.margins)[inline_box_index] = .{};
 }
 
-fn inlineBoxSetData(ctx: *InlineLayoutContext, computer: *StyleComputer, ifc: *InlineFormattingContext, inline_box_index: InlineFormattingContext.Size) void {
+fn inlineBoxSetData(ctx: *InlineLayoutContext, computer: *StyleComputer, ifc: *Ifc, inline_box_index: Ifc.Size) void {
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
     const specified = .{
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
@@ -863,7 +863,7 @@ fn inlineBlockCreateStackingContext(
     }
 }
 
-fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: Subtree.View, fonts: *const Fonts) void {
+fn ifcSolveMetrics(ifc: *Ifc, subtree: Subtree.View, fonts: *const Fonts) void {
     const font = fonts.get(ifc.font);
     const ifc_slice = ifc.slice();
     const glyphs_slice = ifc.glyphs.slice();
@@ -875,16 +875,16 @@ fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: Subtree.View, fonts: 
 
         if (glyph_index == 0) {
             i += 1;
-            const special = InlineFormattingContext.Special.decode(glyphs_slice.items(.index)[i]);
+            const special = Ifc.Special.decode(glyphs_slice.items(.index)[i]);
             const kind = @as(std.meta.Tag(BoxTreeManaged.SpecialGlyph), @enumFromInt(@intFromEnum(special.kind)));
             switch (kind) {
                 .ZeroGlyphIndex => setMetricsGlyph(metrics, font.?.handle, 0),
                 .BoxStart => {
-                    const inline_box_index = @as(InlineFormattingContext.Size, special.data);
+                    const inline_box_index = @as(Ifc.Size, special.data);
                     setMetricsBoxStart(metrics, ifc_slice, inline_box_index);
                 },
                 .BoxEnd => {
-                    const inline_box_index = @as(InlineFormattingContext.Size, special.data);
+                    const inline_box_index = @as(Ifc.Size, special.data);
                     setMetricsBoxEnd(metrics, ifc_slice, inline_box_index);
                 },
                 .InlineBlock => {
@@ -899,7 +899,7 @@ fn ifcSolveMetrics(ifc: *InlineFormattingContext, subtree: Subtree.View, fonts: 
     }
 }
 
-fn setMetricsGlyph(metrics: *InlineFormattingContext.Metrics, font: *hb.hb_font_t, glyph_index: GlyphIndex) void {
+fn setMetricsGlyph(metrics: *Ifc.Metrics, font: *hb.hb_font_t, glyph_index: GlyphIndex) void {
     var extents: hb.hb_glyph_extents_t = undefined;
     const extents_result = hb.hb_font_get_glyph_extents(font, glyph_index, &extents);
     if (extents_result == 0) {
@@ -913,7 +913,7 @@ fn setMetricsGlyph(metrics: *InlineFormattingContext.Metrics, font: *hb.hb_font_
     };
 }
 
-fn setMetricsBoxStart(metrics: *InlineFormattingContext.Metrics, ifc_slice: InlineFormattingContext.Slice, inline_box_index: InlineFormattingContext.Size) void {
+fn setMetricsBoxStart(metrics: *Ifc.Metrics, ifc_slice: Ifc.Slice, inline_box_index: Ifc.Size) void {
     const inline_start = ifc_slice.items(.inline_start)[inline_box_index];
     const margin = ifc_slice.items(.margins)[inline_box_index].start;
     const width = inline_start.border + inline_start.padding;
@@ -921,7 +921,7 @@ fn setMetricsBoxStart(metrics: *InlineFormattingContext.Metrics, ifc_slice: Inli
     metrics.* = .{ .offset = margin, .advance = advance, .width = width };
 }
 
-fn setMetricsBoxEnd(metrics: *InlineFormattingContext.Metrics, ifc_slice: InlineFormattingContext.Slice, inline_box_index: InlineFormattingContext.Size) void {
+fn setMetricsBoxEnd(metrics: *Ifc.Metrics, ifc_slice: Ifc.Slice, inline_box_index: Ifc.Size) void {
     const inline_end = ifc_slice.items(.inline_end)[inline_box_index];
     const margin = ifc_slice.items(.margins)[inline_box_index].end;
     const width = inline_end.border + inline_end.padding;
@@ -929,11 +929,11 @@ fn setMetricsBoxEnd(metrics: *InlineFormattingContext.Metrics, ifc_slice: Inline
     metrics.* = .{ .offset = 0, .advance = advance, .width = width };
 }
 
-fn setMetricsLineBreak(metrics: *InlineFormattingContext.Metrics) void {
+fn setMetricsLineBreak(metrics: *Ifc.Metrics) void {
     metrics.* = .{ .offset = 0, .advance = 0, .width = 0 };
 }
 
-fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, subtree: Subtree.View, block_box_index: Subtree.Size) void {
+fn setMetricsInlineBlock(metrics: *Ifc.Metrics, subtree: Subtree.View, block_box_index: Subtree.Size) void {
     const box_offsets = subtree.items(.box_offsets)[block_box_index];
     const margins = subtree.items(.margins)[block_box_index];
 
@@ -944,14 +944,14 @@ fn setMetricsInlineBlock(metrics: *InlineFormattingContext.Metrics, subtree: Sub
 
 const IFCLineSplitState = struct {
     cursor: Unit,
-    line_box: InlineFormattingContext.LineBox,
+    line_box: Ifc.LineBox,
     inline_blocks_in_this_line_box: ArrayListUnmanaged(InlineBlockInfo),
     top_height: Unit,
     max_top_height: Unit,
     bottom_height: Unit,
     longest_line_box_length: Unit,
-    inline_box_stack: ArrayListUnmanaged(InlineFormattingContext.Size) = .{},
-    current_inline_box: InlineFormattingContext.Size = undefined,
+    inline_box_stack: ArrayListUnmanaged(Ifc.Size) = .{},
+    current_inline_box: Ifc.Size = undefined,
 
     const InlineBlockInfo = struct {
         box_offsets: *BoxTree.BoxOffsets,
@@ -999,14 +999,14 @@ const IFCLineSplitState = struct {
         self.inline_blocks_in_this_line_box.clearRetainingCapacity();
     }
 
-    fn pushInlineBox(self: *IFCLineSplitState, allocator: Allocator, index: InlineFormattingContext.Size) !void {
+    fn pushInlineBox(self: *IFCLineSplitState, allocator: Allocator, index: Ifc.Size) !void {
         if (index != 0) {
             try self.inline_box_stack.append(allocator, self.current_inline_box);
         }
         self.current_inline_box = index;
     }
 
-    fn popInlineBox(self: *IFCLineSplitState, index: InlineFormattingContext.Size) void {
+    fn popInlineBox(self: *IFCLineSplitState, index: Ifc.Size) void {
         assert(self.current_inline_box == index);
         if (index != 0) {
             self.current_inline_box = self.inline_box_stack.pop();
@@ -1024,7 +1024,7 @@ pub const IFCLineSplitResult = struct {
 pub fn splitIntoLineBoxes(
     layout: *Layout,
     subtree: Subtree.View,
-    ifc: *InlineFormattingContext,
+    ifc: *Ifc,
     max_line_box_length: Unit,
 ) !IFCLineSplitResult {
     assert(max_line_box_length >= 0);
@@ -1054,9 +1054,9 @@ pub fn splitIntoLineBoxes(
     {
         const gi = glyphs.items(.index)[0];
         assert(gi == 0);
-        const special = InlineFormattingContext.Special.decode(glyphs.items(.index)[1]);
+        const special = Ifc.Special.decode(glyphs.items(.index)[1]);
         assert(special.kind == .BoxStart);
-        assert(@as(InlineFormattingContext.Size, special.data) == 0);
+        assert(@as(Ifc.Size, special.data) == 0);
         s.pushInlineBox(layout.allocator, 0) catch unreachable;
         s.line_box.elements[1] = 2;
         s.line_box.inline_box = null;
@@ -1069,10 +1069,10 @@ pub fn splitIntoLineBoxes(
 
         if (gi == 0) {
             i += 1;
-            const special = InlineFormattingContext.Special.decode(glyphs.items(.index)[i]);
+            const special = Ifc.Special.decode(glyphs.items(.index)[i]);
             switch (@as(std.meta.Tag(BoxTreeManaged.SpecialGlyph), @enumFromInt(@intFromEnum(special.kind)))) {
-                .BoxStart => try s.pushInlineBox(layout.allocator, @as(InlineFormattingContext.Size, special.data)),
-                .BoxEnd => s.popInlineBox(@as(InlineFormattingContext.Size, special.data)),
+                .BoxStart => try s.pushInlineBox(layout.allocator, @as(Ifc.Size, special.data)),
+                .BoxEnd => s.popInlineBox(@as(Ifc.Size, special.data)),
                 .LineBreak => {
                     s.finishLineBox();
                     try layout.box_tree.appendLineBox(ifc, s.line_box);
@@ -1091,7 +1091,7 @@ pub fn splitIntoLineBoxes(
         }
 
         if (gi == 0) {
-            const special = InlineFormattingContext.Special.decode(glyphs.items(.index)[i]);
+            const special = Ifc.Special.decode(glyphs.items(.index)[i]);
             switch (@as(std.meta.Tag(BoxTreeManaged.SpecialGlyph), @enumFromInt(@intFromEnum(special.kind)))) {
                 .InlineBlock => {
                     const block_box_index = @as(Subtree.Size, special.data);

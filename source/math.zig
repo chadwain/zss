@@ -9,8 +9,8 @@ pub const Unit = i32;
 pub const units_per_pixel = 4;
 
 pub fn pixelsToUnits(px: anytype) ?Unit {
-    const casted = std.math.cast(Unit, px) orelse return null;
-    return std.math.mul(Unit, casted, units_per_pixel) catch null;
+    const scaled = std.math.mul(@TypeOf(px), px, units_per_pixel) catch return null;
+    return std.math.cast(Unit, scaled);
 }
 
 pub const Vector = struct {
@@ -54,6 +54,7 @@ pub const Rect = struct {
         return .{ .start = rect.y, .length = rect.h };
     }
 
+    // TODO: Is this a good definition of "emptiness"?
     pub fn isEmpty(rect: Rect) bool {
         return rect.w < 0 or rect.h < 0;
     }

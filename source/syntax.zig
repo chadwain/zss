@@ -311,11 +311,11 @@ pub const Component = struct {
         /// description: A zml element class (a '.' codepoint + an identifier)
         ///    location: The '.' codepoint
         zml_class,
-        /// description: A zml element attribute (a '[]-block' containing an attribute name + optionally, a '=' codepoint and an attribute value)
+        /// description: A zml element attribute (a '[]-block' containing (an attribute name + optionally, a '=' codepoint and an attribute value))
         ///    location: The location of the <[-token> that opens the block
         ///    children: The attribute name (a `token_ident`) + optionally, the attribute value (a `token_ident` or `token_string`)
         zml_attribute,
-        /// description: A zml element's features
+        /// description: A zml element's features (a '*' codepoint, or a sequence of types, ids, classes, and attributes)
         ///    location: The location of the element's first feature
         ///    children: Either a single `zml_empty`, or
         ///              a non-empty sequence of `zml_type`, `zml_id`, `zml_class`, and `zml_attribute` (at most one `zml_type` is allowed)

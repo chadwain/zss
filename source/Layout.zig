@@ -18,6 +18,7 @@ const @"inline" = @import("Layout/inline.zig");
 const solve = @import("Layout/solve.zig");
 const stf = @import("Layout/shrink_to_fit.zig");
 pub const Absolute = @import("Layout/AbsoluteContainingBlocks.zig");
+pub const BoxTreeManaged = @import("Layout/BoxTreeManaged.zig");
 pub const StyleComputer = @import("Layout/StyleComputer.zig");
 pub const StackingContextTreeBuilder = @import("Layout/StackingContextTreeBuilder.zig");
 
@@ -108,101 +109,6 @@ pub fn deinit(layout: *Layout) void {
     layout.subtrees.deinit(layout.allocator);
     layout.blocks.deinit(layout.allocator);
 }
-
-pub const BoxTreeManaged = struct {
-    ptr: *BoxTree,
-
-    pub fn setGeneratedBox(box_tree: BoxTreeManaged, element: Element, generated_box: GeneratedBox) !void {
-        try box_tree.ptr.element_to_generated_box.putNoClobber(box_tree.ptr.allocator, element, generated_box);
-    }
-
-    fn newSubtree(box_tree: BoxTreeManaged) !*Subtree {
-        const all_subtrees = &box_tree.ptr.subtrees;
-        const id_int = std.math.cast(std.meta.Tag(Subtree.Id), all_subtrees.items.len) orelse return error.SizeLimitExceeded;
-
-        try all_subtrees.ensureUnusedCapacity(box_tree.ptr.allocator, 1);
-        const subtree = try box_tree.ptr.allocator.create(Subtree);
-        all_subtrees.appendAssumeCapacity(subtree);
-        subtree.* = .{ .id = @enumFromInt(id_int), .parent = null };
-        return subtree;
-    }
-
-    fn appendBlockBox(box_tree: BoxTreeManaged, subtree: *Subtree) !Subtree.Size {
-        const new_len = std.math.add(Subtree.Size, @intCast(subtree.blocks.len), 1) catch return error.SizeLimitExceeded;
-        try subtree.blocks.resize(box_tree.ptr.allocator, new_len);
-        return new_len - 1;
-    }
-
-    pub fn newIfc(box_tree: BoxTreeManaged, parent_block: BlockRef) !*Ifc {
-        const all_ifcs = &box_tree.ptr.ifcs;
-        const id_int = std.math.cast(std.meta.Tag(Ifc.Id), all_ifcs.items.len) orelse return error.SizeLimitExceeded;
-
-        try all_ifcs.ensureUnusedCapacity(box_tree.ptr.allocator, 1);
-        const ifc = try box_tree.ptr.allocator.create(Ifc);
-        all_ifcs.appendAssumeCapacity(ifc);
-        ifc.* = .{ .id = @enumFromInt(id_int), .parent_block = parent_block };
-        return ifc;
-    }
-
-    pub fn appendInlineBox(box_tree: BoxTreeManaged, ifc: *Ifc) !Ifc.Size {
-        const new_len = std.math.add(Ifc.Size, @intCast(ifc.inline_boxes.len), 1) catch return error.SizeLimitExceeded;
-        try ifc.inline_boxes.resize(box_tree.ptr.allocator, new_len);
-        return new_len - 1;
-    }
-
-    pub fn appendGlyph(box_tree: BoxTreeManaged, ifc: *Ifc, glyph: Ifc.GlyphIndex) !void {
-        try ifc.glyphs.append(box_tree.ptr.allocator, .{ .index = glyph, .metrics = undefined });
-    }
-
-    /// This enum is derived from `Ifc.Special.Kind`
-    pub const SpecialGlyph = union(enum(u16)) {
-        ZeroGlyphIndex = 1,
-        BoxStart: Ifc.Size,
-        BoxEnd: Ifc.Size,
-        InlineBlock: Subtree.Size,
-        /// Represents a mandatory line break in the text.
-        /// data has no meaning.
-        LineBreak,
-    };
-
-    pub fn appendSpecialGlyph(
-        box_tree: BoxTreeManaged,
-        ifc: *Ifc,
-        comptime tag: std.meta.Tag(SpecialGlyph),
-        data: @TypeOf(@field(@as(SpecialGlyph, undefined), @tagName(tag))),
-    ) !void {
-        const special: Ifc.Special = .{
-            .kind = blk: {
-                comptime zss.debug.ensureCompatibleEnums(Ifc.Special.Kind, std.meta.Tag(SpecialGlyph));
-                @setRuntimeSafety(false);
-                break :blk @enumFromInt(@intFromEnum(tag));
-            },
-            .data = switch (tag) {
-                .ZeroGlyphIndex, .LineBreak => undefined,
-                .BoxStart, .BoxEnd, .InlineBlock => data,
-            },
-        };
-        try ifc.glyphs.append(box_tree.ptr.allocator, .{ .index = 0, .metrics = undefined });
-        try ifc.glyphs.append(box_tree.ptr.allocator, .{ .index = @bitCast(special), .metrics = undefined });
-    }
-
-    pub fn appendLineBox(box_tree: BoxTreeManaged, ifc: *Ifc, line_box: Ifc.LineBox) !void {
-        try ifc.line_boxes.append(box_tree.ptr.allocator, line_box);
-    }
-
-    pub fn allocBackgroundImages(box_tree: BoxTreeManaged, count: BackgroundImages.Size) !struct { BackgroundImages.Handle, []BackgroundImage } {
-        const bi = &box_tree.ptr.background_images;
-        const handle_int = std.math.add(std.meta.Tag(BackgroundImages.Handle), @intCast(bi.slices.items.len), 1) catch return error.SizeLimitExceeded;
-        const begin: BackgroundImages.Size = @intCast(bi.images.items.len);
-        const end = std.math.add(BackgroundImages.Size, begin, count) catch return error.SizeLimitExceeded;
-
-        try bi.slices.ensureUnusedCapacity(box_tree.ptr.allocator, 1);
-        const images = try bi.images.addManyAsSlice(box_tree.ptr.allocator, count);
-        bi.slices.appendAssumeCapacity(.{ .begin = begin, .end = end });
-
-        return .{ @enumFromInt(handle_int), images };
-    }
-};
 
 pub fn run(layout: *Layout, allocator: Allocator) Error!BoxTree {
     const cast = math.pixelsToUnits;

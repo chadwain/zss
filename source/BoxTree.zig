@@ -12,7 +12,7 @@ const math = zss.math;
 const Element = zss.ElementTree.Element;
 
 subtrees: ArrayListUnmanaged(*Subtree) = .{},
-initial_containing_block: BlockRef = undefined,
+initial_containing_block: BlockRef = undefined, // TODO: make this `?BlockRef`
 ifcs: ArrayListUnmanaged(*InlineFormattingContext) = .{},
 sct: StackingContextTree = .{},
 element_to_generated_box: ElementHashMap(GeneratedBox) = .{},
