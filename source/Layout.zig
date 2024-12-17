@@ -47,6 +47,9 @@ subtrees: zss.Stack(struct {
     depth: Subtree.Size,
 }),
 blocks: zss.Stack(Block),
+ifcs: zss.Stack(IfcContext),
+ifc_state: zss.Stack(IfcState),
+inline_box: zss.Stack(InlineBox),
 
 pub const Inputs = struct {
     root_element: Element,
@@ -98,6 +101,9 @@ pub fn init(
         .element_stack = .{},
         .subtrees = .{},
         .blocks = .{},
+        .ifcs = .{ .top = @as(IfcContext, undefined) },
+        .ifc_state = .{ .top = @as(IfcState, undefined) },
+        .inline_box = .{ .top = @as(InlineBox, undefined) },
     };
 }
 
@@ -108,6 +114,10 @@ pub fn deinit(layout: *Layout) void {
     layout.element_stack.deinit(layout.allocator);
     layout.subtrees.deinit(layout.allocator);
     layout.blocks.deinit(layout.allocator);
+    layout.ifcs.deinit(layout.allocator);
+    layout.ifc_state.deinit(layout.allocator);
+    _ = layout.inline_box.pop();
+    layout.inline_box.deinit(layout.allocator);
 }
 
 pub fn run(layout: *Layout, allocator: Allocator) Error!BoxTree {
@@ -285,33 +295,6 @@ pub fn popFlowBlock(layout: *Layout, auto_height: math.Unit) BlockRef {
     return .{ .subtree = subtree_id, .index = block.index };
 }
 
-pub fn pushIfcContainerBlock(layout: *Layout) !BlockRef {
-    const ref = try layout.newBlock();
-    try layout.blocks.push(layout.allocator, .{
-        .index = ref.index,
-        .skip = 1,
-        .sizes = undefined,
-        .stacking_context_id = undefined,
-        .absolute_containing_block_id = undefined,
-    });
-    layout.subtrees.top.?.depth += 1;
-    return ref;
-}
-
-pub fn popIfcContainerBlock(
-    layout: *Layout,
-    ifc: Ifc.Id,
-    containing_block_width: math.Unit,
-    height: math.Unit,
-) void {
-    const block = layout.blocks.pop();
-    layout.subtrees.top.?.depth -= 1;
-    layout.addSkip(block.skip);
-
-    const subtree = layout.box_tree.ptr.getSubtree(layout.subtrees.top.?.id).view();
-    setDataIfcContainer(subtree, ifc, block.index, block.skip, containing_block_width, height);
-}
-
 pub fn pushStfFlowMainBlock(
     layout: *Layout,
     box_style: BoxTree.BoxStyle,
@@ -426,10 +409,113 @@ pub fn addSubtreeProxy(layout: *Layout, id: Subtree.Id) !BlockRef {
     return ref;
 }
 
-pub fn newIfc(layout: *Layout, ifc_container: BlockRef) !*Ifc {
+pub const IfcContext = struct {
+    ifc: *Ifc,
+    container: BlockRef,
+    containing_block_width: math.Unit,
+    containing_block_height: ?math.Unit,
+    percentage_base_unit: math.Unit,
+};
+
+const IfcState = struct {
+    inline_box_depth: Ifc.Size,
+    font_handle: ?Fonts.Handle,
+};
+
+pub fn pushIfc(
+    layout: *Layout,
+    containing_block_width: math.Unit,
+    containing_block_height: ?math.Unit,
+    percentage_base_unit: math.Unit,
+) !IfcContext {
+    const ifc_container = try layout.newBlock();
     const ifc = try layout.box_tree.newIfc(ifc_container);
+    const ctx: IfcContext = .{
+        .ifc = ifc,
+        .container = ifc_container,
+        .containing_block_width = containing_block_width,
+        .containing_block_height = containing_block_height,
+        .percentage_base_unit = percentage_base_unit,
+    };
+
+    try layout.blocks.push(layout.allocator, .{
+        .index = ifc_container.index,
+        .skip = 1,
+        .sizes = undefined,
+        .stacking_context_id = undefined,
+        .absolute_containing_block_id = undefined,
+    });
+    layout.subtrees.top.?.depth += 1;
+    try layout.ifcs.push(layout.allocator, ctx);
+    try layout.ifc_state.push(layout.allocator, .{
+        .inline_box_depth = 0,
+        .font_handle = null,
+    });
     try layout.sct_builder.addIfc(layout.box_tree.ptr, ifc.id);
-    return ifc;
+
+    return ctx;
+}
+
+pub fn popIfc(layout: *Layout, height: math.Unit) void {
+    const block = layout.blocks.pop();
+    layout.subtrees.top.?.depth -= 1;
+    layout.addSkip(block.skip);
+
+    const ctx = layout.ifcs.pop();
+    const state = layout.ifc_state.pop();
+    assert(state.inline_box_depth == 0);
+
+    const subtree = layout.box_tree.ptr.getSubtree(layout.subtrees.top.?.id).view();
+    setDataIfcContainer(subtree, ctx.ifc.id, block.index, block.skip, ctx.containing_block_width, height);
+}
+
+const InlineBox = struct {
+    index: Ifc.Size,
+    skip: Ifc.Size,
+};
+
+pub fn pushRootInlineBox(layout: *Layout, ifc: *Ifc) !Ifc.Size {
+    const index = try layout.box_tree.appendInlineBox(ifc);
+    try layout.inline_box.push(layout.allocator, .{ .index = index, .skip = 1 });
+    return index;
+}
+
+pub fn popRootInlineBox(layout: *Layout, ifc: *Ifc) Ifc.Size {
+    const inline_box = layout.inline_box.pop();
+    ifc.slice().items(.skip)[inline_box.index] = inline_box.skip;
+    return inline_box.index;
+}
+
+pub fn pushInlineBox(layout: *Layout, ifc: *Ifc) !Ifc.Size {
+    const index = try layout.box_tree.appendInlineBox(ifc);
+    try layout.inline_box.push(layout.allocator, .{ .index = index, .skip = 1 });
+    layout.ifc_state.top.?.inline_box_depth += 1;
+    return index;
+}
+
+pub fn popInlineBox(layout: *Layout, ifc: *Ifc) Ifc.Size {
+    const inline_box = layout.inline_box.pop();
+    layout.ifc_state.top.?.inline_box_depth -= 1;
+
+    ifc.slice().items(.skip)[inline_box.index] = inline_box.skip;
+    layout.inline_box.top.?.skip += inline_box.skip;
+    return inline_box.index;
+}
+
+pub fn currentInlineBoxDepth(layout: *const Layout) Ifc.Size {
+    return layout.ifc_state.top.?.inline_box_depth;
+}
+
+pub fn checkFontHandle(layout: *Layout, ifc: *Ifc, handle: Fonts.Handle) void {
+    const state = &layout.ifc_state.top.?;
+    if (state.font_handle) |prev_handle| {
+        if (handle != prev_handle) {
+            std.debug.panic("TODO: Only one font allowed per IFC", .{});
+        }
+    } else {
+        state.font_handle = handle;
+        ifc.font = handle;
+    }
 }
 
 pub fn pushAbsoluteContainingBlock(
