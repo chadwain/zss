@@ -18,8 +18,3 @@ In general, zss tries to implement the standards contained in [CSS Snapshot 2023
 | Backgrounds and Borders | 3 | Partial |
 | Values and Units | 3 | Partial |
 | Namespaces | 3 | Partial |
-
-# License
-zss is licensed under the GNU General Public License, version 3 only. Copyright (C) 2020-2024 Chadwain Holness.
-
-A copy of this license can be found in [LICENSE](LICENSE).

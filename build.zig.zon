@@ -8,7 +8,9 @@
         "test/",
         "build.zig",
         "build.zig.zon",
-        "LICENSE",
+        "LICENSE.md",
+        "LICENSE-CC0.txt",
+        "LICENSE-OFL.txt",
         "README.md",
     },
     .dependencies = .{
