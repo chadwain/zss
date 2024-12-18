@@ -121,6 +121,40 @@ test roundUp {
     try expect(roundUp(62, 7) == 63);
 }
 
+pub const Color = extern struct {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+
+    pub fn toRgbaArray(color: Color) [4]u8 {
+        return @bitCast(color);
+    }
+
+    pub fn toRgbaInt(color: Color) u32 {
+        return std.mem.bigToNative(u32, @bitCast(color));
+    }
+
+    pub fn fromRgbaInt(value: u32) Color {
+        return @bitCast(std.mem.nativeToBig(u32, value));
+    }
+
+    comptime {
+        const eql = std.meta.eql;
+        assert(eql(toRgbaArray(.{ .r = 0, .g = 0, .b = 0, .a = 0 }), .{ 0x00, 0x00, 0x00, 0x00 }));
+        assert(eql(toRgbaArray(.{ .r = 255, .g = 0, .b = 0, .a = 128 }), .{ 0xff, 0x00, 0x00, 0x80 }));
+        assert(eql(toRgbaArray(.{ .r = 0, .g = 20, .b = 50, .a = 200 }), .{ 0x00, 0x14, 0x32, 0xC8 }));
+
+        assert(toRgbaInt(.{ .r = 0, .g = 0, .b = 0, .a = 0 }) == 0x00000000);
+        assert(toRgbaInt(.{ .r = 255, .g = 0, .b = 0, .a = 128 }) == 0xff000080);
+        assert(toRgbaInt(.{ .r = 0, .g = 20, .b = 50, .a = 200 }) == 0x001432C8);
+    }
+
+    pub const transparent = Color{ .r = 0, .g = 0, .b = 0, .a = 0 };
+    pub const white = Color{ .r = 0xff, .g = 0xff, .b = 0xff, .a = 0xff };
+    pub const black = Color{ .r = 0, .g = 0, .b = 0, .a = 0xff };
+};
+
 pub fn CheckedInt(comptime Int: type) type {
     return struct {
         overflow: bool,

@@ -4,8 +4,10 @@ const zss = @import("../zss.zig");
 const aggregates = zss.properties.aggregates;
 const types = zss.values.types;
 const BoxTree = zss.BoxTree;
-const Unit = zss.math.Unit;
-const units_per_pixel = zss.math.units_per_pixel;
+
+const math = zss.math;
+const Unit = math.Unit;
+const units_per_pixel = math.units_per_pixel;
 
 pub const LengthUnit = enum { px };
 
@@ -59,17 +61,17 @@ pub fn borderWidthMultiplier(border_style: types.BorderStyle) f32 {
     };
 }
 
-pub fn color(col: types.Color, current_color: BoxTree.Color) BoxTree.Color {
+pub fn color(col: types.Color, current_color: math.Color) math.Color {
     return switch (col) {
-        .rgba => |rgba| BoxTree.Color.fromRgbaInt(rgba),
+        .rgba => |rgba| math.Color.fromRgbaInt(rgba),
         .current_color => current_color,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
 }
 
-pub fn currentColor(col: types.Color) BoxTree.Color {
+pub fn currentColor(col: types.Color) math.Color {
     return switch (col) {
-        .rgba => |rgba| BoxTree.Color.fromRgbaInt(rgba),
+        .rgba => |rgba| math.Color.fromRgbaInt(rgba),
         .current_color => unreachable,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
@@ -178,7 +180,7 @@ pub fn insets(specified: aggregates.Insets) aggregates.Insets {
     return computed;
 }
 
-pub fn borderColors(border_colors: aggregates.BorderColors, current_color: BoxTree.Color) BoxTree.BorderColor {
+pub fn borderColors(border_colors: aggregates.BorderColors, current_color: math.Color) BoxTree.BorderColor {
     return BoxTree.BorderColor{
         .left = color(border_colors.left, current_color),
         .right = color(border_colors.right, current_color),
@@ -220,7 +222,7 @@ pub fn backgroundClip(clip: types.BackgroundClip) BoxTree.BackgroundClip {
     };
 }
 
-pub fn inlineBoxBackground(col: types.Color, clip: types.BackgroundClip, current_color: BoxTree.Color) BoxTree.InlineBoxBackground {
+pub fn inlineBoxBackground(col: types.Color, clip: types.BackgroundClip, current_color: math.Color) BoxTree.InlineBoxBackground {
     return .{
         .color = color(col, current_color),
         .clip = backgroundClip(clip),
@@ -336,7 +338,7 @@ pub fn backgroundImage(
 
     // TODO: Needs review
     if (width_was_auto or height_was_auto or repeat.x == .round or repeat.y == .round) {
-        const divRound = zss.math.divRound;
+        const divRound = math.divRound;
 
         if (width_was_auto and height_was_auto) {
             size.w = natural_size.width;

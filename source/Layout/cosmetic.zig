@@ -5,13 +5,15 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
-const Layout = zss.Layout;
-const StyleComputer = @import("./StyleComputer.zig");
-const Size = zss.math.Size;
-const Unit = zss.math.Unit;
 const aggregates = zss.properties.aggregates;
 const solve = @import("./solve.zig");
 const types = zss.values.types;
+const Layout = zss.Layout;
+const StyleComputer = @import("./StyleComputer.zig");
+
+const Color = zss.math.Color;
+const Size = zss.math.Size;
+const Unit = zss.math.Unit;
 
 const BoxTree = zss.BoxTree;
 const BlockRef = BoxTree.BlockRef;
@@ -323,7 +325,7 @@ fn blockBoxBackgrounds(
     inputs: Layout.Inputs,
     box_offsets: *const BoxTree.BoxOffsets,
     borders: *const BoxTree.Borders,
-    current_color: BoxTree.Color,
+    current_color: Color,
     specified: struct {
         background1: *const aggregates.Background1,
         background2: *const aggregates.Background2,
@@ -468,10 +470,10 @@ fn inlineBoxCosmeticLayout(
 fn rootInlineBoxCosmeticLayout(ifc: *Ifc) void {
     const ifc_slice = ifc.slice();
 
-    ifc_slice.items(.inline_start)[0].border_color = BoxTree.Color.transparent;
-    ifc_slice.items(.inline_end)[0].border_color = BoxTree.Color.transparent;
-    ifc_slice.items(.block_start)[0].border_color = BoxTree.Color.transparent;
-    ifc_slice.items(.block_end)[0].border_color = BoxTree.Color.transparent;
+    ifc_slice.items(.inline_start)[0].border_color = .transparent;
+    ifc_slice.items(.inline_end)[0].border_color = .transparent;
+    ifc_slice.items(.block_start)[0].border_color = .transparent;
+    ifc_slice.items(.block_end)[0].border_color = .transparent;
 
     ifc_slice.items(.background)[0] = .{};
     ifc_slice.items(.insets)[0] = .{ .x = 0, .y = 0 };

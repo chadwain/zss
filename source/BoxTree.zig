@@ -57,40 +57,6 @@ pub fn getSubtree(box_tree: *const BoxTree, id: Subtree.Id) *Subtree {
     return box_tree.subtrees.items[@intFromEnum(id)];
 }
 
-pub const Color = extern struct {
-    r: u8,
-    g: u8,
-    b: u8,
-    a: u8,
-
-    pub fn toRgbaArray(color: Color) [4]u8 {
-        return @bitCast(color);
-    }
-
-    pub fn toRgbaInt(color: Color) u32 {
-        return std.mem.bigToNative(u32, @bitCast(color));
-    }
-
-    pub fn fromRgbaInt(value: u32) Color {
-        return @bitCast(std.mem.nativeToBig(u32, value));
-    }
-
-    comptime {
-        const eql = std.meta.eql;
-        assert(eql(toRgbaArray(.{ .r = 0, .g = 0, .b = 0, .a = 0 }), .{ 0x00, 0x00, 0x00, 0x00 }));
-        assert(eql(toRgbaArray(.{ .r = 255, .g = 0, .b = 0, .a = 128 }), .{ 0xff, 0x00, 0x00, 0x80 }));
-        assert(eql(toRgbaArray(.{ .r = 0, .g = 20, .b = 50, .a = 200 }), .{ 0x00, 0x14, 0x32, 0xC8 }));
-
-        assert(toRgbaInt(.{ .r = 0, .g = 0, .b = 0, .a = 0 }) == 0x00000000);
-        assert(toRgbaInt(.{ .r = 255, .g = 0, .b = 0, .a = 128 }) == 0xff000080);
-        assert(toRgbaInt(.{ .r = 0, .g = 20, .b = 50, .a = 200 }) == 0x001432C8);
-    }
-
-    pub const transparent = Color{ .r = 0, .g = 0, .b = 0, .a = 0 };
-    pub const white = Color{ .r = 0xff, .g = 0xff, .b = 0xff, .a = 0xff };
-    pub const black = Color{ .r = 0, .g = 0, .b = 0, .a = 0xff };
-};
-
 pub const BoxOffsets = struct {
     /// The offset of the top-left corner of the border box, relative to
     /// the top-left corner of the parent block's content box (or the top-left
@@ -113,10 +79,10 @@ pub const Borders = struct {
 };
 
 pub const BorderColor = struct {
-    left: Color = Color.transparent,
-    right: Color = Color.transparent,
-    top: Color = Color.transparent,
-    bottom: Color = Color.transparent,
+    left: math.Color = .transparent,
+    right: math.Color = .transparent,
+    top: math.Color = .transparent,
+    bottom: math.Color = .transparent,
 };
 
 pub const Margins = struct {
@@ -163,12 +129,12 @@ pub const BoxStyle = struct {
 pub const BackgroundClip = enum { border, padding, content };
 
 pub const InlineBoxBackground = struct {
-    color: Color = Color.transparent,
+    color: math.Color = .transparent,
     clip: BackgroundClip = .border,
 };
 
 pub const BlockBoxBackground = struct {
-    color: Color = Color.transparent,
+    color: math.Color = .transparent,
     color_clip: BackgroundClip = .border,
     images: BackgroundImages.Handle = .invalid,
 };
@@ -275,7 +241,7 @@ pub const InlineFormattingContext = struct {
     line_boxes: ArrayListUnmanaged(LineBox) = .{},
 
     font: zss.Fonts.Handle = .invalid,
-    font_color: Color = undefined,
+    font_color: math.Color = undefined,
     ascender: math.Unit = undefined,
     /// This is a positive value.
     descender: math.Unit = undefined,
@@ -304,7 +270,7 @@ pub const InlineFormattingContext = struct {
     pub const BoxProperties = struct {
         border: math.Unit = 0,
         padding: math.Unit = 0,
-        border_color: Color = Color.transparent,
+        border_color: math.Color = .transparent,
     };
 
     pub const Metrics = struct {

@@ -71,7 +71,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
         var draw_list = try DrawList.create(&box_tree, allocator);
         defer draw_list.deinit(allocator);
 
-        setIcbBackgroundColor(&box_tree, BoxTree.Color.fromRgbaInt(0x202020ff));
+        setIcbBackgroundColor(&box_tree, zss.math.Color.fromRgbaInt(0x202020ff));
         const root_block_size = rootBlockSize(&box_tree, t.root_element);
 
         const pages = try std.math.divCeil(u32, root_block_size.height, t.height);
@@ -149,7 +149,7 @@ fn rootBlockSize(box_tree: *BoxTree, root_element: zss.ElementTree.Element) stru
     };
 }
 
-fn setIcbBackgroundColor(box_tree: *BoxTree, color: BoxTree.Color) void {
+fn setIcbBackgroundColor(box_tree: *BoxTree, color: zss.math.Color) void {
     const icb = box_tree.initial_containing_block;
     const subtree = box_tree.getSubtree(icb.subtree).view();
     const background = &subtree.items(.background)[icb.index];

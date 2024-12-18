@@ -9,7 +9,6 @@ const DrawList = @import("./DrawList.zig");
 const QuadTree = @import("./QuadTree.zig");
 
 const BoxTree = zss.BoxTree;
-const Color = BoxTree.Color;
 const Ifc = BoxTree.InlineFormattingContext;
 const GlyphIndex = Ifc.GlyphIndex;
 const StackingContext = BoxTree.StackingContext;
@@ -19,6 +18,7 @@ const ZIndex = BoxTree.ZIndex;
 
 const math = zss.math;
 const units_per_pixel = zss.math.units_per_pixel;
+const Color = math.Color;
 const Unit = math.Unit;
 const Range = math.Range;
 const Rect = math.Rect;
