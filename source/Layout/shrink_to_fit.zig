@@ -13,12 +13,12 @@ const Element = ElementTree.Element;
 const Layout = zss.Layout;
 const SctBuilder = Layout.StackingContextTreeBuilder;
 const Stack = zss.Stack;
+const StyleComputer = Layout.StyleComputer;
 const Unit = zss.math.Unit;
 
 const flow = @import("./flow.zig");
 const @"inline" = @import("./inline.zig");
 const solve = @import("./solve.zig");
-const StyleComputer = @import("./StyleComputer.zig");
 
 const BoxTree = zss.BoxTree;
 const BlockRef = BoxTree.BlockRef;
@@ -241,7 +241,7 @@ fn pushFlowObject(
         .element = element,
         .data = .{ .flow_stf = .{
             .width_clamped = undefined,
-            .used = undefined,
+            .used = used_sizes,
             .stacking_context_id = undefined,
             .absolute_containing_block_id = undefined,
         } },
@@ -254,15 +254,13 @@ fn popFlowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Ob
     const object_tree_slice = object_tree.slice();
     object_tree_slice.items(.skip)[this.object_index] = this.object_skip;
     const data = &object_tree_slice.items(.data)[this.object_index].flow_stf;
+    data.width_clamped = flow.solveUsedWidth(this.auto_width, data.used.min_inline_size, data.used.max_inline_size);
 
-    const parent = if (ctx.stack.top) |*top| top else {
-        data.width_clamped = flow.solveUsedWidth(this.auto_width, data.used.min_inline_size, data.used.max_inline_size);
-        return;
-    };
+    const parent = if (ctx.stack.top) |*top| top else return;
+
     const block = layout.popStfFlowBlock();
     layout.popElement();
 
-    data.used = block.sizes;
     data.stacking_context_id = block.stacking_context_id;
     data.absolute_containing_block_id = block.absolute_containing_block_id;
 
