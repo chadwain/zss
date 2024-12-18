@@ -79,7 +79,6 @@ pub fn init(element_tree_slice: ElementTree.Slice, allocator: Allocator) StyleCo
     };
 }
 
-// Does not do deinitStage.
 pub fn deinit(self: *StyleComputer) void {
     _ = self;
 }

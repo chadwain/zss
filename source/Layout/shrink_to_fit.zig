@@ -232,7 +232,7 @@ fn pushFlowObject(
         .available_width = available_width,
         .height = used_sizes.get(.block_size),
     });
-    try layout.pushStfFlowBlock(box_style, used_sizes, stacking_context);
+    const stacking_context_id, const absolute_containing_block_id = try layout.pushStfFlowBlock(box_style, stacking_context);
     try layout.pushElement();
 
     try object_tree.append(layout.allocator, .{
@@ -242,8 +242,8 @@ fn pushFlowObject(
         .data = .{ .flow_stf = .{
             .width_clamped = undefined,
             .used = used_sizes,
-            .stacking_context_id = undefined,
-            .absolute_containing_block_id = undefined,
+            .stacking_context_id = stacking_context_id,
+            .absolute_containing_block_id = absolute_containing_block_id,
         } },
     });
 }
@@ -258,19 +258,16 @@ fn popFlowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Ob
 
     const parent = if (ctx.stack.top) |*top| top else return;
 
-    const block = layout.popStfFlowBlock();
+    layout.popStfFlowBlock();
     layout.popElement();
-
-    data.stacking_context_id = block.stacking_context_id;
-    data.absolute_containing_block_id = block.absolute_containing_block_id;
 
     const parent_object_tag = object_tree_slice.items(.tag)[parent.object_index];
     switch (parent_object_tag) {
         .flow_stf => {
             const full_width = data.width_clamped +
-                block.sizes.padding_inline_start + block.sizes.padding_inline_end +
-                block.sizes.border_inline_start + block.sizes.border_inline_end +
-                block.sizes.margin_inline_start_untagged + block.sizes.margin_inline_end_untagged;
+                data.used.padding_inline_start + data.used.padding_inline_end +
+                data.used.border_inline_start + data.used.border_inline_end +
+                data.used.margin_inline_start_untagged + data.used.margin_inline_end_untagged;
             parent.auto_width = @max(parent.auto_width, full_width);
         },
         .flow_normal, .ifc => unreachable,
@@ -350,7 +347,7 @@ fn realizeObjects(
                         // TODO: width/margins were used to set the parent block's auto_height earlier, but are being changed again here
                         flow.adjustWidthAndMargins(&data.used, containing_block_width);
 
-                        const ref = try layout.pushStfFlowBlock2(data.used, data.stacking_context_id, data.absolute_containing_block_id);
+                        const ref = try layout.pushStfFlowBlock2();
                         try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
 
                         try ctx.stack.push(allocator, .{
@@ -396,7 +393,13 @@ fn popFlowBlock(layout: *Layout, ctx: *RealizeObjectsContext, object_tree_slice:
     };
 
     const data = object_tree_slice.items(.data)[this.object_index].flow_stf;
-    const ref = layout.popStfFlowBlock2(data.width_clamped, this.auto_height);
+    const ref = layout.popStfFlowBlock2(
+        data.width_clamped,
+        this.auto_height,
+        data.used,
+        data.stacking_context_id,
+        data.absolute_containing_block_id,
+    );
 
     switch (parent.object_tag) {
         .flow_stf => {

@@ -9,6 +9,7 @@ const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Fonts = zss.Fonts;
 const Images = zss.Images;
+const Stack = zss.Stack;
 const Storage = zss.values.Storage;
 
 const cosmetic = @import("Layout/cosmetic.zig");
@@ -41,15 +42,20 @@ absolute: Absolute,
 viewport: math.Size,
 inputs: Inputs,
 allocator: Allocator,
-element_stack: zss.Stack(Element),
-subtrees: zss.Stack(struct {
-    id: Subtree.Id,
-    depth: Subtree.Size,
-}),
-blocks: zss.Stack(Block),
-ifcs: zss.Stack(IfcContext),
-ifc_state: zss.Stack(IfcState),
-inline_box: zss.Stack(InlineBox),
+stacks: Stacks,
+
+const Stacks = struct {
+    element: Stack(Element),
+    subtree: Stack(struct {
+        id: Subtree.Id,
+        depth: Subtree.Size,
+    }),
+    block: Stack(Block),
+    block_info: Stack(BlockInfo),
+    ifc: Stack(IfcContext),
+    ifc_state: Stack(IfcState),
+    inline_box: Stack(InlineBox),
+};
 
 pub const Inputs = struct {
     root_element: Element,
@@ -98,12 +104,15 @@ pub fn init(
             .storage = storage,
         },
         .allocator = allocator,
-        .element_stack = .{},
-        .subtrees = .{},
-        .blocks = .{},
-        .ifcs = .{ .top = @as(IfcContext, undefined) },
-        .ifc_state = .{ .top = @as(IfcState, undefined) },
-        .inline_box = .{ .top = @as(InlineBox, undefined) },
+        .stacks = .{
+            .element = .{},
+            .subtree = .{},
+            .block = .{},
+            .block_info = .{},
+            .ifc = .{ .top = @as(IfcContext, undefined) },
+            .ifc_state = .{ .top = @as(IfcState, undefined) },
+            .inline_box = .{ .top = @as(InlineBox, undefined) },
+        },
     };
 }
 
@@ -111,13 +120,13 @@ pub fn deinit(layout: *Layout) void {
     layout.computer.deinit();
     layout.sct_builder.deinit(layout.allocator);
     layout.absolute.deinit(layout.allocator);
-    layout.element_stack.deinit(layout.allocator);
-    layout.subtrees.deinit(layout.allocator);
-    layout.blocks.deinit(layout.allocator);
-    layout.ifcs.deinit(layout.allocator);
-    layout.ifc_state.deinit(layout.allocator);
-    _ = layout.inline_box.pop();
-    layout.inline_box.deinit(layout.allocator);
+    layout.stacks.element.deinit(layout.allocator);
+    layout.stacks.subtree.deinit(layout.allocator);
+    layout.stacks.block.deinit(layout.allocator);
+    layout.stacks.block_info.deinit(layout.allocator);
+    layout.stacks.ifc.deinit(layout.allocator);
+    layout.stacks.ifc_state.deinit(layout.allocator);
+    layout.stacks.inline_box.deinit(layout.allocator);
 }
 
 pub fn run(layout: *Layout, allocator: Allocator) Error!BoxTree {
@@ -143,9 +152,13 @@ fn boxGeneration(layout: *Layout) !void {
     layout.computer.stage = .{ .box_gen = .{} };
     defer layout.computer.deinitStage(.box_gen);
 
-    layout.element_stack.top = layout.inputs.root_element;
+    layout.stacks.element.top = layout.inputs.root_element;
 
     try initial.run(layout);
+
+    _ = layout.stacks.ifc.pop();
+    _ = layout.stacks.ifc_state.pop();
+    _ = layout.stacks.inline_box.pop();
     layout.sct_builder.endFrame();
 }
 
@@ -153,83 +166,106 @@ fn cosmeticLayout(layout: *Layout) !void {
     layout.computer.stage = .{ .cosmetic = .{} };
     defer layout.computer.deinitStage(.cosmetic);
 
-    layout.element_stack.top = layout.inputs.root_element;
+    layout.stacks.element.top = layout.inputs.root_element;
 
     try cosmetic.run(layout);
 }
 
 pub fn currentElement(layout: Layout) Element {
-    return layout.element_stack.top.?;
+    return layout.stacks.element.top.?;
 }
 
 pub fn pushElement(layout: *Layout) !void {
-    const element = &layout.element_stack.top.?;
+    const element = &layout.stacks.element.top.?;
     const child = layout.computer.element_tree_slice.firstChild(element.*);
     element.* = layout.computer.element_tree_slice.nextSibling(element.*);
-    try layout.element_stack.push(layout.allocator, child);
+    try layout.stacks.element.push(layout.allocator, child);
 }
 
 pub fn popElement(layout: *Layout) void {
-    _ = layout.element_stack.pop();
+    _ = layout.stacks.element.pop();
 }
 
 pub fn advanceElement(layout: *Layout) void {
-    const element = &layout.element_stack.top.?;
+    const element = &layout.stacks.element.top.?;
     element.* = layout.computer.element_tree_slice.nextSibling(element.*);
 }
 
 pub fn currentSubtree(layout: *Layout) Subtree.Id {
-    return layout.subtrees.top.?.id;
+    return layout.stacks.subtree.top.?.id;
 }
 
 pub fn pushInitialSubtree(layout: *Layout) !void {
     const subtree = try layout.box_tree.newSubtree();
-    layout.subtrees.top = .{ .id = subtree.id, .depth = 0 };
+    layout.stacks.subtree.top = .{ .id = subtree.id, .depth = 0 };
 }
 
 pub fn pushSubtree(layout: *Layout) !void {
     const subtree = try layout.box_tree.newSubtree();
-    try layout.subtrees.push(layout.allocator, .{ .id = subtree.id, .depth = 0 });
+    try layout.stacks.subtree.push(layout.allocator, .{ .id = subtree.id, .depth = 0 });
 }
 
 pub fn popSubtree(layout: *Layout) void {
-    const item = layout.subtrees.pop();
+    const item = layout.stacks.subtree.pop();
     assert(item.depth == 0);
 }
 
-pub const Block = struct {
+const Block = struct {
     index: Subtree.Size,
     skip: Subtree.Size,
+};
+
+const BlockInfo = struct {
     sizes: BlockUsedSizes,
     stacking_context_id: ?StackingContextTree.Id,
     absolute_containing_block_id: ?Absolute.ContainingBlock.Id,
 };
 
 fn newBlock(layout: *Layout) !BlockRef {
-    const subtree = layout.box_tree.ptr.getSubtree(layout.subtrees.top.?.id);
+    const subtree = layout.box_tree.ptr.getSubtree(layout.stacks.subtree.top.?.id);
     const index = try layout.box_tree.appendBlockBox(subtree);
     return .{ .subtree = subtree.id, .index = index };
 }
 
+fn pushBlock(layout: *Layout) !BlockRef {
+    const ref = try layout.newBlock();
+    try layout.stacks.block.push(layout.allocator, .{
+        .index = ref.index,
+        .skip = 1,
+    });
+    layout.stacks.subtree.top.?.depth += 1;
+    return ref;
+}
+
+fn popBlock(layout: *Layout) Block {
+    const block = layout.stacks.block.pop();
+    layout.stacks.subtree.top.?.depth -= 1;
+    layout.addSkip(block.skip);
+    return block;
+}
+
 fn addSkip(layout: *Layout, skip: Subtree.Size) void {
-    if (layout.subtrees.top.?.depth > 0) {
-        layout.blocks.top.?.skip += skip;
+    if (layout.stacks.subtree.top.?.depth > 0) {
+        layout.stacks.block.top.?.skip += skip;
     }
 }
 
 pub fn pushInitialContainingBlock(layout: *Layout, size: math.Size) !BlockRef {
     const ref = try layout.newBlock();
-    const stacking_context_id = try layout.sct_builder.pushInitial(layout.box_tree.ptr, ref);
-    const absolute_containing_block_id = try layout.absolute.pushInitialContainingBlock(layout.allocator, ref);
-    layout.blocks.top = .{
+    layout.stacks.block.top = .{
         .index = ref.index,
         .skip = 1,
+    };
+    assert(layout.stacks.subtree.top.?.depth == 0);
+    layout.stacks.subtree.top.?.depth += 1;
+
+    const stacking_context_id = try layout.sct_builder.pushInitial(layout.box_tree.ptr, ref);
+    const absolute_containing_block_id = try layout.absolute.pushInitialContainingBlock(layout.allocator, ref);
+    layout.stacks.block_info.top = .{
         .sizes = BlockUsedSizes.icb(size),
         .stacking_context_id = stacking_context_id,
         .absolute_containing_block_id = absolute_containing_block_id,
     };
-    assert(layout.subtrees.top.?.depth == 0);
-    layout.subtrees.top.?.depth += 1;
 
     return ref;
 }
@@ -237,17 +273,18 @@ pub fn pushInitialContainingBlock(layout: *Layout, size: math.Size) !BlockRef {
 pub fn popInitialContainingBlock(layout: *Layout) void {
     layout.sct_builder.popInitial();
     layout.popAbsoluteContainingBlock();
-    const block = layout.blocks.pop();
-    layout.subtrees.top.?.depth -= 1;
-    assert(layout.subtrees.top.?.depth == 0);
+    const block = layout.stacks.block.pop();
+    layout.stacks.subtree.top.?.depth -= 1;
+    assert(layout.stacks.subtree.top.?.depth == 0);
+    const block_info = layout.stacks.block_info.pop();
 
-    const subtree = layout.box_tree.ptr.getSubtree(layout.subtrees.top.?.id).view();
+    const subtree = layout.box_tree.ptr.getSubtree(layout.stacks.subtree.top.?.id).view();
     const index = block.index;
-    const width = block.sizes.get(.inline_size).?;
-    const height = block.sizes.get(.block_size).?;
+    const width = block_info.sizes.get(.inline_size).?;
+    const height = block_info.sizes.get(.block_size).?;
     subtree.items(.skip)[index] = block.skip;
     subtree.items(.type)[index] = .block;
-    subtree.items(.stacking_context)[index] = block.stacking_context_id;
+    subtree.items(.stacking_context)[index] = block_info.stacking_context_id;
     subtree.items(.box_offsets)[index] = .{
         .border_pos = .{ .x = 0, .y = 0 },
         .content_pos = .{ .x = 0, .y = 0 },
@@ -264,17 +301,15 @@ pub fn pushFlowBlock(
     sizes: BlockUsedSizes,
     stacking_context: StackingContextTreeBuilder.Type,
 ) !BlockRef {
-    const ref = try layout.newBlock();
+    const ref = try layout.pushBlock();
+
     const stacking_context_id = try layout.sct_builder.push(layout.allocator, stacking_context, layout.box_tree.ptr, ref);
     const absolute_containing_block_id = try layout.pushAbsoluteContainingBlock(box_style, ref);
-    try layout.blocks.push(layout.allocator, .{
-        .index = ref.index,
-        .skip = 1,
+    try layout.stacks.block_info.push(layout.allocator, .{
         .sizes = sizes,
         .stacking_context_id = stacking_context_id,
         .absolute_containing_block_id = absolute_containing_block_id,
     });
-    layout.subtrees.top.?.depth += 1;
 
     return ref;
 }
@@ -282,15 +317,14 @@ pub fn pushFlowBlock(
 pub fn popFlowBlock(layout: *Layout, auto_height: math.Unit) BlockRef {
     layout.sct_builder.pop(layout.box_tree.ptr);
     layout.popAbsoluteContainingBlock();
-    const block = layout.blocks.pop();
-    layout.subtrees.top.?.depth -= 1;
-    layout.addSkip(block.skip);
+    const block = layout.popBlock();
+    const block_info = layout.stacks.block_info.pop();
 
-    const subtree_id = layout.subtrees.top.?.id;
+    const subtree_id = layout.stacks.subtree.top.?.id;
     const subtree = layout.box_tree.ptr.getSubtree(subtree_id).view();
-    const width = flow.solveUsedWidth(block.sizes.get(.inline_size).?, block.sizes.min_inline_size, block.sizes.max_inline_size);
-    const height = flow.solveUsedHeight(block.sizes.get(.block_size), block.sizes.min_block_size, block.sizes.max_block_size, auto_height);
-    setDataBlock(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
+    const width = flow.solveUsedWidth(block_info.sizes.get(.inline_size).?, block_info.sizes.min_inline_size, block_info.sizes.max_inline_size);
+    const height = flow.solveUsedHeight(block_info.sizes.get(.block_size), block_info.sizes.min_block_size, block_info.sizes.max_block_size, auto_height);
+    setDataBlock(subtree, block.index, block_info.sizes, block.skip, width, height, block_info.stacking_context_id);
 
     return .{ .subtree = subtree_id, .index = block.index };
 }
@@ -301,17 +335,15 @@ pub fn pushStfFlowMainBlock(
     sizes: BlockUsedSizes,
     stacking_context: StackingContextTreeBuilder.Type,
 ) !BlockRef {
-    const ref = try layout.newBlock();
+    const ref = try layout.pushBlock();
+
     const stacking_context_id = try layout.sct_builder.push(layout.allocator, stacking_context, layout.box_tree.ptr, ref);
     const absolute_containing_block_id = try layout.pushAbsoluteContainingBlock(box_style, ref);
-    try layout.blocks.push(layout.allocator, .{
-        .index = ref.index,
-        .skip = 1,
+    try layout.stacks.block_info.push(layout.allocator, .{
         .sizes = sizes,
         .stacking_context_id = stacking_context_id,
         .absolute_containing_block_id = absolute_containing_block_id,
     });
-    layout.subtrees.top.?.depth += 1;
     return ref;
 }
 
@@ -322,78 +354,53 @@ pub fn popStfFlowMainBlock(
 ) void {
     layout.sct_builder.pop(layout.box_tree.ptr);
     layout.popAbsoluteContainingBlock();
-    const block = layout.blocks.pop();
-    layout.subtrees.top.?.depth -= 1;
-    layout.addSkip(block.skip);
+    const block = layout.popBlock();
+    const block_info = layout.stacks.block_info.pop();
 
-    const subtree = layout.box_tree.ptr.getSubtree(layout.subtrees.top.?.id).view();
-    const width = flow.solveUsedWidth(auto_width, block.sizes.min_inline_size, block.sizes.max_inline_size); // TODO This is probably redundant
-    const height = flow.solveUsedHeight(block.sizes.get(.block_size), block.sizes.min_block_size, block.sizes.max_block_size, auto_height);
-    setDataBlock(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
+    const subtree = layout.box_tree.ptr.getSubtree(layout.stacks.subtree.top.?.id).view();
+    const width = flow.solveUsedWidth(auto_width, block_info.sizes.min_inline_size, block_info.sizes.max_inline_size); // TODO This is probably redundant
+    const height = flow.solveUsedHeight(block_info.sizes.get(.block_size), block_info.sizes.min_block_size, block_info.sizes.max_block_size, auto_height);
+    setDataBlock(subtree, block.index, block_info.sizes, block.skip, width, height, block_info.stacking_context_id);
 }
 
 pub fn pushStfFlowBlock(
     layout: *Layout,
     box_style: BoxTree.BoxStyle,
-    sizes: BlockUsedSizes,
     stacking_context: StackingContextTreeBuilder.Type,
-) !void {
+) !struct { ?StackingContextTree.Id, ?Absolute.ContainingBlock.Id } {
     const stacking_context_id = try layout.sct_builder.pushWithoutBlock(layout.allocator, stacking_context, layout.box_tree.ptr);
     const absolute_containing_block_id = try layout.pushAbsoluteContainingBlock(box_style, undefined);
-    try layout.blocks.push(layout.allocator, .{
-        .index = undefined,
-        .skip = 1,
-        .sizes = sizes,
-        .stacking_context_id = stacking_context_id,
-        .absolute_containing_block_id = absolute_containing_block_id,
-    });
-    layout.subtrees.top.?.depth += 1;
+    return .{ stacking_context_id, absolute_containing_block_id };
 }
 
-pub fn popStfFlowBlock(layout: *Layout) Block {
+pub fn popStfFlowBlock(layout: *Layout) void {
     layout.sct_builder.pop(layout.box_tree.ptr);
     layout.popAbsoluteContainingBlock();
-    const block = layout.blocks.pop();
-    layout.subtrees.top.?.depth -= 1;
-    return block;
 }
 
-pub fn pushStfFlowBlock2(
-    layout: *Layout,
-    sizes: BlockUsedSizes,
-    stacking_context_id: ?StackingContextTree.Id,
-    absolute_containing_block_id: ?Absolute.ContainingBlock.Id,
-) !BlockRef {
-    const ref = try layout.newBlock();
-    try layout.blocks.push(layout.allocator, .{
-        .index = ref.index,
-        .skip = 1,
-        .sizes = sizes,
-        .stacking_context_id = stacking_context_id,
-        .absolute_containing_block_id = absolute_containing_block_id,
-    });
-    layout.subtrees.top.?.depth += 1;
-    return ref;
+pub fn pushStfFlowBlock2(layout: *Layout) !BlockRef {
+    return layout.pushBlock();
 }
 
 pub fn popStfFlowBlock2(
     layout: *Layout,
     auto_width: math.Unit,
     auto_height: math.Unit,
+    sizes: BlockUsedSizes,
+    stacking_context_id: ?StackingContextTree.Id,
+    absolute_containing_block_id: ?Absolute.ContainingBlock.Id,
 ) BlockRef {
-    const block = layout.blocks.pop();
-    layout.subtrees.top.?.depth -= 1;
-    layout.addSkip(block.skip);
+    const block = layout.popBlock();
 
-    const subtree_id = layout.subtrees.top.?.id;
+    const subtree_id = layout.stacks.subtree.top.?.id;
     const subtree = layout.box_tree.ptr.getSubtree(subtree_id).view();
-    const width = flow.solveUsedWidth(auto_width, block.sizes.min_inline_size, block.sizes.max_inline_size); // TODO This is probably redundant
-    const height = flow.solveUsedHeight(block.sizes.get(.block_size), block.sizes.min_block_size, block.sizes.max_block_size, auto_height);
-    setDataBlock(subtree, block.index, block.sizes, block.skip, width, height, block.stacking_context_id);
+    const width = flow.solveUsedWidth(auto_width, sizes.min_inline_size, sizes.max_inline_size); // TODO This is probably redundant
+    const height = flow.solveUsedHeight(sizes.get(.block_size), sizes.min_block_size, sizes.max_block_size, auto_height);
+    setDataBlock(subtree, block.index, sizes, block.skip, width, height, stacking_context_id);
 
     const ref: BlockRef = .{ .subtree = subtree_id, .index = block.index };
-    if (block.stacking_context_id) |id| layout.sct_builder.setBlock(id, layout.box_tree.ptr, ref);
-    if (block.absolute_containing_block_id) |id| layout.fixupAbsoluteContainingBlock(id, ref);
+    if (stacking_context_id) |id| layout.sct_builder.setBlock(id, layout.box_tree.ptr, ref);
+    if (absolute_containing_block_id) |id| layout.fixupAbsoluteContainingBlock(id, ref);
 
     return ref;
 }
@@ -402,7 +409,7 @@ pub fn addSubtreeProxy(layout: *Layout, id: Subtree.Id) !BlockRef {
     layout.addSkip(1);
 
     const ref = try layout.newBlock();
-    const parent_subtree = layout.box_tree.ptr.getSubtree(layout.subtrees.top.?.id);
+    const parent_subtree = layout.box_tree.ptr.getSubtree(layout.stacks.subtree.top.?.id);
     const child_subtree = layout.box_tree.ptr.getSubtree(id);
     setDataSubtreeProxy(parent_subtree.view(), ref.index, child_subtree);
     child_subtree.parent = ref;
@@ -438,16 +445,13 @@ pub fn pushIfc(
         .percentage_base_unit = percentage_base_unit,
     };
 
-    try layout.blocks.push(layout.allocator, .{
+    try layout.stacks.block.push(layout.allocator, .{
         .index = ifc_container.index,
         .skip = 1,
-        .sizes = undefined,
-        .stacking_context_id = undefined,
-        .absolute_containing_block_id = undefined,
     });
-    layout.subtrees.top.?.depth += 1;
-    try layout.ifcs.push(layout.allocator, ctx);
-    try layout.ifc_state.push(layout.allocator, .{
+    layout.stacks.subtree.top.?.depth += 1;
+    try layout.stacks.ifc.push(layout.allocator, ctx);
+    try layout.stacks.ifc_state.push(layout.allocator, .{
         .inline_box_depth = 0,
         .font_handle = null,
     });
@@ -457,15 +461,15 @@ pub fn pushIfc(
 }
 
 pub fn popIfc(layout: *Layout, height: math.Unit) void {
-    const block = layout.blocks.pop();
-    layout.subtrees.top.?.depth -= 1;
+    const block = layout.stacks.block.pop();
+    layout.stacks.subtree.top.?.depth -= 1;
     layout.addSkip(block.skip);
 
-    const ctx = layout.ifcs.pop();
-    const state = layout.ifc_state.pop();
+    const ctx = layout.stacks.ifc.pop();
+    const state = layout.stacks.ifc_state.pop();
     assert(state.inline_box_depth == 0);
 
-    const subtree = layout.box_tree.ptr.getSubtree(layout.subtrees.top.?.id).view();
+    const subtree = layout.box_tree.ptr.getSubtree(layout.stacks.subtree.top.?.id).view();
     setDataIfcContainer(subtree, ctx.ifc.id, block.index, block.skip, ctx.containing_block_width, height);
 }
 
@@ -476,38 +480,38 @@ const InlineBox = struct {
 
 pub fn pushRootInlineBox(layout: *Layout, ifc: *Ifc) !Ifc.Size {
     const index = try layout.box_tree.appendInlineBox(ifc);
-    try layout.inline_box.push(layout.allocator, .{ .index = index, .skip = 1 });
+    try layout.stacks.inline_box.push(layout.allocator, .{ .index = index, .skip = 1 });
     return index;
 }
 
 pub fn popRootInlineBox(layout: *Layout, ifc: *Ifc) Ifc.Size {
-    const inline_box = layout.inline_box.pop();
+    const inline_box = layout.stacks.inline_box.pop();
     ifc.slice().items(.skip)[inline_box.index] = inline_box.skip;
     return inline_box.index;
 }
 
 pub fn pushInlineBox(layout: *Layout, ifc: *Ifc) !Ifc.Size {
     const index = try layout.box_tree.appendInlineBox(ifc);
-    try layout.inline_box.push(layout.allocator, .{ .index = index, .skip = 1 });
-    layout.ifc_state.top.?.inline_box_depth += 1;
+    try layout.stacks.inline_box.push(layout.allocator, .{ .index = index, .skip = 1 });
+    layout.stacks.ifc_state.top.?.inline_box_depth += 1;
     return index;
 }
 
 pub fn popInlineBox(layout: *Layout, ifc: *Ifc) Ifc.Size {
-    const inline_box = layout.inline_box.pop();
-    layout.ifc_state.top.?.inline_box_depth -= 1;
+    const inline_box = layout.stacks.inline_box.pop();
+    layout.stacks.ifc_state.top.?.inline_box_depth -= 1;
 
     ifc.slice().items(.skip)[inline_box.index] = inline_box.skip;
-    layout.inline_box.top.?.skip += inline_box.skip;
+    layout.stacks.inline_box.top.?.skip += inline_box.skip;
     return inline_box.index;
 }
 
 pub fn currentInlineBoxDepth(layout: *const Layout) Ifc.Size {
-    return layout.ifc_state.top.?.inline_box_depth;
+    return layout.stacks.ifc_state.top.?.inline_box_depth;
 }
 
 pub fn checkFontHandle(layout: *Layout, ifc: *Ifc, handle: Fonts.Handle) void {
-    const state = &layout.ifc_state.top.?;
+    const state = &layout.stacks.ifc_state.top.?;
     if (state.font_handle) |prev_handle| {
         if (handle != prev_handle) {
             std.debug.panic("TODO: Only one font allowed per IFC", .{});
