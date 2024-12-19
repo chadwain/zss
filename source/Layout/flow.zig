@@ -155,7 +155,7 @@ pub fn solveAllSizes(
 
     var computed_sizes: BlockComputedSizes = undefined;
     var sizes: BlockUsedSizes = undefined;
-    solveWidthAndHorizontalMargins(specified_sizes, containing_block_width, &computed_sizes, &sizes);
+    solveWidthAndHorizontalMargins(.Normal, specified_sizes, containing_block_width, &computed_sizes, &sizes);
     solveHorizontalBorderPadding(specified_sizes.horizontal_edges, containing_block_width, border_styles, &computed_sizes.horizontal_edges, &sizes);
     solveHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &sizes);
     solveVerticalEdges(specified_sizes.vertical_edges, containing_block_width, border_styles, &computed_sizes.vertical_edges, &sizes);
@@ -175,15 +175,22 @@ pub fn solveAllSizes(
 
 /// Solves the following list of properties according to CSS2§10.2, CSS2§10.3.3, and CSS2§10.4.
 /// Properties: 'min-width', 'max-width', 'width', 'margin-left', 'margin-right'
-fn solveWidthAndHorizontalMargins(
+pub fn solveWidthAndHorizontalMargins(
+    comptime mode: Layout.Mode,
     specified: BlockComputedSizes,
-    containing_block_width: Unit,
+    containing_block_width: switch (mode) {
+        .Normal => Unit,
+        .ShrinkToFit => void,
+    },
     computed: *BlockComputedSizes,
     sizes: *BlockUsedSizes,
 ) void {
     // TODO: Also use the logical properties ('inline-size', 'border-inline-start', etc.) to determine lengths.
 
-    assert(containing_block_width >= 0);
+    switch (mode) {
+        .Normal => assert(containing_block_width >= 0),
+        .ShrinkToFit => {},
+    }
 
     switch (specified.content_width.min_width) {
         .px => |value| {
@@ -192,7 +199,10 @@ fn solveWidthAndHorizontalMargins(
         },
         .percentage => |value| {
             computed.content_width.min_width = .{ .percentage = value };
-            sizes.min_inline_size = solve.positivePercentage(value, containing_block_width);
+            sizes.min_inline_size = switch (mode) {
+                .Normal => solve.positivePercentage(value, containing_block_width),
+                .ShrinkToFit => 0,
+            };
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -203,7 +213,10 @@ fn solveWidthAndHorizontalMargins(
         },
         .percentage => |value| {
             computed.content_width.max_width = .{ .percentage = value };
-            sizes.max_inline_size = solve.positivePercentage(value, containing_block_width);
+            sizes.max_inline_size = switch (mode) {
+                .Normal => solve.positivePercentage(value, containing_block_width),
+                .ShrinkToFit => std.math.maxInt(Unit),
+            };
         },
         .none => {
             computed.content_width.max_width = .none;
@@ -219,7 +232,10 @@ fn solveWidthAndHorizontalMargins(
         },
         .percentage => |value| {
             computed.content_width.width = .{ .percentage = value };
-            sizes.setValue(.inline_size, solve.positivePercentage(value, containing_block_width));
+            switch (mode) {
+                .Normal => sizes.setValue(.inline_size, solve.positivePercentage(value, containing_block_width)),
+                .ShrinkToFit => sizes.setAuto(.inline_size),
+            }
         },
         .auto => {
             computed.content_width.width = .auto;
@@ -234,7 +250,10 @@ fn solveWidthAndHorizontalMargins(
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_left = .{ .percentage = value };
-            sizes.setValue(.margin_inline_start, solve.percentage(value, containing_block_width));
+            switch (mode) {
+                .Normal => sizes.setValue(.margin_inline_start, solve.percentage(value, containing_block_width)),
+                .ShrinkToFit => sizes.setAuto(.margin_inline_start),
+            }
         },
         .auto => {
             computed.horizontal_edges.margin_left = .auto;
@@ -249,7 +268,10 @@ fn solveWidthAndHorizontalMargins(
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_right = .{ .percentage = value };
-            sizes.setValue(.margin_inline_end, solve.percentage(value, containing_block_width));
+            switch (mode) {
+                .Normal => sizes.setValue(.margin_inline_end, solve.percentage(value, containing_block_width)),
+                .ShrinkToFit => sizes.setAuto(.margin_inline_end),
+            }
         },
         .auto => {
             computed.horizontal_edges.margin_right = .auto;

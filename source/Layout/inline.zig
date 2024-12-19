@@ -37,7 +37,7 @@ pub const Result = struct {
 
 pub fn runInlineLayout(
     layout: *Layout,
-    mode: enum { Normal, ShrinkToFit },
+    mode: Layout.Mode,
     containing_block_width: Unit,
     containing_block_height: ?Unit,
 ) zss.Layout.Error!Result {

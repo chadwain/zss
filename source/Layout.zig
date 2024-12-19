@@ -171,6 +171,8 @@ fn cosmeticLayout(layout: *Layout) !void {
     try cosmetic.run(layout);
 }
 
+pub const Mode = enum { Normal, ShrinkToFit };
+
 pub fn currentElement(layout: Layout) Element {
     return layout.stacks.element.top.?;
 }

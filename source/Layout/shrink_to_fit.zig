@@ -128,8 +128,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
     switch (used_box_style.outer) {
         .block => |inner| switch (inner) {
             .flow => {
-                var used: BlockUsedSizes = undefined;
-                solveBlockSizes(&layout.computer, &used, used_box_style.position, parent.height);
+                const used = solveBlockSizes(&layout.computer, used_box_style.position, parent.height);
                 const stacking_context = flow.solveStackingContext(&layout.computer, computed.position);
                 layout.computer.commitElement(.box_gen);
 
@@ -412,10 +411,9 @@ fn popFlowBlock(layout: *Layout, ctx: *RealizeObjectsContext, object_tree_slice:
 
 fn solveBlockSizes(
     computer: *StyleComputer,
-    used: *BlockUsedSizes,
     position: BoxTree.BoxStyle.Position,
     containing_block_height: ?Unit,
-) void {
+) BlockUsedSizes {
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
     const specified = BlockComputedSizes{
         .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
@@ -425,14 +423,15 @@ fn solveBlockSizes(
         .insets = computer.getSpecifiedValue(.box_gen, .insets),
     };
     var computed: BlockComputedSizes = undefined;
+    var used: BlockUsedSizes = undefined;
 
-    flowBlockSolveWidthAndHorizontalMargins(specified, &computed, used);
-    flow.solveHorizontalBorderPadding(specified.horizontal_edges, 0, border_styles, &computed.horizontal_edges, used);
-    flow.solveHeight(specified.content_height, containing_block_height, &computed.content_height, used);
-    flow.solveVerticalEdges(specified.vertical_edges, 0, border_styles, &computed.vertical_edges, used);
+    flow.solveWidthAndHorizontalMargins(.ShrinkToFit, specified, {}, &computed, &used);
+    flow.solveHorizontalBorderPadding(specified.horizontal_edges, 0, border_styles, &computed.horizontal_edges, &used);
+    flow.solveHeight(specified.content_height, containing_block_height, &computed.content_height, &used);
+    flow.solveVerticalEdges(specified.vertical_edges, 0, border_styles, &computed.vertical_edges, &used);
 
     computed.insets = solve.insets(specified.insets);
-    flow.solveInsets(computed.insets, position, used);
+    flow.solveInsets(computed.insets, position, &used);
 
     computer.setComputedValue(.box_gen, .content_width, computed.content_width);
     computer.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
@@ -440,83 +439,6 @@ fn solveBlockSizes(
     computer.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
     computer.setComputedValue(.box_gen, .insets, computed.insets);
     computer.setComputedValue(.box_gen, .border_styles, border_styles);
-}
 
-fn flowBlockSolveWidthAndHorizontalMargins(
-    specified: BlockComputedSizes,
-    computed: *BlockComputedSizes,
-    used: *BlockUsedSizes,
-) void {
-    switch (specified.content_width.min_width) {
-        .px => |value| {
-            computed.content_width.min_width = .{ .px = value };
-            used.min_inline_size = solve.positiveLength(.px, value);
-        },
-        .percentage => |value| {
-            computed.content_width.min_width = .{ .percentage = value };
-            used.min_inline_size = 0;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
-    switch (specified.content_width.max_width) {
-        .px => |value| {
-            computed.content_width.max_width = .{ .px = value };
-            used.max_inline_size = solve.positiveLength(.px, value);
-        },
-        .percentage => |value| {
-            computed.content_width.max_width = .{ .percentage = value };
-            used.max_inline_size = std.math.maxInt(Unit);
-        },
-        .none => {
-            computed.content_width.max_width = .none;
-            used.max_inline_size = std.math.maxInt(Unit);
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
-
-    switch (specified.content_width.width) {
-        .px => |value| {
-            computed.content_width.width = .{ .px = value };
-            used.setValue(.inline_size, solve.positiveLength(.px, value));
-        },
-        .percentage => |value| {
-            computed.content_width.width = .{ .percentage = value };
-            used.setAuto(.inline_size);
-        },
-        .auto => {
-            computed.content_width.width = .auto;
-            used.setAuto(.inline_size);
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
-    switch (specified.horizontal_edges.margin_left) {
-        .px => |value| {
-            computed.horizontal_edges.margin_left = .{ .px = value };
-            used.setValue(.margin_inline_start, solve.length(.px, value));
-        },
-        .percentage => |value| {
-            computed.horizontal_edges.margin_left = .{ .percentage = value };
-            used.setAuto(.margin_inline_start);
-        },
-        .auto => {
-            computed.horizontal_edges.margin_left = .auto;
-            used.setAuto(.margin_inline_start);
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
-    switch (specified.horizontal_edges.margin_right) {
-        .px => |value| {
-            computed.horizontal_edges.margin_right = .{ .px = value };
-            used.setValue(.margin_inline_end, solve.length(.px, value));
-        },
-        .percentage => |value| {
-            computed.horizontal_edges.margin_right = .{ .percentage = value };
-            used.setAuto(.margin_inline_end);
-        },
-        .auto => {
-            computed.horizontal_edges.margin_right = .auto;
-            used.setAuto(.margin_inline_end);
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    }
+    return used;
 }
