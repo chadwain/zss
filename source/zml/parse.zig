@@ -384,7 +384,7 @@ fn parseInlineStyleBlock(parser: *Parser, ast: AstManaged, main_location: Locati
     var previous_declaration: ?Ast.Size = null;
     parser.block_stack.top = .{ .ending_tag = .token_right_paren, .component_index = undefined };
     while (parser.block_stack.top != null) {
-        assert(parser.block_stack.rest.len == 0);
+        assert(parser.block_stack.len() == 1);
 
         {
             const token, const location = try parser.nextTokenSkipWhitespace();
@@ -408,7 +408,7 @@ fn parseInlineStyleBlock(parser: *Parser, ast: AstManaged, main_location: Locati
             const token, const location = try parser.nextToken();
             switch (token) {
                 .token_semicolon => {
-                    if (parser.block_stack.rest.len == 0) break;
+                    if (parser.block_stack.len() == 1) break;
                     const component_index = try ast.addBasicComponent(.token_semicolon, location);
                     last_3.append(component_index);
                 },

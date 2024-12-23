@@ -513,7 +513,7 @@ pub fn solveInsets(
 ) void {
     switch (position) {
         .static => {
-            inline for (&.{
+            inline for (.{
                 .inset_inline_start,
                 .inset_inline_end,
                 .inset_block_start,
@@ -523,7 +523,7 @@ pub fn solveInsets(
             }
         },
         .relative => {
-            inline for (&.{
+            inline for (.{
                 .{ "left", .inset_inline_start },
                 .{ "right", .inset_inline_end },
                 .{ "top", .inset_block_start },

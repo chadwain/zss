@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const MultiArrayList = std.MultiArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 /// A stack data structure, where the top-most value is stored on the (program) stack.
 pub fn Stack(comptime T: type) type {
@@ -8,7 +8,7 @@ pub fn Stack(comptime T: type) type {
         /// The top of the stack. When this is null, the stack is completely empty.
         top: ?T = null,
         /// The rest of the stack. Items lower in the stack are earlier in the list.
-        rest: MultiArrayList(T) = .{},
+        rest: ArrayListUnmanaged(T) = .empty,
 
         pub const Item = T;
 
@@ -17,7 +17,7 @@ pub fn Stack(comptime T: type) type {
         }
 
         pub fn len(stack: Stack(T)) usize {
-            return @intFromBool(stack.top != null) + stack.rest.len;
+            return @intFromBool(stack.top != null) + stack.rest.items.len;
         }
 
         /// Causes `new_top` to become the new highest item in the stack.
