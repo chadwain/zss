@@ -74,8 +74,10 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
     };
 
     const parent = &ctx.stack.top.?;
-    const containing_block_width = parent.inline_size_clamped;
-    const containing_block_height = layout.stacks.block_info.top.?.sizes.get(.block_size); // TODO
+    const containing_block_width, const containing_block_height = blk: {
+        const size = layout.containingBlockSize();
+        break :blk .{ size.width, size.height };
+    };
 
     switch (used_box_style.outer) {
         .block => |inner| switch (inner) {
@@ -160,6 +162,8 @@ pub fn solveAllSizes(
     solveHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &sizes);
     solveVerticalEdges(specified_sizes.vertical_edges, containing_block_width, border_styles, &computed_sizes.vertical_edges, &sizes);
     adjustWidthAndMargins(&sizes, containing_block_width);
+    // TODO: Do this in adjustWidthAndMargins
+    sizes.setValue(.inline_size, solveUsedWidth(sizes.get(.inline_size).?, sizes.min_inline_size, sizes.max_inline_size));
     computed_sizes.insets = solve.insets(specified_sizes.insets);
     solveInsets(computed_sizes.insets, position, &sizes);
 
@@ -544,6 +548,8 @@ pub fn solveInsets(
 /// Changes the sizes of a block that is in normal flow.
 /// This implements the constraints described in CSS2.2§10.3.3.
 pub fn adjustWidthAndMargins(sizes: *BlockUsedSizes, containing_block_width: Unit) void {
+    // TODO: This algorithm doesn't completely follow the rules regarding `min-width` and `max-width`
+    //       described in CSS 2.2 Section 10.4.
     const width_margin_space = containing_block_width -
         (sizes.border_inline_start + sizes.border_inline_end + sizes.padding_inline_start + sizes.padding_inline_end);
     const auto = .{
@@ -551,6 +557,7 @@ pub fn adjustWidthAndMargins(sizes: *BlockUsedSizes, containing_block_width: Uni
         .margin_inline_start = sizes.isAuto(.margin_inline_start),
         .margin_inline_end = sizes.isAuto(.margin_inline_end),
     };
+
     if (!auto.inline_size and !auto.margin_inline_start and !auto.margin_inline_end) {
         // None of the values were auto, so one of the margins must be set according to the other values.
         // TODO the margin that gets set is determined by the 'direction' property
