@@ -411,11 +411,12 @@ fn analyzeBlock(
     top: *const PopulateSubListContext.Stack.Item,
 ) !PopulateSubListContext.Stack.Item {
     const block_type = top.subtree.items(.type)[block_index];
+    const offset = top.subtree.items(.offset)[block_index];
     const box_offsets = top.subtree.items(.box_offsets)[block_index];
     switch (block_type) {
         .block => {
             const insets = top.subtree.items(.insets)[block_index];
-            const border_top_left = top.vector.add(insets).add(box_offsets.border_pos);
+            const border_top_left = top.vector.add(offset).add(insets).add(box_offsets.border_pos);
             const content_top_left = border_top_left.add(box_offsets.content_pos);
 
             const entry_index = try ctx.sub_list.addEntry(
@@ -442,7 +443,7 @@ fn analyzeBlock(
             };
         },
         .ifc_container => |ifc_id| {
-            const content_top_left = top.vector.add(box_offsets.border_pos).add(box_offsets.content_pos);
+            const content_top_left = top.vector.add(offset).add(box_offsets.border_pos).add(box_offsets.content_pos);
             try ctx.ifc_infos.putNoClobber(
                 allocator,
                 ifc_id,
@@ -459,7 +460,7 @@ fn analyzeBlock(
         },
         .subtree_proxy => |proxy_subtree_index| {
             const child_subtree = ctx.box_tree.getSubtree(proxy_subtree_index);
-            const content_top_left = top.vector.add(box_offsets.border_pos).add(box_offsets.content_pos);
+            const content_top_left = top.vector.add(offset).add(box_offsets.border_pos).add(box_offsets.content_pos);
             return .{
                 .begin = 0,
                 .end = child_subtree.size(),

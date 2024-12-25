@@ -161,8 +161,8 @@ fn ifcRunOnce(layout: *Layout, ctx: Layout.IfcContext) !bool {
                             try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                             try layout.pushElement();
 
-                            const result = try flow.runFlowLayout(layout, sizes);
-                            _ = layout.popFlowBlock(result.auto_height);
+                            try flow.runFlowLayout(layout);
+                            layout.popFlowBlock();
                             layout.popElement();
 
                             break :blk ref.index;
@@ -179,7 +179,7 @@ fn ifcRunOnce(layout: *Layout, ctx: Layout.IfcContext) !bool {
                             const available_width = solve.clampSize(available_width_unclamped, sizes.min_inline_size, sizes.max_inline_size);
 
                             const result = try stf.runShrinkToFitLayout(layout, sizes, available_width);
-                            _ = layout.popStfFlowMainBlock(result.auto_width, result.auto_height);
+                            layout.popStfFlowMainBlock(result.auto_width);
                             layout.popElement();
 
                             break :blk ref.index;
@@ -892,7 +892,7 @@ const IFCLineSplitState = struct {
     current_inline_box: Ifc.Size = undefined,
 
     const InlineBlockInfo = struct {
-        box_offsets: *BoxTree.BoxOffsets,
+        offset: *zss.math.Vector,
         cursor: Unit,
         height: Unit,
     };
@@ -919,10 +919,10 @@ const IFCLineSplitState = struct {
         self.longest_line_box_length = @max(self.longest_line_box_length, self.cursor);
 
         for (self.inline_blocks_in_this_line_box.items) |info| {
-            const offset_x = info.cursor;
-            const offset_y = self.line_box.baseline - info.height;
-            info.box_offsets.border_pos.x += offset_x;
-            info.box_offsets.border_pos.y += offset_y;
+            info.offset.* = .{
+                .x = info.cursor,
+                .y = self.line_box.baseline - info.height,
+            };
         }
     }
 
@@ -1033,13 +1033,19 @@ pub fn splitIntoLineBoxes(
             switch (@as(std.meta.Tag(BoxTreeManaged.SpecialGlyph), @enumFromInt(@intFromEnum(special.kind)))) {
                 .InlineBlock => {
                     const block_box_index = @as(Subtree.Size, special.data);
-                    const box_offsets = &subtree.items(.box_offsets)[block_box_index];
+                    const offset = &subtree.items(.offset)[block_box_index];
+                    const box_offsets = subtree.items(.box_offsets)[block_box_index];
                     const margins = subtree.items(.margins)[block_box_index];
                     const margin_box_height = box_offsets.border_size.h + margins.top + margins.bottom;
                     s.max_top_height = @max(s.max_top_height, margin_box_height);
                     try s.inline_blocks_in_this_line_box.append(
                         layout.allocator,
-                        .{ .box_offsets = box_offsets, .cursor = s.cursor, .height = margin_box_height - margins.top },
+                        .{
+                            .offset = offset,
+                            .cursor = s.cursor,
+                            // TODO: Why subtract `margins.top`?
+                            .height = margin_box_height - margins.top,
+                        },
                     );
                 },
                 .LineBreak => unreachable,

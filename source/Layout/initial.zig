@@ -52,8 +52,8 @@ fn analyzeRootElement(layout: *Layout) !void {
                 const ref = try layout.pushFlowBlock(used_box_style, used_sizes, stacking_context);
                 try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                 try layout.pushElement();
-                const result = try flow.runFlowLayout(layout, used_sizes);
-                _ = layout.popFlowBlock(result.auto_height);
+                try flow.runFlowLayout(layout);
+                layout.popFlowBlock();
                 layout.popElement();
             },
         },

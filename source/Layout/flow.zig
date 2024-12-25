@@ -28,31 +28,17 @@ pub const Result = struct {
     auto_height: Unit,
 };
 
-pub fn runFlowLayout(layout: *Layout, sizes: BlockUsedSizes) !Result {
-    var ctx = Context{ .allocator = layout.allocator };
-    defer ctx.deinit();
+pub fn runFlowLayout(layout: *Layout) !void {
+    var ctx = Context{};
 
-    pushMainBlock(&ctx, sizes);
-    while (ctx.stack.top) |_| {
+    pushMainBlock(&ctx);
+    while (ctx.depth > 0) {
         try analyzeElement(layout, &ctx);
     }
-
-    return ctx.result;
 }
 
 const Context = struct {
-    allocator: Allocator,
-    result: Result = undefined,
-    stack: Stack(StackItem) = .{},
-
-    const StackItem = struct {
-        auto_height: Unit,
-        inline_size_clamped: Unit,
-    };
-
-    fn deinit(ctx: *Context) void {
-        ctx.stack.deinit(ctx.allocator);
-    }
+    depth: usize = 0,
 };
 
 fn analyzeElement(layout: *Layout, ctx: *Context) !void {
@@ -73,7 +59,6 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
         break :blk .{ computed_box_style, used_box_style };
     };
 
-    const parent = &ctx.stack.top.?;
     const containing_block_width, const containing_block_height = blk: {
         const size = layout.containingBlockSize();
         break :blk .{ size.width, size.height };
@@ -89,20 +74,15 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
             },
         },
         .@"inline" => {
-            const result = try @"inline".runInlineLayout(layout, .Normal, containing_block_width, containing_block_height);
-            advanceFlow(&parent.auto_height, result.height);
+            _ = try @"inline".runInlineLayout(layout, .Normal, containing_block_width, containing_block_height);
         },
         .none => layout.advanceElement(),
         .absolute => std.debug.panic("TODO: Absolute blocks within flow layout", .{}),
     }
 }
 
-fn pushMainBlock(ctx: *Context, sizes: BlockUsedSizes) void {
-    // The allocations here must have corresponding deallocations in popBlock.
-    ctx.stack.top = .{
-        .auto_height = 0,
-        .inline_size_clamped = solveUsedWidth(sizes.get(.inline_size).?, sizes.min_inline_size, sizes.max_inline_size),
-    };
+fn pushMainBlock(ctx: *Context) void {
+    ctx.depth = 1;
 }
 
 fn pushBlock(
@@ -116,28 +96,19 @@ fn pushBlock(
     // The allocations here must have corresponding deallocations in popBlock.
     const ref = try layout.pushFlowBlock(box_style, sizes, stacking_context);
     try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
-    try ctx.stack.push(ctx.allocator, .{
-        .auto_height = 0,
-        .inline_size_clamped = solveUsedWidth(sizes.get(.inline_size).?, sizes.min_inline_size, sizes.max_inline_size),
-    });
     try layout.pushElement();
+    ctx.depth += 1;
 }
 
 fn popBlock(layout: *Layout, ctx: *Context) void {
     // The deallocations here must correspond to allocations in pushBlock.
-    const this = ctx.stack.pop();
-    const parent = if (ctx.stack.top) |*top| top else {
-        ctx.result = .{
-            .auto_height = this.auto_height,
-        };
+    ctx.depth -= 1;
+    if (ctx.depth == 0) {
         return;
-    };
+    }
 
-    const ref = layout.popFlowBlock(this.auto_height);
+    layout.popFlowBlock();
     layout.popElement();
-
-    const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
-    addBlockToFlow(subtree, ref.index, &parent.auto_height);
 }
 
 pub fn solveAllSizes(
@@ -609,15 +580,17 @@ pub fn solveUsedHeight(height: ?Unit, min_height: Unit, max_height: Unit, auto_h
     return solve.clampSize(height orelse auto_height, min_height, max_height);
 }
 
-pub fn addBlockToFlow(subtree: Subtree.View, index: Subtree.Size, parent_auto_height: *Unit) void {
-    const box_offsets = &subtree.items(.box_offsets)[index];
-    const margin_bottom = subtree.items(.margins)[index].bottom;
-
-    const margin_top = box_offsets.border_pos.y;
-    box_offsets.border_pos.y += parent_auto_height.*;
-    advanceFlow(parent_auto_height, box_offsets.border_size.h + margin_top + margin_bottom);
-}
-
-fn advanceFlow(parent_auto_height: *Unit, amount: Unit) void {
-    parent_auto_height.* += amount;
+pub fn offsetChildBlocks(subtree: Subtree.View, index: Subtree.Size, skip: Subtree.Size) Unit {
+    const skips = subtree.items(.skip);
+    var child = index + 1;
+    const end = index + skip;
+    var offset: Unit = 0;
+    while (child < end) {
+        subtree.items(.offset)[child] = .{ .x = 0, .y = offset };
+        const box_offsets = subtree.items(.box_offsets)[child];
+        const margins = subtree.items(.margins)[child];
+        offset += box_offsets.border_pos.y + box_offsets.border_size.h + margins.bottom;
+        child += skips[child];
+    }
+    return offset;
 }

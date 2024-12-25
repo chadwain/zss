@@ -180,6 +180,7 @@ pub const Subtree = struct {
         skip: Size,
         type: BlockType,
         stacking_context: ?StackingContextTree.Id,
+        offset: math.Vector,
         box_offsets: BoxOffsets,
         borders: Borders,
         margins: Margins,
@@ -494,7 +495,9 @@ pub const Debug = struct {
 
         if (subtree.items(.stacking_context)[index]) |sc_id| try writer.print("stacking_context({}) ", .{@intFromEnum(sc_id)});
 
+        const offset = subtree.items(.offset)[index];
         const bo = subtree.items(.box_offsets)[index];
+        try writer.print("offset({}, {}) ", .{ offset.x, offset.y });
         try writer.print("border_rect({}, {}, {}, {}) ", .{ bo.border_pos.x, bo.border_pos.y, bo.border_size.w, bo.border_size.h });
         try writer.print("content_rect({}, {}, {}, {})\n", .{ bo.content_pos.x, bo.content_pos.y, bo.content_size.w, bo.content_size.h });
     }

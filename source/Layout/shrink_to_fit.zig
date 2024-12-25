@@ -142,8 +142,8 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                     try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                     try layout.pushElement();
 
-                    const result = try flow.runFlowLayout(layout, used);
-                    _ = layout.popFlowBlock(result.auto_height);
+                    try flow.runFlowLayout(layout);
+                    _ = layout.popFlowBlock();
                     layout.popSubtree();
                     layout.popElement();
 
@@ -360,15 +360,11 @@ fn realizeObjects(
                     },
                     .flow_normal => {
                         const data = &datas[object_index].flow_normal;
-                        const ref = try layout.addSubtreeProxy(data.subtree);
-                        const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
-                        flow.addBlockToFlow(subtree, ref.index, &parent.auto_height);
+                        try layout.addSubtreeProxy(data.subtree);
                     },
                     .ifc => {
                         const data = datas[object_index].ifc;
-                        const ref = try layout.addSubtreeProxy(data.subtree_id);
-                        const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
-                        flow.addBlockToFlow(subtree, ref.index, &parent.auto_height);
+                        try layout.addSubtreeProxy(data.subtree_id);
                     },
                 }
             } else {
@@ -383,30 +379,21 @@ fn realizeObjects(
 
 fn popFlowBlock(layout: *Layout, ctx: *RealizeObjectsContext, object_tree_slice: ObjectTree.Slice) void {
     const this = ctx.stack.pop();
-    const parent = if (ctx.stack.top) |*top| top else {
+    if (ctx.stack.top == null) {
         ctx.result = .{
             .auto_width = this.width,
             .auto_height = this.auto_height,
         };
         return;
-    };
+    }
 
     const data = object_tree_slice.items(.data)[this.object_index].flow_stf;
-    const ref = layout.popStfFlowBlock2(
+    layout.popStfFlowBlock2(
         data.width_clamped,
-        this.auto_height,
         data.used,
         data.stacking_context_id,
         data.absolute_containing_block_id,
     );
-
-    switch (parent.object_tag) {
-        .flow_stf => {
-            const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
-            flow.addBlockToFlow(subtree, ref.index, &parent.auto_height);
-        },
-        .flow_normal, .ifc => unreachable,
-    }
 }
 
 fn solveBlockSizes(
