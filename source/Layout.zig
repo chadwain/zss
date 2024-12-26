@@ -352,7 +352,7 @@ pub fn popFlowBlock(layout: *Layout) void {
     const subtree = layout.box_tree.ptr.getSubtree(subtree_id).view();
     const auto_height = flow.offsetChildBlocks(subtree, block.index, block.skip);
     const width = block_info.sizes.get(.inline_size).?;
-    const height = flow.solveUsedHeight(block_info.sizes.get(.block_size), block_info.sizes.min_block_size, block_info.sizes.max_block_size, auto_height);
+    const height = flow.solveUsedHeight(block_info.sizes, auto_height);
     setDataBlock(subtree, block.index, block_info.sizes, block.skip, width, height, block_info.stacking_context_id);
 }
 
@@ -384,7 +384,7 @@ pub fn popStfFlowMainBlock(layout: *Layout, auto_width: math.Unit) void {
     const subtree = layout.box_tree.ptr.getSubtree(layout.stacks.subtree.top.?.id).view();
     const auto_height = flow.offsetChildBlocks(subtree, block.index, block.skip);
     const width = flow.solveUsedWidth(auto_width, block_info.sizes.min_inline_size, block_info.sizes.max_inline_size); // TODO This is probably redundant
-    const height = flow.solveUsedHeight(block_info.sizes.get(.block_size), block_info.sizes.min_block_size, block_info.sizes.max_block_size, auto_height);
+    const height = flow.solveUsedHeight(block_info.sizes, auto_height);
     setDataBlock(subtree, block.index, block_info.sizes, block.skip, width, height, block_info.stacking_context_id);
 }
 
@@ -420,7 +420,7 @@ pub fn popStfFlowBlock2(
     const subtree = layout.box_tree.ptr.getSubtree(subtree_id).view();
     const auto_height = flow.offsetChildBlocks(subtree, block.index, block.skip);
     const width = flow.solveUsedWidth(auto_width, sizes.min_inline_size, sizes.max_inline_size); // TODO This is probably redundant
-    const height = flow.solveUsedHeight(sizes.get(.block_size), sizes.min_block_size, sizes.max_block_size, auto_height);
+    const height = flow.solveUsedHeight(sizes, auto_height);
     setDataBlock(subtree, block.index, sizes, block.skip, width, height, stacking_context_id);
 
     const ref: BlockRef = .{ .subtree = subtree_id, .index = block.index };
@@ -576,6 +576,8 @@ pub const BlockComputedSizes = struct {
     insets: aggregates.Insets,
 };
 
+/// Fields ending with `_untagged` each have an associated flag.
+/// If the flag is `.auto`, then the field will have a value of `0`.
 // TODO: The field names of this struct are misleading.
 //       zss currently does not support logical properties.
 pub const BlockUsedSizes = struct {

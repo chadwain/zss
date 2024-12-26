@@ -136,19 +136,18 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
                     used.border_inline_start + used.border_inline_end +
                     used.padding_inline_start + used.padding_inline_end;
 
-                if (used.get(.inline_size)) |inline_size| { // TODO: clamp the inline size
+                if (used.get(.inline_size)) |inline_size| {
                     try layout.pushSubtree();
                     const ref = try layout.pushFlowBlock(used_box_style, used, stacking_context);
                     try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                     try layout.pushElement();
 
                     try flow.runFlowLayout(layout);
-                    _ = layout.popFlowBlock();
+                    layout.popFlowBlock();
                     layout.popSubtree();
                     layout.popElement();
 
                     parent.object_skip += 1;
-                    // TODO: should probably use `result.width` instead of `inline_size`
                     parent.auto_width = @max(parent.auto_width, inline_size + edge_width);
                     try object_tree.append(layout.allocator, .{
                         .skip = 1,

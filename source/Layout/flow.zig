@@ -134,7 +134,10 @@ pub fn solveAllSizes(
     solveVerticalEdges(specified_sizes.vertical_edges, containing_block_width, border_styles, &computed_sizes.vertical_edges, &sizes);
     adjustWidthAndMargins(&sizes, containing_block_width);
     // TODO: Do this in adjustWidthAndMargins
-    sizes.setValue(.inline_size, solveUsedWidth(sizes.get(.inline_size).?, sizes.min_inline_size, sizes.max_inline_size));
+    sizes.setValue(.inline_size, solve.clampSize(sizes.get(.inline_size).?, sizes.min_inline_size, sizes.max_inline_size));
+    if (sizes.get(.block_size)) |block_size| {
+        sizes.setValue(.block_size, solve.clampSize(block_size, sizes.min_block_size, sizes.max_block_size));
+    }
     computed_sizes.insets = solve.insets(specified_sizes.insets);
     solveInsets(computed_sizes.insets, position, &sizes);
 
@@ -576,8 +579,8 @@ pub fn solveUsedWidth(width: Unit, min_width: Unit, max_width: Unit) Unit {
     return solve.clampSize(width, min_width, max_width);
 }
 
-pub fn solveUsedHeight(height: ?Unit, min_height: Unit, max_height: Unit, auto_height: Unit) Unit {
-    return solve.clampSize(height orelse auto_height, min_height, max_height);
+pub fn solveUsedHeight(sizes: BlockUsedSizes, auto_height: Unit) Unit {
+    return sizes.get(.block_size) orelse solve.clampSize(auto_height, sizes.min_block_size, sizes.max_block_size);
 }
 
 pub fn offsetChildBlocks(subtree: Subtree.View, index: Subtree.Size, skip: Subtree.Size) Unit {
