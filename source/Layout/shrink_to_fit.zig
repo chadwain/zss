@@ -32,33 +32,32 @@ pub const Result = struct {
 };
 
 pub fn runShrinkToFitLayout(layout: *Layout, used_sizes: BlockUsedSizes, available_width: Unit) !Result {
-    var object_tree = ObjectTree{};
-    defer object_tree.deinit(layout.allocator);
-
     var ctx = BuildObjectTreeContext{};
     defer ctx.deinit(layout.allocator);
 
-    try pushMainObject(&ctx, &object_tree, layout.allocator, used_sizes, available_width);
-    try buildObjectTree(layout, &ctx, &object_tree);
-    return try realizeObjects(layout, object_tree.slice(), layout.allocator);
+    const main_object_index = try pushMainObject(layout, &ctx, used_sizes, available_width);
+    try buildObjectTree(layout, &ctx);
+    const result = try realizeObjects(layout, main_object_index);
+    layout.endStfFlow();
+    return result;
 }
 
-const Object = struct {
+pub const Object = struct {
     skip: Index,
     tag: Tag,
-    element: Element,
+    element: Element, // TODO: remove this field
     data: Data,
 
     // The object tree can store as many objects as ElementTree can.
-    const Index = ElementTree.Size;
+    pub const Index = ElementTree.Size;
 
-    const Tag = enum {
+    pub const Tag = enum {
         flow_stf,
         flow_normal,
         ifc,
     };
 
-    const Data = union {
+    pub const Data = union {
         flow_stf: struct {
             width_clamped: Unit,
             used: BlockUsedSizes,
@@ -94,21 +93,20 @@ const BuildObjectTreeContext = struct {
 fn buildObjectTree(
     layout: *Layout,
     ctx: *BuildObjectTreeContext,
-    object_tree: *ObjectTree,
 ) !void {
     while (ctx.stack.top) |this| {
-        const object_tag = object_tree.items(.tag)[this.object_index];
+        const object_tag = layout.stf_tree.items(.tag)[this.object_index];
         switch (object_tag) {
-            .flow_stf => try flowObject(layout, ctx, object_tree),
+            .flow_stf => try flowObject(layout, ctx),
             .flow_normal, .ifc => unreachable,
         }
     }
 }
 
-fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *ObjectTree) !void {
+fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext) !void {
     const element = layout.currentElement();
     if (element.eqlNull()) {
-        return popFlowObject(layout, ctx, object_tree);
+        return popFlowObject(layout, ctx);
     }
     try layout.computer.setCurrentElement(.box_gen, element);
 
@@ -149,15 +147,10 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
 
                     parent.object_skip += 1;
                     parent.auto_width = @max(parent.auto_width, inline_size + edge_width);
-                    try object_tree.append(layout.allocator, .{
-                        .skip = 1,
-                        .tag = .flow_normal,
-                        .element = element,
-                        .data = .{ .flow_normal = ref },
-                    });
+                    try layout.appendStfFlowNormalBlock(ref, element);
                 } else {
                     const available_width = solve.clampSize(parent.available_width - edge_width, used.min_inline_size, used.max_inline_size);
-                    try pushFlowObject(layout, ctx, object_tree, element, used_box_style, used, available_width, stacking_context);
+                    try pushFlowObject(layout, ctx, element, used_box_style, used, available_width, stacking_context);
                 }
             },
         },
@@ -170,52 +163,33 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Objec
 
             parent.auto_width = @max(parent.auto_width, result.min_width);
             parent.object_skip += 1;
-            try object_tree.append(layout.allocator, .{
-                .skip = 1,
-                .tag = .ifc,
-                .element = undefined,
-                .data = .{ .ifc = .{
-                    .subtree_id = new_subtree_id,
-                    .layout_result = result,
-                } },
-            });
+            try layout.appendStfIfc(new_subtree_id, result);
         },
         .absolute => std.debug.panic("TODO: Absolute blocks within shrink-to-fit contexts", .{}),
     }
 }
 
 fn pushMainObject(
+    layout: *Layout,
     ctx: *BuildObjectTreeContext,
-    object_tree: *ObjectTree,
-    allocator: Allocator,
     used_sizes: BlockUsedSizes,
     available_width: Unit,
-) !void {
+) !Object.Index {
     // The allocations here must have corresponding deallocations in popFlowObject.
+    const object_index = try layout.beginStfFlow(used_sizes);
     ctx.stack.top = .{
-        .object_index = @intCast(object_tree.len),
+        .object_index = object_index,
         .object_skip = 1,
         .auto_width = 0,
         .available_width = available_width,
         .height = used_sizes.get(.block_size),
     };
-    try object_tree.append(allocator, .{
-        .skip = undefined,
-        .tag = .flow_stf,
-        .element = undefined,
-        .data = .{ .flow_stf = .{
-            .width_clamped = undefined,
-            .used = used_sizes,
-            .stacking_context_id = undefined,
-            .absolute_containing_block_id = undefined,
-        } },
-    });
+    return object_index;
 }
 
 fn pushFlowObject(
     layout: *Layout,
     ctx: *BuildObjectTreeContext,
-    object_tree: *ObjectTree,
     element: Element,
     box_style: BoxTree.BoxStyle,
     used_sizes: BlockUsedSizes,
@@ -223,51 +197,30 @@ fn pushFlowObject(
     stacking_context: SctBuilder.Type,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowObject.
+    const object_index = try layout.pushStfFlowBlock(box_style, used_sizes, stacking_context, element);
+    try layout.pushElement();
     try ctx.stack.push(layout.allocator, .{
-        .object_index = @intCast(object_tree.len),
+        .object_index = object_index,
         .object_skip = 1,
         .auto_width = 0,
         .available_width = available_width,
         .height = used_sizes.get(.block_size),
     });
-    const stacking_context_id, const absolute_containing_block_id = try layout.pushStfFlowBlock(box_style, stacking_context);
-    try layout.pushElement();
-
-    try object_tree.append(layout.allocator, .{
-        .skip = undefined,
-        .tag = .flow_stf,
-        .element = element,
-        .data = .{ .flow_stf = .{
-            .width_clamped = undefined,
-            .used = used_sizes,
-            .stacking_context_id = stacking_context_id,
-            .absolute_containing_block_id = absolute_containing_block_id,
-        } },
-    });
 }
 
-fn popFlowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *ObjectTree) void {
+fn popFlowObject(layout: *Layout, ctx: *BuildObjectTreeContext) void {
     // The deallocations here must correspond to allocations in pushFlowObject.
     const this = ctx.stack.pop();
-    const object_tree_slice = object_tree.slice();
-    object_tree_slice.items(.skip)[this.object_index] = this.object_skip;
-    const data = &object_tree_slice.items(.data)[this.object_index].flow_stf;
-    data.width_clamped = flow.solveUsedWidth(this.auto_width, data.used.min_inline_size, data.used.max_inline_size);
+    layout.finishStfFlowObject(this.object_index, this.object_skip, this.auto_width);
 
     const parent = if (ctx.stack.top) |*top| top else return;
 
-    layout.popStfFlowBlock();
+    const full_width = layout.popStfFlowBlock(this.object_index);
     layout.popElement();
 
-    const parent_object_tag = object_tree_slice.items(.tag)[parent.object_index];
+    const parent_object_tag = layout.stf_tree.items(.tag)[this.object_index];
     switch (parent_object_tag) {
-        .flow_stf => {
-            const full_width = data.width_clamped +
-                data.used.padding_inline_start + data.used.padding_inline_end +
-                data.used.border_inline_start + data.used.border_inline_end +
-                data.used.margin_inline_start_untagged + data.used.margin_inline_end_untagged;
-            parent.auto_width = @max(parent.auto_width, full_width);
-        },
+        .flow_stf => parent.auto_width = @max(parent.auto_width, full_width),
         .flow_normal, .ifc => unreachable,
     }
     parent.object_skip += this.object_skip;
@@ -275,6 +228,7 @@ fn popFlowObject(layout: *Layout, ctx: *BuildObjectTreeContext, object_tree: *Ob
 
 const RealizeObjectsContext = struct {
     stack: Stack(StackItem) = .{},
+    allocator: std.mem.Allocator,
     result: Result = undefined,
 
     const Interval = struct {
@@ -291,35 +245,31 @@ const RealizeObjectsContext = struct {
         auto_height: Unit,
     };
 
-    fn deinit(ctx: *RealizeObjectsContext, allocator: Allocator) void {
-        ctx.stack.deinit(allocator);
+    fn deinit(ctx: *RealizeObjectsContext) void {
+        ctx.stack.deinit(ctx.allocator);
     }
 };
 
-fn realizeObjects(
-    layout: *Layout,
-    object_tree_slice: ObjectTree.Slice,
-    allocator: Allocator,
-) !Result {
+fn realizeObjects(layout: *Layout, main_object_index: Object.Index) !Result {
+    const object_tree_slice = layout.stf_tree.slice();
     const object_skips = object_tree_slice.items(.skip);
     const object_tags = object_tree_slice.items(.tag);
     const elements = object_tree_slice.items(.element);
     const datas = object_tree_slice.items(.data);
 
-    var ctx = RealizeObjectsContext{};
-    defer ctx.deinit(allocator);
+    var ctx = RealizeObjectsContext{ .allocator = layout.allocator };
+    defer ctx.deinit();
 
     {
-        const object_index: Object.Index = 0;
-        const object_skip = object_skips[object_index];
-        const object_tag = object_tags[object_index];
+        const object_skip = object_skips[main_object_index];
+        const object_tag = object_tags[main_object_index];
         switch (object_tag) {
             .flow_stf => {
-                const data = datas[object_index].flow_stf;
+                const data = datas[main_object_index].flow_stf;
                 ctx.stack.top = .{
-                    .object_index = 0,
+                    .object_index = main_object_index,
                     .object_tag = object_tag,
-                    .object_interval = .{ .begin = 1, .end = object_skip },
+                    .object_interval = .{ .begin = main_object_index + 1, .end = main_object_index + object_skip },
 
                     .width = data.width_clamped,
                     .auto_height = 0,
@@ -348,7 +298,7 @@ fn realizeObjects(
                         const ref = try layout.pushStfFlowBlock2();
                         try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
 
-                        try ctx.stack.push(allocator, .{
+                        try ctx.stack.push(ctx.allocator, .{
                             .object_index = object_index,
                             .object_tag = .flow_stf,
                             .object_interval = .{ .begin = object_index + 1, .end = object_index + object_skip },

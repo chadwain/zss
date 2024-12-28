@@ -12,6 +12,10 @@ pub fn Stack(comptime T: type) type {
 
         pub const Item = T;
 
+        pub fn init(top: T) Stack(T) {
+            return .{ .top = top };
+        }
+
         pub fn deinit(stack: *Stack(T), allocator: Allocator) void {
             stack.rest.deinit(allocator);
         }

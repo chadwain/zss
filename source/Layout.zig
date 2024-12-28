@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("zss.zig");
 const aggregates = zss.properties.aggregates;
@@ -43,6 +44,7 @@ viewport: math.Size,
 inputs: Inputs,
 allocator: Allocator,
 stacks: Stacks,
+stf_tree: MultiArrayList(stf.Object),
 
 const Stacks = struct {
     element: Stack(Element),
@@ -55,6 +57,7 @@ const Stacks = struct {
     ifc: Stack(IfcContext),
     ifc_state: Stack(IfcState),
     inline_box: Stack(InlineBox),
+    stf_tree_reset_point: Stack(stf.Object.Index),
 
     containing_block_size: Stack(ContainingBlockSize),
 };
@@ -111,11 +114,13 @@ pub fn init(
             .subtree = .{},
             .block = .{},
             .block_info = .{},
-            .ifc = .{ .top = @as(IfcContext, undefined) },
-            .ifc_state = .{ .top = @as(IfcState, undefined) },
-            .inline_box = .{ .top = @as(InlineBox, undefined) },
+            .ifc = .init(undefined),
+            .ifc_state = .init(undefined),
+            .inline_box = .init(undefined),
+            .stf_tree_reset_point = .init(undefined),
             .containing_block_size = .{},
         },
+        .stf_tree = .empty,
     };
 }
 
@@ -130,7 +135,9 @@ pub fn deinit(layout: *Layout) void {
     layout.stacks.ifc.deinit(layout.allocator);
     layout.stacks.ifc_state.deinit(layout.allocator);
     layout.stacks.inline_box.deinit(layout.allocator);
+    layout.stacks.stf_tree_reset_point.deinit(layout.allocator);
     layout.stacks.containing_block_size.deinit(layout.allocator);
+    layout.stf_tree.deinit(layout.allocator);
 }
 
 pub fn run(layout: *Layout, allocator: Allocator) Error!BoxTree {
@@ -388,19 +395,105 @@ pub fn popStfFlowMainBlock(layout: *Layout, auto_width: math.Unit) void {
     setDataBlock(subtree, block.index, block_info.sizes, block.skip, width, height, block_info.stacking_context_id);
 }
 
+pub fn beginStfFlow(layout: *Layout, sizes: BlockUsedSizes) !stf.Object.Index {
+    try layout.stacks.stf_tree_reset_point.push(layout.allocator, @intCast(layout.stf_tree.len));
+    return try layout.appendStfObject(.{
+        .skip = undefined,
+        .tag = .flow_stf,
+        .element = undefined,
+        .data = .{
+            .flow_stf = .{
+                .width_clamped = undefined,
+                .used = sizes,
+                .stacking_context_id = undefined,
+                .absolute_containing_block_id = undefined,
+            },
+        },
+    });
+}
+
+pub fn endStfFlow(layout: *Layout) void {
+    const reset_point = layout.stacks.stf_tree_reset_point.pop();
+    layout.stf_tree.shrinkRetainingCapacity(reset_point);
+}
+
 pub fn pushStfFlowBlock(
     layout: *Layout,
     box_style: BoxTree.BoxStyle,
+    sizes: BlockUsedSizes,
     stacking_context: StackingContextTreeBuilder.Type,
-) !struct { ?StackingContextTree.Id, ?Absolute.ContainingBlock.Id } {
+    element: Element,
+) !stf.Object.Index {
     const stacking_context_id = try layout.sct_builder.pushWithoutBlock(layout.allocator, stacking_context, layout.box_tree.ptr);
     const absolute_containing_block_id = try layout.pushAbsoluteContainingBlock(box_style, undefined);
-    return .{ stacking_context_id, absolute_containing_block_id };
+
+    return try layout.appendStfObject(.{
+        .skip = undefined,
+        .tag = .flow_stf,
+        .element = element,
+        .data = .{
+            .flow_stf = .{
+                .width_clamped = undefined,
+                .used = sizes,
+                .stacking_context_id = stacking_context_id,
+                .absolute_containing_block_id = absolute_containing_block_id,
+            },
+        },
+    });
 }
 
-pub fn popStfFlowBlock(layout: *Layout) void {
+pub fn popStfFlowBlock(layout: *Layout, object_index: stf.Object.Index) math.Unit {
     layout.sct_builder.pop(layout.box_tree.ptr);
     layout.popAbsoluteContainingBlock();
+
+    const data = layout.stf_tree.items(.data)[object_index].flow_stf;
+    const full_width = data.width_clamped +
+        data.used.padding_inline_start + data.used.padding_inline_end +
+        data.used.border_inline_start + data.used.border_inline_end +
+        data.used.margin_inline_start_untagged + data.used.margin_inline_end_untagged;
+    return full_width;
+}
+
+pub fn appendStfFlowNormalBlock(layout: *Layout, ref: BlockRef, element: Element) !void {
+    _ = try layout.appendStfObject(.{
+        .skip = 1,
+        .tag = .flow_normal,
+        .element = element,
+        .data = .{ .flow_normal = ref },
+    });
+}
+
+pub fn appendStfIfc(layout: *Layout, id: Subtree.Id, result: @"inline".Result) !void {
+    _ = try layout.appendStfObject(.{
+        .skip = 1,
+        .tag = .ifc,
+        .element = undefined,
+        .data = .{
+            .ifc = .{
+                .subtree_id = id,
+                .layout_result = result,
+            },
+        },
+    });
+}
+
+fn appendStfObject(layout: *Layout, object: stf.Object) !stf.Object.Index {
+    const index: stf.Object.Index = @intCast(layout.stf_tree.len);
+    try layout.stf_tree.append(layout.allocator, object);
+    return index;
+}
+
+pub fn finishStfFlowObject(
+    layout: *Layout,
+    index: stf.Object.Index,
+    skip: stf.Object.Index,
+    auto_width: math.Unit,
+) void {
+    const slice = layout.stf_tree.slice();
+    slice.items(.skip)[index] = skip;
+    const data = &slice.items(.data)[index].flow_stf;
+    const width = flow.solveUsedWidth(auto_width, data.used.min_inline_size, data.used.max_inline_size);
+    data.width_clamped = width;
 }
 
 pub fn pushStfFlowBlock2(layout: *Layout) !BlockRef {
