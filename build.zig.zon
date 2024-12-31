@@ -10,6 +10,7 @@
         "build.zig.zon",
         "LICENSE.md",
         "LICENSE-CC0.txt",
+        "LICENSE-EXPAT.txt",
         "LICENSE-OFL.txt",
         "README.md",
     },

@@ -18,3 +18,6 @@ In general, zss tries to implement the standards contained in [CSS Snapshot 2023
 | Backgrounds and Borders | 3 | Partial |
 | Values and Units | 3 | Partial |
 | Namespaces | 3 | Partial |
+
+# License
+See [LICENSE.md](LICENSE.md) for detailed licensing information.
