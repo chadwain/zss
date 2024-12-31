@@ -16,12 +16,12 @@
     },
     .dependencies = .{
         .@"mach-freetype" = .{
-            .url = "https://pkg.machengine.org/mach-freetype/dd5e749e40f08a40bed251a5ae6233308cd07e0d.tar.gz",
-            .hash = "12209b2055d213076fa0476de11c5eae1ad5b6fb91789e6bf218686b8f5f4a4114de",
+            .url = "https://pkg.machengine.org/mach-freetype/d63efa5534c17f3a12ed3d327e0ad42a64adc20a.tar.gz",
+            .hash = "1220adfccce3dbc4e4fa8650fdaec110a676f6b8a1462ed6ef422815207f8288e9d2",
         },
         .@"mach-glfw" = .{
-            .url = "git+https://github.com/castholm/mach-glfw#37478672f127ea0b09197e2eedf44c33e0104f9d",
-            .hash = "122063ff4f78ff0971747c14b06310ac0b8959c4866647e59fb78778cfc4e9bb000b",
+            .url = "git+https://github.com/slimsag/mach-glfw#affdd6ae6f2ac2c3b9162784bdad345c561eeeea",
+            .hash = "122022ea6df16700e521078c20d7d01f894c6f967e6c6ce1ea166426b4fc61667de3",
         },
         .zgl = .{
             .url = "git+https://github.com/chadwain/zgl.git#53c75bf06c40f763608fe2230a1a7f33e45a86eb",
