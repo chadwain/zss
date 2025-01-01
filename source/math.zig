@@ -17,6 +17,8 @@ pub const Vector = struct {
     x: Unit,
     y: Unit,
 
+    pub const zero: Vector = .{ .x = 0, .y = 0 };
+
     pub fn add(lhs: Vector, rhs: Vector) Vector {
         return Vector{ .x = lhs.x + rhs.x, .y = lhs.y + rhs.y };
     }

@@ -26,87 +26,230 @@ const GeneratedBox = BoxTree.GeneratedBox;
 const StackingContextTree = BoxTree.StackingContextTree;
 const Subtree = BoxTree.Subtree;
 
+pub const Context = struct {
+    tree: ObjectTree = .empty,
+    main_object: Stack(struct {
+        index: Size,
+        depth: Size,
+    }) = .init(undefined),
+    object: Stack(struct {
+        object_index: Size,
+        object_skip: Size,
+        auto_width: Unit,
+        available_width: Unit,
+        height: ?Unit, // TODO: clamp the height
+    }) = .init(undefined),
+
+    const Size = u32;
+
+    const Object = struct {
+        skip: Size,
+        tag: Tag,
+        element: Element, // TODO: remove this field
+        data: Data,
+
+        const Tag = enum {
+            flow_stf,
+            flow_normal,
+            ifc,
+        };
+
+        const Data = union {
+            flow_stf: struct {
+                width_clamped: Unit,
+                used: BlockUsedSizes,
+                stacking_context_id: ?StackingContextTree.Id,
+                absolute_containing_block_id: ?Layout.Absolute.ContainingBlock.Id,
+            },
+            flow_normal: BlockRef,
+            ifc: struct {
+                subtree_id: Subtree.Id,
+                layout_result: @"inline".Result,
+            },
+        };
+    };
+    const ObjectTree = MultiArrayList(Object);
+
+    pub fn deinit(ctx: *Context, allocator: Allocator) void {
+        ctx.main_object.deinit(allocator);
+        ctx.object.deinit(allocator);
+        ctx.tree.deinit(allocator);
+    }
+
+    fn end(ctx: *Context, main_object_index: Size) void {
+        ctx.tree.shrinkRetainingCapacity(main_object_index);
+    }
+
+    fn pushMainObject(ctx: *Context, allocator: Allocator, object_index: Size) !void {
+        try ctx.main_object.push(allocator, .{
+            .index = object_index,
+            .depth = 1,
+        });
+    }
+
+    fn popMainObject(ctx: *Context) Size {
+        const main_object = ctx.main_object.pop();
+        assert(main_object.depth == 0);
+        return main_object.index;
+    }
+
+    fn pushMainFlowObject(ctx: *Context, allocator: Allocator, sizes: BlockUsedSizes, available_width: Unit) !void {
+        const index = try ctx.appendObject(allocator, .{
+            .skip = undefined,
+            .tag = .flow_stf,
+            .element = undefined,
+            .data = .{
+                .flow_stf = .{
+                    .width_clamped = undefined,
+                    .used = sizes,
+                    .stacking_context_id = undefined,
+                    .absolute_containing_block_id = undefined,
+                },
+            },
+        });
+        try ctx.pushMainObject(allocator, index);
+        try ctx.object.push(allocator, .{
+            .object_index = index,
+            .object_skip = 1,
+            .auto_width = 0,
+            .available_width = available_width,
+            .height = sizes.get(.block_size),
+        });
+    }
+
+    fn pushFlowObject(
+        ctx: *Context,
+        allocator: Allocator,
+        element: Element,
+        sizes: BlockUsedSizes,
+        available_width: Unit,
+        stacking_context_id: ?StackingContextTree.Id,
+        absolute_containing_block_id: ?Layout.Absolute.ContainingBlock.Id,
+    ) !void {
+        const index = try ctx.appendObject(allocator, .{
+            .skip = undefined,
+            .tag = .flow_stf,
+            .element = element,
+            .data = .{
+                .flow_stf = .{
+                    .width_clamped = undefined,
+                    .used = sizes,
+                    .stacking_context_id = stacking_context_id,
+                    .absolute_containing_block_id = absolute_containing_block_id,
+                },
+            },
+        });
+        try ctx.object.push(allocator, .{
+            .object_index = index,
+            .object_skip = 1,
+            .auto_width = 0,
+            .available_width = available_width,
+            .height = sizes.get(.block_size),
+        });
+        ctx.main_object.top.?.depth += 1;
+    }
+
+    fn appendFlowNormalObject(
+        ctx: *Context,
+        allocator: Allocator,
+        ref: BlockRef,
+        element: Element,
+        full_width: Unit,
+    ) !void {
+        _ = try ctx.appendObject(allocator, .{
+            .skip = 1,
+            .tag = .flow_normal,
+            .element = element,
+            .data = .{ .flow_normal = ref },
+        });
+
+        const parent = &ctx.object.top.?;
+        parent.object_skip += 1;
+        parent.auto_width = @max(parent.auto_width, full_width);
+    }
+
+    fn appendIfcObject(ctx: *Context, allocator: Allocator, subtree: Subtree.Id, layout_result: @"inline".Result) !void {
+        _ = try ctx.appendObject(allocator, .{
+            .skip = 1,
+            .tag = .ifc,
+            .element = undefined,
+            .data = .{
+                .ifc = .{
+                    .subtree_id = subtree,
+                    .layout_result = layout_result,
+                },
+            },
+        });
+
+        const parent = &ctx.object.top.?;
+        parent.object_skip += 1;
+        parent.auto_width = @max(parent.auto_width, layout_result.min_width);
+    }
+
+    fn appendObject(ctx: *Context, allocator: Allocator, object: Object) !Size {
+        const index: Size = std.math.cast(Size, ctx.tree.len) orelse return error.SizeLimitExceeded;
+        try ctx.tree.append(allocator, object);
+        return index;
+    }
+
+    fn popFlowObject(ctx: *Context, tree: ObjectTree.Slice) Size {
+        const this = ctx.object.pop();
+        ctx.main_object.top.?.depth -= 1;
+
+        tree.items(.skip)[this.object_index] = this.object_skip;
+        const data = &tree.items(.data)[this.object_index].flow_stf;
+        const width = flow.solveUsedWidth(this.auto_width, data.used.min_inline_size, data.used.max_inline_size);
+        data.width_clamped = width;
+
+        return this.object_index;
+    }
+
+    fn addToParent(ctx: *Context, tree: ObjectTree.Slice, object_index: Size) void {
+        const data = &tree.items(.data)[object_index].flow_stf;
+        const parent = &ctx.object.top.?;
+        const parent_object_tag = ctx.tree.items(.tag)[parent.object_index];
+        switch (parent_object_tag) {
+            .flow_stf => {
+                const full_width = data.width_clamped +
+                    data.used.padding_inline_start + data.used.padding_inline_end +
+                    data.used.border_inline_start + data.used.border_inline_end +
+                    data.used.margin_inline_start_untagged + data.used.margin_inline_end_untagged;
+                parent.auto_width = @max(parent.auto_width, full_width);
+            },
+            .flow_normal, .ifc => unreachable,
+        }
+        const object_skip = tree.items(.skip)[object_index];
+        parent.object_skip += object_skip;
+    }
+};
+
 pub const Result = struct {
     auto_width: Unit,
     auto_height: Unit,
 };
 
 pub fn runShrinkToFitLayout(layout: *Layout, used_sizes: BlockUsedSizes, available_width: Unit) !Result {
-    var ctx = BuildObjectTreeContext{};
-    defer ctx.deinit(layout.allocator);
-
-    const main_object_index = try pushMainObject(layout, &ctx, used_sizes, available_width);
-    try buildObjectTree(layout, &ctx);
-    const result = try realizeObjects(layout, main_object_index);
-    layout.endStfFlow();
-    return result;
-}
-
-pub const Object = struct {
-    skip: Index,
-    tag: Tag,
-    element: Element, // TODO: remove this field
-    data: Data,
-
-    // The object tree can store as many objects as ElementTree can.
-    pub const Index = ElementTree.Size;
-
-    pub const Tag = enum {
-        flow_stf,
-        flow_normal,
-        ifc,
-    };
-
-    pub const Data = union {
-        flow_stf: struct {
-            width_clamped: Unit,
-            used: BlockUsedSizes,
-            stacking_context_id: ?StackingContextTree.Id,
-            absolute_containing_block_id: ?Layout.Absolute.ContainingBlock.Id,
-        },
-        flow_normal: BlockRef,
-        ifc: struct {
-            subtree_id: Subtree.Id,
-            layout_result: @"inline".Result,
-        },
-    };
-};
-
-const ObjectTree = MultiArrayList(Object);
-
-const BuildObjectTreeContext = struct {
-    stack: Stack(StackItem) = .{},
-
-    const StackItem = struct {
-        object_index: Object.Index,
-        object_skip: Object.Index,
-        auto_width: Unit,
-        available_width: Unit,
-        height: ?Unit, // TODO: clamp the height
-    };
-
-    fn deinit(self: *BuildObjectTreeContext, allocator: Allocator) void {
-        self.stack.deinit(allocator);
-    }
-};
-
-fn buildObjectTree(
-    layout: *Layout,
-    ctx: *BuildObjectTreeContext,
-) !void {
-    while (ctx.stack.top) |this| {
-        const object_tag = layout.stf_tree.items(.tag)[this.object_index];
+    const ctx = &layout.stf_context;
+    try ctx.pushMainFlowObject(layout.allocator, used_sizes, available_width);
+    while (ctx.main_object.top.?.depth > 0) {
+        const object_index = ctx.object.top.?.object_index;
+        const object_tag = ctx.tree.items(.tag)[object_index];
         switch (object_tag) {
-            .flow_stf => try flowObject(layout, ctx),
+            .flow_stf => try flowObject(layout),
             .flow_normal, .ifc => unreachable,
         }
     }
+    const main_object_index = ctx.popMainObject();
+
+    const result = try realizeObjects(layout, main_object_index);
+    ctx.end(main_object_index);
+    return result;
 }
 
-fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext) !void {
+fn flowObject(layout: *Layout) !void {
     const element = layout.currentElement();
     if (element.eqlNull()) {
-        return popFlowObject(layout, ctx);
+        return popFlowObject(layout);
     }
     try layout.computer.setCurrentElement(.box_gen, element);
 
@@ -121,8 +264,7 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext) !void {
         break :blk .{ computed_box_style, used_box_style };
     };
 
-    const parent = &ctx.stack.top.?;
-
+    const parent = layout.stf_context.object.top.?;
     switch (used_box_style.outer) {
         .block => |inner| switch (inner) {
             .flow => {
@@ -145,12 +287,10 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext) !void {
                     layout.popSubtree();
                     layout.popElement();
 
-                    parent.object_skip += 1;
-                    parent.auto_width = @max(parent.auto_width, inline_size + edge_width);
-                    try layout.appendStfFlowNormalBlock(ref, element);
+                    try layout.stf_context.appendFlowNormalObject(layout.allocator, ref, element, inline_size + edge_width);
                 } else {
                     const available_width = solve.clampSize(parent.available_width - edge_width, used.min_inline_size, used.max_inline_size);
-                    try pushFlowObject(layout, ctx, element, used_box_style, used, available_width, stacking_context);
+                    try pushFlowObject(layout, element, used_box_style, used, available_width, stacking_context);
                 }
             },
         },
@@ -161,69 +301,35 @@ fn flowObject(layout: *Layout, ctx: *BuildObjectTreeContext) !void {
             const result = try @"inline".runInlineLayout(layout, .ShrinkToFit, parent.available_width, parent.height);
             layout.popSubtree();
 
-            parent.auto_width = @max(parent.auto_width, result.min_width);
-            parent.object_skip += 1;
-            try layout.appendStfIfc(new_subtree_id, result);
+            try layout.stf_context.appendIfcObject(layout.allocator, new_subtree_id, result);
         },
         .absolute => std.debug.panic("TODO: Absolute blocks within shrink-to-fit contexts", .{}),
     }
 }
 
-fn pushMainObject(
-    layout: *Layout,
-    ctx: *BuildObjectTreeContext,
-    used_sizes: BlockUsedSizes,
-    available_width: Unit,
-) !Object.Index {
-    // The allocations here must have corresponding deallocations in popFlowObject.
-    const object_index = try layout.beginStfFlow(used_sizes);
-    ctx.stack.top = .{
-        .object_index = object_index,
-        .object_skip = 1,
-        .auto_width = 0,
-        .available_width = available_width,
-        .height = used_sizes.get(.block_size),
-    };
-    return object_index;
-}
-
 fn pushFlowObject(
     layout: *Layout,
-    ctx: *BuildObjectTreeContext,
     element: Element,
     box_style: BoxTree.BoxStyle,
-    used_sizes: BlockUsedSizes,
+    sizes: BlockUsedSizes,
     available_width: Unit,
     stacking_context: SctBuilder.Type,
 ) !void {
     // The allocations here must have corresponding deallocations in popFlowObject.
-    const object_index = try layout.pushStfFlowBlock(box_style, used_sizes, stacking_context, element);
+    const stacking_context_id, const absolute_containing_block_id = try layout.pushStfFlowBlock(box_style, stacking_context);
     try layout.pushElement();
-    try ctx.stack.push(layout.allocator, .{
-        .object_index = object_index,
-        .object_skip = 1,
-        .auto_width = 0,
-        .available_width = available_width,
-        .height = used_sizes.get(.block_size),
-    });
+    try layout.stf_context.pushFlowObject(layout.allocator, element, sizes, available_width, stacking_context_id, absolute_containing_block_id);
 }
 
-fn popFlowObject(layout: *Layout, ctx: *BuildObjectTreeContext) void {
+fn popFlowObject(layout: *Layout) void {
     // The deallocations here must correspond to allocations in pushFlowObject.
-    const this = ctx.stack.pop();
-    layout.finishStfFlowObject(this.object_index, this.object_skip, this.auto_width);
+    const tree = layout.stf_context.tree.slice();
+    const object_index = layout.stf_context.popFlowObject(tree);
+    if (layout.stf_context.main_object.top.?.depth == 0) return;
 
-    const parent = if (ctx.stack.top) |*top| top else return;
-
-    const full_width = layout.popStfFlowBlock(this.object_index);
+    layout.popStfFlowBlock();
     layout.popElement();
-
-    const parent_object_tag = layout.stf_tree.items(.tag)[this.object_index];
-    switch (parent_object_tag) {
-        .flow_stf => parent.auto_width = @max(parent.auto_width, full_width),
-        .flow_normal, .ifc => unreachable,
-    }
-    parent.object_skip += this.object_skip;
+    layout.stf_context.addToParent(tree, object_index);
 }
 
 const RealizeObjectsContext = struct {
@@ -232,13 +338,13 @@ const RealizeObjectsContext = struct {
     result: Result = undefined,
 
     const Interval = struct {
-        begin: Object.Index,
-        end: Object.Index,
+        begin: Context.Size,
+        end: Context.Size,
     };
 
     const StackItem = struct {
-        object_index: Object.Index,
-        object_tag: Object.Tag,
+        object_index: Context.Size,
+        object_tag: Context.Object.Tag,
         object_interval: Interval,
 
         width: Unit,
@@ -250,8 +356,8 @@ const RealizeObjectsContext = struct {
     }
 };
 
-fn realizeObjects(layout: *Layout, main_object_index: Object.Index) !Result {
-    const object_tree_slice = layout.stf_tree.slice();
+fn realizeObjects(layout: *Layout, main_object_index: Context.Size) !Result {
+    const object_tree_slice = layout.stf_context.tree.slice();
     const object_skips = object_tree_slice.items(.skip);
     const object_tags = object_tree_slice.items(.tag);
     const elements = object_tree_slice.items(.element);
@@ -326,7 +432,7 @@ fn realizeObjects(layout: *Layout, main_object_index: Object.Index) !Result {
     return ctx.result;
 }
 
-fn popFlowBlock(layout: *Layout, ctx: *RealizeObjectsContext, object_tree_slice: ObjectTree.Slice) void {
+fn popFlowBlock(layout: *Layout, ctx: *RealizeObjectsContext, object_tree_slice: Context.ObjectTree.Slice) void {
     const this = ctx.stack.pop();
     if (ctx.stack.top == null) {
         ctx.result = .{
