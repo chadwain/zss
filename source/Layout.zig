@@ -43,6 +43,7 @@ absolute: Absolute,
 viewport: math.Size,
 inputs: Inputs,
 allocator: Allocator,
+inline_context: @"inline".Context,
 stf_context: stf.Context,
 stacks: Stacks,
 
@@ -54,9 +55,6 @@ const Stacks = struct {
     }),
     block: Stack(Block),
     block_info: Stack(BlockInfo),
-    ifc: Stack(IfcContext),
-    ifc_state: Stack(IfcState),
-    inline_box: Stack(InlineBox),
 
     containing_block_size: Stack(ContainingBlockSize),
 };
@@ -108,15 +106,13 @@ pub fn init(
             .storage = storage,
         },
         .allocator = allocator,
+        .inline_context = .{},
         .stf_context = .{},
         .stacks = .{
             .element = .{},
             .subtree = .{},
             .block = .{},
             .block_info = .{},
-            .ifc = .init(undefined),
-            .ifc_state = .init(undefined),
-            .inline_box = .init(undefined),
             .containing_block_size = .{},
         },
     };
@@ -126,14 +122,12 @@ pub fn deinit(layout: *Layout) void {
     layout.computer.deinit();
     layout.sct_builder.deinit(layout.allocator);
     layout.absolute.deinit(layout.allocator);
+    layout.inline_context.deinit(layout.allocator);
     layout.stf_context.deinit(layout.allocator);
     layout.stacks.element.deinit(layout.allocator);
     layout.stacks.subtree.deinit(layout.allocator);
     layout.stacks.block.deinit(layout.allocator);
     layout.stacks.block_info.deinit(layout.allocator);
-    layout.stacks.ifc.deinit(layout.allocator);
-    layout.stacks.ifc_state.deinit(layout.allocator);
-    layout.stacks.inline_box.deinit(layout.allocator);
     layout.stacks.containing_block_size.deinit(layout.allocator);
 }
 
@@ -164,9 +158,6 @@ fn boxGeneration(layout: *Layout) !void {
 
     try initial.run(layout);
 
-    _ = layout.stacks.ifc.pop();
-    _ = layout.stacks.ifc_state.pop();
-    _ = layout.stacks.inline_box.pop();
     layout.sct_builder.endFrame();
 }
 
@@ -179,7 +170,7 @@ fn cosmeticLayout(layout: *Layout) !void {
     try cosmetic.run(layout);
 }
 
-pub const Mode = enum { Normal, ShrinkToFit };
+pub const SizeMode = enum { Normal, ShrinkToFit };
 
 pub fn currentElement(layout: Layout) Element {
     return layout.stacks.element.top.?;
@@ -442,110 +433,18 @@ pub fn addSubtreeProxy(layout: *Layout, id: Subtree.Id) !void {
     child_subtree.parent = ref;
 }
 
-pub const IfcContext = struct {
-    ifc: *Ifc,
-    container: BlockRef,
-    containing_block_width: math.Unit,
-    containing_block_height: ?math.Unit,
-    percentage_base_unit: math.Unit,
-};
-
-const IfcState = struct {
-    inline_box_depth: Ifc.Size,
-    font_handle: ?Fonts.Handle,
-};
-
-pub fn pushIfc(
-    layout: *Layout,
-    containing_block_width: math.Unit,
-    containing_block_height: ?math.Unit,
-    percentage_base_unit: math.Unit,
-) !IfcContext {
-    const ifc_container = try layout.newBlock();
-    const ifc = try layout.box_tree.newIfc(ifc_container);
-    const ctx: IfcContext = .{
-        .ifc = ifc,
-        .container = ifc_container,
-        .containing_block_width = containing_block_width,
-        .containing_block_height = containing_block_height,
-        .percentage_base_unit = percentage_base_unit,
-    };
-
-    try layout.stacks.block.push(layout.allocator, .{
-        .index = ifc_container.index,
-        .skip = 1,
-    });
-    layout.stacks.subtree.top.?.depth += 1;
-    try layout.stacks.ifc.push(layout.allocator, ctx);
-    try layout.stacks.ifc_state.push(layout.allocator, .{
-        .inline_box_depth = 0,
-        .font_handle = null,
-    });
+pub fn pushIfc(layout: *Layout) !*Ifc {
+    const container = try layout.pushBlock();
+    const ifc = try layout.box_tree.newIfc(container);
     try layout.sct_builder.addIfc(layout.box_tree.ptr, ifc.id);
-
-    return ctx;
+    return ifc;
 }
 
-pub fn popIfc(layout: *Layout, height: math.Unit) void {
-    const block = layout.stacks.block.pop();
-    layout.stacks.subtree.top.?.depth -= 1;
-    layout.addSkip(block.skip);
-
-    const ctx = layout.stacks.ifc.pop();
-    const state = layout.stacks.ifc_state.pop();
-    assert(state.inline_box_depth == 0);
+pub fn popIfc(layout: *Layout, ifc: Ifc.Id, containing_block_width: math.Unit, height: math.Unit) void {
+    const block = layout.popBlock();
 
     const subtree = layout.box_tree.ptr.getSubtree(layout.stacks.subtree.top.?.id).view();
-    setDataIfcContainer(subtree, ctx.ifc.id, block.index, block.skip, ctx.containing_block_width, height);
-}
-
-const InlineBox = struct {
-    index: Ifc.Size,
-    skip: Ifc.Size,
-};
-
-pub fn pushRootInlineBox(layout: *Layout, ifc: *Ifc) !Ifc.Size {
-    const index = try layout.box_tree.appendInlineBox(ifc);
-    try layout.stacks.inline_box.push(layout.allocator, .{ .index = index, .skip = 1 });
-    return index;
-}
-
-pub fn popRootInlineBox(layout: *Layout, ifc: *Ifc) Ifc.Size {
-    const inline_box = layout.stacks.inline_box.pop();
-    ifc.slice().items(.skip)[inline_box.index] = inline_box.skip;
-    return inline_box.index;
-}
-
-pub fn pushInlineBox(layout: *Layout, ifc: *Ifc) !Ifc.Size {
-    const index = try layout.box_tree.appendInlineBox(ifc);
-    try layout.stacks.inline_box.push(layout.allocator, .{ .index = index, .skip = 1 });
-    layout.stacks.ifc_state.top.?.inline_box_depth += 1;
-    return index;
-}
-
-pub fn popInlineBox(layout: *Layout, ifc: *Ifc) Ifc.Size {
-    const inline_box = layout.stacks.inline_box.pop();
-    layout.stacks.ifc_state.top.?.inline_box_depth -= 1;
-
-    ifc.slice().items(.skip)[inline_box.index] = inline_box.skip;
-    layout.stacks.inline_box.top.?.skip += inline_box.skip;
-    return inline_box.index;
-}
-
-pub fn currentInlineBoxDepth(layout: *const Layout) Ifc.Size {
-    return layout.stacks.ifc_state.top.?.inline_box_depth;
-}
-
-pub fn checkFontHandle(layout: *Layout, ifc: *Ifc, handle: Fonts.Handle) void {
-    const state = &layout.stacks.ifc_state.top.?;
-    if (state.font_handle) |prev_handle| {
-        if (handle != prev_handle) {
-            std.debug.panic("TODO: Only one font allowed per IFC", .{});
-        }
-    } else {
-        state.font_handle = handle;
-        ifc.font = handle;
-    }
+    setDataIfcContainer(subtree, ifc, block.index, block.skip, containing_block_width, height);
 }
 
 pub fn pushAbsoluteContainingBlock(

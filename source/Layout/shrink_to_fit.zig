@@ -225,7 +225,6 @@ pub const Context = struct {
 
 pub const Result = struct {
     auto_width: Unit,
-    auto_height: Unit,
 };
 
 pub fn runShrinkToFitLayout(layout: *Layout, used_sizes: BlockUsedSizes, available_width: Unit) !Result {
@@ -437,7 +436,6 @@ fn popFlowBlock(layout: *Layout, ctx: *RealizeObjectsContext, object_tree_slice:
     if (ctx.stack.top == null) {
         ctx.result = .{
             .auto_width = this.width,
-            .auto_height = this.auto_height,
         };
         return;
     }
