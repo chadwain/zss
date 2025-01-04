@@ -24,27 +24,46 @@ const GeneratedBox = BoxTree.GeneratedBox;
 const StackingContextTree = BoxTree.StackingContextTree;
 const Subtree = BoxTree.Subtree;
 
-pub const Result = struct {
-    auto_height: Unit,
-};
-
 pub fn runFlowLayout(layout: *Layout) !void {
-    var ctx = Context{};
+    try layout.flow_context.pushContext(layout.allocator);
 
-    pushMainBlock(&ctx);
-    while (ctx.depth > 0) {
-        try analyzeElement(layout, &ctx);
+    pushMainBlock(layout);
+    while (layout.flow_context.depth.top.? > 0) {
+        try analyzeElement(layout);
     }
+
+    layout.flow_context.popContext();
 }
 
-const Context = struct {
-    depth: usize = 0,
+pub const Context = struct {
+    depth: Stack(usize) = .init(undefined),
+
+    pub fn deinit(ctx: *Context, allocator: Allocator) void {
+        ctx.depth.deinit(allocator);
+    }
+
+    fn pushContext(ctx: *Context, allocator: Allocator) !void {
+        try ctx.depth.push(allocator, 0);
+    }
+
+    fn popContext(ctx: *Context) void {
+        const depth = ctx.depth.pop();
+        assert(depth == 0);
+    }
+
+    fn pushFlowBlock(ctx: *Context) void {
+        ctx.depth.top.? += 1;
+    }
+
+    fn popFlowBlock(ctx: *Context) void {
+        ctx.depth.top.? -= 1;
+    }
 };
 
-fn analyzeElement(layout: *Layout, ctx: *Context) !void {
+fn analyzeElement(layout: *Layout) !void {
     const element = layout.currentElement();
     if (element.eqlNull()) {
-        return popBlock(layout, ctx);
+        return popBlock(layout);
     }
     try layout.computer.setCurrentElement(.box_gen, element);
 
@@ -70,7 +89,7 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
                 const sizes = solveAllSizes(&layout.computer, used_box_style.position, containing_block_width, containing_block_height);
                 const stacking_context = solveStackingContext(&layout.computer, computed_box_style.position);
                 layout.computer.commitElement(.box_gen);
-                try pushBlock(layout, ctx, element, used_box_style, sizes, stacking_context);
+                try pushBlock(layout, element, used_box_style, sizes, stacking_context);
             },
         },
         .@"inline" => {
@@ -81,13 +100,12 @@ fn analyzeElement(layout: *Layout, ctx: *Context) !void {
     }
 }
 
-fn pushMainBlock(ctx: *Context) void {
-    ctx.depth = 1;
+fn pushMainBlock(layout: *Layout) void {
+    layout.flow_context.pushFlowBlock();
 }
 
 fn pushBlock(
     layout: *Layout,
-    ctx: *Context,
     element: Element,
     box_style: BoxTree.BoxStyle,
     sizes: BlockUsedSizes,
@@ -97,13 +115,13 @@ fn pushBlock(
     const ref = try layout.pushFlowBlock(box_style, sizes, stacking_context);
     try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
     try layout.pushElement();
-    ctx.depth += 1;
+    layout.flow_context.pushFlowBlock();
 }
 
-fn popBlock(layout: *Layout, ctx: *Context) void {
+fn popBlock(layout: *Layout) void {
     // The deallocations here must correspond to allocations in pushBlock.
-    ctx.depth -= 1;
-    if (ctx.depth == 0) {
+    layout.flow_context.popFlowBlock();
+    if (layout.flow_context.depth.top.? == 0) {
         return;
     }
 

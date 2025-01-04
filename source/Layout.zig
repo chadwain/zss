@@ -43,11 +43,13 @@ absolute: Absolute,
 viewport: math.Size,
 inputs: Inputs,
 allocator: Allocator,
+flow_context: flow.Context,
 inline_context: @"inline".Context,
 stf_context: stf.Context,
 stacks: Stacks,
 
 const Stacks = struct {
+    mode: Stack(Mode),
     element: Stack(Element),
     subtree: Stack(struct {
         id: Subtree.Id,
@@ -106,9 +108,11 @@ pub fn init(
             .storage = storage,
         },
         .allocator = allocator,
+        .flow_context = .{},
         .inline_context = .{},
         .stf_context = .{},
         .stacks = .{
+            .mode = .{},
             .element = .{},
             .subtree = .{},
             .block = .{},
@@ -122,14 +126,22 @@ pub fn deinit(layout: *Layout) void {
     layout.computer.deinit();
     layout.sct_builder.deinit(layout.allocator);
     layout.absolute.deinit(layout.allocator);
+    layout.flow_context.deinit(layout.allocator);
     layout.inline_context.deinit(layout.allocator);
     layout.stf_context.deinit(layout.allocator);
+    layout.stacks.mode.deinit(layout.allocator);
     layout.stacks.element.deinit(layout.allocator);
     layout.stacks.subtree.deinit(layout.allocator);
     layout.stacks.block.deinit(layout.allocator);
     layout.stacks.block_info.deinit(layout.allocator);
     layout.stacks.containing_block_size.deinit(layout.allocator);
 }
+
+const Mode = enum {
+    flow,
+    flow_stf,
+    @"inline",
+};
 
 pub fn run(layout: *Layout, allocator: Allocator) Error!BoxTree {
     const cast = math.pixelsToUnits;
@@ -210,7 +222,7 @@ pub fn popSubtree(layout: *Layout) void {
     const item = layout.stacks.subtree.pop();
     assert(item.depth == 0);
     const subtree = layout.box_tree.ptr.getSubtree(item.id).view();
-    subtree.items(.offset)[0] = .{ .x = 0, .y = 0 };
+    subtree.items(.offset)[0] = .zero;
 }
 
 pub const ContainingBlockSize = struct {
