@@ -67,15 +67,14 @@ fn analyzeElement(layout: *Layout) !void {
     }
     try layout.computer.setCurrentElement(.box_gen, element);
 
-    const computed_box_style, const used_box_style = blk: {
-        if (layout.computer.elementCategory(element) == .text) {
-            break :blk .{ undefined, BoxTree.BoxStyle.text };
-        }
-
-        const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
-        const computed_box_style, const used_box_style = solve.boxStyle(specified_box_style, .NonRoot);
-        layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
-        break :blk .{ computed_box_style, used_box_style };
+    const box_style: BoxTree.BoxStyle = switch (layout.computer.elementCategory(element)) {
+        .text => .text,
+        .normal => blk: {
+            const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
+            const computed_box_style, const used_box_style = solve.boxStyle(specified_box_style, .NonRoot);
+            layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
+            break :blk used_box_style;
+        },
     };
 
     const containing_block_width, const containing_block_height = blk: {
@@ -83,13 +82,13 @@ fn analyzeElement(layout: *Layout) !void {
         break :blk .{ size.width, size.height };
     };
 
-    switch (used_box_style.outer) {
+    switch (box_style.outer) {
         .block => |inner| switch (inner) {
             .flow => {
-                const sizes = solveAllSizes(&layout.computer, used_box_style.position, containing_block_width, containing_block_height);
-                const stacking_context = solveStackingContext(&layout.computer, computed_box_style.position);
+                const sizes = solveAllSizes(&layout.computer, box_style.position, containing_block_width, containing_block_height);
+                const stacking_context = solveStackingContext(&layout.computer, box_style.position);
                 layout.computer.commitElement(.box_gen);
-                try pushBlock(layout, element, used_box_style, sizes, stacking_context);
+                try pushBlock(layout, element, box_style, sizes, stacking_context);
             },
         },
         .@"inline" => {
@@ -573,10 +572,7 @@ pub fn adjustWidthAndMargins(sizes: *BlockUsedSizes, containing_block_width: Uni
     }
 }
 
-pub fn solveStackingContext(
-    computer: *StyleComputer,
-    position: zss.values.types.Position,
-) SctBuilder.Type {
+pub fn solveStackingContext(computer: *StyleComputer, position: BoxTree.BoxStyle.Position) SctBuilder.Type {
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
     computer.setComputedValue(.box_gen, .z_index, z_index);
 
@@ -588,8 +584,7 @@ pub fn solveStackingContext(
             .auto => return .{ .non_parentable = 0 },
             .initial, .inherit, .unset, .undeclared => unreachable,
         },
-        .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),
-        .initial, .inherit, .unset, .undeclared => unreachable,
+        .absolute => unreachable,
     }
 }
 

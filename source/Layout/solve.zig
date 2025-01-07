@@ -120,8 +120,9 @@ pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggreg
             computed.display = specified.display;
             position = switch (computed.position) {
                 .static => .static,
-                .relative, .sticky => .relative,
-                .absolute, .fixed => .absolute,
+                .relative => .relative,
+                .sticky => std.debug.panic("TODO: sticky positioning", .{}),
+                .absolute, .fixed => unreachable,
                 .initial, .inherit, .unset, .undeclared => unreachable,
             };
         },

@@ -252,32 +252,31 @@ fn flowObject(layout: *Layout) !void {
     }
     try layout.computer.setCurrentElement(.box_gen, element);
 
-    const computed, const used_box_style = blk: {
-        if (layout.computer.elementCategory(element) == .text) {
-            break :blk .{ undefined, BoxTree.BoxStyle.text };
-        }
-
-        const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
-        const computed_box_style, const used_box_style = solve.boxStyle(specified_box_style, .NonRoot);
-        layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
-        break :blk .{ computed_box_style, used_box_style };
+    const box_style: BoxTree.BoxStyle = switch (layout.computer.elementCategory(element)) {
+        .text => .text,
+        .normal => blk: {
+            const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
+            const computed_box_style, const used_box_style = solve.boxStyle(specified_box_style, .NonRoot);
+            layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
+            break :blk used_box_style;
+        },
     };
 
     const parent = layout.stf_context.object.top.?;
-    switch (used_box_style.outer) {
+    switch (box_style.outer) {
         .block => |inner| switch (inner) {
             .flow => {
-                const used = solveBlockSizes(&layout.computer, used_box_style.position, parent.height);
-                const stacking_context = flow.solveStackingContext(&layout.computer, computed.position);
+                const sizes = solveBlockSizes(&layout.computer, box_style.position, parent.height);
+                const stacking_context = flow.solveStackingContext(&layout.computer, box_style.position);
                 layout.computer.commitElement(.box_gen);
 
-                const edge_width = used.margin_inline_start_untagged + used.margin_inline_end_untagged +
-                    used.border_inline_start + used.border_inline_end +
-                    used.padding_inline_start + used.padding_inline_end;
+                const edge_width = sizes.margin_inline_start_untagged + sizes.margin_inline_end_untagged +
+                    sizes.border_inline_start + sizes.border_inline_end +
+                    sizes.padding_inline_start + sizes.padding_inline_end;
 
-                if (used.get(.inline_size)) |inline_size| {
+                if (sizes.get(.inline_size)) |inline_size| {
                     try layout.pushSubtree();
-                    const ref = try layout.pushFlowBlock(used_box_style, used, stacking_context);
+                    const ref = try layout.pushFlowBlock(box_style, sizes, stacking_context);
                     try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                     try layout.pushElement();
 
@@ -288,8 +287,8 @@ fn flowObject(layout: *Layout) !void {
 
                     try layout.stf_context.appendFlowNormalObject(layout.allocator, ref, element, inline_size + edge_width);
                 } else {
-                    const available_width = solve.clampSize(parent.available_width - edge_width, used.min_inline_size, used.max_inline_size);
-                    try pushFlowObject(layout, element, used_box_style, used, available_width, stacking_context);
+                    const available_width = solve.clampSize(parent.available_width - edge_width, sizes.min_inline_size, sizes.max_inline_size);
+                    try pushFlowObject(layout, element, box_style, sizes, available_width, stacking_context);
                 }
             },
         },

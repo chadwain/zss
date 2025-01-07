@@ -155,19 +155,18 @@ fn analyzeElement(layout: *Layout) !bool {
     }
     try layout.computer.setCurrentElement(.box_gen, element);
 
-    const computed, const used_box_style = blk: {
-        if (layout.computer.elementCategory(element) == .text) {
-            break :blk .{ undefined, BoxTree.BoxStyle.text };
-        }
-
-        const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
-        const computed_box_style, const used_box_style = solve.boxStyle(specified_box_style, .NonRoot);
-        layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
-        break :blk .{ computed_box_style, used_box_style };
+    const box_style: BoxTree.BoxStyle = switch (layout.computer.elementCategory(element)) {
+        .text => .text,
+        .normal => blk: {
+            const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
+            const computed_box_style, const used_box_style = solve.boxStyle(specified_box_style, .NonRoot);
+            layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
+            break :blk used_box_style;
+        },
     };
 
     // TODO: Check position and float properties
-    switch (used_box_style.outer) {
+    switch (box_style.outer) {
         .@"inline" => |inner| switch (inner) {
             .text => {
                 const generated_box = GeneratedBox{ .text = ifc.ptr.id };
@@ -209,14 +208,14 @@ fn analyzeElement(layout: *Layout) !bool {
             },
             .block => |block_inner| switch (block_inner) {
                 .flow => {
-                    const sizes = inlineBlockSolveSizes(&layout.computer, used_box_style.position, ifc.containing_block_width, ifc.containing_block_height);
-                    const stacking_context = inlineBlockCreateStackingContext(&layout.computer, computed.position);
+                    const sizes = inlineBlockSolveSizes(&layout.computer, box_style.position, ifc.containing_block_width, ifc.containing_block_height);
+                    const stacking_context = inlineBlockSolveStackingContext(&layout.computer, box_style.position);
                     layout.computer.commitElement(.box_gen);
 
                     const index = blk: {
                         if (sizes.get(.inline_size)) |_| {
                             // TODO: Recursive call here
-                            const ref = try layout.pushFlowBlock(used_box_style, sizes, stacking_context);
+                            const ref = try layout.pushFlowBlock(box_style, sizes, stacking_context);
                             try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                             try layout.pushElement();
 
@@ -227,7 +226,7 @@ fn analyzeElement(layout: *Layout) !bool {
                             break :blk ref.index;
                         } else {
                             // TODO: Recursive call here
-                            const ref = try layout.pushStfFlowMainBlock(used_box_style, sizes, stacking_context);
+                            const ref = try layout.pushStfFlowMainBlock(box_style, sizes, stacking_context);
                             try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                             try layout.pushElement();
 
@@ -862,9 +861,9 @@ fn inlineBlockSolveSizes(
     return used;
 }
 
-fn inlineBlockCreateStackingContext(
+fn inlineBlockSolveStackingContext(
     computer: *StyleComputer,
-    position: zss.values.types.Position,
+    position: BoxTree.BoxStyle.Position,
 ) SctBuilder.Type {
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
     computer.setComputedValue(.box_gen, .z_index, z_index);
@@ -877,8 +876,7 @@ fn inlineBlockCreateStackingContext(
             .auto => return .{ .non_parentable = 0 },
             .initial, .inherit, .unset, .undeclared => unreachable,
         },
-        .absolute, .fixed, .sticky => panic("TODO: {s} positioning", .{@tagName(position)}),
-        .initial, .inherit, .unset, .undeclared => unreachable,
+        .absolute => unreachable,
     }
 }
 
