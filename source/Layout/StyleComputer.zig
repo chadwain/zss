@@ -92,6 +92,7 @@ pub fn elementCategory(self: StyleComputer, element: Element) ElementTree.Catego
     return self.element_tree_slice.category(element);
 }
 
+// TODO: Setting the current element should not require allocating
 pub fn setCurrentElement(self: *StyleComputer, comptime stage: Stage, element: Element) !void {
     assert(!element.eqlNull());
     const cascaded_values = switch (self.elementCategory(element)) {
@@ -247,7 +248,10 @@ fn specifiedToComputed(comptime tag: aggregates.Tag, specified: tag.Value(), com
     switch (tag) {
         .box_style => {
             const parent = computer.element_tree_slice.parent(element);
-            const computed_value, _ = solve.boxStyle(specified, if (parent.eqlNull()) .Root else .NonRoot);
+            const computed_value, _ = if (parent.eqlNull())
+                solve.boxStyle(specified, .Root)
+            else
+                solve.boxStyle(specified, .NonRoot);
             return computed_value;
         },
         .font => {

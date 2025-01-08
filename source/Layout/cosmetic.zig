@@ -143,7 +143,7 @@ pub fn run(layout: *Layout) !void {
     layout.popElement();
 }
 
-fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comptime is_root: solve.IsRoot) !void {
+fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comptime is_root: Layout.IsRoot) !void {
     const specified = .{
         .box_style = layout.computer.getSpecifiedValue(.cosmetic, .box_style),
         .color = layout.computer.getSpecifiedValue(.cosmetic, .color),

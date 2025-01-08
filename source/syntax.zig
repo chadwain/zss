@@ -137,6 +137,7 @@ pub const Component = struct {
     /// Additional info about the Component. The meaning of this value depends on `tag`.
     extra: Extra,
 
+    // TODO: Make this an untagged union
     pub const Extra = extern struct {
         /// Trying to read/write this field directly should not be attempted.
         /// Better to use one of the member functions instead.

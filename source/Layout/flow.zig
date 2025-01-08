@@ -1,6 +1,5 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
@@ -20,18 +19,15 @@ const solve = @import("./solve.zig");
 const @"inline" = @import("./inline.zig");
 
 const BoxTree = zss.BoxTree;
-const GeneratedBox = BoxTree.GeneratedBox;
-const StackingContextTree = BoxTree.StackingContextTree;
+const BoxStyle = BoxTree.BoxStyle;
 const Subtree = BoxTree.Subtree;
 
-pub fn runFlowLayout(layout: *Layout) !void {
+pub fn beginMode(layout: *Layout) !void {
     try layout.flow_context.pushContext(layout.allocator);
-
     pushMainBlock(layout);
-    while (layout.flow_context.depth.top.? > 0) {
-        try analyzeElement(layout);
-    }
+}
 
+pub fn endMode(layout: *Layout) void {
     layout.flow_context.popContext();
 }
 
@@ -60,43 +56,34 @@ pub const Context = struct {
     }
 };
 
-fn analyzeElement(layout: *Layout) !void {
-    const element = layout.currentElement();
-    if (element.eqlNull()) {
-        return popBlock(layout);
-    }
-    try layout.computer.setCurrentElement(.box_gen, element);
-
-    const box_style: BoxTree.BoxStyle = switch (layout.computer.elementCategory(element)) {
-        .text => .text,
-        .normal => blk: {
-            const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
-            const computed_box_style, const used_box_style = solve.boxStyle(specified_box_style, .NonRoot);
-            layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
-            break :blk used_box_style;
-        },
-    };
-
+pub fn blockElement(layout: *Layout, element: Element, inner_block: BoxStyle.InnerBlock, position: BoxStyle.Position) !void {
     const containing_block_width, const containing_block_height = blk: {
         const size = layout.containingBlockSize();
         break :blk .{ size.width, size.height };
     };
 
-    switch (box_style.outer) {
-        .block => |inner| switch (inner) {
-            .flow => {
-                const sizes = solveAllSizes(&layout.computer, box_style.position, containing_block_width, containing_block_height);
-                const stacking_context = solveStackingContext(&layout.computer, box_style.position);
-                layout.computer.commitElement(.box_gen);
-                try pushBlock(layout, element, box_style, sizes, stacking_context);
-            },
+    switch (inner_block) {
+        .flow => {
+            const sizes = solveAllSizes(&layout.computer, position, containing_block_width, containing_block_height);
+            const stacking_context = solveStackingContext(&layout.computer, position);
+            layout.computer.commitElement(.box_gen);
+
+            layout.flow_context.pushFlowBlock();
+            try pushBlock(layout, element, sizes, stacking_context);
         },
-        .@"inline" => {
-            _ = try @"inline".runInlineLayout(layout, .Normal, containing_block_width, containing_block_height);
-        },
-        .none => layout.advanceElement(),
-        .absolute => std.debug.panic("TODO: Absolute blocks within flow layout", .{}),
     }
+}
+
+pub fn inlineElement(layout: *Layout) !void {
+    return layout.pushInlineMode(.NonRoot, .Normal, layout.containingBlockSize());
+}
+
+pub fn nullElement(layout: *Layout) void {
+    layout.flow_context.popFlowBlock();
+    if (layout.flow_context.depth.top.? == 0) {
+        return layout.popFlowMode();
+    }
+    popBlock(layout);
 }
 
 fn pushMainBlock(layout: *Layout) void {
@@ -106,24 +93,17 @@ fn pushMainBlock(layout: *Layout) void {
 fn pushBlock(
     layout: *Layout,
     element: Element,
-    box_style: BoxTree.BoxStyle,
     sizes: BlockUsedSizes,
     stacking_context: SctBuilder.Type,
 ) !void {
     // The allocations here must have corresponding deallocations in popBlock.
-    const ref = try layout.pushFlowBlock(box_style, sizes, stacking_context);
+    const ref = try layout.pushFlowBlock(sizes, stacking_context);
     try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
     try layout.pushElement();
-    layout.flow_context.pushFlowBlock();
 }
 
 fn popBlock(layout: *Layout) void {
     // The deallocations here must correspond to allocations in pushBlock.
-    layout.flow_context.popFlowBlock();
-    if (layout.flow_context.depth.top.? == 0) {
-        return;
-    }
-
     layout.popFlowBlock();
     layout.popElement();
 }

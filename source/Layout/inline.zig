@@ -1,6 +1,5 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
@@ -25,6 +24,7 @@ const StyleComputer = @import("./StyleComputer.zig");
 
 const BoxTree = zss.BoxTree;
 const BlockRef = BoxTree.BlockRef;
+const BoxStyle = BoxTree.BoxStyle;
 const Ifc = BoxTree.InlineFormattingContext;
 const GlyphIndex = Ifc.GlyphIndex;
 const GeneratedBox = BoxTree.GeneratedBox;
@@ -36,28 +36,28 @@ pub const Result = struct {
     min_width: Unit,
 };
 
-pub fn runInlineLayout(
-    layout: *Layout,
-    size_mode: Layout.SizeMode,
-    containing_block_width: Unit,
-    containing_block_height: ?Unit,
-) zss.Layout.Error!Result {
-    assert(containing_block_width >= 0);
-    if (containing_block_height) |h| assert(h >= 0);
+pub fn beginMode(layout: *Layout, size_mode: Layout.SizeMode, containing_block_size: Layout.ContainingBlockSize) !void {
+    assert(containing_block_size.width >= 0);
+    if (containing_block_size.height) |h| assert(h >= 0);
 
     const ifc = try layout.pushIfc();
-    try layout.inline_context.pushIfc(layout.allocator, ifc, size_mode, containing_block_width, containing_block_height);
+    try layout.inline_context.pushIfc(layout.allocator, ifc, size_mode, containing_block_size);
 
     try pushRootInlineBox(layout);
-    while (!(try analyzeElement(layout))) {}
+}
+
+pub fn endMode(layout: *Layout) !Result {
     _ = try popInlineBox(layout);
 
+    const ifc = layout.inline_context.ifc.top.?;
+    const containing_block_width = ifc.containing_block_size.width;
+
     const subtree = layout.box_tree.ptr.getSubtree(layout.currentSubtree()).view();
-    ifcSolveMetrics(ifc, subtree, layout.inputs.fonts);
-    const line_split_result = try splitIntoLineBoxes(layout, subtree, ifc, containing_block_width);
+    ifcSolveMetrics(ifc.ptr, subtree, layout.inputs.fonts);
+    const line_split_result = try splitIntoLineBoxes(layout, subtree, ifc.ptr, containing_block_width);
 
     layout.inline_context.popIfc();
-    layout.popIfc(ifc.id, containing_block_width, line_split_result.height);
+    layout.popIfc(ifc.ptr.id, containing_block_width, line_split_result.height);
 
     return .{
         .min_width = line_split_result.longest_line_box_length,
@@ -68,8 +68,7 @@ pub const Context = struct {
     ifc: Stack(struct {
         ptr: *Ifc,
         depth: Ifc.Size,
-        containing_block_width: Unit,
-        containing_block_height: ?Unit,
+        containing_block_size: Layout.ContainingBlockSize,
         percentage_base_unit: Unit,
         font_handle: ?Fonts.Handle,
     }) = .init(undefined),
@@ -90,18 +89,16 @@ pub const Context = struct {
         allocator: Allocator,
         ptr: *Ifc,
         size_mode: Layout.SizeMode,
-        containing_block_width: Unit,
-        containing_block_height: ?Unit,
+        containing_block_size: Layout.ContainingBlockSize,
     ) !void {
         const percentage_base_unit: Unit = switch (size_mode) {
-            .Normal => containing_block_width,
+            .Normal => containing_block_size.width,
             .ShrinkToFit => 0,
         };
         try ctx.ifc.push(allocator, .{
             .ptr = ptr,
             .depth = 0,
-            .containing_block_width = containing_block_width,
-            .containing_block_height = containing_block_height,
+            .containing_block_size = containing_block_size,
             .percentage_base_unit = percentage_base_unit,
             .font_handle = null,
         });
@@ -140,126 +137,97 @@ pub const Context = struct {
     }
 };
 
-/// A return value of true means that a terminating element was encountered.
-fn analyzeElement(layout: *Layout) !bool {
+pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.InnerInline, position: BoxStyle.Position) !void {
     const ctx = &layout.inline_context;
     const ifc = ctx.ifc.top.?;
 
-    const element = layout.currentElement();
-    if (element.eqlNull()) {
-        if (ifc.depth == 1) return true;
-        const skip = try popInlineBox(layout);
-        layout.popElement();
-        ctx.accumulateSkip(skip);
-        return false;
-    }
-    try layout.computer.setCurrentElement(.box_gen, element);
-
-    const box_style: BoxTree.BoxStyle = switch (layout.computer.elementCategory(element)) {
-        .text => .text,
-        .normal => blk: {
-            const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
-            const computed_box_style, const used_box_style = solve.boxStyle(specified_box_style, .NonRoot);
-            layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
-            break :blk used_box_style;
-        },
-    };
-
     // TODO: Check position and float properties
-    switch (box_style.outer) {
-        .@"inline" => |inner| switch (inner) {
-            .text => {
-                const generated_box = GeneratedBox{ .text = ifc.ptr.id };
-                try layout.box_tree.setGeneratedBox(element, generated_box);
+    switch (inner_inline) {
+        .text => {
+            const generated_box = GeneratedBox{ .text = ifc.ptr.id };
+            try layout.box_tree.setGeneratedBox(element, generated_box);
 
-                // TODO: Do proper font matching.
-                const font = layout.computer.getTextFont(.box_gen);
-                const handle: Fonts.Handle = switch (font.font) {
-                    .default => layout.inputs.fonts.query(),
-                    .none => .invalid,
-                    .initial, .inherit, .unset, .undeclared => unreachable,
-                };
-                layout.inline_context.setFont(handle);
-                if (layout.inputs.fonts.get(handle)) |hb_font| {
-                    const text = layout.computer.getText();
-                    try ifcAddText(layout.box_tree, ifc.ptr, text, hb_font.handle);
-                }
-
-                layout.advanceElement();
-            },
-            .@"inline" => {
-                { // TODO: Grabbing useless data to satisfy inheritance...
-                    const data = .{
-                        .content_width = layout.computer.getSpecifiedValue(.box_gen, .content_width),
-                        .content_height = layout.computer.getSpecifiedValue(.box_gen, .content_height),
-                        .z_index = layout.computer.getSpecifiedValue(.box_gen, .z_index),
-                    };
-                    layout.computer.setComputedValue(.box_gen, .content_width, data.content_width);
-                    layout.computer.setComputedValue(.box_gen, .content_height, data.content_height);
-                    layout.computer.setComputedValue(.box_gen, .z_index, data.z_index);
-
-                    layout.computer.commitElement(.box_gen);
-                }
-
-                const inline_box_index = try pushInlineBox(layout);
-                const generated_box = GeneratedBox{ .inline_box = .{ .ifc_id = ifc.ptr.id, .index = inline_box_index } };
-                try layout.box_tree.setGeneratedBox(element, generated_box);
-                try layout.pushElement();
-            },
-            .block => |block_inner| switch (block_inner) {
-                .flow => {
-                    const sizes = inlineBlockSolveSizes(&layout.computer, box_style.position, ifc.containing_block_width, ifc.containing_block_height);
-                    const stacking_context = inlineBlockSolveStackingContext(&layout.computer, box_style.position);
-                    layout.computer.commitElement(.box_gen);
-
-                    const index = blk: {
-                        if (sizes.get(.inline_size)) |_| {
-                            // TODO: Recursive call here
-                            const ref = try layout.pushFlowBlock(box_style, sizes, stacking_context);
-                            try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
-                            try layout.pushElement();
-
-                            try flow.runFlowLayout(layout);
-                            layout.popFlowBlock();
-                            layout.popElement();
-
-                            break :blk ref.index;
-                        } else {
-                            // TODO: Recursive call here
-                            const ref = try layout.pushStfFlowMainBlock(box_style, sizes, stacking_context);
-                            try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
-                            try layout.pushElement();
-
-                            const available_width_unclamped = ifc.containing_block_width -
-                                (sizes.margin_inline_start_untagged + sizes.margin_inline_end_untagged +
-                                sizes.border_inline_start + sizes.border_inline_end +
-                                sizes.padding_inline_start + sizes.padding_inline_end);
-                            const available_width = solve.clampSize(available_width_unclamped, sizes.min_inline_size, sizes.max_inline_size);
-
-                            const result = try stf.runShrinkToFitLayout(layout, sizes, available_width);
-                            layout.popStfFlowMainBlock(result.auto_width);
-                            layout.popElement();
-
-                            break :blk ref.index;
-                        }
-                    };
-
-                    try ifcAddInlineBlock(layout.box_tree, ifc.ptr, index);
-                },
-            },
-        },
-        .block => {
-            if (ifc.depth == 1) {
-                return true;
-            } else {
-                panic("TODO: Blocks within inline contexts", .{});
+            // TODO: Do proper font matching.
+            const font = layout.computer.getTextFont(.box_gen);
+            const handle: Fonts.Handle = switch (font.font) {
+                .default => layout.inputs.fonts.query(),
+                .none => .invalid,
+                .initial, .inherit, .unset, .undeclared => unreachable,
+            };
+            layout.inline_context.setFont(handle);
+            if (layout.inputs.fonts.get(handle)) |hb_font| {
+                const text = layout.computer.getText();
+                try ifcAddText(layout.box_tree, ifc.ptr, text, hb_font.handle);
             }
-        },
-        .none => layout.advanceElement(),
-        .absolute => panic("TODO: Absolute blocks within inline contexts", .{}),
-    }
 
-    return false;
+            layout.advanceElement();
+        },
+        .@"inline" => {
+            { // TODO: Grabbing useless data to satisfy inheritance...
+                const data = .{
+                    .content_width = layout.computer.getSpecifiedValue(.box_gen, .content_width),
+                    .content_height = layout.computer.getSpecifiedValue(.box_gen, .content_height),
+                    .z_index = layout.computer.getSpecifiedValue(.box_gen, .z_index),
+                };
+                layout.computer.setComputedValue(.box_gen, .content_width, data.content_width);
+                layout.computer.setComputedValue(.box_gen, .content_height, data.content_height);
+                layout.computer.setComputedValue(.box_gen, .z_index, data.z_index);
+
+                layout.computer.commitElement(.box_gen);
+            }
+
+            const inline_box_index = try pushInlineBox(layout);
+            const generated_box = GeneratedBox{ .inline_box = .{ .ifc_id = ifc.ptr.id, .index = inline_box_index } };
+            try layout.box_tree.setGeneratedBox(element, generated_box);
+            try layout.pushElement();
+        },
+        .block => |block_inner| switch (block_inner) {
+            .flow => {
+                const sizes = inlineBlockSolveSizes(&layout.computer, position, ifc.containing_block_size);
+                const stacking_context = inlineBlockSolveStackingContext(&layout.computer, position);
+                layout.computer.commitElement(.box_gen);
+
+                if (sizes.get(.inline_size)) |_| {
+                    const ref = try layout.pushFlowBlock(sizes, stacking_context);
+                    try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
+                    try ifcAddInlineBlock(layout.box_tree, ifc.ptr, ref.index);
+                    try layout.pushElement();
+                    return layout.pushFlowMode(.NonRoot);
+                } else {
+                    const available_width_unclamped = ifc.containing_block_size.width -
+                        (sizes.margin_inline_start_untagged + sizes.margin_inline_end_untagged +
+                        sizes.border_inline_start + sizes.border_inline_end +
+                        sizes.padding_inline_start + sizes.padding_inline_end);
+                    const available_width = solve.clampSize(available_width_unclamped, sizes.min_inline_size, sizes.max_inline_size);
+
+                    const ref = try layout.pushStfFlowMainBlock(sizes, available_width, stacking_context);
+                    try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
+                    try ifcAddInlineBlock(layout.box_tree, ifc.ptr, ref.index);
+                    try layout.pushElement();
+                    return layout.pushFlowStfMode(sizes, available_width);
+                }
+            },
+        },
+    }
+}
+
+pub fn nullElement(layout: *Layout) !void {
+    const ctx = &layout.inline_context;
+    const ifc = ctx.ifc.top.?;
+    if (ifc.depth == 1) return layout.popInlineMode();
+    const skip = try popInlineBox(layout);
+    layout.popElement();
+    ctx.accumulateSkip(skip);
+}
+
+pub fn popFlowMode(layout: *Layout) void {
+    layout.popFlowBlock();
+    layout.popElement();
+}
+
+pub fn popFlowStfMode(layout: *Layout, layout_result: stf.Result) void {
+    layout.popStfFlowMainBlock(layout_result.auto_width);
+    layout.popElement();
 }
 
 fn pushRootInlineBox(layout: *Layout) !void {
@@ -567,12 +535,8 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
 fn inlineBlockSolveSizes(
     computer: *StyleComputer,
     position: BoxTree.BoxStyle.Position,
-    containing_block_width: Unit,
-    containing_block_height: ?Unit,
+    containing_block_size: Layout.ContainingBlockSize,
 ) BlockUsedSizes {
-    assert(containing_block_width >= 0);
-    if (containing_block_height) |h| assert(h >= 0);
-
     const specified = BlockComputedSizes{
         .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
@@ -625,7 +589,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_left = .{ .percentage = value };
-            used.padding_inline_start = solve.positivePercentage(value, containing_block_width);
+            used.padding_inline_start = solve.positivePercentage(value, containing_block_size.width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -636,7 +600,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.horizontal_edges.padding_right = .{ .percentage = value };
-            used.padding_inline_end = solve.positivePercentage(value, containing_block_width);
+            used.padding_inline_end = solve.positivePercentage(value, containing_block_size.width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -647,7 +611,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_left = .{ .percentage = value };
-            used.setValue(.margin_inline_start, solve.percentage(value, containing_block_width));
+            used.setValue(.margin_inline_start, solve.percentage(value, containing_block_size.width));
         },
         .auto => {
             computed.horizontal_edges.margin_left = .auto;
@@ -662,7 +626,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.horizontal_edges.margin_right = .{ .percentage = value };
-            used.setValue(.margin_inline_end, solve.percentage(value, containing_block_width));
+            used.setValue(.margin_inline_end, solve.percentage(value, containing_block_size.width));
         },
         .auto => {
             computed.horizontal_edges.margin_right = .auto;
@@ -677,7 +641,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.content_width.min_width = .{ .percentage = value };
-            used.min_inline_size = solve.positivePercentage(value, containing_block_width);
+            used.min_inline_size = solve.positivePercentage(value, containing_block_size.width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -688,7 +652,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.content_width.max_width = .{ .percentage = value };
-            used.max_inline_size = solve.positivePercentage(value, containing_block_width);
+            used.max_inline_size = solve.positivePercentage(value, containing_block_size.width);
         },
         .none => {
             computed.content_width.max_width = .none;
@@ -704,7 +668,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.content_width.width = .{ .percentage = value };
-            used.setValue(.inline_size, solve.positivePercentage(value, containing_block_width));
+            used.setValue(.inline_size, solve.positivePercentage(value, containing_block_size.width));
         },
         .auto => {
             computed.content_width.width = .auto;
@@ -752,7 +716,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.vertical_edges.padding_top = .{ .percentage = value };
-            used.padding_block_start = solve.positivePercentage(value, containing_block_width);
+            used.padding_block_start = solve.positivePercentage(value, containing_block_size.width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -763,7 +727,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.vertical_edges.padding_bottom = .{ .percentage = value };
-            used.padding_block_end = solve.positivePercentage(value, containing_block_width);
+            used.padding_block_end = solve.positivePercentage(value, containing_block_size.width);
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     }
@@ -774,7 +738,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.vertical_edges.margin_top = .{ .percentage = value };
-            used.margin_block_start = solve.percentage(value, containing_block_width);
+            used.margin_block_start = solve.percentage(value, containing_block_size.width);
         },
         .auto => {
             computed.vertical_edges.margin_top = .auto;
@@ -789,7 +753,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.vertical_edges.margin_bottom = .{ .percentage = value };
-            used.margin_block_end = solve.percentage(value, containing_block_width);
+            used.margin_block_end = solve.percentage(value, containing_block_size.width);
         },
         .auto => {
             computed.vertical_edges.margin_bottom = .auto;
@@ -804,7 +768,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.content_height.min_height = .{ .percentage = value };
-            used.min_block_size = if (containing_block_height) |h|
+            used.min_block_size = if (containing_block_size.height) |h|
                 solve.positivePercentage(value, h)
             else
                 0;
@@ -818,7 +782,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.content_height.max_height = .{ .percentage = value };
-            used.max_block_size = if (containing_block_height) |h|
+            used.max_block_size = if (containing_block_size.height) |h|
                 solve.positivePercentage(value, h)
             else
                 std.math.maxInt(Unit);
@@ -836,7 +800,7 @@ fn inlineBlockSolveSizes(
         },
         .percentage => |value| {
             computed.content_height.height = .{ .percentage = value };
-            if (containing_block_height) |h|
+            if (containing_block_size.height) |h|
                 used.setValue(.block_size, solve.positivePercentage(value, h))
             else
                 used.setAuto(.block_size);

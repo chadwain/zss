@@ -77,13 +77,8 @@ pub fn currentColor(col: types.Color) math.Color {
     };
 }
 
-pub const IsRoot = enum {
-    Root,
-    NonRoot,
-};
-
 /// Implements the rules specified in section 9.7 of CSS2.2.
-pub fn boxStyle(specified: aggregates.BoxStyle, is_root: IsRoot) struct { aggregates.BoxStyle, BoxTree.BoxStyle } {
+pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: zss.Layout.IsRoot) struct { aggregates.BoxStyle, BoxTree.BoxStyle } {
     var computed: aggregates.BoxStyle = .{
         .display = undefined,
         .position = specified.position,
