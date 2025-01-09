@@ -204,7 +204,7 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
                     try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                     try ifcAddInlineBlock(layout.box_tree, ifc.ptr, ref.index);
                     try layout.pushElement();
-                    return layout.pushStfMode(.flow, sizes, available_width);
+                    return layout.pushStfMode(.flow, sizes);
                 }
             },
         },

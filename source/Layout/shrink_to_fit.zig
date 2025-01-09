@@ -37,8 +37,6 @@ pub const Context = struct {
         object_index: Size,
         object_skip: Size,
         auto_width: Unit,
-        available_width: Unit,
-        height: ?Unit, // TODO: clamp the height
     }) = .init(undefined),
 
     const Size = u32;
@@ -94,7 +92,7 @@ pub const Context = struct {
         return main_object.index;
     }
 
-    fn pushMainFlowObject(ctx: *Context, allocator: Allocator, sizes: BlockUsedSizes, available_width: Unit) !void {
+    fn pushMainFlowObject(ctx: *Context, allocator: Allocator, sizes: BlockUsedSizes) !void {
         const index = try ctx.appendObject(allocator, .{
             .skip = undefined,
             .tag = .flow_stf,
@@ -113,8 +111,6 @@ pub const Context = struct {
             .object_index = index,
             .object_skip = 1,
             .auto_width = 0,
-            .available_width = available_width,
-            .height = sizes.get(.block_size),
         });
     }
 
@@ -123,7 +119,6 @@ pub const Context = struct {
         allocator: Allocator,
         element: Element,
         sizes: BlockUsedSizes,
-        available_width: Unit,
         stacking_context_id: ?StackingContextTree.Id,
         // absolute_containing_block_id: ?Layout.Absolute.ContainingBlock.Id,
     ) !void {
@@ -144,8 +139,6 @@ pub const Context = struct {
             .object_index = index,
             .object_skip = 1,
             .auto_width = 0,
-            .available_width = available_width,
-            .height = sizes.get(.block_size),
         });
         ctx.main_object.top.?.depth += 1;
     }
@@ -233,10 +226,10 @@ pub const Result = struct {
     auto_width: Unit,
 };
 
-pub fn beginMode(layout: *Layout, inner_block: BoxStyle.InnerBlock, used_sizes: BlockUsedSizes, available_width: Unit) !void {
+pub fn beginMode(layout: *Layout, inner_block: BoxStyle.InnerBlock, used_sizes: BlockUsedSizes) !void {
     const ctx = &layout.stf_context;
     switch (inner_block) {
-        .flow => try ctx.pushMainFlowObject(layout.allocator, used_sizes, available_width),
+        .flow => try ctx.pushMainFlowObject(layout.allocator, used_sizes),
     }
 }
 
@@ -259,10 +252,10 @@ pub fn blockElement(layout: *Layout, element: Element, inner_block: BoxStyle.Inn
 }
 
 fn flowObject(layout: *Layout, element: Element, inner_block: BoxStyle.InnerBlock, position: BoxStyle.Position) !void {
-    const parent = layout.stf_context.object.top.?;
+    const containing_block_size = layout.containingBlockSize();
     switch (inner_block) {
         .flow => {
-            const sizes = flow.solveAllSizes(&layout.computer, position, .ShrinkToFit, parent.height);
+            const sizes = flow.solveAllSizes(&layout.computer, position, .ShrinkToFit, containing_block_size.height);
             const stacking_context = flow.solveStackingContext(&layout.computer, position);
             layout.computer.commitElement(.box_gen);
 
@@ -278,7 +271,7 @@ fn flowObject(layout: *Layout, element: Element, inner_block: BoxStyle.InnerBloc
                 try layout.pushElement();
                 return layout.pushFlowMode(.NonRoot);
             } else {
-                const available_width = solve.clampSize(parent.available_width - edge_width, sizes.min_inline_size, sizes.max_inline_size);
+                const available_width = solve.clampSize(containing_block_size.width - edge_width, sizes.min_inline_size, sizes.max_inline_size);
                 try pushFlowObject(layout, element, sizes, available_width, stacking_context);
             }
         },
@@ -320,7 +313,7 @@ fn pushFlowObject(
     // The allocations here must have corresponding deallocations in popFlowObject.
     const stacking_context_id = try layout.pushStfFlowBlock(sizes, available_width, stacking_context);
     try layout.pushElement();
-    try layout.stf_context.pushFlowObject(layout.allocator, element, sizes, available_width, stacking_context_id);
+    try layout.stf_context.pushFlowObject(layout.allocator, element, sizes, stacking_context_id);
 }
 
 fn popFlowObject(layout: *Layout, tree: Context.ObjectTree.Slice, object_index: Context.Size) void {

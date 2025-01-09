@@ -302,12 +302,12 @@ pub fn popFlowMode(layout: *Layout) void {
     }
 }
 
-pub fn pushStfMode(layout: *Layout, inner_block: BoxTree.BoxStyle.InnerBlock, sizes: BlockUsedSizes, available_width: math.Unit) !void {
+pub fn pushStfMode(layout: *Layout, inner_block: BoxTree.BoxStyle.InnerBlock, sizes: BlockUsedSizes) !void {
     const mode: Mode = switch (inner_block) {
         .flow => .flow_stf,
     };
     try layout.stacks.mode.push(layout.allocator, mode);
-    try stf.beginMode(layout, inner_block, sizes, available_width);
+    try stf.beginMode(layout, inner_block, sizes);
 }
 
 pub fn popStfMode(layout: *Layout) !void {
