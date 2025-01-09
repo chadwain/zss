@@ -233,9 +233,11 @@ pub const Result = struct {
     auto_width: Unit,
 };
 
-pub fn beginFlowMode(layout: *Layout, used_sizes: BlockUsedSizes, available_width: Unit) !void {
+pub fn beginMode(layout: *Layout, inner_block: BoxStyle.InnerBlock, used_sizes: BlockUsedSizes, available_width: Unit) !void {
     const ctx = &layout.stf_context;
-    try ctx.pushMainFlowObject(layout.allocator, used_sizes, available_width);
+    switch (inner_block) {
+        .flow => try ctx.pushMainFlowObject(layout.allocator, used_sizes, available_width),
+    }
 }
 
 pub fn endMode(layout: *Layout) !Result {
@@ -260,7 +262,7 @@ fn flowObject(layout: *Layout, element: Element, inner_block: BoxStyle.InnerBloc
     const parent = layout.stf_context.object.top.?;
     switch (inner_block) {
         .flow => {
-            const sizes = solveBlockSizes(&layout.computer, position, parent.height);
+            const sizes = flow.solveAllSizes(&layout.computer, position, .ShrinkToFit, parent.height);
             const stacking_context = flow.solveStackingContext(&layout.computer, position);
             layout.computer.commitElement(.box_gen);
 
@@ -270,7 +272,7 @@ fn flowObject(layout: *Layout, element: Element, inner_block: BoxStyle.InnerBloc
 
             if (sizes.get(.inline_size)) |inline_size| {
                 try layout.pushSubtree();
-                const ref = try layout.pushFlowBlock(sizes, stacking_context);
+                const ref = try layout.pushFlowBlock(.Normal, sizes, {}, stacking_context);
                 try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                 try layout.stf_context.appendFlowNormalObject(layout.allocator, ref, element, inline_size + edge_width);
                 try layout.pushElement();
@@ -284,7 +286,7 @@ fn flowObject(layout: *Layout, element: Element, inner_block: BoxStyle.InnerBloc
 }
 
 pub fn popFlowMode(layout: *Layout) void {
-    layout.popFlowBlock();
+    layout.popFlowBlock(.Normal, {});
     layout.popSubtree();
     layout.popElement();
 }
@@ -304,7 +306,7 @@ pub fn popInlineMode(layout: *Layout, result: @"inline".Result) void {
 pub fn nullElement(layout: *Layout) !void {
     const tree = layout.stf_context.tree.slice();
     const object_index = layout.stf_context.popFlowObject(tree);
-    if (layout.stf_context.main_object.top.?.depth == 0) return layout.popFlowStfMode();
+    if (layout.stf_context.main_object.top.?.depth == 0) return layout.popStfMode();
     popFlowObject(layout, tree, object_index);
 }
 
@@ -444,38 +446,4 @@ fn popFlowBlock(layout: *Layout, ctx: *RealizeObjectsContext, object_tree_slice:
         data.stacking_context_id,
         // data.absolute_containing_block_id,
     );
-}
-
-fn solveBlockSizes(
-    computer: *StyleComputer,
-    position: BoxTree.BoxStyle.Position,
-    containing_block_height: ?Unit,
-) BlockUsedSizes {
-    const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
-    const specified = BlockComputedSizes{
-        .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
-        .content_height = computer.getSpecifiedValue(.box_gen, .content_height),
-        .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
-        .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
-        .insets = computer.getSpecifiedValue(.box_gen, .insets),
-    };
-    var computed: BlockComputedSizes = undefined;
-    var used: BlockUsedSizes = undefined;
-
-    flow.solveWidthAndHorizontalMargins(.ShrinkToFit, specified, {}, &computed, &used);
-    flow.solveHorizontalBorderPadding(specified.horizontal_edges, 0, border_styles, &computed.horizontal_edges, &used);
-    flow.solveHeight(specified.content_height, containing_block_height, &computed.content_height, &used);
-    flow.solveVerticalEdges(specified.vertical_edges, 0, border_styles, &computed.vertical_edges, &used);
-
-    computed.insets = solve.insets(specified.insets);
-    flow.solveInsets(computed.insets, position, &used);
-
-    computer.setComputedValue(.box_gen, .content_width, computed.content_width);
-    computer.setComputedValue(.box_gen, .horizontal_edges, computed.horizontal_edges);
-    computer.setComputedValue(.box_gen, .content_height, computed.content_height);
-    computer.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
-    computer.setComputedValue(.box_gen, .insets, computed.insets);
-    computer.setComputedValue(.box_gen, .border_styles, border_styles);
-
-    return used;
 }

@@ -233,12 +233,12 @@ fn dispatch(
         .NonRoot => Mode,
     },
     analyze_result: AnalyzeResult,
-) Error!void {
+) !void {
     switch (analyze_result.box_style.outer) {
         .none => layout.advanceElement(),
         .block => |inner| switch (is_root) {
             .Root => try initial.blockElement(layout, analyze_result.element, inner, analyze_result.box_style.position),
-            .NonRoot => switch (mode) {
+            .NonRoot => sw: switch (mode) {
                 .flow => try flow.blockElement(layout, analyze_result.element, inner, analyze_result.box_style.position),
                 .flow_stf => try stf.blockElement(layout, analyze_result.element, inner, analyze_result.box_style.position),
                 .@"inline" => {
@@ -248,7 +248,7 @@ fn dispatch(
                             return dispatch(layout, .Root, {}, analyze_result);
                         };
                         assert(parent_mode != .@"inline");
-                        return dispatch(layout, .NonRoot, parent_mode, analyze_result);
+                        continue :sw parent_mode;
                     } else {
                         std.debug.panic("TODO: Block boxes within IFCs", .{});
                     }
@@ -256,21 +256,16 @@ fn dispatch(
             },
         },
         .@"inline" => |inner| {
-            if (is_root == .NonRoot and mode == .@"inline") {
-                return @"inline".inlineElement(layout, analyze_result.element, inner, analyze_result.box_style.position);
-            }
-
             switch (is_root) {
                 .Root => try initial.inlineElement(layout),
                 .NonRoot => switch (mode) {
                     .flow => try flow.inlineElement(layout),
                     .flow_stf => try stf.inlineElement(layout),
-                    .@"inline" => unreachable,
+                    .@"inline" => {},
                 },
             }
-
             assert(layout.stacks.mode.top.? == .@"inline");
-            return dispatch(layout, .NonRoot, .@"inline", analyze_result);
+            return @"inline".inlineElement(layout, analyze_result.element, inner, analyze_result.box_style.position);
         },
         .absolute => std.debug.panic("TODO: Absolute blocks", .{}),
     }
@@ -307,12 +302,15 @@ pub fn popFlowMode(layout: *Layout) void {
     }
 }
 
-pub fn pushFlowStfMode(layout: *Layout, sizes: BlockUsedSizes, available_width: math.Unit) !void {
-    try layout.stacks.mode.push(layout.allocator, .flow_stf);
-    try stf.beginFlowMode(layout, sizes, available_width);
+pub fn pushStfMode(layout: *Layout, inner_block: BoxTree.BoxStyle.InnerBlock, sizes: BlockUsedSizes, available_width: math.Unit) !void {
+    const mode: Mode = switch (inner_block) {
+        .flow => .flow_stf,
+    };
+    try layout.stacks.mode.push(layout.allocator, mode);
+    try stf.beginMode(layout, inner_block, sizes, available_width);
 }
 
-pub fn popFlowStfMode(layout: *Layout) !void {
+pub fn popStfMode(layout: *Layout) !void {
     assert(layout.stacks.mode.pop() == .flow_stf);
     const layout_result = try stf.endMode(layout);
 
@@ -320,7 +318,7 @@ pub fn popFlowStfMode(layout: *Layout) !void {
     switch (parent_mode) {
         .flow => unreachable,
         .flow_stf => unreachable,
-        .@"inline" => @"inline".popFlowStfMode(layout, layout_result),
+        .@"inline" => @"inline".popStfMode(layout, layout_result),
     }
 }
 
@@ -489,8 +487,13 @@ pub fn popInitialContainingBlock(layout: *Layout) void {
 
 pub fn pushFlowBlock(
     layout: *Layout,
+    comptime size_mode: SizeMode,
     // box_style: BoxTree.BoxStyle,
     sizes: BlockUsedSizes,
+    available_width: switch (size_mode) {
+        .Normal => void,
+        .ShrinkToFit => math.Unit,
+    },
     stacking_context: StackingContextTreeBuilder.Type,
 ) !BlockRef {
     const ref = try layout.pushBlock();
@@ -503,61 +506,37 @@ pub fn pushFlowBlock(
         // .absolute_containing_block_id = absolute_containing_block_id,
     });
     try layout.stacks.containing_block_size.push(layout.allocator, .{
-        .width = sizes.get(.inline_size).?,
+        .width = switch (size_mode) {
+            .Normal => sizes.get(.inline_size).?,
+            .ShrinkToFit => available_width,
+        },
         .height = sizes.get(.block_size),
     });
 
     return ref;
 }
 
-pub fn popFlowBlock(layout: *Layout) void {
-    layout.sct_builder.pop(layout.box_tree.ptr);
-    // layout.popAbsoluteContainingBlock();
-    const block = layout.popBlock();
-    const block_info = layout.stacks.block_info.pop();
-    _ = layout.stacks.containing_block_size.pop();
-
-    const subtree_id = layout.stacks.subtree.top.?.id;
-    const subtree = layout.box_tree.ptr.getSubtree(subtree_id).view();
-    const auto_height = flow.offsetChildBlocks(subtree, block.index, block.skip);
-    const width = block_info.sizes.get(.inline_size).?;
-    const height = flow.solveUsedHeight(block_info.sizes, auto_height);
-    setDataBlock(subtree, block.index, block_info.sizes, block.skip, width, height, block_info.stacking_context_id);
-}
-
-pub fn pushStfFlowMainBlock(
+pub fn popFlowBlock(
     layout: *Layout,
-    // box_style: BoxTree.BoxStyle,
-    sizes: BlockUsedSizes,
-    available_width: math.Unit,
-    stacking_context: StackingContextTreeBuilder.Type,
-) !BlockRef {
-    const ref = try layout.pushBlock();
-
-    const stacking_context_id = try layout.sct_builder.push(layout.allocator, stacking_context, layout.box_tree.ptr, ref);
-    // const absolute_containing_block_id = try layout.pushAbsoluteContainingBlock(box_style, ref);
-    try layout.stacks.block_info.push(layout.allocator, .{
-        .sizes = sizes,
-        .stacking_context_id = stacking_context_id,
-        // .absolute_containing_block_id = absolute_containing_block_id,
-    });
-    try layout.stacks.containing_block_size.push(layout.allocator, .{
-        .width = available_width,
-        .height = sizes.get(.block_size),
-    });
-    return ref;
-}
-
-pub fn popStfFlowMainBlock(layout: *Layout, auto_width: math.Unit) void {
+    comptime size_mode: SizeMode,
+    auto_width: switch (size_mode) {
+        .Normal => void,
+        .ShrinkToFit => math.Unit,
+    },
+) void {
     layout.sct_builder.pop(layout.box_tree.ptr);
     // layout.popAbsoluteContainingBlock();
     const block = layout.popBlock();
     const block_info = layout.stacks.block_info.pop();
     _ = layout.stacks.containing_block_size.pop();
 
-    const subtree = layout.box_tree.ptr.getSubtree(layout.stacks.subtree.top.?.id).view();
+    const subtree = layout.box_tree.ptr.getSubtree(layout.currentSubtree()).view();
     const auto_height = flow.offsetChildBlocks(subtree, block.index, block.skip);
-    const width = flow.solveUsedWidth(auto_width, block_info.sizes.min_inline_size, block_info.sizes.max_inline_size); // TODO This is probably redundant
+    const width = switch (size_mode) {
+        .Normal => block_info.sizes.get(.inline_size).?,
+        // TODO: The `solveUsedWidth` call may be redundant
+        .ShrinkToFit => flow.solveUsedWidth(auto_width, block_info.sizes.min_inline_size, block_info.sizes.max_inline_size),
+    };
     const height = flow.solveUsedHeight(block_info.sizes, auto_height);
     setDataBlock(subtree, block.index, block_info.sizes, block.skip, width, height, block_info.stacking_context_id);
 }
@@ -575,10 +554,6 @@ pub fn pushStfFlowBlock(
     });
     const stacking_context_id = try layout.sct_builder.pushWithoutBlock(layout.allocator, stacking_context, layout.box_tree.ptr);
     // const absolute_containing_block_id = try layout.pushAbsoluteContainingBlock(box_style, undefined);
-    // return .{
-    //     stacking_context_id,
-    //     absolute_containing_block_id,
-    // };
     return stacking_context_id;
 }
 

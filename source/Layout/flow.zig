@@ -64,7 +64,7 @@ pub fn blockElement(layout: *Layout, element: Element, inner_block: BoxStyle.Inn
 
     switch (inner_block) {
         .flow => {
-            const sizes = solveAllSizes(&layout.computer, position, containing_block_width, containing_block_height);
+            const sizes = solveAllSizes(&layout.computer, position, .{ .Normal = containing_block_width }, containing_block_height);
             const stacking_context = solveStackingContext(&layout.computer, position);
             layout.computer.commitElement(.box_gen);
 
@@ -97,21 +97,24 @@ fn pushBlock(
     stacking_context: SctBuilder.Type,
 ) !void {
     // The allocations here must have corresponding deallocations in popBlock.
-    const ref = try layout.pushFlowBlock(sizes, stacking_context);
+    const ref = try layout.pushFlowBlock(.Normal, sizes, {}, stacking_context);
     try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
     try layout.pushElement();
 }
 
 fn popBlock(layout: *Layout) void {
     // The deallocations here must correspond to allocations in pushBlock.
-    layout.popFlowBlock();
+    layout.popFlowBlock(.Normal, {});
     layout.popElement();
 }
 
 pub fn solveAllSizes(
     computer: *StyleComputer,
     position: BoxTree.BoxStyle.Position,
-    containing_block_width: Unit,
+    containing_block_width: union(Layout.SizeMode) {
+        Normal: Unit,
+        ShrinkToFit,
+    },
     containing_block_height: ?Unit,
 ) BlockUsedSizes {
     const border_styles = computer.getSpecifiedValue(.box_gen, .border_styles);
@@ -122,18 +125,31 @@ pub fn solveAllSizes(
         .vertical_edges = computer.getSpecifiedValue(.box_gen, .vertical_edges),
         .insets = computer.getSpecifiedValue(.box_gen, .insets),
     };
+    const percentage_base_unit = switch (containing_block_width) {
+        .Normal => |value| value,
+        .ShrinkToFit => 0,
+    };
 
     var computed_sizes: BlockComputedSizes = undefined;
     var sizes: BlockUsedSizes = undefined;
-    solveWidthAndHorizontalMargins(.Normal, specified_sizes, containing_block_width, &computed_sizes, &sizes);
-    solveHorizontalBorderPadding(specified_sizes.horizontal_edges, containing_block_width, border_styles, &computed_sizes.horizontal_edges, &sizes);
+    switch (containing_block_width) {
+        .Normal => solveWidthAndHorizontalMargins(.Normal, specified_sizes, percentage_base_unit, &computed_sizes, &sizes),
+        .ShrinkToFit => solveWidthAndHorizontalMargins(.ShrinkToFit, specified_sizes, {}, &computed_sizes, &sizes),
+    }
+    solveHorizontalBorderPadding(specified_sizes.horizontal_edges, percentage_base_unit, border_styles, &computed_sizes.horizontal_edges, &sizes);
     solveHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &sizes);
-    solveVerticalEdges(specified_sizes.vertical_edges, containing_block_width, border_styles, &computed_sizes.vertical_edges, &sizes);
-    adjustWidthAndMargins(&sizes, containing_block_width);
-    // TODO: Do this in adjustWidthAndMargins
-    sizes.setValue(.inline_size, solve.clampSize(sizes.get(.inline_size).?, sizes.min_inline_size, sizes.max_inline_size));
-    if (sizes.get(.block_size)) |block_size| {
-        sizes.setValue(.block_size, solve.clampSize(block_size, sizes.min_block_size, sizes.max_block_size));
+    solveVerticalEdges(specified_sizes.vertical_edges, percentage_base_unit, border_styles, &computed_sizes.vertical_edges, &sizes);
+    switch (containing_block_width) {
+        .Normal => {
+            adjustWidthAndMargins(&sizes, percentage_base_unit);
+            // TODO: Do this in adjustWidthAndMargins
+            sizes.setValue(.inline_size, solve.clampSize(sizes.get(.inline_size).?, sizes.min_inline_size, sizes.max_inline_size));
+            if (sizes.get(.block_size)) |block_size| {
+                // TODO: Do this unconditionally?
+                sizes.setValue(.block_size, solve.clampSize(block_size, sizes.min_block_size, sizes.max_block_size));
+            }
+        },
+        .ShrinkToFit => {},
     }
     computed_sizes.insets = solve.insets(specified_sizes.insets);
     solveInsets(computed_sizes.insets, position, &sizes);
@@ -150,7 +166,7 @@ pub fn solveAllSizes(
 
 /// Solves the following list of properties according to CSS2§10.2, CSS2§10.3.3, and CSS2§10.4.
 /// Properties: 'min-width', 'max-width', 'width', 'margin-left', 'margin-right'
-pub fn solveWidthAndHorizontalMargins(
+fn solveWidthAndHorizontalMargins(
     comptime size_mode: Layout.SizeMode,
     specified: BlockComputedSizes,
     containing_block_width: switch (size_mode) {
@@ -256,7 +272,7 @@ pub fn solveWidthAndHorizontalMargins(
     }
 }
 
-pub fn solveHorizontalBorderPadding(
+fn solveHorizontalBorderPadding(
     specified: aggregates.HorizontalEdges,
     containing_block_width: Unit,
     border_styles: aggregates.BorderStyles,
@@ -322,7 +338,7 @@ pub fn solveHorizontalBorderPadding(
     }
 }
 
-pub fn solveHeight(
+fn solveHeight(
     specified: aggregates.ContentHeight,
     containing_block_height: ?Unit,
     computed: *aggregates.ContentHeight,
@@ -384,7 +400,7 @@ pub fn solveHeight(
 }
 
 /// This is an implementation of CSS2§10.5 and CSS2§10.6.3.
-pub fn solveVerticalEdges(
+fn solveVerticalEdges(
     specified: aggregates.VerticalEdges,
     containing_block_width: Unit,
     border_styles: aggregates.BorderStyles,

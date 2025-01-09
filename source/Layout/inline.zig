@@ -188,7 +188,7 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
                 layout.computer.commitElement(.box_gen);
 
                 if (sizes.get(.inline_size)) |_| {
-                    const ref = try layout.pushFlowBlock(sizes, stacking_context);
+                    const ref = try layout.pushFlowBlock(.Normal, sizes, {}, stacking_context);
                     try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                     try ifcAddInlineBlock(layout.box_tree, ifc.ptr, ref.index);
                     try layout.pushElement();
@@ -200,11 +200,11 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
                         sizes.padding_inline_start + sizes.padding_inline_end);
                     const available_width = solve.clampSize(available_width_unclamped, sizes.min_inline_size, sizes.max_inline_size);
 
-                    const ref = try layout.pushStfFlowMainBlock(sizes, available_width, stacking_context);
+                    const ref = try layout.pushFlowBlock(.ShrinkToFit, sizes, available_width, stacking_context);
                     try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                     try ifcAddInlineBlock(layout.box_tree, ifc.ptr, ref.index);
                     try layout.pushElement();
-                    return layout.pushFlowStfMode(sizes, available_width);
+                    return layout.pushStfMode(.flow, sizes, available_width);
                 }
             },
         },
@@ -221,12 +221,12 @@ pub fn nullElement(layout: *Layout) !void {
 }
 
 pub fn popFlowMode(layout: *Layout) void {
-    layout.popFlowBlock();
+    layout.popFlowBlock(.Normal, {});
     layout.popElement();
 }
 
-pub fn popFlowStfMode(layout: *Layout, layout_result: stf.Result) void {
-    layout.popStfFlowMainBlock(layout_result.auto_width);
+pub fn popStfMode(layout: *Layout, layout_result: stf.Result) void {
+    layout.popFlowBlock(.ShrinkToFit, layout_result.auto_width);
     layout.popElement();
 }
 

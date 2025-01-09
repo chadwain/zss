@@ -21,11 +21,11 @@ pub fn endMode(layout: *Layout) void {
 pub fn blockElement(layout: *Layout, element: Element, inner_block: BoxTree.BoxStyle.InnerBlock, position: BoxTree.BoxStyle.Position) !void {
     switch (inner_block) {
         .flow => {
-            const sizes = flow.solveAllSizes(&layout.computer, position, layout.viewport.w, layout.viewport.h);
+            const sizes = flow.solveAllSizes(&layout.computer, position, .{ .Normal = layout.viewport.w }, layout.viewport.h);
             const stacking_context = rootFlowBlockSolveStackingContext(&layout.computer);
             layout.computer.commitElement(.box_gen);
 
-            const ref = try layout.pushFlowBlock(sizes, stacking_context);
+            const ref = try layout.pushFlowBlock(.Normal, sizes, {}, stacking_context);
             try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
             try layout.pushElement();
             return layout.pushFlowMode(.Root);
@@ -38,7 +38,7 @@ pub fn inlineElement(layout: *Layout) !void {
 }
 
 pub fn endFlowMode(layout: *Layout) void {
-    layout.popFlowBlock();
+    layout.popFlowBlock(.Normal, {});
     layout.popElement();
 }
 
