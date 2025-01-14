@@ -19,12 +19,12 @@ pub fn endMode(layout: *Layout) void {
 }
 
 pub fn blockElement(layout: *Layout, element: Element, inner_block: BoxTree.BoxStyle.InnerBlock, position: BoxTree.BoxStyle.Position) !void {
+    const sizes = flow.solveAllSizes(&layout.computer, position, .{ .Normal = layout.viewport.w }, layout.viewport.h);
+    const stacking_context = rootBlockSolveStackingContext(&layout.computer);
+    layout.computer.commitElement(.box_gen);
+
     switch (inner_block) {
         .flow => {
-            const sizes = flow.solveAllSizes(&layout.computer, position, .{ .Normal = layout.viewport.w }, layout.viewport.h);
-            const stacking_context = rootFlowBlockSolveStackingContext(&layout.computer);
-            layout.computer.commitElement(.box_gen);
-
             const ref = try layout.pushFlowBlock(.Normal, sizes, {}, stacking_context);
             try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
             try layout.pushElement();
@@ -37,12 +37,18 @@ pub fn inlineElement(layout: *Layout) !void {
     return layout.pushInlineMode(.Root, .Normal, .{ .width = layout.viewport.w, .height = layout.viewport.h });
 }
 
-pub fn endFlowMode(layout: *Layout) void {
+pub fn afterFlowMode(layout: *Layout) void {
     layout.popFlowBlock(.Normal, {});
     layout.popElement();
 }
 
-fn rootFlowBlockSolveStackingContext(computer: *StyleComputer) SctBuilder.Type {
+pub fn afterStfMode() noreturn {
+    unreachable;
+}
+
+pub fn afterInlineMode() void {}
+
+fn rootBlockSolveStackingContext(computer: *StyleComputer) SctBuilder.Type {
     const z_index = computer.getSpecifiedValue(.box_gen, .z_index);
     computer.setComputedValue(.box_gen, .z_index, z_index);
     // TODO: Use z-index?

@@ -211,6 +211,14 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
     }
 }
 
+pub fn blockElement(layout: *Layout) !void {
+    if (layout.inline_context.ifc.top.?.depth == 1) {
+        try layout.popInlineMode();
+    } else {
+        std.debug.panic("TODO: Block boxes within IFCs", .{});
+    }
+}
+
 pub fn nullElement(layout: *Layout) !void {
     const ctx = &layout.inline_context;
     const ifc = ctx.ifc.top.?;
@@ -220,12 +228,16 @@ pub fn nullElement(layout: *Layout) !void {
     ctx.accumulateSkip(skip);
 }
 
-pub fn popFlowMode(layout: *Layout) void {
+pub fn afterFlowMode(layout: *Layout) void {
     layout.popFlowBlock(.Normal, {});
     layout.popElement();
 }
 
-pub fn popStfMode(layout: *Layout, layout_result: stf.Result) void {
+pub fn afterInlineMode() noreturn {
+    unreachable;
+}
+
+pub fn afterStfMode(layout: *Layout, layout_result: stf.Result) void {
     layout.popFlowBlock(.ShrinkToFit, layout_result.auto_width);
     layout.popElement();
 }

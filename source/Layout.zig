@@ -138,12 +138,6 @@ pub fn deinit(layout: *Layout) void {
     layout.stacks.containing_block_size.deinit(layout.allocator);
 }
 
-const Mode = enum {
-    flow,
-    flow_stf,
-    @"inline",
-};
-
 pub fn run(layout: *Layout, allocator: Allocator) Error!BoxTree {
     const cast = math.pixelsToUnits;
     const width_units = cast(layout.inputs.width) orelse return error.ViewportTooLarge;
@@ -163,6 +157,12 @@ pub fn run(layout: *Layout, allocator: Allocator) Error!BoxTree {
     return box_tree;
 }
 
+const Mode = enum {
+    flow,
+    stf,
+    @"inline",
+};
+
 fn boxGeneration(layout: *Layout) !void {
     layout.computer.stage = .{ .box_gen = .{} };
     defer layout.computer.deinitStage(.box_gen);
@@ -179,7 +179,7 @@ fn boxGeneration(layout: *Layout) !void {
         const analyze_result = (try layout.analyzeElement(.NonRoot)) orelse {
             switch (mode) {
                 .flow => flow.nullElement(layout),
-                .flow_stf => try stf.nullElement(layout),
+                .stf => try stf.nullElement(layout),
                 .@"inline" => try @"inline".nullElement(layout),
             }
             continue;
@@ -240,7 +240,7 @@ fn dispatch(
             .Root => try initial.blockElement(layout, analyze_result.element, inner, analyze_result.box_style.position),
             .NonRoot => sw: switch (mode) {
                 .flow => try flow.blockElement(layout, analyze_result.element, inner, analyze_result.box_style.position),
-                .flow_stf => try stf.blockElement(layout, analyze_result.element, inner, analyze_result.box_style.position),
+                .stf => try stf.blockElement(layout, analyze_result.element, inner, analyze_result.box_style.position),
                 .@"inline" => {
                     if (layout.inline_context.ifc.top.?.depth == 1) {
                         try layout.popInlineMode();
@@ -260,7 +260,7 @@ fn dispatch(
                 .Root => try initial.inlineElement(layout),
                 .NonRoot => switch (mode) {
                     .flow => try flow.inlineElement(layout),
-                    .flow_stf => try stf.inlineElement(layout),
+                    .stf => try stf.inlineElement(layout),
                     .@"inline" => {},
                 },
             }
@@ -293,32 +293,31 @@ pub fn popFlowMode(layout: *Layout) void {
     flow.endMode(layout);
 
     const parent_mode = layout.stacks.mode.top orelse {
-        return initial.endFlowMode(layout);
+        return initial.afterFlowMode(layout);
     };
     switch (parent_mode) {
-        .flow => unreachable,
-        .flow_stf => stf.popFlowMode(layout),
-        .@"inline" => @"inline".popFlowMode(layout),
+        .flow => flow.afterFlowMode(),
+        .stf => stf.afterFlowMode(layout),
+        .@"inline" => @"inline".afterFlowMode(layout),
     }
 }
 
 pub fn pushStfMode(layout: *Layout, inner_block: BoxTree.BoxStyle.InnerBlock, sizes: BlockUsedSizes) !void {
-    const mode: Mode = switch (inner_block) {
-        .flow => .flow_stf,
-    };
-    try layout.stacks.mode.push(layout.allocator, mode);
+    try layout.stacks.mode.push(layout.allocator, .stf);
     try stf.beginMode(layout, inner_block, sizes);
 }
 
 pub fn popStfMode(layout: *Layout) !void {
-    assert(layout.stacks.mode.pop() == .flow_stf);
+    assert(layout.stacks.mode.pop() == .stf);
     const layout_result = try stf.endMode(layout);
 
-    const parent_mode = layout.stacks.mode.top orelse unreachable;
+    const parent_mode = layout.stacks.mode.top orelse {
+        return initial.afterStfMode();
+    };
     switch (parent_mode) {
-        .flow => unreachable,
-        .flow_stf => unreachable,
-        .@"inline" => @"inline".popStfMode(layout, layout_result),
+        .flow => flow.afterStfMode(),
+        .stf => stf.afterStfMode(),
+        .@"inline" => @"inline".afterStfMode(layout, layout_result),
     }
 }
 
@@ -334,11 +333,13 @@ pub fn popInlineMode(layout: *Layout) !void {
     assert(layout.stacks.mode.pop() == .@"inline");
     const result = try @"inline".endMode(layout);
 
-    const parent_mode = layout.stacks.mode.top orelse return;
+    const parent_mode = layout.stacks.mode.top orelse {
+        return initial.afterInlineMode();
+    };
     switch (parent_mode) {
-        .flow => {},
-        .flow_stf => stf.popInlineMode(layout, result),
-        .@"inline" => unreachable,
+        .flow => flow.afterInlineMode(),
+        .stf => stf.afterInlineMode(layout, result),
+        .@"inline" => @"inline".afterInlineMode(),
     }
 }
 
@@ -373,9 +374,10 @@ pub fn pushInitialSubtree(layout: *Layout) !void {
     layout.stacks.subtree.top = .{ .id = subtree.id, .depth = 0 };
 }
 
-pub fn pushSubtree(layout: *Layout) !void {
+pub fn pushSubtree(layout: *Layout) !Subtree.Id {
     const subtree = try layout.box_tree.newSubtree();
     try layout.stacks.subtree.push(layout.allocator, .{ .id = subtree.id, .depth = 0 });
+    return subtree.id;
 }
 
 pub fn popSubtree(layout: *Layout) void {
@@ -534,7 +536,6 @@ pub fn popFlowBlock(
     const auto_height = flow.offsetChildBlocks(subtree, block.index, block.skip);
     const width = switch (size_mode) {
         .Normal => block_info.sizes.get(.inline_size).?,
-        // TODO: The `solveUsedWidth` call may be redundant
         .ShrinkToFit => flow.solveUsedWidth(auto_width, block_info.sizes.min_inline_size, block_info.sizes.max_inline_size),
     };
     const height = flow.solveUsedHeight(block_info.sizes, auto_height);

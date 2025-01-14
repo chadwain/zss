@@ -82,6 +82,16 @@ pub fn nullElement(layout: *Layout) void {
     popBlock(layout);
 }
 
+pub fn afterFlowMode() noreturn {
+    unreachable;
+}
+
+pub fn afterInlineMode() void {}
+
+pub fn afterStfMode() noreturn {
+    unreachable;
+}
+
 fn pushMainBlock(layout: *Layout) void {
     layout.flow_context.pushFlowBlock();
 }
