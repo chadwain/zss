@@ -18,7 +18,7 @@ pub fn length(comptime unit: LengthUnit, value: f32) Unit {
 }
 
 pub fn positiveLength(comptime unit: LengthUnit, value: f32) Unit {
-    if (value < 0.0 or !std.math.isNormal(value)) return 0.0;
+    if (value < 0.0 or !std.math.isNormal(value)) return 0;
     return length(unit, value);
 }
 
@@ -27,7 +27,7 @@ pub fn percentage(value: f32, unit: Unit) Unit {
 }
 
 pub fn positivePercentage(value: f32, unit: Unit) Unit {
-    if (value < 0.0 or !std.math.isNormal(value)) return 0.0;
+    if (value < 0.0 or !std.math.isNormal(value)) return 0;
     return percentage(value, unit);
 }
 
@@ -70,13 +70,18 @@ pub fn color(col: types.Color, current_color: math.Color) math.Color {
     };
 }
 
-pub fn colorProperty(col: aggregates.Color) struct { aggregates.Color, math.Color } {
-    return switch (col.color) {
-        .rgba => |rgba| .{ col, math.Color.fromRgbaInt(rgba) },
-        .transparent => .{ col, .transparent },
-        .current_color => unreachable,
+pub fn colorProperty(specified: aggregates.Color) struct { aggregates.Color, math.Color } {
+    const computed = switch (specified.color) {
+        .rgba, .transparent, .current_color => specified,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
+    const used: math.Color = switch (computed.color) {
+        .rgba => |rgba| .fromRgbaInt(rgba),
+        .transparent => .transparent,
+        .current_color => std.debug.panic("TODO: 'currentColor' on the 'color' property", .{}),
+        .initial, .inherit, .unset, .undeclared => unreachable,
+    };
+    return .{ computed, used };
 }
 
 /// Implements the rules specified in section 9.7 of CSS2.2.

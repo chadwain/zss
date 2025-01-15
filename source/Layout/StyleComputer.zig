@@ -152,15 +152,6 @@ fn getSpecifiedValueForElement(
     assert(self.elementCategory(element) == .normal);
     var cascaded_value = cascaded_values.get(tag);
 
-    // CSS-COLOR-3§4.4: If the 'currentColor' keyword is set on the 'color' property itself, it is treated as 'color: inherit'.
-    if (tag == .color) {
-        if (cascaded_value) |*value| {
-            if (value.color == .current_color) {
-                value.color = .inherit;
-            }
-        }
-    }
-
     const inheritance_type = comptime tag.inheritanceType();
     const default: enum { inherit, initial } = default: {
         // Use the value of the 'all' property.
@@ -257,6 +248,14 @@ fn specifiedToComputed(comptime tag: aggregates.Tag, specified: tag.Value(), com
         .font => {
             // TODO: This is not the correct computed value for fonts.
             return specified;
+        },
+        .color => {
+            return .{
+                .color = switch (specified.color) {
+                    .rgba, .transparent, .current_color => specified.color,
+                    .initial, .inherit, .unset, .undeclared => unreachable,
+                },
+            };
         },
         else => std.debug.panic("TODO: specifiedToComputed for aggregate '{s}'", .{@tagName(tag)}),
     }
