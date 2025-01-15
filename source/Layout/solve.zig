@@ -64,14 +64,16 @@ pub fn borderWidthMultiplier(border_style: types.BorderStyle) f32 {
 pub fn color(col: types.Color, current_color: math.Color) math.Color {
     return switch (col) {
         .rgba => |rgba| math.Color.fromRgbaInt(rgba),
+        .transparent => .transparent,
         .current_color => current_color,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
 }
 
-pub fn currentColor(col: types.Color) math.Color {
-    return switch (col) {
-        .rgba => |rgba| math.Color.fromRgbaInt(rgba),
+pub fn colorProperty(col: aggregates.Color) struct { aggregates.Color, math.Color } {
+    return switch (col.color) {
+        .rgba => |rgba| .{ col, math.Color.fromRgbaInt(rgba) },
+        .transparent => .{ col, .transparent },
         .current_color => unreachable,
         .initial, .inherit, .unset, .undeclared => unreachable,
     };

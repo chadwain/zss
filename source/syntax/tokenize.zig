@@ -56,8 +56,8 @@ pub const Source = struct {
         return IdentSequenceIterator{ .location = start };
     }
 
-    /// Asserts that `start` is the location of the start of a hash id token.
-    pub fn hashIdTokenIterator(source: Source, start: Location) IdentSequenceIterator {
+    /// Asserts that `start` is the location of the start of a hash token.
+    pub fn hashTokenIterator(source: Source, start: Location) IdentSequenceIterator {
         const hash = nextCodepoint(source, start) catch unreachable;
         assert(hash.codepoint == '#');
         return identTokenIterator(source, hash.next_location);
@@ -103,12 +103,19 @@ pub const Source = struct {
         return copyTokenGeneric(source, &iterator, allocator);
     }
 
+    /// Given that `location` is the location of a <hash-token>, copy that hash's identifier
+    pub fn copyHash(source: Source, location: Location, allocator: Allocator) ![]const u8 {
+        var iterator = hashTokenIterator(source, location);
+        return copyTokenGeneric(source, &iterator, allocator);
+    }
+
     /// Given that `location` is the location of a <url-token>, copy that URL
     pub fn copyUrl(source: Source, location: Location, allocator: Allocator) ![]const u8 {
         var iterator = urlTokenIterator(source, location);
         return copyTokenGeneric(source, &iterator, allocator);
     }
 
+    // TODO: Provide the option to use a buffer instead of a heap allocation
     fn copyTokenGeneric(source: Source, iterator: anytype, allocator: Allocator) ![]const u8 {
         var list = std.ArrayListUnmanaged(u8){};
         defer list.deinit(allocator);
@@ -503,13 +510,13 @@ fn consumeEscapedCodepoint(source: Source, first_escaped: NextCodepoint) !NextCo
     var location = first_escaped.next_location;
     const codepoint = switch (first_escaped.codepoint) {
         '0'...'9', 'A'...'F', 'a'...'f' => blk: {
-            var result: u21 = hexDigitToNumber(first_escaped.codepoint);
+            var result: u21 = hexDigitToNumber(first_escaped.codepoint) catch unreachable;
             var count: u3 = 0;
             while (count < 5) : (count += 1) {
                 const next = try nextCodepoint(source, location);
                 switch (next.codepoint) {
                     '0'...'9', 'A'...'F', 'a'...'f' => {
-                        result = result *| 16 +| hexDigitToNumber(next.codepoint);
+                        result = result *| 16 +| (hexDigitToNumber(next.codepoint) catch unreachable);
                         location = next.next_location;
                     },
                     else => break,

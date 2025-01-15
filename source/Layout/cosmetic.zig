@@ -66,13 +66,6 @@ pub fn run(layout: *Layout) !void {
                 try blockBoxCosmeticLayout(layout, context, ref, .Root);
                 layout.computer.commitElement(.cosmetic);
 
-                // TODO: Temporary jank to set the text color.
-                const computed_color = layout.computer.stage.cosmetic.current_computed.color.?;
-                const used_color = solve.currentColor(computed_color.color);
-                for (layout.box_tree.ptr.ifcs.items) |ifc| {
-                    ifc.font_color = used_color;
-                }
-
                 if (!layout.computer.element_tree_slice.firstChild(root_element).eqlNull()) {
                     const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
                     const box_offsets = subtree.items(.box_offsets)[ref.index];
@@ -157,7 +150,14 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comp
     const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
 
     const computed_box_style, _ = solve.boxStyle(specified.box_style, is_root);
-    const current_color = solve.currentColor(specified.color.color);
+    const computed_color, const used_color = solve.colorProperty(specified.color);
+
+    // TODO: Temporary jank to set the text color for IFCs.
+    if (is_root == .Root) {
+        for (layout.box_tree.ptr.ifcs.items) |ifc| {
+            ifc.font_color = used_color;
+        }
+    }
 
     var computed_insets: aggregates.Insets = undefined;
     {
@@ -178,7 +178,7 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comp
 
     {
         const border_colors_ptr = &subtree.items(.border_colors)[ref.index];
-        border_colors_ptr.* = solve.borderColors(specified.border_colors, current_color);
+        border_colors_ptr.* = solve.borderColors(specified.border_colors, used_color);
     }
 
     solve.borderStyles(specified.border_styles);
@@ -190,7 +190,7 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comp
             layout.inputs,
             box_offsets_ptr,
             borders_ptr,
-            current_color,
+            used_color,
             .{ .background1 = &specified.background1, .background2 = &specified.background2 },
             background_ptr,
         );
@@ -198,8 +198,8 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comp
 
     layout.computer.setComputedValue(.cosmetic, .box_style, computed_box_style);
     layout.computer.setComputedValue(.cosmetic, .insets, computed_insets);
+    layout.computer.setComputedValue(.cosmetic, .color, computed_color);
     // TODO: Pretending that specified values are computed values...
-    layout.computer.setComputedValue(.cosmetic, .color, specified.color);
     layout.computer.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
     layout.computer.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
     layout.computer.setComputedValue(.cosmetic, .background1, specified.background1);
@@ -433,9 +433,9 @@ fn inlineBoxCosmeticLayout(
         }
     }
 
-    const current_color = solve.currentColor(specified.color.color);
+    const computed_color, const used_color = solve.colorProperty(specified.color);
 
-    const border_colors = solve.borderColors(specified.border_colors, current_color);
+    const border_colors = solve.borderColors(specified.border_colors, used_color);
     ifc_slice.items(.inline_start)[inline_box_index].border_color = border_colors.left;
     ifc_slice.items(.inline_end)[inline_box_index].border_color = border_colors.right;
     ifc_slice.items(.block_start)[inline_box_index].border_color = border_colors.top;
@@ -454,13 +454,13 @@ fn inlineBoxCosmeticLayout(
             else => |tag| tag,
         };
         const background_ptr = &ifc_slice.items(.background)[inline_box_index];
-        background_ptr.* = solve.inlineBoxBackground(specified.background1.color, background_clip, current_color);
+        background_ptr.* = solve.inlineBoxBackground(specified.background1.color, background_clip, used_color);
     }
 
     layout.computer.setComputedValue(.cosmetic, .box_style, computed_box_style);
     layout.computer.setComputedValue(.cosmetic, .insets, computed_insets);
+    layout.computer.setComputedValue(.cosmetic, .color, computed_color);
     // TODO: Pretending that specified values are computed values...
-    layout.computer.setComputedValue(.cosmetic, .color, specified.color);
     layout.computer.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
     layout.computer.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
     layout.computer.setComputedValue(.cosmetic, .background1, specified.background1);

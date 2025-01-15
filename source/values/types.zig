@@ -219,12 +219,12 @@ pub const BorderStyle = enum {
 pub const Color = union(enum) {
     rgba: u32,
     current_color,
+    transparent,
     initial,
     inherit,
     unset,
     undeclared,
 
-    pub const transparent = Color{ .rgba = 0 };
     pub const black = Color{ .rgba = 0xff };
 };
 

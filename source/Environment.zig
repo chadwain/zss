@@ -86,7 +86,7 @@ comptime {
 }
 
 pub fn addIdName(env: *Environment, hash_id: TokenSource.Location, source: TokenSource) !IdId {
-    const index = try env.id_or_class_names.getOrPutFromSource(env.allocator, source, source.hashIdTokenIterator(hash_id));
+    const index = try env.id_or_class_names.getOrPutFromSource(env.allocator, source, source.hashTokenIterator(hash_id));
     return @enumFromInt(@as(IdId.Value, @intCast(index)));
 }
 

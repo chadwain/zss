@@ -214,6 +214,7 @@ pub const Color = struct {
     color: types.Color = .undeclared,
 
     pub const initial_values = Color{
+        // TODO: According to CSS Color Level 4, the initial value is 'CanvasText'.
         .color = types.Color.black,
     };
 };

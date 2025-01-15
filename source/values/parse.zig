@@ -26,6 +26,7 @@ pub const Source = struct {
         integer: i32,
         percentage: f32,
         dimension: Dimension,
+        hash: Allocator.Error![]const u8,
         function,
         url: Allocator.Error!?[]const u8,
 
@@ -52,6 +53,7 @@ pub const Source = struct {
             .token_integer => .integer,
             .token_percentage => .percentage,
             .token_dimension => .dimension,
+            .token_hash_id, .token_hash_unrestricted => .hash,
             .token_url => .url,
             .function => blk: {
                 const location = source.ast.location(index);
@@ -95,6 +97,10 @@ pub const Source = struct {
                 const number = source.ast.extra(index).number();
                 const unit = source.ast.extra(unit_index).unit();
                 return Value.Dimension{ .number = number, .unit = unit };
+            },
+            .hash => {
+                const location = source.ast.location(index);
+                return try source.token_source.copyHash(location, source.arena);
             },
             .function => @compileError("TODO: Function values"),
             .url => {
@@ -148,6 +154,7 @@ pub fn typeToParseFn(comptime Type: type) switch (Type) {
     types.BackgroundClip => @TypeOf(backgroundClip),
     types.BackgroundOrigin => @TypeOf(backgroundOrigin),
     types.BackgroundSize => @TypeOf(backgroundSize),
+    types.Color => @TypeOf(color),
     else => @compileError("Unknown CSS value type: " ++ @typeName(Type)),
 } {
     return switch (Type) {
@@ -166,6 +173,7 @@ pub fn typeToParseFn(comptime Type: type) switch (Type) {
         types.BackgroundClip => backgroundClip,
         types.BackgroundOrigin => backgroundOrigin,
         types.BackgroundSize => backgroundSize,
+        types.Color => color,
         else => @compileError("Unknown CSS value type: " ++ @typeName(Type)),
     };
 }
@@ -346,6 +354,10 @@ test "css value parsing" {
     try testParsing(types.BackgroundSize, "auto auto", .{ .size = .{ .width = .auto, .height = .auto } }, true);
     try testParsing(types.BackgroundSize, "5px", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .px = 5 } } }, true);
     try testParsing(types.BackgroundSize, "5px 5%", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .percentage = 5 } } }, true);
+
+    try testParsing(types.Color, "currentColor", .current_color, true);
+    try testParsing(types.Color, "transparent", .transparent, true);
+    try testParsing(types.Color, "#abc", .{ .rgba = 0xaabbcc00 }, true);
 }
 
 pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const TokenSource.KV(Type)) !Type {
@@ -819,4 +831,47 @@ fn backgroundSizeOne(item: Source.Item, source: *Source) !types.BackgroundSize.S
         }) orelse error.ParseError,
         else => return error.ParseError,
     }
+}
+
+/// Spec: CSS Color Level 4
+/// Syntax: <color> = <color-base> | currentColor | <system-color>
+///         <color-base> = <hex-color> | <color-function> | <named-color> | transparent
+fn color(source: *Source) !types.Color {
+    // TODO: Named colors, system colors, color functions
+    const item = source.next() orelse return error.ParseError;
+    errdefer source.sequence.reset(item.index);
+
+    switch (item.type) {
+        .keyword => {
+            if (source.mapKeyword(item.index, types.Color, &.{
+                .{ "currentColor", .current_color },
+                .{ "transparent", .transparent },
+            })) |value| {
+                return value;
+            }
+        },
+        .hash => {
+            const hash = try source.value(.hash, item.index);
+            switch (hash.len) {
+                3 => {
+                    const rgba = blk: {
+                        var result: u32 = 0;
+                        for (hash, 0..) |codepoint, i| {
+                            const digit: u32 = zss.unicode.hexDigitToNumber(codepoint) catch return error.ParseError;
+                            const digit_duped = digit | (digit << 4);
+                            result |= (digit_duped << @intCast((3 - i) * 8));
+                        }
+                        break :blk result;
+                    };
+                    return .{ .rgba = rgba };
+                },
+                // TODO: 4, 6, and 8 color hex values
+                4, 6, 8 => {},
+                else => return error.ParseError,
+            }
+        },
+        else => {},
+    }
+
+    return error.ParseError;
 }
