@@ -182,7 +182,7 @@ fn createTest(
         const slice = ast.slice();
         assert(slice.tag(0) == .zml_document);
         var seq = slice.children(0);
-        if (seq.next(slice)) |zml_element| {
+        if (seq.nextSkipSpaces(slice)) |zml_element| {
             break :blk try zss.zml.astToElement(&t.element_tree, &t.env, slice, zml_element, token_source, allocator);
         } else {
             break :blk Element.null_element;

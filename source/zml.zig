@@ -48,7 +48,7 @@ pub fn astToElement(
         };
     }
     while (stack.top) |*top| {
-        const ast_index = top.sequence.next(ast) orelse {
+        const ast_index = top.sequence.nextSkipSpaces(ast) orelse {
             _ = stack.pop();
             continue;
         };
@@ -105,12 +105,12 @@ fn parseElement(
 
     var element_children = ast.children(zml_element);
 
-    const features = element_children.next(ast).?;
+    const features = element_children.nextSkipSpaces(ast).?;
     assert(ast.tag(features) == .zml_features);
 
     {
         var features_children = ast.children(features);
-        while (features_children.next(ast)) |index| {
+        while (features_children.nextSkipSpaces(ast)) |index| {
             switch (ast.tag(index)) {
                 .zml_type => {
                     const type_name = try env.addTypeOrAttributeName(ast.location(index), token_source);
@@ -124,7 +124,7 @@ fn parseElement(
         }
     }
 
-    const style_block = element_children.next(ast).?;
+    const style_block = element_children.nextSkipSpaces(ast).?;
     const has_style_block = (ast.tag(style_block) == .zml_styles);
     if (has_style_block) {
         _ = cascade_arena.reset(.retain_capacity);
@@ -133,7 +133,7 @@ fn parseElement(
     }
 
     const children = if (has_style_block)
-        element_children.next(ast).?
+        element_children.nextSkipSpaces(ast).?
     else
         style_block;
     assert(ast.tag(children) == .zml_children);

@@ -184,8 +184,8 @@ pub const Component = struct {
     /// Components that represent constructs from zml begin with `zml_`.
     /// This enum is derived from `Token`.
     ///
-    /// Unless otherwise specified, whitespace (`token_whitespace`) and comments (`token_comments`) may appear
-    /// at any position within a sequence of components.
+    /// Whitespace (`token_whitespace`) and comments (`token_comments`) are collectively referred to as "space components".
+    /// Unless otherwise specified, space components may appear at any position within a sequence of components.
     /// For example, "a sequence of `token_ident`" is really "a sequence of `token_ident`, `token_whitespace`, and `token_comments`".
     pub const Tag = enum {
         ///        note: This component never appears within the Ast
@@ -362,23 +362,46 @@ pub const Ast = struct {
             return (sequence.start == sequence.end);
         }
 
-        /// Returns the next component in the sequence, skipping over whitespace and comment components.
-        pub fn next(sequence: *Sequence, s: Slice) ?Ast.Size {
+        /// Returns the next component in the sequence.
+        pub fn nextKeepSpaces(sequence: *Sequence, s: Slice) ?Ast.Size {
             if (sequence.empty()) return null;
-            const result = sequence.start;
+            assert(sequence.start < sequence.end);
+
+            defer sequence.start = s.nextSibling(sequence.start);
+            return sequence.start;
+        }
+
+        /// Returns the next component in the sequence, skipping over space components.
+        pub fn nextSkipSpaces(sequence: *Sequence, s: Slice) ?Ast.Size {
+            if (sequence.empty()) return null;
+            assert(sequence.start < sequence.end);
+
             var current = s.nextSibling(sequence.start);
-            while (current != sequence.end) {
+            defer sequence.start = while (current != sequence.end) {
+                assert(current < sequence.end);
                 switch (s.tag(current)) {
                     .token_whitespace, .token_comments => current = s.nextSibling(current),
-                    else => break,
+                    else => break current,
                 }
-            }
-            sequence.start = current;
-            return result;
+            } else sequence.end;
+            return sequence.start;
         }
 
         /// Returns the next component in a declaration's value.
-        pub const nextDeclComponent = next;
+        pub const nextDeclComponent = nextSkipSpaces;
+
+        /// Returns true if any space components were encountered.
+        pub fn skipSpaces(sequence: *Sequence, s: Slice) bool {
+            const initial_index = sequence.start;
+            while (sequence.start != sequence.end) {
+                assert(sequence.start < sequence.end);
+                switch (s.tag(sequence.start)) {
+                    .token_whitespace, .token_comments => sequence.start = s.nextSibling(sequence.start),
+                    else => break,
+                }
+            }
+            return sequence.start != initial_index;
+        }
 
         /// Returns to a previously visited point in the sequence.
         /// `index` must be a value that was previously returned from one of the `next*` functions.
@@ -432,6 +455,7 @@ pub const Ast = struct {
         }
 
         /// Returns the sequence of the immediate children of `index`
+        // TODO: Change the name to reflect that this skips leading space components
         pub fn children(self: Slice, index: Ast.Size) Sequence {
             var current = index + 1;
             const end = self.nextSibling(index);

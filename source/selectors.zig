@@ -291,14 +291,12 @@ pub fn parseSelectorList(
     arena: *ArenaAllocator,
     source: TokenSource,
     slice: Ast.Slice,
-    start: Ast.Size,
-    end: Ast.Size,
-) !?ComplexSelectorList {
-    var parse_context = parse.Context.init(env, arena, source, slice, end);
-    const iterator = parse.Iterator.init(start);
-    const selector_list = (try parse.complexSelectorList(&parse_context, iterator)) orelse return null;
-    if (parse_context.finishParsing(selector_list[1])) {
-        return selector_list[0];
+    sequence: Ast.Sequence,
+) parse.Parser.Error!?ComplexSelectorList {
+    var parser = parse.Parser.init(env, arena, source, slice, sequence);
+    const selector_list = try parse.parseComplexSelectorList(&parser);
+    if (parser.sequence.empty()) {
+        return selector_list;
     } else {
         // selector_list[0].deinit(arena.allocator);
         return null;
@@ -376,11 +374,13 @@ fn stringToSelectorList(input: []const u8, env: *Environment, arena: *ArenaAlloc
     var tree = try zss.syntax.parse.parseListOfComponentValues(source, env.allocator);
     defer tree.deinit(env.allocator);
     const slice = tree.slice();
-    std.debug.assert(slice.tag(0) == .component_list);
-    const start: Ast.Size = 0 + 1;
-    const end: Ast.Size = slice.nextSibling(0);
 
-    return parseSelectorList(env, arena, source, slice, start, end);
+    const component_list: Ast.Size = 0;
+    assert(slice.tag(component_list) == .component_list);
+    const start = component_list + 1;
+    const end = slice.nextSibling(component_list);
+
+    return try parseSelectorList(env, arena, source, slice, Ast.Sequence{ .start = start, .end = end });
 }
 
 fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpected) !void {

@@ -92,7 +92,7 @@ pub const Source = struct {
             .percentage => return source.ast.extra(index).number(),
             .dimension => {
                 var children = source.ast.children(index);
-                const unit_index = children.next(source.ast).?;
+                const unit_index = children.nextSkipSpaces(source.ast).?;
 
                 const number = source.ast.extra(index).number();
                 const unit = source.ast.extra(unit_index).unit();
@@ -111,7 +111,7 @@ pub const Source = struct {
                     },
                     .function => {
                         var function_value = source.ast.children(index);
-                        const string = function_value.next(source.ast) orelse return null;
+                        const string = function_value.nextSkipSpaces(source.ast) orelse return null;
 
                         if (source.ast.tag(string) != .token_string) return null;
                         // NOTE: No URL modifiers are supported

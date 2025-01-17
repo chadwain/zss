@@ -27,6 +27,8 @@ const Slice = struct {
     len: u32,
 };
 
+pub const Error = Allocator.Error || error{Overflow};
+
 pub fn deinit(set: *IdentifierSet, allocator: Allocator) void {
     set.map.deinit(allocator);
     set.string_data.deinit(allocator);
