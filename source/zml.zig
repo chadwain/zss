@@ -128,7 +128,7 @@ fn parseElement(
     const has_style_block = (ast.tag(style_block) == .zml_styles);
     if (has_style_block) {
         _ = cascade_arena.reset(.retain_capacity);
-        const last_declaration = ast.extra(style_block).index();
+        const last_declaration = ast.extra(style_block).index;
         try applyStyleBlockDeclarations(element_tree, element, ast, last_declaration, token_source, cascade_arena);
     }
 

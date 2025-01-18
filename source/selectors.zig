@@ -9,7 +9,7 @@ const NamespaceId = Environment.NamespaceId;
 const NameId = Environment.NameId;
 const TokenSource = zss.syntax.TokenSource;
 
-const parse = @import("selectors/parse.zig");
+const Parser = @import("selectors/parse.zig").Parser;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -292,15 +292,9 @@ pub fn parseSelectorList(
     source: TokenSource,
     slice: Ast.Slice,
     sequence: Ast.Sequence,
-) parse.Parser.Error!?ComplexSelectorList {
-    var parser = parse.Parser.init(env, arena, source, slice, sequence);
-    const selector_list = try parse.parseComplexSelectorList(&parser);
-    if (parser.sequence.empty()) {
-        return selector_list;
-    } else {
-        // selector_list[0].deinit(arena.allocator);
-        return null;
-    }
+) Parser.Error!ComplexSelectorList {
+    var parser = Parser.init(env, arena, source, slice, sequence);
+    return try parser.parseComplexSelectorList();
 }
 
 const TestParseSelectorListExpected = []const struct {
@@ -369,7 +363,7 @@ fn expectEqualComplexSelectorLists(a: TestParseSelectorListExpected, b: []const 
     }
 }
 
-fn stringToSelectorList(input: []const u8, env: *Environment, arena: *ArenaAllocator) !?ComplexSelectorList {
+fn stringToSelectorList(input: []const u8, env: *Environment, arena: *ArenaAllocator) !ComplexSelectorList {
     const source = try TokenSource.init(input);
     var tree = try zss.syntax.parse.parseListOfComponentValues(source, env.allocator);
     defer tree.deinit(env.allocator);
@@ -389,7 +383,7 @@ fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpec
     defer env.deinit();
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const selector_list = (try stringToSelectorList(input, &env, &arena)) orelse return error.TestFailure;
+    const selector_list = try stringToSelectorList(input, &env, &arena);
     // defer selector_list.deinit(allocator);
     try expectEqualComplexSelectorLists(expected, selector_list.list);
 }
@@ -488,7 +482,10 @@ test "complex selector matching" {
 
     const doTest = struct {
         fn f(selector_string: []const u8, en: *Environment, ar: *ArenaAllocator, s: ElementTree.Slice, e: ElementTree.Element) !bool {
-            var selector = (try stringToSelectorList(selector_string, en, ar)) orelse return false;
+            var selector = stringToSelectorList(selector_string, en, ar) catch |err| switch (err) {
+                error.ParseError => return false,
+                else => |er| return er,
+            };
             // defer selector.deinit(allocator);
             return (selector.matchElement(s, e) != null);
         }

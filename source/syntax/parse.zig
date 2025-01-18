@@ -33,16 +33,16 @@ pub const AstManaged = struct {
     }
 
     pub fn addBasicComponent(ast: AstManaged, tag: Component.Tag, location: TokenSource.Location) !Ast.Size {
-        return ast.addBasicComponentExtra(tag, location, 0);
+        return ast.addBasicComponentExtra(tag, location, .undef);
     }
 
-    pub fn addBasicComponentExtra(ast: AstManaged, tag: Component.Tag, location: TokenSource.Location, extra: u32) !Ast.Size {
+    pub fn addBasicComponentExtra(ast: AstManaged, tag: Component.Tag, location: TokenSource.Location, extra: Extra) !Ast.Size {
         const next_sibling = try std.math.add(Ast.Size, 1, ast.len());
         return ast.createComponent(.{
             .next_sibling = next_sibling,
             .tag = tag,
             .location = location,
-            .extra = Component.Extra.make(extra),
+            .extra = extra,
         });
     }
 
@@ -56,22 +56,22 @@ pub const AstManaged = struct {
     }
 
     pub fn finishComplexComponent(ast: AstManaged, component_index: Ast.Size) void {
-        ast.finishComplexComponentExtra(component_index, 0);
+        ast.finishComplexComponentExtra(component_index, .undef);
     }
 
-    pub fn finishComplexComponentExtra(ast: AstManaged, component_index: Ast.Size, extra: u32) void {
+    pub fn finishComplexComponentExtra(ast: AstManaged, component_index: Ast.Size, extra: Extra) void {
         const next_sibling: Ast.Size = ast.len();
         ast.unmanaged.components.items(.next_sibling)[component_index] = next_sibling;
-        ast.unmanaged.components.items(.extra)[component_index] = Component.Extra.make(extra);
+        ast.unmanaged.components.items(.extra)[component_index] = extra;
     }
 
     pub fn addToken(ast: AstManaged, token: Token, location: TokenSource.Location) !Ast.Size {
         // zig fmt: off
         switch (token) {
-            .token_delim      => |codepoint| return ast.addBasicComponentExtra(.token_delim,      location, codepoint),
-            .token_integer    =>   |integer| return ast.addBasicComponentExtra(.token_integer,    location, @bitCast(integer)),
-            .token_number     =>    |number| return ast.addBasicComponentExtra(.token_number,     location, @bitCast(number)),
-            .token_percentage =>    |number| return ast.addBasicComponentExtra(.token_percentage, location, @bitCast(number)),
+            .token_delim      => |codepoint| return ast.addBasicComponentExtra(.token_delim,      location, .{ .codepoint = codepoint }),
+            .token_integer    =>   |integer| return ast.addBasicComponentExtra(.token_integer,    location, .{ .integer = integer }),
+            .token_number     =>    |number| return ast.addBasicComponentExtra(.token_number,     location, .{ .number = number }),
+            .token_percentage =>    |number| return ast.addBasicComponentExtra(.token_percentage, location, .{ .number = number }),
             .token_dimension  => |dimension| return ast.addDimension(location, dimension),
             else              =>             return ast.addBasicComponent(token.cast(Component.Tag), location),
         }
@@ -84,34 +84,34 @@ pub const AstManaged = struct {
             .next_sibling = next_sibling,
             .tag = .token_dimension,
             .location = location,
-            .extra = Component.Extra.make(@bitCast(dimension.number)),
+            .extra = .{ .number = dimension.number },
         });
         _ = try ast.createComponent(.{
             .next_sibling = next_sibling,
             .tag = .unit,
             .location = dimension.unit_location,
-            .extra = Component.Extra.make(@intFromEnum(dimension.unit)),
+            .extra = .{ .unit = dimension.unit },
         });
         return dimension_index;
     }
 
-    pub fn addAttribute(ast: AstManaged, main_location: TokenSource.Location, name_location: TokenSource.Location) !void {
+    pub fn addZmlAttribute(ast: AstManaged, main_location: TokenSource.Location, name_location: TokenSource.Location) !void {
         const next_sibling = try std.math.add(Ast.Size, 2, ast.len());
         _ = try ast.createComponent(.{
             .next_sibling = next_sibling,
             .tag = .zml_attribute,
             .location = main_location,
-            .extra = Component.Extra.make(0),
+            .extra = .undef,
         });
         _ = try ast.createComponent(.{
             .next_sibling = next_sibling,
             .tag = .token_ident,
             .location = name_location,
-            .extra = Component.Extra.make(0),
+            .extra = .undef,
         });
     }
 
-    pub fn addAttributeWithValue(
+    pub fn addZmlAttributeWithValue(
         ast: AstManaged,
         main_location: TokenSource.Location,
         name_location: TokenSource.Location,
@@ -123,26 +123,26 @@ pub const AstManaged = struct {
             .next_sibling = next_sibling,
             .tag = .zml_attribute,
             .location = main_location,
-            .extra = Component.Extra.make(0),
+            .extra = .undef,
         });
         _ = try ast.createComponent(.{
             .next_sibling = next_sibling - 1,
             .tag = .token_ident,
             .location = name_location,
-            .extra = Component.Extra.make(0),
+            .extra = .undef,
         });
         _ = try ast.createComponent(.{
             .next_sibling = next_sibling,
             .tag = value_tag,
             .location = value_location,
-            .extra = Component.Extra.make(0),
+            .extra = .undef,
         });
     }
 
     pub fn finishInlineStyleBlock(ast: AstManaged, style_block_index: Ast.Size, last_declaration: Ast.Size) void {
         const next_sibling: Ast.Size = ast.len();
         ast.unmanaged.components.items(.next_sibling)[style_block_index] = next_sibling;
-        ast.unmanaged.components.items(.extra)[style_block_index] = Component.Extra.make(last_declaration);
+        ast.unmanaged.components.items(.extra)[style_block_index] = .{ .index = last_declaration };
     }
 
     pub fn addDeclaration(ast: AstManaged, main_location: TokenSource.Location, previous_declaration: ?Ast.Size) !Ast.Size {
@@ -150,7 +150,7 @@ pub const AstManaged = struct {
             .next_sibling = undefined,
             .tag = undefined,
             .location = main_location,
-            .extra = Component.Extra.make(previous_declaration orelse 0),
+            .extra = .{ .index = previous_declaration orelse 0 },
         });
     }
 
@@ -161,7 +161,7 @@ pub const AstManaged = struct {
             const exclamation = last_3.components[1];
             const important_string = last_3.components[2];
             break :blk components.items(.tag)[exclamation] == .token_delim and
-                components.items(.extra)[exclamation].codepoint() == '!' and
+                components.items(.extra)[exclamation].codepoint == '!' and
                 components.items(.tag)[important_string] == .token_ident and
                 token_source.identifierEqlIgnoreCase(components.items(.location)[important_string], "important");
         };
@@ -345,7 +345,7 @@ const Parser = struct {
 
     fn popAtRule(parser: *Parser, ast: AstManaged) void {
         const frame = parser.stack.pop();
-        ast.finishComplexComponentExtra(frame.index, frame.data.at_rule.index_of_block orelse 0);
+        ast.finishComplexComponentExtra(frame.index, .{ .index = frame.data.at_rule.index_of_block orelse 0 });
     }
 
     /// `location` must be the location of the first token of the qualified rule.
@@ -357,7 +357,7 @@ const Parser = struct {
 
     fn popQualifiedRule(parser: *Parser, ast: AstManaged) void {
         const frame = parser.stack.pop();
-        ast.finishComplexComponentExtra(frame.index, frame.data.qualified_rule.index_of_block.?);
+        ast.finishComplexComponentExtra(frame.index, .{ .index = frame.data.qualified_rule.index_of_block.? });
     }
 
     fn discardQualifiedRule(parser: *Parser, ast: AstManaged) void {
@@ -375,7 +375,7 @@ const Parser = struct {
 
     fn popStyleBlock(parser: *Parser, ast: AstManaged) void {
         const frame = parser.stack.pop();
-        ast.finishComplexComponentExtra(frame.index, frame.data.style_block.index_of_last_declaration);
+        ast.finishComplexComponentExtra(frame.index, .{ .index = frame.data.style_block.index_of_last_declaration });
     }
 
     /// To finish this component, use `popDeclarationValue`.
@@ -741,35 +741,55 @@ test "parse a stylesheet" {
     var tree = try parseCssStylesheet(token_source, allocator);
     defer tree.deinit(allocator);
 
+    const TestComponent = struct {
+        next_sibling: Ast.Size,
+        tag: Component.Tag,
+        location: TokenSource.Location,
+        extra: union(enum) {
+            index: Ast.Size,
+            codepoint: u21,
+            integer: i32,
+            number: f32,
+            unit: Token.Unit,
+
+            const undef: @This() = .{ .index = 0 };
+        },
+    };
+
     // zig fmt: off
-    const expected = [20]Component{
-        .{ .next_sibling = 20, .tag = .rule_list,             .location = @enumFromInt(0),  .extra = Extra.make(0)  },
-        .{ .next_sibling = 4,  .tag = .at_rule,               .location = @enumFromInt(0),  .extra = Extra.make(0)  },
-        .{ .next_sibling = 3,  .tag = .token_whitespace,      .location = @enumFromInt(8),  .extra = Extra.make(0)  },
-        .{ .next_sibling = 4,  .tag = .token_string,          .location = @enumFromInt(9),  .extra = Extra.make(0)  },
-        .{ .next_sibling = 7,  .tag = .at_rule,               .location = @enumFromInt(18), .extra = Extra.make(6)  },
-        .{ .next_sibling = 6,  .tag = .token_whitespace,      .location = @enumFromInt(27), .extra = Extra.make(0)  },
-        .{ .next_sibling = 7,  .tag = .simple_block_curly,    .location = @enumFromInt(28), .extra = Extra.make(0)  },
-        .{ .next_sibling = 16, .tag = .qualified_rule,        .location = @enumFromInt(32), .extra = Extra.make(10) },
-        .{ .next_sibling = 9,  .tag = .token_ident,           .location = @enumFromInt(32), .extra = Extra.make(0)  },
-        .{ .next_sibling = 10, .tag = .token_whitespace,      .location = @enumFromInt(36), .extra = Extra.make(0)  },
-        .{ .next_sibling = 16, .tag = .style_block,           .location = @enumFromInt(37), .extra = Extra.make(13) },
-        .{ .next_sibling = 13, .tag = .declaration_normal,    .location = @enumFromInt(43), .extra = Extra.make(0)  },
-        .{ .next_sibling = 13, .tag = .token_ident,           .location = @enumFromInt(49), .extra = Extra.make(0)  },
-        .{ .next_sibling = 16, .tag = .declaration_important, .location = @enumFromInt(60), .extra = Extra.make(11) },
-        .{ .next_sibling = 16, .tag = .function,              .location = @enumFromInt(67), .extra = Extra.make(0)  },
-        .{ .next_sibling = 16, .tag = .token_ident,           .location = @enumFromInt(72), .extra = Extra.make(0)  },
-        .{ .next_sibling = 20, .tag = .qualified_rule,        .location = @enumFromInt(91), .extra = Extra.make(19) },
-        .{ .next_sibling = 18, .tag = .token_ident,           .location = @enumFromInt(91), .extra = Extra.make(0)  },
-        .{ .next_sibling = 19, .tag = .token_whitespace,      .location = @enumFromInt(96), .extra = Extra.make(0)  },
-        .{ .next_sibling = 20, .tag = .style_block,           .location = @enumFromInt(97), .extra = Extra.make(0)  },
+    const expecteds = [20]TestComponent{
+        .{ .next_sibling = 20, .tag = .rule_list,             .location = @enumFromInt(0),  .extra = .undef           },
+        .{ .next_sibling = 4,  .tag = .at_rule,               .location = @enumFromInt(0),  .extra = .{ .index = 0 }  },
+        .{ .next_sibling = 3,  .tag = .token_whitespace,      .location = @enumFromInt(8),  .extra = .undef           },
+        .{ .next_sibling = 4,  .tag = .token_string,          .location = @enumFromInt(9),  .extra = .undef           },
+        .{ .next_sibling = 7,  .tag = .at_rule,               .location = @enumFromInt(18), .extra = .{ .index = 6 }  },
+        .{ .next_sibling = 6,  .tag = .token_whitespace,      .location = @enumFromInt(27), .extra = .undef           },
+        .{ .next_sibling = 7,  .tag = .simple_block_curly,    .location = @enumFromInt(28), .extra = .undef           },
+        .{ .next_sibling = 16, .tag = .qualified_rule,        .location = @enumFromInt(32), .extra = .{ .index = 10 } },
+        .{ .next_sibling = 9,  .tag = .token_ident,           .location = @enumFromInt(32), .extra = .undef           },
+        .{ .next_sibling = 10, .tag = .token_whitespace,      .location = @enumFromInt(36), .extra = .undef           },
+        .{ .next_sibling = 16, .tag = .style_block,           .location = @enumFromInt(37), .extra = .{ .index = 13 } },
+        .{ .next_sibling = 13, .tag = .declaration_normal,    .location = @enumFromInt(43), .extra = .{ .index = 0 }  },
+        .{ .next_sibling = 13, .tag = .token_ident,           .location = @enumFromInt(49), .extra = .undef           },
+        .{ .next_sibling = 16, .tag = .declaration_important, .location = @enumFromInt(60), .extra = .{ .index = 11 } },
+        .{ .next_sibling = 16, .tag = .function,              .location = @enumFromInt(67), .extra = .undef           },
+        .{ .next_sibling = 16, .tag = .token_ident,           .location = @enumFromInt(72), .extra = .undef           },
+        .{ .next_sibling = 20, .tag = .qualified_rule,        .location = @enumFromInt(91), .extra = .{ .index = 19 } },
+        .{ .next_sibling = 18, .tag = .token_ident,           .location = @enumFromInt(91), .extra = .undef           },
+        .{ .next_sibling = 19, .tag = .token_whitespace,      .location = @enumFromInt(96), .extra = .undef           },
+        .{ .next_sibling = 20, .tag = .style_block,           .location = @enumFromInt(97), .extra = .{ .index = 0 }  },
     };
     // zig fmt: on
 
     const slice = tree.slice();
-    if (expected.len != slice.len) return error.TestFailure;
-    for (expected, 0..) |ex, i| {
+    if (expecteds.len != slice.len) return error.TestFailure;
+    for (expecteds, 0..) |expected, i| {
         const actual = slice.get(@intCast(i));
-        try std.testing.expectEqual(ex, actual);
+        try std.testing.expectEqual(expected.next_sibling, actual.next_sibling);
+        try std.testing.expectEqual(expected.tag, actual.tag);
+        try std.testing.expectEqual(expected.location, actual.location);
+        switch (expected.extra) {
+            inline else => |value, tag| try std.testing.expectEqual(value, @field(actual.extra, @tagName(tag))),
+        }
     }
 }

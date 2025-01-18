@@ -88,14 +88,14 @@ pub const Source = struct {
         std.debug.assert(source.getType(tag, index) == @"type");
         switch (comptime @"type") {
             .keyword => @compileError("use source.mapKeyword() instead"),
-            .integer => return source.ast.extra(index).integer(),
-            .percentage => return source.ast.extra(index).number(),
+            .integer => return source.ast.extra(index).integer,
+            .percentage => return source.ast.extra(index).number,
             .dimension => {
                 var children = source.ast.children(index);
                 const unit_index = children.nextSkipSpaces(source.ast).?;
 
-                const number = source.ast.extra(index).number();
-                const unit = source.ast.extra(unit_index).unit();
+                const number = source.ast.extra(index).number;
+                const unit = source.ast.extra(unit_index).unit;
                 return Value.Dimension{ .number = number, .unit = unit };
             },
             .hash => {

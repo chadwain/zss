@@ -132,43 +132,19 @@ pub const stringIsIdentSequence = tokenize.stringIsIdentSequence;
 pub const Component = struct {
     next_sibling: Ast.Size,
     tag: Tag,
-    /// The location of the Component in whatever Source created it. The meaning of this value depends on `tag`.
+    /// The location of the Component in whatever TokenSource it originated from. The meaning of this value depends on `tag`.
     location: TokenSource.Location,
     /// Additional info about the Component. The meaning of this value depends on `tag`.
     extra: Extra,
 
-    // TODO: Make this an untagged union
-    pub const Extra = extern struct {
-        /// Trying to read/write this field directly should not be attempted.
-        /// Better to use one of the member functions instead.
-        _: u32,
+    pub const Extra = union {
+        index: Ast.Size,
+        codepoint: u21,
+        integer: i32,
+        number: f32,
+        unit: Token.Unit,
 
-        pub fn make(int: u32) Extra {
-            return @bitCast(int);
-        }
-
-        // The following functions cast an extra value to a different type.
-        // It is very important to use the right one, in the right context.
-
-        pub fn index(extra: Extra) Ast.Size {
-            return @bitCast(extra);
-        }
-
-        pub fn codepoint(extra: Extra) u21 {
-            return @intCast(@as(u32, @bitCast(extra)));
-        }
-
-        pub fn integer(extra: Extra) i32 {
-            return @bitCast(extra);
-        }
-
-        pub fn number(extra: Extra) f32 {
-            return @bitCast(extra);
-        }
-
-        pub fn unit(extra: Extra) Token.Unit {
-            return @enumFromInt(@as(u32, @bitCast(extra)));
-        }
+        pub const undef: Extra = .{ .index = 0 };
     };
 
     /// Each field has the following information:
@@ -192,6 +168,7 @@ pub const Component = struct {
         token_eof,
         token_comments,
         token_ident,
+        ///        note: This component never appears within the Ast
         token_function,
         token_at_keyword,
         token_hash_unrestricted,
@@ -200,16 +177,16 @@ pub const Component = struct {
         token_bad_string,
         token_url,
         token_bad_url,
-        ///       extra: Use `extra.codepoint()` to get the value of the codepoint as a `u21`
+        ///       extra: Use `extra.codepoint` to get the value of the codepoint as a `u21`
         token_delim,
-        ///       extra: Use `extra.integer()` to get the integer as an `i32`
+        ///       extra: Use `extra.integer` to get the integer as an `i32`
         token_integer,
-        ///       extra: Use `extra.number()` to get the number as an `f32`
+        ///       extra: Use `extra.number` to get the number as an `f32`
         token_number,
-        ///       extra: Use `extra.number()` to get the number as an `f32`
+        ///       extra: Use `extra.number` to get the number as an `f32`
         token_percentage,
         ///    children: The dimension's unit (a `unit`)
-        ///       extra: Use `extra.number()` to get the number as an `f32`
+        ///       extra: Use `extra.number` to get the number as an `f32`
         token_dimension,
         token_whitespace,
         token_cdo,
@@ -217,8 +194,11 @@ pub const Component = struct {
         token_colon,
         token_semicolon,
         token_comma,
+        ///        note: This component never appears within the Ast
         token_left_square,
+        ///        note: This component never appears within the Ast
         token_right_square,
+        ///        note: This component never appears within the Ast
         token_left_paren,
         token_right_paren,
         token_left_curly,
@@ -226,7 +206,7 @@ pub const Component = struct {
 
         /// description: A dimension's unit (an identifier)
         ///    location: The first codepoint of the unit identifier
-        ///       extra: Use `extra.unit()` to get the unit as a `Token.Unit`
+        ///       extra: Use `extra.unit` to get the unit as a `Token.Unit`
         unit,
         /// description: A function
         ///    children: The function's arguments (an arbitrary sequence of components)
@@ -250,7 +230,7 @@ pub const Component = struct {
         ///    children: The declaration's value (an arbitrary sequence of components)
         ///              Trailing and leading <whitespace-token>s are not included
         ///              The ending <semicolon-token> (if it exists) is not included
-        ///       extra: Use `extra.index()` to get a component tree index.
+        ///       extra: Use `extra.index` to get a component tree index.
         ///              Then, if the value is 0, the declaration is the first declaration in its containing style block.
         ///              Otherwise, the value is the index of the declaration that appeared just before this one
         ///              (with tag = `declaration_normal` or `declaration_important`).
@@ -261,7 +241,7 @@ pub const Component = struct {
         ///              Trailing and leading <whitespace-token>s are not included
         ///              The ending <semicolon-token> (if it exists) is not included
         ///              The <delim-token> and <ident-token> that make up "!important" are not included
-        ///       extra: Use `extra.index()` to get a component tree index.
+        ///       extra: Use `extra.index` to get a component tree index.
         ///              Then, if the value is 0, the declaration is the first declaration in its containing style block.
         ///              Otherwise, the value is the index of the declaration that appeared just before this one
         ///              (with tag = `declaration_normal` or `declaration_important`).
@@ -273,7 +253,7 @@ pub const Component = struct {
         ///              (Note: This sequence will match the order that each component appeared in the stylesheet.
         ///              However, logically, it must be treated as if all of the declarations appear first, followed by the rules.
         ///              See CSS Syntax Level 3 section 5.4.4 "Consume a style block's contents".)
-        ///       extra: Use `extra.index()` to get a component tree index.
+        ///       extra: Use `extra.index` to get a component tree index.
         ///              Then, if the value is 0, the style block does not contain any declarations.
         ///              Otherwise, the value is the index of the *last* declaration in the style block
         ///              (with tag = `declaration_normal` or `declaration_important`).
@@ -281,14 +261,14 @@ pub const Component = struct {
         /// description: An at-rule
         ///    children: A prelude (an arbitrary sequence of components) + optionally, a `simple_block_curly`
         ///    location: The location of the <at-keyword-token> that started this rule
-        ///       extra: Use `extra.index()` to get a component tree index.
+        ///       extra: Use `extra.index` to get a component tree index.
         ///              Then, if the value is 0, the at-rule does not have an associated <{}-block>.
         ///              Otherwise, the at-rule does have a <{}-block>, and the value is the index of that block (with tag = `simple_block_curly`).
         at_rule,
         /// description: A qualified rule
         ///    location: The location of the first token of the prelude
         ///    children: A prelude (an arbitrary sequence of components) + a `simple_block_curly` or `style_block`
-        ///       extra: Use `extra.index()` to get a component tree index.
+        ///       extra: Use `extra.index` to get a component tree index.
         ///              The value is the index of the qualified rule's associated <{}-block> (with tag = `simple_block_curly` or `style_block`).
         qualified_rule,
         /// description: A list of at-rules and qualified rules
@@ -324,7 +304,7 @@ pub const Component = struct {
         /// description: A zml element's inline style declarations (a '()-block' containing declarations)
         ///    location: The location of the <(-token> that opens the block
         ///    children: A non-empty sequence of `declaration_normal` and `declaration_important`
-        ///       extra: Use `extra.index()` to get the component index of the *last* declaration in the inline style block
+        ///       extra: Use `extra.index` to get the component index of the *last* declaration in the inline style block
         ///              (with tag = `declaration_normal` or `declaration_important`).
         zml_styles,
         /// description: A '{}-block' containing a zml element's children
@@ -520,12 +500,12 @@ pub const Ast = struct {
 
         fn printExtra(writer: std.io.AnyWriter, tag: Component.Tag, extra: Component.Extra) !void {
             switch (tag) {
-                .token_delim => try writer.print("U+{X}", .{extra.codepoint()}),
-                .token_integer => try writer.print("{}", .{extra.integer()}),
-                .token_number, .token_dimension => try writer.print("{d}", .{extra.number()}),
-                .unit => try writer.print("{s}", .{@tagName(extra.unit())}),
-                .token_percentage => try writer.print("{d}%", .{extra.number()}),
-                else => try writer.print("{}", .{@as(u32, @bitCast(extra))}),
+                .token_delim => try writer.print("U+{X}", .{extra.codepoint}),
+                .token_integer => try writer.print("{}", .{extra.integer}),
+                .token_number, .token_dimension => try writer.print("{d}", .{extra.number}),
+                .unit => try writer.print("{s}", .{@tagName(extra.unit)}),
+                .token_percentage => try writer.print("{d}%", .{extra.number}),
+                else => try writer.writeAll("(undefined)"),
             }
         }
     };

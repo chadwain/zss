@@ -19,10 +19,9 @@ pub const Parser = struct {
     env: *Environment,
     arena: Allocator,
     source: TokenSource,
-    slice: Ast.Slice,
+    ast: Ast.Slice,
     sequence: Ast.Sequence,
-    unspecified_namespace: NamespaceId,
-
+    default_namespace: NamespaceId,
     specificity: selectors.Specificity = undefined,
 
     pub const Error = error{ParseError} || syntax.IdentifierSet.Error;
@@ -31,17 +30,47 @@ pub const Parser = struct {
         env: *Environment,
         arena: *ArenaAllocator,
         source: TokenSource,
-        slice: Ast.Slice,
+        ast: Ast.Slice,
         sequence: Ast.Sequence,
     ) Parser {
         return Parser{
             .env = env,
             .arena = arena.allocator(),
             .source = source,
-            .slice = slice,
+            .ast = ast,
             .sequence = sequence,
-            .unspecified_namespace = env.default_namespace orelse NamespaceId.any,
+            .default_namespace = env.default_namespace orelse NamespaceId.any,
         };
+    }
+
+    pub fn parseComplexSelectorList(parser: *Parser) Error!selectors.ComplexSelectorList {
+        var list = ArrayListUnmanaged(selectors.ComplexSelectorFull){};
+        defer {
+            for (list.items) |*full| full.deinit(parser.arena);
+            list.deinit(parser.arena);
+        }
+
+        var expecting_comma = false;
+        while (true) {
+            if (expecting_comma) {
+                _ = parser.skipSpaces();
+                (try parser.expectComponentAllowEof(.token_comma)) orelse break;
+                expecting_comma = false;
+            } else {
+                try list.ensureUnusedCapacity(parser.arena, 1);
+                const complex_selector = try parseComplexSelector(parser);
+                list.appendAssumeCapacity(.{ .selector = complex_selector, .specificity = parser.specificity });
+                parser.specificity = undefined;
+                expecting_comma = true;
+            }
+        }
+
+        if (list.items.len == 0) {
+            return parser.fail();
+        }
+
+        const owned = try list.toOwnedSlice(parser.arena);
+        return .{ .list = owned };
     }
 
     fn fail(_: *Parser) Error {
@@ -49,8 +78,8 @@ pub const Parser = struct {
     }
 
     fn nextComponent(parser: *Parser) ?struct { Component.Tag, Ast.Size } {
-        const index = parser.sequence.nextKeepSpaces(parser.slice) orelse return null;
-        const tag = parser.slice.tag(index);
+        const index = parser.sequence.nextKeepSpaces(parser.ast) orelse return null;
+        const tag = parser.ast.tag(index);
         return .{ tag, index };
     }
 
@@ -79,39 +108,9 @@ pub const Parser = struct {
 
     /// Returns true if any spaces were encountered.
     fn skipSpaces(parser: *Parser) bool {
-        return parser.sequence.skipSpaces(parser.slice);
+        return parser.sequence.skipSpaces(parser.ast);
     }
 };
-
-pub fn parseComplexSelectorList(parser: *Parser) Parser.Error!selectors.ComplexSelectorList {
-    var list = ArrayListUnmanaged(selectors.ComplexSelectorFull){};
-    defer {
-        for (list.items) |*full| full.deinit(parser.arena);
-        list.deinit(parser.arena);
-    }
-
-    var expecting_comma = false;
-    while (true) {
-        if (expecting_comma) {
-            _ = parser.skipSpaces();
-            (try parser.expectComponentAllowEof(.token_comma)) orelse break;
-            expecting_comma = false;
-        } else {
-            try list.ensureUnusedCapacity(parser.arena, 1);
-            const complex_selector = try parseComplexSelector(parser);
-            list.appendAssumeCapacity(.{ .selector = complex_selector, .specificity = parser.specificity });
-            parser.specificity = undefined;
-            expecting_comma = true;
-        }
-    }
-
-    if (list.items.len == 0) {
-        return parser.fail();
-    }
-
-    const owned = try list.toOwnedSlice(parser.arena);
-    return .{ .list = owned };
-}
 
 fn parseComplexSelector(parser: *Parser) !selectors.ComplexSelector {
     parser.specificity = .{};
@@ -159,13 +158,13 @@ fn parseComplexSelector(parser: *Parser) !selectors.ComplexSelector {
 fn parseCombinator(parser: *Parser) !?selectors.Combinator {
     const has_space = parser.skipSpaces();
     if (parser.acceptComponent(.token_delim)) |index| {
-        switch (parser.slice.extra(index).codepoint()) {
+        switch (parser.ast.extra(index).codepoint) {
             '>' => return .child,
             '+' => return .next_sibling,
             '~' => return .subsequent_sibling,
             '|' => {
                 const second_pipe = try parser.expectComponent(.token_delim);
-                if (parser.slice.extra(second_pipe).codepoint() != '|') return parser.fail();
+                if (parser.ast.extra(second_pipe).codepoint != '|') return parser.fail();
                 return .column;
             },
             else => {},
@@ -238,7 +237,7 @@ fn parseTypeSelector(parser: *Parser) !?selectors.TypeSelector {
             .identifier => panic("TODO: Namespaces in type selectors", .{}),
             .none => .none,
             .any => .any,
-            .default => parser.unspecified_namespace,
+            .default => parser.default_namespace,
         },
         .name = switch (element_type.name) {
             .identifier => |identifier| try parser.env.addTypeOrAttributeName(identifier, parser.source),
@@ -279,8 +278,8 @@ fn parseElementType(parser: *Parser) !?ElementType {
 
     const tag, const index = parser.nextComponent() orelse return null;
     result.name = switch (tag) {
-        .token_ident => .{ .identifier = parser.slice.location(index) },
-        .token_delim => switch (parser.slice.extra(index).codepoint()) {
+        .token_ident => .{ .identifier = parser.ast.location(index) },
+        .token_delim => switch (parser.ast.extra(index).codepoint) {
             '*' => .any,
             '|' => {
                 const name = parseElementName(parser) orelse return parser.fail();
@@ -295,7 +294,7 @@ fn parseElementType(parser: *Parser) !?ElementType {
     };
 
     if (parser.acceptComponent(.token_delim)) |pipe_index| {
-        if (parser.slice.extra(pipe_index).codepoint() == '|') {
+        if (parser.ast.extra(pipe_index).codepoint == '|') {
             const name = parseElementName(parser) orelse return parser.fail();
             result.namespace = switch (result.name) {
                 .identifier => |location| .{ .identifier = location },
@@ -314,8 +313,8 @@ fn parseElementType(parser: *Parser) !?ElementType {
 fn parseElementName(parser: *Parser) ?ElementType.Name {
     const tag, const index = parser.nextComponent() orelse return null;
     return switch (tag) {
-        .token_ident => .{ .identifier = parser.slice.location(index) },
-        .token_delim => if (parser.slice.extra(index).codepoint() == '*') .any else null,
+        .token_ident => .{ .identifier = parser.ast.location(index) },
+        .token_delim => if (parser.ast.extra(index).codepoint == '*') .any else null,
         else => null,
     };
 }
@@ -324,15 +323,15 @@ fn parseSubclassSelector(parser: *Parser) !?selectors.SubclassSelector {
     const first_component_tag, const first_component_index = parser.nextComponent() orelse return null;
     switch (first_component_tag) {
         .token_hash_id => {
-            const location = parser.slice.location(first_component_index);
+            const location = parser.ast.location(first_component_index);
             const name = try parser.env.addIdName(location, parser.source);
             parser.specificity.add(.id);
             return .{ .id = name };
         },
         .token_delim => {
-            if (parser.slice.extra(first_component_index).codepoint() == '.') {
+            if (parser.ast.extra(first_component_index).codepoint == '.') {
                 const class_name = try parser.expectComponent(.token_ident);
-                const location = parser.slice.location(class_name);
+                const location = parser.ast.location(class_name);
                 const name = try parser.env.addClassName(location, parser.source);
                 parser.specificity.add(.class);
                 return .{ .class = name };
@@ -341,7 +340,7 @@ fn parseSubclassSelector(parser: *Parser) !?selectors.SubclassSelector {
         .simple_block_square => {
             const saved_sequence = parser.sequence;
             defer parser.sequence = saved_sequence;
-            parser.sequence = parser.slice.children(first_component_index);
+            parser.sequence = parser.ast.children(first_component_index);
             const attribute_selector = try parseAttributeSelector(parser);
             _ = parser.skipSpaces();
             if (!parser.sequence.empty()) return parser.fail();
@@ -383,7 +382,7 @@ fn parseAttributeSelector(parser: *Parser) !selectors.AttributeSelector {
         result.complex = null;
         return result;
     };
-    const attr_matcher_codepoint = parser.slice.extra(attr_matcher_index).codepoint();
+    const attr_matcher_codepoint = parser.ast.extra(attr_matcher_index).codepoint;
     const operator: selectors.AttributeSelector.Operator = switch (attr_matcher_codepoint) {
         '=' => .equals,
         '~' => .list_contains,
@@ -396,7 +395,7 @@ fn parseAttributeSelector(parser: *Parser) !selectors.AttributeSelector {
     if (operator != .equals) {
         if (parser.skipSpaces()) return parser.fail();
         const equal_sign_index = try parser.expectComponent(.token_delim);
-        const codepoint = parser.slice.extra(equal_sign_index).codepoint();
+        const codepoint = parser.ast.extra(equal_sign_index).codepoint;
         if (codepoint != '=') return parser.fail();
     }
 
@@ -415,7 +414,7 @@ fn parseAttributeSelector(parser: *Parser) !selectors.AttributeSelector {
         result.complex.?.case = .default;
         return result;
     };
-    const modifier_location = parser.slice.location(modifier_index);
+    const modifier_location = parser.ast.location(modifier_index);
     result.complex.?.case = parser.source.mapIdentifier(modifier_location, selectors.AttributeSelector.Case, &.{
         .{ "i", .ignore_case },
         .{ "s", .same_case },
@@ -433,8 +432,8 @@ fn parsePseudoSelector(parser: *Parser) !selectors.PseudoName {
             return .unrecognized;
         },
         .function => {
-            var function_values = parser.slice.children(main_component_index);
-            if (anyValue(parser.slice, &function_values)) {
+            var function_values = parser.ast.children(main_component_index);
+            if (anyValue(parser.ast, &function_values)) {
                 // TODO: Get the actual pseudo class name.
                 return .unrecognized;
             }

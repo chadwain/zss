@@ -34,7 +34,7 @@ pub fn parseDeclarationsFromAst(
             else => unreachable,
         };
         try parseDeclaration(destination, arena, value_source, index);
-        index = value_source.ast.extra(index).index();
+        index = value_source.ast.extra(index).index;
     }
 
     return ParsedDeclarations{ .normal = normal, .important = important };
@@ -177,9 +177,9 @@ test {
 
     const qualified_rule: Ast.Size = 1;
     assert(slice.tag(qualified_rule) == .qualified_rule);
-    const style_block = slice.extra(qualified_rule).index();
+    const style_block = slice.extra(qualified_rule).index;
     assert(slice.tag(style_block) == .style_block);
-    const last_declaration = slice.extra(style_block).index();
+    const last_declaration = slice.extra(style_block).index;
 
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();

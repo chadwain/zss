@@ -360,7 +360,7 @@ fn parseFeature(parser: *Parser, ast: AstManaged, main_token: Token, main_locati
             if (name != .token_ident) break :blk;
 
             const after_name, _ = try parser.nextTokenSkipWhitespace();
-            if (after_name == .token_right_square) return ast.addAttribute(main_location, name_location);
+            if (after_name == .token_right_square) return ast.addZmlAttribute(main_location, name_location);
 
             const value, const value_location = try parser.nextTokenSkipWhitespace();
             const right_bracket, _ = try parser.nextTokenSkipWhitespace();
@@ -368,7 +368,7 @@ fn parseFeature(parser: *Parser, ast: AstManaged, main_token: Token, main_locati
                 (value == .token_ident or value == .token_string) and
                 (right_bracket == .token_right_square))
             {
-                return ast.addAttributeWithValue(main_location, name_location, value.cast(Component.Tag), value_location);
+                return ast.addZmlAttributeWithValue(main_location, name_location, value.cast(Component.Tag), value_location);
             }
         },
 
