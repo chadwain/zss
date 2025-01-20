@@ -20,12 +20,12 @@ const MultiArrayList = std.MultiArrayList;
 
 pub fn parseSelectorList(
     env: *Environment,
-    arena: *ArenaAllocator,
+    allocator: Allocator,
     source: TokenSource,
     slice: Ast.Slice,
     sequence: Ast.Sequence,
 ) !ComplexSelectorList {
-    var parser = Parser.init(env, arena, source, slice, sequence);
+    var parser = Parser.init(env, allocator, source, slice, sequence);
     return try parser.parseComplexSelectorList();
 }
 
@@ -432,7 +432,7 @@ fn stringToSelectorList(input: []const u8, env: *Environment, arena: *ArenaAlloc
     const start = component_list + 1;
     const end = slice.nextSibling(component_list);
 
-    return try parseSelectorList(env, arena, source, slice, Ast.Sequence{ .start = start, .end = end });
+    return try parseSelectorList(env, arena.allocator(), source, slice, Ast.Sequence{ .start = start, .end = end });
 }
 
 fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpected) !void {

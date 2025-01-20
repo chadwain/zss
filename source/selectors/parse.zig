@@ -15,31 +15,29 @@ const TokenSource = syntax.TokenSource;
 const std = @import("std");
 const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 pub const Parser = struct {
     env: *Environment,
-    arena: Allocator,
+    allocator: Allocator,
     source: TokenSource,
     ast: Ast.Slice,
     sequence: Ast.Sequence,
     default_namespace: NamespaceId,
 
-    data: ArrayListUnmanaged(ComplexSelector.Data) = undefined,
+    data: zss.ArrayListSized(ComplexSelector.Data) = undefined,
     specificity: Specificity = undefined,
 
     pub fn init(
         env: *Environment,
-        arena: *ArenaAllocator,
+        allocator: Allocator,
         source: TokenSource,
         ast: Ast.Slice,
         sequence: Ast.Sequence,
     ) Parser {
         return Parser{
             .env = env,
-            .arena = arena.allocator(),
+            .allocator = allocator,
             .source = source,
             .ast = ast,
             .sequence = sequence,
@@ -48,13 +46,13 @@ pub const Parser = struct {
     }
 
     pub fn parseComplexSelectorList(parser: *Parser) !ComplexSelectorList {
-        parser.data = .empty;
-        defer parser.data.deinit(parser.arena);
+        parser.data = .{ .max_size = std.math.maxInt(ComplexSelector.Index) };
+        defer parser.data.deinit(parser.allocator);
 
         var list = MultiArrayList(ComplexSelectorList.Item){};
         errdefer {
-            for (list.items(.complex)) |item| parser.arena.free(item.data);
-            list.deinit(parser.arena);
+            for (list.items(.complex)) |item| parser.allocator.free(item.data);
+            list.deinit(parser.allocator);
         }
 
         var expecting_comma = false;
@@ -64,11 +62,10 @@ pub const Parser = struct {
                 (try parser.expectComponentAllowEof(.token_comma)) orelse break;
                 expecting_comma = false;
             } else {
-                try list.ensureUnusedCapacity(parser.arena, 1);
-                parser.data.clearRetainingCapacity();
+                try list.ensureUnusedCapacity(parser.allocator, 1);
                 parser.specificity = .{};
                 try parseComplexSelector(parser);
-                const data = try parser.data.toOwnedSlice(parser.arena);
+                const data = try parser.data.toOwnedSlice(parser.allocator);
                 list.appendAssumeCapacity(.{ .complex = .{ .data = data }, .specificity = parser.specificity });
                 expecting_comma = true;
             }
@@ -120,22 +117,22 @@ pub const Parser = struct {
 };
 
 fn parseComplexSelector(parser: *Parser) !void {
-    var start: ComplexSelector.Index = @intCast(parser.data.items.len);
+    var start: ComplexSelector.Index = @intCast(parser.data.len());
     _ = parser.skipSpaces();
     (try parseCompoundSelector(parser)) orelse return parser.fail();
 
     while (true) {
         const combinator = (try parseCombinator(parser)) orelse {
-            try parser.data.append(parser.arena, .{ .trailing = .{ .combinator = undefined, .compound_selector_start = start } });
+            try parser.data.append(parser.allocator, .{ .trailing = .{ .combinator = undefined, .compound_selector_start = start } });
             break;
         };
-        try parser.data.append(parser.arena, .{ .trailing = .{ .combinator = combinator, .compound_selector_start = start } });
+        try parser.data.append(parser.allocator, .{ .trailing = .{ .combinator = combinator, .compound_selector_start = start } });
 
-        start = @intCast(parser.data.items.len);
+        start = @intCast(parser.data.len());
         _ = parser.skipSpaces();
         (try parseCompoundSelector(parser)) orelse {
             if (combinator == .descendant) {
-                parser.data.items[start - 1].trailing.combinator = undefined;
+                parser.data.items()[start - 1].trailing.combinator = undefined;
                 break;
             } else {
                 return parser.fail();
@@ -196,7 +193,7 @@ fn parseTypeSelector(parser: *Parser) !?void {
             .any => .any,
         },
     };
-    try parser.data.appendSlice(parser.arena, &.{
+    try parser.data.appendSlice(parser.allocator, &.{
         .{ .simple_selector_tag = .type },
         .{ .type_selector = type_selector },
     });
@@ -274,6 +271,7 @@ fn parseType(parser: *Parser) !?Type {
     return ty;
 }
 
+/// Syntax: <ident-token> | '*'
 fn parseTypeName(parser: *Parser) !Type.Name {
     const tag, const index = parser.nextComponent() orelse return parser.fail();
     return switch (tag) {
@@ -289,7 +287,7 @@ fn parseSubclassSelector(parser: *Parser) !?void {
         .token_hash_id => {
             const location = parser.ast.location(first_component_index);
             const name = try parser.env.addIdName(location, parser.source);
-            try parser.data.appendSlice(parser.arena, &.{
+            try parser.data.appendSlice(parser.allocator, &.{
                 .{ .simple_selector_tag = .id },
                 .{ .id_selector = name },
             });
@@ -301,7 +299,7 @@ fn parseSubclassSelector(parser: *Parser) !?void {
                 const class_name = try parser.expectComponent(.token_ident);
                 const location = parser.ast.location(class_name);
                 const name = try parser.env.addClassName(location, parser.source);
-                try parser.data.appendSlice(parser.arena, &.{
+                try parser.data.appendSlice(parser.allocator, &.{
                     .{ .simple_selector_tag = .class },
                     .{ .class_selector = name },
                 });
@@ -321,7 +319,7 @@ fn parseSubclassSelector(parser: *Parser) !?void {
         },
         .token_colon => {
             const pseudo_class = try parsePseudo(parser, .class);
-            try parser.data.appendSlice(parser.arena, &.{
+            try parser.data.appendSlice(parser.allocator, &.{
                 .{ .simple_selector_tag = .pseudo_class },
                 .{ .pseudo_class_selector = pseudo_class },
             });
@@ -355,7 +353,7 @@ fn parseAttributeSelector(parser: *Parser) !void {
     // Parse the attribute matcher
     _ = parser.skipSpaces();
     const attr_matcher_index = parser.acceptComponent(.token_delim) orelse {
-        try parser.data.appendSlice(parser.arena, &.{
+        try parser.data.appendSlice(parser.allocator, &.{
             .{ .simple_selector_tag = .{ .attribute = null } },
             .{ .attribute_selector = attribute_selector },
         });
@@ -395,7 +393,7 @@ fn parseAttributeSelector(parser: *Parser) !void {
         }) orelse return parser.fail();
     } else .default;
 
-    try parser.data.appendSlice(parser.arena, &.{
+    try parser.data.appendSlice(parser.allocator, &.{
         .{ .simple_selector_tag = .{ .attribute = .{ .operator = operator, .case = case } } },
         .{ .attribute_selector = attribute_selector },
         .{ .attribute_selector_value = value_index },
@@ -407,7 +405,7 @@ fn parsePseudoElementSelector(parser: *Parser) !?void {
     _ = try parser.expectComponent(.token_colon);
 
     const pseudo_element = try parsePseudo(parser, .element);
-    try parser.data.appendSlice(parser.arena, &.{
+    try parser.data.appendSlice(parser.allocator, &.{
         .{ .simple_selector_tag = .pseudo_element },
         .{ .pseudo_element_selector = pseudo_element },
     });
@@ -416,7 +414,7 @@ fn parsePseudoElementSelector(parser: *Parser) !?void {
     while (true) {
         _ = parser.acceptComponent(.token_colon) orelse break;
         const pseudo_class = try parsePseudo(parser, .class);
-        try parser.data.appendSlice(parser.arena, &.{
+        try parser.data.appendSlice(parser.allocator, &.{
             .{ .simple_selector_tag = .pseudo_class },
             .{ .pseudo_class_selector = pseudo_class },
         });
