@@ -5,7 +5,7 @@ const ComplexSelectorList = selectors.ComplexSelectorList;
 const Specificity = selectors.Specificity;
 
 const Environment = zss.Environment;
-const NamespaceId = Environment.NamespaceId;
+const NamespaceId = Environment.Namespaces.Id;
 
 const syntax = zss.syntax;
 const Ast = syntax.Ast;
@@ -21,7 +21,7 @@ pub const Parser = struct {
     env: *Environment,
     allocator: Allocator,
     source: TokenSource,
-    ast: Ast.Slice,
+    ast: Ast,
     sequence: Ast.Sequence,
     default_namespace: NamespaceId,
 
@@ -32,8 +32,9 @@ pub const Parser = struct {
         env: *Environment,
         allocator: Allocator,
         source: TokenSource,
-        ast: Ast.Slice,
+        ast: Ast,
         sequence: Ast.Sequence,
+        default_namespace: ?NamespaceId,
     ) Parser {
         return Parser{
             .env = env,
@@ -41,7 +42,7 @@ pub const Parser = struct {
             .source = source,
             .ast = ast,
             .sequence = sequence,
-            .default_namespace = env.default_namespace orelse NamespaceId.any,
+            .default_namespace = default_namespace orelse .any,
         };
     }
 
@@ -430,13 +431,13 @@ fn parsePseudo(parser: *Parser, comptime what: enum { element, class }) !switch 
     const main_component_tag, const main_component_index = parser.nextComponent() orelse return parser.fail();
     switch (main_component_tag) {
         .token_ident => {
-            // TODO: Get the actual pseudo class name.
+            // TODO: Get the actual pseudo element/class name.
             return .unrecognized;
         },
         .function => {
             var function_values = parser.ast.children(main_component_index);
             if (anyValue(parser.ast, &function_values)) {
-                // TODO: Get the actual pseudo class name.
+                // TODO: Get the actual pseudo element/class name.
                 return .unrecognized;
             }
         },
@@ -446,7 +447,7 @@ fn parsePseudo(parser: *Parser, comptime what: enum { element, class }) !switch 
 }
 
 /// Returns true if the sequence matches the grammar of <any-value>.
-fn anyValue(ast: Ast.Slice, sequence: *Ast.Sequence) bool {
+fn anyValue(ast: Ast, sequence: *Ast.Sequence) bool {
     while (sequence.nextKeepSpaces(ast)) |index| {
         switch (ast.tag(index)) {
             .token_bad_string, .token_bad_url, .token_right_paren, .token_right_square, .token_right_curly => return false,

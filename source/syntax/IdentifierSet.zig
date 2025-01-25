@@ -14,7 +14,7 @@ const SegmentedList = std.SegmentedList;
 /// Maps adapted keys to `Slice`. `Slice` represents a sub-range of `string_data`.
 map: AutoArrayHashMapUnmanaged(void, Slice) = .{},
 /// Stores identifiers as UTF-8 encoded strings.
-string_data: SegmentedList(u8, 0) = .{},
+string_data: SegmentedList(u8, 16) = .{},
 /// The maximum number of identifiers this set can hold.
 max_size: usize,
 /// Choose how to compare identifiers.
@@ -42,7 +42,7 @@ fn adjustCase(case: Case, codepoint: u21) u21 {
     };
 }
 
-// Unfortunately, Zig's hash maps don't allow the use of generic hash and eql functions,
+// TODO: Unfortunately, Zig's hash maps don't allow the use of generic hash and eql functions,
 // so this adapter can't be used directly.
 const AdapterGeneric = struct {
     set: *const IdentifierSet,

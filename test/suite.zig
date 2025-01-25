@@ -134,9 +134,8 @@ fn getAllTests(
 
         const source = try cases_dir.readFileAlloc(allocator, entry.path, 100_000);
         const token_source = try TokenSource.init(source);
-        var ast = Ast{};
         var parser = zss.zml.Parser.init(token_source, allocator);
-        try parser.parse(&ast, allocator);
+        const ast = try parser.parse(allocator);
 
         const name = try allocator.dupe(u8, entry.path[0 .. entry.path.len - ".zml".len]);
 
@@ -179,11 +178,10 @@ fn createTest(
     errdefer t.env.deinit();
 
     t.root_element = blk: {
-        const slice = ast.slice();
-        assert(slice.tag(0) == .zml_document);
-        var seq = slice.children(0);
-        if (seq.nextSkipSpaces(slice)) |zml_element| {
-            break :blk try zss.zml.astToElement(&t.element_tree, &t.env, slice, zml_element, token_source, allocator);
+        assert(ast.tag(0) == .zml_document);
+        var seq = ast.children(0);
+        if (seq.nextSkipSpaces(ast)) |zml_element| {
+            break :blk try zss.zml.astToElement(&t.element_tree, &t.env, ast, zml_element, token_source, allocator);
         } else {
             break :blk Element.null_element;
         }

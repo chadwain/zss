@@ -2,6 +2,7 @@ const Environment = @This();
 
 const zss = @import("zss.zig");
 const syntax = zss.syntax;
+const Ast = syntax.Ast;
 const TokenSource = syntax.TokenSource;
 const Stylesheet = zss.Stylesheet;
 const IdentifierSet = syntax.IdentifierSet;
@@ -17,7 +18,7 @@ stylesheets: ArrayListUnmanaged(Stylesheet) = .{},
 type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value, .case = .insensitive },
 // TODO: Case sensitivity depends on whether quirks mode is on
 id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensitive },
-default_namespace: ?NamespaceId = null,
+namespaces: Namespaces = .{},
 
 pub fn init(allocator: Allocator) Environment {
     return Environment{ .allocator = allocator };
@@ -28,25 +29,61 @@ pub fn deinit(env: *Environment) void {
     env.id_or_class_names.deinit(env.allocator);
     for (env.stylesheets.items) |*stylesheet| stylesheet.deinit(env.allocator);
     env.stylesheets.deinit(env.allocator);
+    env.namespaces.deinit(env.allocator);
 }
 
 pub fn addStylesheet(env: *Environment, source: TokenSource) !void {
-    var components = try syntax.parse.parseCssStylesheet(source, env.allocator);
-    defer components.deinit(env.allocator);
-    const slice = components.slice();
+    var ast = try syntax.parse.parseCssStylesheet(source, env.allocator);
+    defer ast.deinit(env.allocator);
 
     try env.stylesheets.ensureUnusedCapacity(env.allocator, 1);
-    const stylesheet = try Stylesheet.create(slice, source, env.allocator, env);
+    const stylesheet = try Stylesheet.create(ast, source, env.allocator, env);
     env.stylesheets.appendAssumeCapacity(stylesheet);
 }
 
-pub const NamespaceId = enum(u8) {
-    pub const Value = u8;
+pub const Namespaces = struct {
+    map: std.StringArrayHashMapUnmanaged(void) = .empty,
 
-    none = 0,
-    any = 255,
-    _,
+    pub const Id = enum(u8) {
+        /// Represents the null namespace.
+        none = 254,
+        /// Not a valid namespace id. It represents a match on any namespace (in e.g. a type selector).
+        any = 255,
+        _,
+    };
+
+    fn deinit(namespaces: *Namespaces, allocator: Allocator) void {
+        for (namespaces.map.keys()) |key| {
+            allocator.free(key);
+        }
+        namespaces.map.deinit(allocator);
+    }
 };
+
+pub fn addNamespace(env: *Environment, ast: Ast, source: TokenSource, index: Ast.Size) !Namespaces.Id {
+    try env.namespaces.map.ensureUnusedCapacity(env.allocator, 1);
+    const location = ast.location(index);
+    const namespace = try switch (ast.tag(index)) {
+        .token_string => source.copyString(location, env.allocator),
+        .token_url, .token_bad_url => panic("TODO: addNamespace with a URL", .{}),
+        else => unreachable,
+    };
+    if (namespace.len == 0) {
+        env.allocator.free(namespace);
+        // TODO: Does an empty URL represent the null namespace?
+        return .none;
+    }
+    const gop_result = env.namespaces.map.getOrPutAssumeCapacity(namespace);
+    if (gop_result.index >= @intFromEnum(Namespaces.Id.none)) {
+        env.allocator.free(namespace);
+        env.namespaces.map.orderedRemoveAt(gop_result.index);
+        return error.MaxNamespaceLimitReached;
+    }
+    if (gop_result.found_existing) {
+        env.allocator.free(namespace);
+    }
+    return @enumFromInt(gop_result.index);
+}
 
 pub const NameId = enum(u24) {
     pub const Value = u24;

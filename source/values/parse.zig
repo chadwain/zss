@@ -10,7 +10,7 @@ const Unit = zss.syntax.Token.Unit;
 
 /// A source of primitive CSS values.
 pub const Source = struct {
-    ast: Ast.Slice,
+    ast: Ast,
     token_source: TokenSource,
     arena: Allocator, // TODO: Store an actual ArenaAllocator
     sequence: Ast.Sequence,
@@ -43,7 +43,7 @@ pub const Source = struct {
         type: Type,
     };
 
-    pub fn init(ast: Ast.Slice, token_source: TokenSource, arena: Allocator) Source {
+    pub fn init(ast: Ast, token_source: TokenSource, arena: Allocator) Source {
         return .{ .ast = ast, .token_source = token_source, .arena = arena, .sequence = undefined };
     }
 
@@ -182,14 +182,13 @@ fn testParsing(comptime T: type, input: []const u8, expected: ?T, is_complete: b
     const allocator = std.testing.allocator;
 
     const token_source = try TokenSource.init(input);
-    var tree = try zss.syntax.parse.parseListOfComponentValues(token_source, allocator);
-    defer tree.deinit(allocator);
-    const slice = tree.slice();
+    var ast = try zss.syntax.parse.parseListOfComponentValues(token_source, allocator);
+    defer ast.deinit(allocator);
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    var source = Source.init(slice, token_source, arena.allocator());
-    source.sequence = slice.children(0);
+    var source = Source.init(ast, token_source, arena.allocator());
+    source.sequence = ast.children(0);
     const parseFn = typeToParseFn(T);
     const actual = parseFn(&source) catch |err| switch (err) {
         error.ParseError => error.ParseError,

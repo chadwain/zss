@@ -10,6 +10,7 @@ pub fn main() !void {
     defer env.deinit();
 
     const stylesheet_text =
+        \\@namespace hello "world";
         \\* {
         \\  display: none;
         \\}

@@ -23,12 +23,12 @@ pub fn main() !u8 {
         const source = try TokenSource.init(string);
         var tree = try parse.parseCssStylesheet(source, allocator);
         defer tree.deinit(allocator);
-        try zss.syntax.Ast.debug.print(tree, allocator, stdout);
+        try tree.debug.print(allocator, stdout);
     } else if (std.mem.eql(u8, args[1], "components")) {
         const source = try TokenSource.init(string);
         var tree = try parse.parseListOfComponentValues(source, allocator);
         defer tree.deinit(allocator);
-        try zss.syntax.Ast.debug.print(tree, allocator, stdout);
+        try tree.debug.print(allocator, stdout);
     } else if (std.mem.eql(u8, args[1], "tokens")) {
         const source = try TokenSource.init(string);
 

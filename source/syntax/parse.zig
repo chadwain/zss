@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
 const syntax = zss.syntax;
@@ -14,29 +15,33 @@ const Token = syntax.Token;
 const TokenSource = syntax.TokenSource;
 
 pub const AstManaged = struct {
-    unmanaged: *Ast,
+    components: MultiArrayList(Component) = .{},
     allocator: Allocator,
 
-    pub fn len(ast: AstManaged) Ast.Size {
-        return @intCast(ast.unmanaged.components.len);
+    pub fn deinit(ast: *AstManaged) void {
+        ast.components.deinit(ast.allocator);
     }
 
-    pub fn shrink(ast: AstManaged, index: Ast.Size) void {
-        ast.unmanaged.components.shrinkRetainingCapacity(index);
+    pub fn len(ast: *const AstManaged) Ast.Size {
+        return @intCast(ast.components.len);
     }
 
-    pub fn createComponent(ast: AstManaged, component: Component) !Ast.Size {
+    pub fn shrink(ast: *AstManaged, index: Ast.Size) void {
+        ast.components.shrinkRetainingCapacity(index);
+    }
+
+    pub fn createComponent(ast: *AstManaged, component: Component) !Ast.Size {
         const index = ast.len();
         if (index == std.math.maxInt(Ast.Size)) return error.Overflow;
-        try ast.unmanaged.components.append(ast.allocator, component);
+        try ast.components.append(ast.allocator, component);
         return index;
     }
 
-    pub fn addBasicComponent(ast: AstManaged, tag: Component.Tag, location: TokenSource.Location) !Ast.Size {
+    pub fn addBasicComponent(ast: *AstManaged, tag: Component.Tag, location: TokenSource.Location) !Ast.Size {
         return ast.addBasicComponentExtra(tag, location, .undef);
     }
 
-    pub fn addBasicComponentExtra(ast: AstManaged, tag: Component.Tag, location: TokenSource.Location, extra: Extra) !Ast.Size {
+    pub fn addBasicComponentExtra(ast: *AstManaged, tag: Component.Tag, location: TokenSource.Location, extra: Extra) !Ast.Size {
         const next_sibling = try std.math.add(Ast.Size, 1, ast.len());
         return ast.createComponent(.{
             .next_sibling = next_sibling,
@@ -46,7 +51,7 @@ pub const AstManaged = struct {
         });
     }
 
-    pub fn addComplexComponent(ast: AstManaged, tag: Component.Tag, location: TokenSource.Location) !Ast.Size {
+    pub fn addComplexComponent(ast: *AstManaged, tag: Component.Tag, location: TokenSource.Location) !Ast.Size {
         return ast.createComponent(.{
             .next_sibling = undefined,
             .tag = tag,
@@ -55,17 +60,17 @@ pub const AstManaged = struct {
         });
     }
 
-    pub fn finishComplexComponent(ast: AstManaged, component_index: Ast.Size) void {
+    pub fn finishComplexComponent(ast: *AstManaged, component_index: Ast.Size) void {
         ast.finishComplexComponentExtra(component_index, .undef);
     }
 
-    pub fn finishComplexComponentExtra(ast: AstManaged, component_index: Ast.Size, extra: Extra) void {
+    pub fn finishComplexComponentExtra(ast: *AstManaged, component_index: Ast.Size, extra: Extra) void {
         const next_sibling: Ast.Size = ast.len();
-        ast.unmanaged.components.items(.next_sibling)[component_index] = next_sibling;
-        ast.unmanaged.components.items(.extra)[component_index] = extra;
+        ast.components.items(.next_sibling)[component_index] = next_sibling;
+        ast.components.items(.extra)[component_index] = extra;
     }
 
-    pub fn addToken(ast: AstManaged, token: Token, location: TokenSource.Location) !Ast.Size {
+    pub fn addToken(ast: *AstManaged, token: Token, location: TokenSource.Location) !Ast.Size {
         // zig fmt: off
         switch (token) {
             .token_delim      => |codepoint| return ast.addBasicComponentExtra(.token_delim,      location, .{ .codepoint = codepoint }),
@@ -78,7 +83,7 @@ pub const AstManaged = struct {
         // zig fmt: on
     }
 
-    pub fn addDimension(ast: AstManaged, location: TokenSource.Location, dimension: Token.Dimension) !Ast.Size {
+    pub fn addDimension(ast: *AstManaged, location: TokenSource.Location, dimension: Token.Dimension) !Ast.Size {
         const next_sibling = try std.math.add(Ast.Size, 2, ast.len());
         const dimension_index = try ast.createComponent(.{
             .next_sibling = next_sibling,
@@ -95,7 +100,7 @@ pub const AstManaged = struct {
         return dimension_index;
     }
 
-    pub fn addZmlAttribute(ast: AstManaged, main_location: TokenSource.Location, name_location: TokenSource.Location) !void {
+    pub fn addZmlAttribute(ast: *AstManaged, main_location: TokenSource.Location, name_location: TokenSource.Location) !void {
         const next_sibling = try std.math.add(Ast.Size, 2, ast.len());
         _ = try ast.createComponent(.{
             .next_sibling = next_sibling,
@@ -112,7 +117,7 @@ pub const AstManaged = struct {
     }
 
     pub fn addZmlAttributeWithValue(
-        ast: AstManaged,
+        ast: *AstManaged,
         main_location: TokenSource.Location,
         name_location: TokenSource.Location,
         value_tag: Component.Tag,
@@ -139,13 +144,13 @@ pub const AstManaged = struct {
         });
     }
 
-    pub fn finishInlineStyleBlock(ast: AstManaged, style_block_index: Ast.Size, last_declaration: Ast.Size) void {
+    pub fn finishInlineStyleBlock(ast: *AstManaged, style_block_index: Ast.Size, last_declaration: Ast.Size) void {
         const next_sibling: Ast.Size = ast.len();
-        ast.unmanaged.components.items(.next_sibling)[style_block_index] = next_sibling;
-        ast.unmanaged.components.items(.extra)[style_block_index] = .{ .index = last_declaration };
+        ast.components.items(.next_sibling)[style_block_index] = next_sibling;
+        ast.components.items(.extra)[style_block_index] = .{ .index = last_declaration };
     }
 
-    pub fn addDeclaration(ast: AstManaged, main_location: TokenSource.Location, previous_declaration: ?Ast.Size) !Ast.Size {
+    pub fn addDeclaration(ast: *AstManaged, main_location: TokenSource.Location, previous_declaration: ?Ast.Size) !Ast.Size {
         return ast.createComponent(.{
             .next_sibling = undefined,
             .tag = undefined,
@@ -154,8 +159,8 @@ pub const AstManaged = struct {
         });
     }
 
-    pub fn finishDeclaration(ast: AstManaged, token_source: TokenSource, declaration_index: Ast.Size, last_3: Last3NonWhitespaceComponents) bool {
-        const components = ast.unmanaged.components.slice();
+    pub fn finishDeclaration(ast: *AstManaged, token_source: TokenSource, declaration_index: Ast.Size, last_3: Last3NonWhitespaceComponents) bool {
+        const components = ast.components.slice();
         const is_important = blk: {
             if (last_3.len < 2) break :blk false;
             const exclamation = last_3.components[1];
@@ -181,8 +186,8 @@ pub const AstManaged = struct {
         return is_empty_declaration;
     }
 
-    pub fn finishElement(ast: AstManaged, element_index: Ast.Size, block_index: Ast.Size) void {
-        const components = ast.unmanaged.components.slice();
+    pub fn finishElement(ast: *AstManaged, element_index: Ast.Size, block_index: Ast.Size) void {
+        const components = ast.components.slice();
         const next_sibling = ast.len();
         components.items(.next_sibling)[element_index] = next_sibling;
         components.items(.next_sibling)[block_index] = next_sibling;
@@ -208,9 +213,8 @@ pub const Last3NonWhitespaceComponents = struct {
 /// Creates an Ast with a root node with tag `rule_list`
 /// Implements CSS Syntax Level 3 Section 9 "Parse a CSS stylesheet"
 pub fn parseCssStylesheet(token_source: TokenSource, allocator: Allocator) !Ast {
-    var ast: Ast = .{};
-    errdefer ast.deinit(allocator);
-    const managed = AstManaged{ .unmanaged = &ast, .allocator = allocator };
+    var managed = AstManaged{ .allocator = allocator };
+    errdefer managed.deinit();
 
     var parser: Parser = .{ .token_source = token_source, .allocator = allocator };
     defer parser.deinit();
@@ -221,17 +225,16 @@ pub fn parseCssStylesheet(token_source: TokenSource, allocator: Allocator) !Ast 
         .index = index,
         .data = .{ .list_of_rules = .{ .top_level = true } },
     };
-    try loop(&parser, &location, managed);
+    try loop(&parser, &location, &managed);
 
-    return ast;
+    return .{ .components = managed.components.slice() };
 }
 
 /// Creates an Ast with a root node with tag `component_list`
 /// Implements CSS Syntax Level 3 Section 5.3.10 "Parse a list of component values"
 pub fn parseListOfComponentValues(token_source: TokenSource, allocator: Allocator) !Ast {
-    var ast: Ast = .{};
-    errdefer ast.deinit(allocator);
-    const managed = AstManaged{ .unmanaged = &ast, .allocator = allocator };
+    var managed = AstManaged{ .allocator = allocator };
+    errdefer managed.deinit();
 
     var parser: Parser = .{ .token_source = token_source, .allocator = allocator };
     defer parser.deinit();
@@ -239,9 +242,9 @@ pub fn parseListOfComponentValues(token_source: TokenSource, allocator: Allocato
     var location: TokenSource.Location = .start;
     const index = try managed.addComplexComponent(.component_list, location);
     parser.stack.top = .{ .index = index, .data = .list_of_component_values };
-    try loop(&parser, &location, managed);
+    try loop(&parser, &location, &managed);
 
-    return ast;
+    return .{ .components = managed.components.slice() };
 }
 
 const Parser = struct {
@@ -301,7 +304,7 @@ const Parser = struct {
     }
 
     /// `location` must be the location of a <function-token>.
-    fn pushFunction(parser: *Parser, ast: AstManaged, location: TokenSource.Location) !void {
+    fn pushFunction(parser: *Parser, ast: *AstManaged, location: TokenSource.Location) !void {
         const index = try ast.addComplexComponent(.function, location);
         try parser.pushFrame(.{
             .index = index,
@@ -310,7 +313,7 @@ const Parser = struct {
     }
 
     /// `location` must be the location of a <{-token>, <[-token>, or <(-token>.
-    fn pushSimpleBlock(parser: *Parser, ast: AstManaged, tag: Component.Tag, location: TokenSource.Location) !void {
+    fn pushSimpleBlock(parser: *Parser, ast: *AstManaged, tag: Component.Tag, location: TokenSource.Location) !void {
         const component_tag: Component.Tag = switch (tag) {
             .token_left_curly => .simple_block_curly,
             .token_left_square => .simple_block_square,
@@ -324,7 +327,7 @@ const Parser = struct {
         });
     }
 
-    fn popComponent(parser: *Parser, ast: AstManaged) void {
+    fn popComponent(parser: *Parser, ast: *AstManaged) void {
         const frame = parser.stack.pop();
         switch (frame.data) {
             .qualified_rule => unreachable, // use popQualifiedRule instead
@@ -338,29 +341,29 @@ const Parser = struct {
 
     /// `location` must be the location of the first token of the at-rule (i.e. the <at-keyword-token>).
     /// To finish this component, use `popAtRule`.
-    fn pushAtRule(parser: *Parser, ast: AstManaged, location: TokenSource.Location) !void {
+    fn pushAtRule(parser: *Parser, ast: *AstManaged, location: TokenSource.Location) !void {
         const index = try ast.addComplexComponent(.at_rule, location);
         try parser.pushFrame(.{ .index = index, .data = .{ .at_rule = .{} } });
     }
 
-    fn popAtRule(parser: *Parser, ast: AstManaged) void {
+    fn popAtRule(parser: *Parser, ast: *AstManaged) void {
         const frame = parser.stack.pop();
         ast.finishComplexComponentExtra(frame.index, .{ .index = frame.data.at_rule.index_of_block orelse 0 });
     }
 
     /// `location` must be the location of the first token of the qualified rule.
     /// To finish this component, use either `popQualifiedRule` or `discardQualifiedRule`.
-    fn pushQualifiedRule(parser: *Parser, ast: AstManaged, location: TokenSource.Location, is_style_rule: bool) !void {
+    fn pushQualifiedRule(parser: *Parser, ast: *AstManaged, location: TokenSource.Location, is_style_rule: bool) !void {
         const index = try ast.addComplexComponent(.qualified_rule, location);
         try parser.pushFrame(.{ .index = index, .data = .{ .qualified_rule = .{ .is_style_rule = is_style_rule } } });
     }
 
-    fn popQualifiedRule(parser: *Parser, ast: AstManaged) void {
+    fn popQualifiedRule(parser: *Parser, ast: *AstManaged) void {
         const frame = parser.stack.pop();
         ast.finishComplexComponentExtra(frame.index, .{ .index = frame.data.qualified_rule.index_of_block.? });
     }
 
-    fn discardQualifiedRule(parser: *Parser, ast: AstManaged) void {
+    fn discardQualifiedRule(parser: *Parser, ast: *AstManaged) void {
         const frame = parser.stack.pop();
         assert(frame.data == .qualified_rule);
         ast.shrink(frame.index);
@@ -368,12 +371,12 @@ const Parser = struct {
 
     /// `location` must be the location of a <{-token>.
     /// To finish this component, use `popStyleBlock`.
-    fn pushStyleBlock(parser: *Parser, ast: AstManaged, location: TokenSource.Location) !void {
+    fn pushStyleBlock(parser: *Parser, ast: *AstManaged, location: TokenSource.Location) !void {
         const index = try ast.addComplexComponent(.style_block, location);
         try parser.pushFrame(.{ .index = index, .data = .{ .style_block = .{} } });
     }
 
-    fn popStyleBlock(parser: *Parser, ast: AstManaged) void {
+    fn popStyleBlock(parser: *Parser, ast: *AstManaged) void {
         const frame = parser.stack.pop();
         ast.finishComplexComponentExtra(frame.index, .{ .index = frame.data.style_block.index_of_last_declaration });
     }
@@ -381,7 +384,7 @@ const Parser = struct {
     /// To finish this component, use `popDeclarationValue`.
     fn pushDeclarationValue(
         parser: *Parser,
-        ast: AstManaged,
+        ast: *AstManaged,
         location: TokenSource.Location,
         style_block: *Frame.StyleBlock,
         previous_declaration: ?Ast.Size,
@@ -391,7 +394,7 @@ const Parser = struct {
         try parser.pushFrame(.{ .index = index, .data = .{ .declaration_value = .{} } });
     }
 
-    fn popDeclarationValue(parser: *Parser, ast: AstManaged) void {
+    fn popDeclarationValue(parser: *Parser, ast: *AstManaged) void {
         const frame = parser.stack.pop();
         _ = ast.finishDeclaration(parser.token_source, frame.index, frame.data.declaration_value.last_3);
     }
@@ -409,7 +412,7 @@ fn nextSimpleBlockToken(parser: *Parser, location: *TokenSource.Location, ending
     }
 }
 
-fn loop(parser: *Parser, location: *TokenSource.Location, ast: AstManaged) !void {
+fn loop(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged) !void {
     while (parser.stack.top) |*frame| {
         // zig fmt: off
         const result = switch (frame.data) {
@@ -430,7 +433,7 @@ fn loop(parser: *Parser, location: *TokenSource.Location, ast: AstManaged) !void
     }
 }
 
-fn consumeListOfRules(parser: *Parser, location: *TokenSource.Location, ast: AstManaged, data: *const Parser.Frame.ListOfRules) !void {
+fn consumeListOfRules(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *const Parser.Frame.ListOfRules) !void {
     while (true) {
         const saved_location = location.*;
         const token = try parser.token_source.next(location);
@@ -455,7 +458,7 @@ fn consumeListOfRules(parser: *Parser, location: *TokenSource.Location, ast: Ast
     }
 }
 
-fn consumeListOfComponentValues(parser: *Parser, location: *TokenSource.Location, ast: AstManaged) !void {
+fn consumeListOfComponentValues(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged) !void {
     while (true) {
         const saved_location = location.*;
         const token = try parser.token_source.next(location);
@@ -466,7 +469,7 @@ fn consumeListOfComponentValues(parser: *Parser, location: *TokenSource.Location
     }
 }
 
-fn consumeAtRule(parser: *Parser, location: *TokenSource.Location, ast: AstManaged, data: *Parser.Frame.AtRule) !void {
+fn consumeAtRule(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *Parser.Frame.AtRule) !void {
     if (data.index_of_block != null) {
         parser.popAtRule(ast);
         return;
@@ -490,7 +493,7 @@ fn consumeAtRule(parser: *Parser, location: *TokenSource.Location, ast: AstManag
     }
 }
 
-fn consumeQualifiedRule(parser: *Parser, location: *TokenSource.Location, ast: AstManaged, data: *Parser.Frame.QualifiedRule) !void {
+fn consumeQualifiedRule(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *Parser.Frame.QualifiedRule) !void {
     if (data.index_of_block != null) {
         parser.popQualifiedRule(ast);
         return;
@@ -516,7 +519,7 @@ fn consumeQualifiedRule(parser: *Parser, location: *TokenSource.Location, ast: A
     }
 }
 
-fn consumeStyleBlockContents(parser: *Parser, location: *TokenSource.Location, ast: AstManaged, data: *Parser.Frame.StyleBlock) !void {
+fn consumeStyleBlockContents(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *Parser.Frame.StyleBlock) !void {
     while (true) {
         const saved_location = location.*;
         const token = (try nextSimpleBlockToken(parser, location, .token_right_curly)) orelse {
@@ -562,7 +565,7 @@ fn seekToEndOfDeclaration(parser: *Parser, location: *TokenSource.Location) !voi
 fn consumeDeclarationStart(
     parser: *Parser,
     location: *TokenSource.Location,
-    ast: AstManaged,
+    ast: *AstManaged,
     style_block: *Parser.Frame.StyleBlock,
     name_location: TokenSource.Location,
     previous_declaration: Ast.Size,
@@ -594,7 +597,7 @@ fn consumeDeclarationStart(
     }
 }
 
-fn consumeDeclarationValue(parser: *Parser, location: *TokenSource.Location, ast: AstManaged, data: *Parser.Frame.DeclarationValue) !void {
+fn consumeDeclarationValue(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *Parser.Frame.DeclarationValue) !void {
     while (true) {
         const saved_location = location.*;
         const token = try parser.token_source.next(location);
@@ -619,7 +622,7 @@ fn consumeDeclarationValue(parser: *Parser, location: *TokenSource.Location, ast
     }
 }
 
-fn consumeComponentValue(parser: *Parser, location: *TokenSource.Location, ast: AstManaged, main_token: Token, main_location: TokenSource.Location) !Ast.Size {
+fn consumeComponentValue(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, main_token: Token, main_location: TokenSource.Location) !Ast.Size {
     switch (main_token) {
         else => return ast.addToken(main_token, main_location),
         .token_left_curly, .token_left_square, .token_left_paren, .token_function => {
@@ -701,7 +704,7 @@ fn ignoreComponentValue(parser: *Parser, first_token: Token, location: *TokenSou
     }
 }
 
-fn consumeSimpleBlock(parser: *Parser, location: *TokenSource.Location, ast: AstManaged, data: *const Parser.Frame.SimpleBlock) !void {
+fn consumeSimpleBlock(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *const Parser.Frame.SimpleBlock) !void {
     while (true) {
         const saved_location = location.*;
         const token = (try nextSimpleBlockToken(parser, location, data.ending_tag)) orelse {
@@ -738,8 +741,8 @@ test "parse a stylesheet" {
     ;
     const token_source = try TokenSource.init(input);
 
-    var tree = try parseCssStylesheet(token_source, allocator);
-    defer tree.deinit(allocator);
+    var ast = try parseCssStylesheet(token_source, allocator);
+    defer ast.deinit(allocator);
 
     const TestComponent = struct {
         next_sibling: Ast.Size,
@@ -781,10 +784,9 @@ test "parse a stylesheet" {
     };
     // zig fmt: on
 
-    const slice = tree.slice();
-    if (expecteds.len != slice.len) return error.TestFailure;
+    if (expecteds.len != ast.components.len) return error.TestFailure;
     for (expecteds, 0..) |expected, i| {
-        const actual = slice.get(@intCast(i));
+        const actual = ast.components.get(@intCast(i));
         try std.testing.expectEqual(expected.next_sibling, actual.next_sibling);
         try std.testing.expectEqual(expected.tag, actual.tag);
         try std.testing.expectEqual(expected.location, actual.location);

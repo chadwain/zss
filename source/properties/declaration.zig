@@ -101,7 +101,7 @@ fn parseDeclaration(
 }
 
 fn parsePropertyName(
-    components: Ast.Slice,
+    ast: Ast,
     token_source: TokenSource,
     declaration_index: Ast.Size,
 ) ?PropertyName {
@@ -114,7 +114,7 @@ fn parsePropertyName(
         const const_result = result;
         break :blk &const_result;
     };
-    const location = components.location(declaration_index);
+    const location = ast.location(declaration_index);
     return token_source.mapIdentifier(location, PropertyName, map);
 }
 
@@ -171,20 +171,19 @@ test {
         \\}
     ;
     const source = try TokenSource.init(input);
-    var components = try zss.syntax.parse.parseCssStylesheet(source, allocator);
-    defer components.deinit(allocator);
-    const slice = components.slice();
+    var ast = try zss.syntax.parse.parseCssStylesheet(source, allocator);
+    defer ast.deinit(allocator);
 
     const qualified_rule: Ast.Size = 1;
-    assert(slice.tag(qualified_rule) == .qualified_rule);
-    const style_block = slice.extra(qualified_rule).index;
-    assert(slice.tag(style_block) == .style_block);
-    const last_declaration = slice.extra(style_block).index;
+    assert(ast.tag(qualified_rule) == .qualified_rule);
+    const style_block = ast.extra(qualified_rule).index;
+    assert(ast.tag(style_block) == .style_block);
+    const last_declaration = ast.extra(style_block).index;
 
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    var value_source = ValueSource.init(slice, source, arena.allocator());
+    var value_source = ValueSource.init(ast, source, arena.allocator());
     const decls = try parseDeclarationsFromAst(&value_source, &arena, last_declaration);
 
     const expectEqual = std.testing.expectEqual;

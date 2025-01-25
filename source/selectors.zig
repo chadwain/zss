@@ -5,7 +5,7 @@ const Element = ElementTree.Element;
 const ElementTree = zss.ElementTree;
 const Environment = zss.Environment;
 const IdId = Environment.IdId;
-const NamespaceId = Environment.NamespaceId;
+const NamespaceId = Environment.Namespaces.Id;
 const NameId = Environment.NameId;
 const TokenSource = zss.syntax.TokenSource;
 
@@ -22,10 +22,11 @@ pub fn parseSelectorList(
     env: *Environment,
     allocator: Allocator,
     source: TokenSource,
-    slice: Ast.Slice,
+    ast: Ast,
     sequence: Ast.Sequence,
+    default_namespace: ?NamespaceId,
 ) !ComplexSelectorList {
-    var parser = Parser.init(env, allocator, source, slice, sequence);
+    var parser = Parser.init(env, allocator, source, ast, sequence, default_namespace);
     return try parser.parseComplexSelectorList();
 }
 
@@ -423,16 +424,15 @@ fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, actu
 
 fn stringToSelectorList(input: []const u8, env: *Environment, arena: *ArenaAllocator) !ComplexSelectorList {
     const source = try TokenSource.init(input);
-    var tree = try zss.syntax.parse.parseListOfComponentValues(source, env.allocator);
-    defer tree.deinit(env.allocator);
-    const slice = tree.slice();
+    var ast = try zss.syntax.parse.parseListOfComponentValues(source, env.allocator);
+    defer ast.deinit(env.allocator);
 
     const component_list: Ast.Size = 0;
-    assert(slice.tag(component_list) == .component_list);
+    assert(ast.tag(component_list) == .component_list);
     const start = component_list + 1;
-    const end = slice.nextSibling(component_list);
+    const end = ast.nextSibling(component_list);
 
-    return try parseSelectorList(env, arena.allocator(), source, slice, Ast.Sequence{ .start = start, .end = end });
+    return try parseSelectorList(env, arena.allocator(), source, ast, Ast.Sequence{ .start = start, .end = end }, null);
 }
 
 fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpected) !void {

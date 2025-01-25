@@ -3,7 +3,9 @@ const Stylesheet = @This();
 const zss = @import("zss.zig");
 const ComplexSelectorList = zss.selectors.ComplexSelectorList;
 const Ast = zss.syntax.Ast;
+const AtRule = zss.syntax.Token.AtRule;
 const Environment = zss.Environment;
+const NamespaceId = Environment.Namespaces.Id;
 const ParsedDeclarations = zss.properties.declaration.ParsedDeclarations;
 const Source = zss.syntax.TokenSource;
 
@@ -13,14 +15,18 @@ const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const MultiArrayList = std.MultiArrayList;
+const StringArrayHashMapUnmanaged = std.StringArrayHashMapUnmanaged;
 
 pub const StyleRule = struct {
     selector: ComplexSelectorList,
     declarations: ParsedDeclarations,
 };
 
-rules: MultiArrayList(StyleRule) = .{},
-arena: ArenaAllocator.State = .{},
+rules: MultiArrayList(StyleRule) = .empty,
+arena: ArenaAllocator.State,
+// TODO: consider making an `IdentifierMap` structure for this use case
+namespace_prefixes: StringArrayHashMapUnmanaged(NamespaceId) = .empty,
+default_namespace: ?NamespaceId = null,
 
 pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
     var arena = stylesheet.arena.promote(allocator);
@@ -28,35 +34,97 @@ pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
     arena.deinit();
 }
 
-pub fn create(ast: Ast.Slice, source: Source, child_allocator: Allocator, env: *Environment) !Stylesheet {
+pub fn create(ast: Ast, source: Source, child_allocator: Allocator, env: *Environment) !Stylesheet {
     var arena = ArenaAllocator.init(child_allocator);
     errdefer arena.deinit();
     const allocator = arena.allocator();
 
-    var rules = MultiArrayList(StyleRule){};
+    var stylesheet = Stylesheet{ .arena = undefined };
 
     assert(ast.tag(0) == .rule_list);
-    var next_index: Ast.Size = 1;
-    const end_of_stylesheet = ast.nextSibling(0);
-    while (next_index < end_of_stylesheet) {
-        const index = next_index;
-        next_index = ast.nextSibling(next_index);
+    var rule_sequence = ast.children(0);
+    while (rule_sequence.nextSkipSpaces(ast)) |index| {
         switch (ast.tag(index)) {
-            .at_rule => panic("TODO: At-rules in a stylesheet\n", .{}),
+            .at_rule => {
+                const iterator = source.atKeywordTokenIterator(ast.location(index));
+                // TODO: Access of `iterator.location` is an implementation detail leak
+                const at_rule = source.mapIdentifier(iterator.location, AtRule, &.{
+                    .{ "import", .import },
+                    .{ "namespace", .namespace },
+                }) orelse {
+                    const copy = try source.copyIdentifier(iterator.location, allocator);
+                    defer allocator.free(copy);
+                    zss.log.warn("Ignoring unknown at-rule: @{s}", .{copy});
+                    continue;
+                };
+                atRule(&stylesheet, allocator, env, ast, source, at_rule, index) catch |err| switch (err) {
+                    error.InvalidAtRule => {
+                        zss.log.warn("Ignoring invalid @{s} at-rule", .{@tagName(at_rule)});
+                    },
+                    else => |e| return e,
+                };
+            },
             .qualified_rule => {
                 const end_of_prelude = ast.extra(index).index;
 
-                try rules.ensureUnusedCapacity(allocator, 1);
+                try stylesheet.rules.ensureUnusedCapacity(allocator, 1);
                 const selector_sequence: Ast.Sequence = .{ .start = index + 1, .end = end_of_prelude };
-                const selector_list = try zss.selectors.parseSelectorList(env, allocator, source, ast, selector_sequence);
+                const selector_list = try zss.selectors.parseSelectorList(env, allocator, source, ast, selector_sequence, stylesheet.default_namespace);
                 const last_declaration = ast.extra(end_of_prelude).index;
                 var value_source = zss.values.parse.Source.init(ast, source, arena.allocator());
                 const decls = try zss.properties.declaration.parseDeclarationsFromAst(&value_source, &arena, last_declaration);
-                rules.appendAssumeCapacity(.{ .selector = selector_list, .declarations = decls });
+                stylesheet.rules.appendAssumeCapacity(.{ .selector = selector_list, .declarations = decls });
             },
             else => unreachable,
         }
     }
 
-    return Stylesheet{ .rules = rules, .arena = arena.state };
+    stylesheet.arena = arena.state;
+    return stylesheet;
+}
+
+fn atRule(
+    stylesheet: *Stylesheet,
+    allocator: Allocator,
+    env: *Environment,
+    ast: Ast,
+    source: Source,
+    at_rule: AtRule,
+    at_rule_index: Ast.Size,
+) !void {
+    switch (at_rule) {
+        .import => panic("TODO: @import rules", .{}),
+        .namespace => {
+            var sequence = ast.children(at_rule_index);
+            const prefix_opt: ?Ast.Size = prefix: {
+                const index = sequence.nextSkipSpaces(ast) orelse return error.InvalidAtRule;
+                if (ast.tag(index) != .token_ident) {
+                    sequence.reset(index);
+                    break :prefix null;
+                }
+                break :prefix index;
+            };
+            const namespace: Ast.Size = namespace: {
+                const index = sequence.nextSkipSpaces(ast) orelse return error.InvalidAtRule;
+                switch (ast.tag(index)) {
+                    .token_string, .token_url, .token_bad_url => break :namespace index,
+                    else => return error.InvalidAtRule,
+                }
+            };
+            if (sequence.nextSkipSpaces(ast)) |_| return error.InvalidAtRule;
+
+            const id = try env.addNamespace(ast, source, namespace);
+            if (prefix_opt) |prefix| {
+                try stylesheet.namespace_prefixes.ensureUnusedCapacity(allocator, 1);
+                const prefix_str = try source.copyIdentifier(ast.location(prefix), allocator);
+                const gop_result = stylesheet.namespace_prefixes.getOrPutAssumeCapacity(prefix_str);
+                if (gop_result.found_existing) {
+                    allocator.free(prefix_str);
+                }
+                gop_result.value_ptr.* = id;
+            } else {
+                stylesheet.default_namespace = id;
+            }
+        },
+    }
 }

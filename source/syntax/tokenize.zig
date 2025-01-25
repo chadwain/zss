@@ -63,6 +63,13 @@ pub const Source = struct {
         return identTokenIterator(source, hash.next_location);
     }
 
+    /// Asserts that `start` is the location of the start of a at-keyword token.
+    pub fn atKeywordTokenIterator(source: Source, start: Location) IdentSequenceIterator {
+        const at = nextCodepoint(source, start) catch unreachable;
+        assert(at.codepoint == '@');
+        return identTokenIterator(source, at.next_location);
+    }
+
     /// Asserts that `start` is the location of the start of a string token.
     pub fn stringTokenIterator(source: Source, start: Location) StringTokenIterator {
         const quote = nextCodepoint(source, start) catch unreachable;

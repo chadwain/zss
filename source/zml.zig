@@ -24,7 +24,7 @@ comptime {
 pub fn astToElement(
     element_tree: *ElementTree,
     env: *Environment,
-    ast: Ast.Slice,
+    ast: Ast,
     root_ast_index: Ast.Size,
     token_source: TokenSource,
     allocator: Allocator,
@@ -70,7 +70,7 @@ fn astToElementOneIter(
     element_tree: *ElementTree,
     placement: ElementTree.Slice.NodePlacement,
     env: *Environment,
-    ast: Ast.Slice,
+    ast: Ast,
     ast_index: Ast.Size,
     token_source: TokenSource,
     cascade_arena: *ArenaAllocator,
@@ -95,7 +95,7 @@ fn parseElement(
     element: Element,
     placement: ElementTree.Slice.NodePlacement,
     env: *Environment,
-    ast: Ast.Slice,
+    ast: Ast,
     zml_element: Ast.Size,
     token_source: TokenSource,
     cascade_arena: *ArenaAllocator,
@@ -145,7 +145,7 @@ fn parseTextElement(
     element_tree: ElementTree.Slice,
     element: Element,
     placement: ElementTree.Slice.NodePlacement,
-    ast: Ast.Slice,
+    ast: Ast,
     zml_text_element: Ast.Size,
     token_source: TokenSource,
 ) !void {
@@ -160,7 +160,7 @@ fn parseTextElement(
 fn applyStyleBlockDeclarations(
     element_tree: ElementTree.Slice,
     element: Element,
-    ast: Ast.Slice,
+    ast: Ast,
     last_declaration: Ast.Size,
     token_source: TokenSource,
     cascade_arena: *ArenaAllocator,
@@ -184,9 +184,8 @@ test astToElement {
     var parser = Parser.init(token_source, allocator);
     defer parser.deinit();
 
-    var ast = Ast{};
+    var ast = try parser.parse(allocator);
     defer ast.deinit(allocator);
-    try parser.parse(&ast, allocator);
 
     var element_tree = ElementTree.init(allocator);
     defer element_tree.deinit();
@@ -196,7 +195,7 @@ test astToElement {
     const type1 = try env.addTypeOrAttributeNameString("type1");
     const type2 = try env.addTypeOrAttributeNameString("type2");
 
-    const root_element = try astToElement(&element_tree, &env, ast.slice(), 1, token_source, allocator);
+    const root_element = try astToElement(&element_tree, &env, ast, 1, token_source, allocator);
     const slice = element_tree.slice();
     const aggregates = zss.properties.aggregates;
     const CssWideKeyword = zss.values.types.CssWideKeyword;

@@ -65,33 +65,34 @@ test "parse a zml document" {
     const token_source = try TokenSource.init(input);
     const allocator = std.testing.allocator;
 
-    var ast = Ast{};
-    defer ast.deinit(allocator);
-
     var parser = Parser.init(token_source, allocator);
     defer parser.deinit();
-    parser.parse(&ast, allocator) catch |err| switch (err) {
-        error.ParseError => std.log.err(
-            "zml parse error: location = {}, char = '{c}' msg = {s}",
-            .{ @intFromEnum(parser.failure.location), input[@intFromEnum(parser.failure.location)], parser.failure.cause.errMsg() },
-        ),
+
+    var ast = parser.parse(allocator) catch |err| switch (err) {
+        error.ParseError => {
+            std.log.err(
+                "zml parse error: location = {}, char = '{c}' msg = {s}",
+                .{ @intFromEnum(parser.failure.location), input[@intFromEnum(parser.failure.location)], parser.failure.cause.errMsg() },
+            );
+            return;
+        },
         else => |e| return e,
     };
+    defer ast.deinit(allocator);
 }
 
 fn fuzzOne(input: []const u8) !void {
     const token_source = try TokenSource.init(input);
     const allocator = std.testing.allocator;
 
-    var ast = Ast{};
-    defer ast.deinit(allocator);
-
     var parser = Parser.init(token_source, allocator);
     defer parser.deinit();
-    parser.parse(&ast, allocator) catch |err| switch (err) {
+
+    var ast = parser.parse(allocator) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => {},
+        else => return,
     };
+    defer ast.deinit(allocator);
 }
 
 test "zml parser fuzz test" {
@@ -176,16 +177,19 @@ pub const Parser = struct {
 
     pub const Error = error{ ParseError, Overflow } || TokenSource.Error || Allocator.Error;
 
-    pub fn parse(parser: *Parser, ast: *Ast, allocator: Allocator) Error!void {
-        const managed = AstManaged{ .unmanaged = ast, .allocator = allocator };
+    pub fn parse(parser: *Parser, allocator: Allocator) Error!Ast {
+        var managed = AstManaged{ .allocator = allocator };
+        errdefer managed.deinit();
 
         const document_index = try managed.addComplexComponent(.zml_document, parser.location);
-        try parseElement(parser, managed);
+        try parseElement(parser, &managed);
         while (parser.element_stack.items.len > 0) {
-            try parseElement(parser, managed);
+            try parseElement(parser, &managed);
         }
         try parser.consumeUntilEof();
         managed.finishComplexComponent(document_index);
+
+        return .{ .components = managed.components.slice() };
     }
 
     fn fail(parser: *Parser, cause: Failure.Cause, location: Location) error{ParseError} {
@@ -261,7 +265,7 @@ pub const Parser = struct {
     }
 };
 
-fn parseElement(parser: *Parser, ast: AstManaged) !void {
+fn parseElement(parser: *Parser, ast: *AstManaged) !void {
     _ = try parser.consumeWhitespaceAllowEof();
     const main_token, const main_location = try parser.nextTokenAllowEof();
 
@@ -335,7 +339,7 @@ fn parseElement(parser: *Parser, ast: AstManaged) !void {
     }
 }
 
-fn parseFeature(parser: *Parser, ast: AstManaged, main_token: Token, main_location: Location, parsed_type: *bool) !void {
+fn parseFeature(parser: *Parser, ast: *AstManaged, main_token: Token, main_location: Location, parsed_type: *bool) !void {
     switch (main_token) {
         .token_delim => |codepoint| blk: {
             if (codepoint == '.') {
@@ -378,7 +382,7 @@ fn parseFeature(parser: *Parser, ast: AstManaged, main_token: Token, main_locati
     return parser.fail(.invalid_feature, main_location);
 }
 
-fn parseInlineStyleBlock(parser: *Parser, ast: AstManaged, main_location: Location) !void {
+fn parseInlineStyleBlock(parser: *Parser, ast: *AstManaged, main_location: Location) !void {
     const style_block_index = try ast.addComplexComponent(.zml_styles, main_location);
 
     var previous_declaration: ?Ast.Size = null;

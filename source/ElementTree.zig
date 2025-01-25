@@ -2,7 +2,7 @@ const zss = @import("zss.zig");
 const AggregateTag = zss.properties.aggregates.Tag;
 const CascadedValues = zss.CascadedValues;
 const Environment = zss.Environment;
-const NamespaceId = Environment.NamespaceId;
+const NamespaceId = Environment.Namespaces.Id;
 const NameId = Environment.NameId;
 const Specificity = zss.selectors.Specificity;
 

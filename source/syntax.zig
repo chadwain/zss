@@ -33,6 +33,7 @@ pub const Token = union(enum) {
     token_function,
     /// description: An '@' codepoint + an identifier
     ///    location: The '@' codepoint
+    // TODO: Get the actual at-rule as the token payload
     token_at_keyword,
     /// description: A '#' codepoint + an identifier that does not form a valid ID selector
     ///    location: The '#' codepoint
@@ -113,6 +114,11 @@ pub const Token = union(enum) {
         number: f32,
         unit: Unit,
         unit_location: TokenSource.Location,
+    };
+
+    pub const AtRule = enum {
+        import,
+        namespace,
     };
 
     pub fn cast(token: Token, comptime Derived: type) Derived {
@@ -328,9 +334,8 @@ pub const Component = struct {
 };
 
 pub const Ast = struct {
-    components: List = .{},
-
-    pub const List = MultiArrayList(Component);
+    components: MultiArrayList(Component).Slice,
+    debug: Debug = .{},
 
     pub const Size = u32;
 
@@ -343,24 +348,24 @@ pub const Ast = struct {
         }
 
         /// Returns the next component in the sequence.
-        pub fn nextKeepSpaces(sequence: *Sequence, s: Slice) ?Ast.Size {
+        pub fn nextKeepSpaces(sequence: *Sequence, ast: Ast) ?Size {
             if (sequence.empty()) return null;
             assert(sequence.start < sequence.end);
 
-            defer sequence.start = s.nextSibling(sequence.start);
+            defer sequence.start = ast.nextSibling(sequence.start);
             return sequence.start;
         }
 
         /// Returns the next component in the sequence, skipping over space components.
-        pub fn nextSkipSpaces(sequence: *Sequence, s: Slice) ?Ast.Size {
+        pub fn nextSkipSpaces(sequence: *Sequence, ast: Ast) ?Size {
             if (sequence.empty()) return null;
             assert(sequence.start < sequence.end);
 
-            var current = s.nextSibling(sequence.start);
+            var current = ast.nextSibling(sequence.start);
             defer sequence.start = while (current != sequence.end) {
                 assert(current < sequence.end);
-                switch (s.tag(current)) {
-                    .token_whitespace, .token_comments => current = s.nextSibling(current),
+                switch (ast.tag(current)) {
+                    .token_whitespace, .token_comments => current = ast.nextSibling(current),
                     else => break current,
                 }
             } else sequence.end;
@@ -371,12 +376,12 @@ pub const Ast = struct {
         pub const nextDeclComponent = nextSkipSpaces;
 
         /// Returns true if any space components were encountered.
-        pub fn skipSpaces(sequence: *Sequence, s: Slice) bool {
+        pub fn skipSpaces(sequence: *Sequence, ast: Ast) bool {
             const initial_index = sequence.start;
             while (sequence.start != sequence.end) {
                 assert(sequence.start < sequence.end);
-                switch (s.tag(sequence.start)) {
-                    .token_whitespace, .token_comments => sequence.start = s.nextSibling(sequence.start),
+                switch (ast.tag(sequence.start)) {
+                    .token_whitespace, .token_comments => sequence.start = ast.nextSibling(sequence.start),
                     else => break,
                 }
             }
@@ -385,127 +390,91 @@ pub const Ast = struct {
 
         /// Returns to a previously visited point in the sequence.
         /// `index` must be a value that was previously returned from one of the `next*` functions.
-        pub fn reset(sequence: *Sequence, index: Ast.Size) void {
+        pub fn reset(sequence: *Sequence, index: Size) void {
             sequence.start = index;
         }
     };
 
     /// Free resources associated with the Ast.
-    pub fn deinit(tree: *Ast, allocator: Allocator) void {
-        tree.components.deinit(allocator);
+    pub fn deinit(ast: *Ast, allocator: Allocator) void {
+        ast.components.deinit(allocator);
     }
 
-    pub const Slice = struct {
-        len: Size,
-        ptrs: struct {
-            next_sibling: [*]const Ast.Size,
-            tag: [*]const Component.Tag,
-            location: [*]const TokenSource.Location,
-            extra: [*]const Component.Extra,
-        },
+    pub fn nextSibling(ast: Ast, index: Size) Size {
+        return ast.components.items(.next_sibling)[index];
+    }
 
-        pub fn get(self: Slice, index: Ast.Size) Component {
-            assert(index < self.len);
-            return Component{
-                .next_sibling = self.ptrs.next_sibling[index],
-                .tag = self.ptrs.tag[index],
-                .location = self.ptrs.location[index],
-                .extra = self.ptrs.extra[index],
-            };
-        }
+    pub fn tag(ast: Ast, index: Size) Component.Tag {
+        return ast.components.items(.tag)[index];
+    }
 
-        pub fn nextSibling(self: Slice, index: Ast.Size) Ast.Size {
-            assert(index < self.len);
-            return self.ptrs.next_sibling[index];
-        }
+    pub fn location(ast: Ast, index: Size) TokenSource.Location {
+        return ast.components.items(.location)[index];
+    }
 
-        pub fn tag(self: Slice, index: Ast.Size) Component.Tag {
-            assert(index < self.len);
-            return self.ptrs.tag[index];
-        }
+    pub fn extra(ast: Ast, index: Size) Component.Extra {
+        return ast.components.items(.extra)[index];
+    }
 
-        pub fn location(self: Slice, index: Ast.Size) TokenSource.Location {
-            assert(index < self.len);
-            return self.ptrs.location[index];
-        }
-
-        pub fn extra(self: Slice, index: Ast.Size) Component.Extra {
-            assert(index < self.len);
-            return self.ptrs.extra[index];
-        }
-
-        /// Returns the sequence of the immediate children of `index`
-        // TODO: Change the name to reflect that this skips leading space components
-        pub fn children(self: Slice, index: Ast.Size) Sequence {
-            var current = index + 1;
-            const end = self.nextSibling(index);
-            while (current != end) {
-                switch (self.tag(current)) {
-                    .token_whitespace, .token_comments => current = self.nextSibling(current),
-                    else => break,
-                }
+    /// Returns the sequence of the immediate children of `index`
+    // TODO: Change the name to reflect that this skips leading space components
+    pub fn children(ast: Ast, index: Size) Sequence {
+        var current = index + 1;
+        const end = ast.nextSibling(index);
+        while (current != end) {
+            switch (ast.tag(current)) {
+                .token_whitespace, .token_comments => current = ast.nextSibling(current),
+                else => break,
             }
-            return .{ .start = current, .end = end };
         }
-    };
-
-    pub fn slice(tree: Ast) Slice {
-        const list_slice = tree.components.slice();
-        return Slice{
-            .len = @intCast(list_slice.len),
-            .ptrs = .{
-                .next_sibling = list_slice.items(.next_sibling).ptr,
-                .tag = list_slice.items(.tag).ptr,
-                .location = list_slice.items(.location).ptr,
-                .extra = list_slice.items(.extra).ptr,
-            },
-        };
+        return .{ .start = current, .end = end };
     }
 
-    pub const debug = struct {
-        pub fn print(tree: Ast, allocator: Allocator, writer: std.io.AnyWriter) !void {
-            const c = tree.components;
-            try writer.print("Ast (index, component, location, extra)\narray len {}\n", .{c.len});
-            if (c.len == 0) return;
-            try writer.print("tree size {}\n", .{c.items(.next_sibling)[0]});
+    pub const Debug = struct {
+        pub fn print(debug: *const Debug, allocator: Allocator, writer: std.io.AnyWriter) !void {
+            const ast = @as(*const Ast, @alignCast(@fieldParentPtr("debug", debug))).*;
+            try writer.writeAll("Ast (index, component, location, extra)\n");
+            if (ast.components.len == 0) return;
+            try writer.print("tree size {}\n", .{ast.nextSibling(0)});
 
-            const Item = struct {
-                current: Ast.Size,
-                end: Ast.Size,
-            };
-            var stack = std.ArrayListUnmanaged(Item){};
+            var stack = zss.Stack(Sequence){};
             defer stack.deinit(allocator);
-            try stack.append(allocator, .{ .current = 0, .end = c.items(.next_sibling)[0] });
+            stack.top = .{ .start = 0, .end = ast.nextSibling(0) };
 
-            while (stack.items.len > 0) {
-                const last = &stack.items[stack.items.len - 1];
-                if (last.current != last.end) {
-                    const index = last.current;
-                    const component = c.get(index);
-                    const indent = (stack.items.len - 1) * 4;
-                    try writer.writeByteNTimes(' ', indent);
-                    try writer.print("{} {s} {} ", .{ index, @tagName(component.tag), @intFromEnum(component.location) });
-                    try printExtra(writer, component.tag, component.extra);
-                    try writer.writeAll("\n");
-
-                    last.current = component.next_sibling;
-                    if (index + 1 != component.next_sibling) {
-                        try stack.append(allocator, .{ .current = index + 1, .end = component.next_sibling });
-                    }
-                } else {
+            while (stack.top) |*top| {
+                const index = top.nextKeepSpaces(ast) orelse {
                     _ = stack.pop();
+                    continue;
+                };
+                const component = ast.components.get(index);
+                const indent = (stack.len() - 1) * 4;
+                try writer.writeByteNTimes(' ', indent);
+                try writer.print("{} {s} {} ", .{ index, @tagName(component.tag), @intFromEnum(component.location) });
+                try printExtra(writer, component.tag, component.extra);
+                try writer.writeAll("\n");
+
+                const children_sequence = ast.children(index);
+                if (!children_sequence.empty()) {
+                    try stack.push(allocator, children_sequence);
                 }
             }
         }
 
-        fn printExtra(writer: std.io.AnyWriter, tag: Component.Tag, extra: Component.Extra) !void {
-            switch (tag) {
-                .token_delim => try writer.print("U+{X}", .{extra.codepoint}),
-                .token_integer => try writer.print("{}", .{extra.integer}),
-                .token_number, .token_dimension => try writer.print("{d}", .{extra.number}),
-                .unit => try writer.print("{s}", .{@tagName(extra.unit)}),
-                .token_percentage => try writer.print("{d}%", .{extra.number}),
-                else => try writer.writeAll("(undefined)"),
+        fn printExtra(writer: std.io.AnyWriter, component_tag: Component.Tag, component_extra: Component.Extra) !void {
+            switch (component_tag) {
+                .token_delim => try writer.print("U+{X}", .{component_extra.codepoint}),
+                .token_integer => try writer.print("{}", .{component_extra.integer}),
+                .token_number, .token_dimension => try writer.print("{d}", .{component_extra.number}),
+                .unit => try writer.print("{s}", .{@tagName(component_extra.unit)}),
+                .token_percentage => try writer.print("{d}%", .{component_extra.number}),
+                .declaration_normal,
+                .declaration_important,
+                .style_block,
+                .zml_styles,
+                .at_rule,
+                .qualified_rule,
+                => try writer.print("{}", .{component_extra.index}),
+                else => {},
             }
         }
     };
