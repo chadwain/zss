@@ -15,18 +15,21 @@ const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const MultiArrayList = std.MultiArrayList;
-const StringArrayHashMapUnmanaged = std.StringArrayHashMapUnmanaged;
 
 pub const StyleRule = struct {
     selector: ComplexSelectorList,
     declarations: ParsedDeclarations,
 };
 
+pub const Namespaces = struct {
+    // TODO: consider making an `IdentifierMap` structure for this use case
+    prefixes: std.StringArrayHashMapUnmanaged(NamespaceId) = .empty,
+    default: ?NamespaceId = null,
+};
+
 rules: MultiArrayList(StyleRule) = .empty,
 arena: ArenaAllocator.State,
-// TODO: consider making an `IdentifierMap` structure for this use case
-namespace_prefixes: StringArrayHashMapUnmanaged(NamespaceId) = .empty,
-default_namespace: ?NamespaceId = null,
+namespaces: Namespaces = .{},
 
 pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
     var arena = stylesheet.arena.promote(allocator);
@@ -46,12 +49,9 @@ pub fn create(ast: Ast, source: Source, child_allocator: Allocator, env: *Enviro
     while (rule_sequence.nextSkipSpaces(ast)) |index| {
         switch (ast.tag(index)) {
             .at_rule => {
-                const iterator = source.atKeywordTokenIterator(ast.location(index));
-                // TODO: Access of `iterator.location` is an implementation detail leak
-                const at_rule = source.mapIdentifier(iterator.location, AtRule, &.{
-                    .{ "import", .import },
-                    .{ "namespace", .namespace },
-                }) orelse {
+                const at_rule = ast.extra(index).at_rule orelse {
+                    const iterator = source.atKeywordTokenIterator(ast.location(index));
+                    // TODO: Access of `iterator.location` is an implementation detail leak
                     const copy = try source.copyIdentifier(iterator.location, allocator);
                     defer allocator.free(copy);
                     zss.log.warn("Ignoring unknown at-rule: @{s}", .{copy});
@@ -65,11 +65,11 @@ pub fn create(ast: Ast, source: Source, child_allocator: Allocator, env: *Enviro
                 };
             },
             .qualified_rule => {
-                const end_of_prelude = ast.extra(index).index;
-
                 try stylesheet.rules.ensureUnusedCapacity(allocator, 1);
+
+                const end_of_prelude = ast.extra(index).index;
                 const selector_sequence: Ast.Sequence = .{ .start = index + 1, .end = end_of_prelude };
-                const selector_list = try zss.selectors.parseSelectorList(env, allocator, source, ast, selector_sequence, stylesheet.default_namespace);
+                const selector_list = try zss.selectors.parseSelectorList(env, allocator, source, ast, selector_sequence, &stylesheet.namespaces);
                 const last_declaration = ast.extra(end_of_prelude).index;
                 var value_source = zss.values.parse.Source.init(ast, source, arena.allocator());
                 const decls = try zss.properties.declaration.parseDeclarationsFromAst(&value_source, &arena, last_declaration);
@@ -104,6 +104,7 @@ fn atRule(
                 }
                 break :prefix index;
             };
+            // TODO: The namespace must match the grammar of <url>.
             const namespace: Ast.Size = namespace: {
                 const index = sequence.nextSkipSpaces(ast) orelse return error.InvalidAtRule;
                 switch (ast.tag(index)) {
@@ -115,15 +116,15 @@ fn atRule(
 
             const id = try env.addNamespace(ast, source, namespace);
             if (prefix_opt) |prefix| {
-                try stylesheet.namespace_prefixes.ensureUnusedCapacity(allocator, 1);
+                try stylesheet.namespaces.prefixes.ensureUnusedCapacity(allocator, 1);
                 const prefix_str = try source.copyIdentifier(ast.location(prefix), allocator);
-                const gop_result = stylesheet.namespace_prefixes.getOrPutAssumeCapacity(prefix_str);
+                const gop_result = stylesheet.namespaces.prefixes.getOrPutAssumeCapacity(prefix_str);
                 if (gop_result.found_existing) {
                     allocator.free(prefix_str);
                 }
                 gop_result.value_ptr.* = id;
             } else {
-                stylesheet.default_namespace = id;
+                stylesheet.namespaces.default = id;
             }
         },
     }

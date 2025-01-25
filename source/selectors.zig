@@ -7,6 +7,7 @@ const Environment = zss.Environment;
 const IdId = Environment.IdId;
 const NamespaceId = Environment.Namespaces.Id;
 const NameId = Environment.NameId;
+const Stylesheet = zss.Stylesheet;
 const TokenSource = zss.syntax.TokenSource;
 
 const Parser = @import("selectors/parse.zig").Parser;
@@ -24,9 +25,9 @@ pub fn parseSelectorList(
     source: TokenSource,
     ast: Ast,
     sequence: Ast.Sequence,
-    default_namespace: ?NamespaceId,
+    namespaces: *const Stylesheet.Namespaces,
 ) !ComplexSelectorList {
-    var parser = Parser.init(env, allocator, source, ast, sequence, default_namespace);
+    var parser = Parser.init(env, allocator, source, ast, sequence, namespaces);
     return try parser.parseComplexSelectorList();
 }
 
@@ -432,7 +433,7 @@ fn stringToSelectorList(input: []const u8, env: *Environment, arena: *ArenaAlloc
     const start = component_list + 1;
     const end = ast.nextSibling(component_list);
 
-    return try parseSelectorList(env, arena.allocator(), source, ast, Ast.Sequence{ .start = start, .end = end }, null);
+    return try parseSelectorList(env, arena.allocator(), source, ast, Ast.Sequence{ .start = start, .end = end }, &.{});
 }
 
 fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpected) !void {

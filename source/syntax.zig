@@ -33,8 +33,7 @@ pub const Token = union(enum) {
     token_function,
     /// description: An '@' codepoint + an identifier
     ///    location: The '@' codepoint
-    // TODO: Get the actual at-rule as the token payload
-    token_at_keyword,
+    token_at_keyword: ?AtRule,
     /// description: A '#' codepoint + an identifier that does not form a valid ID selector
     ///    location: The '#' codepoint
     token_hash_unrestricted,
@@ -149,6 +148,7 @@ pub const Component = struct {
         integer: i32,
         number: f32,
         unit: Token.Unit,
+        at_rule: ?Token.AtRule,
 
         pub const undef: Extra = .{ .index = 0 };
     };
@@ -267,9 +267,8 @@ pub const Component = struct {
         /// description: An at-rule
         ///    children: A prelude (an arbitrary sequence of components) + optionally, a `simple_block_curly`
         ///    location: The location of the <at-keyword-token> that started this rule
-        ///       extra: Use `extra.index` to get a component tree index.
-        ///              Then, if the value is 0, the at-rule does not have an associated <{}-block>.
-        ///              Otherwise, the at-rule does have a <{}-block>, and the value is the index of that block (with tag = `simple_block_curly`).
+        ///       extra: Use `extra.at_rule` to get the at-rule.
+        ///              A value of `null` represents an unrecognized at-rule.
         at_rule,
         /// description: A qualified rule
         ///    location: The location of the first token of the prelude
@@ -471,9 +470,9 @@ pub const Ast = struct {
                 .declaration_important,
                 .style_block,
                 .zml_styles,
-                .at_rule,
                 .qualified_rule,
                 => try writer.print("{}", .{component_extra.index}),
+                .at_rule => if (component_extra.at_rule) |at_rule| try writer.print("@{s}", .{@tagName(at_rule)}),
                 else => {},
             }
         }

@@ -276,7 +276,8 @@ const Parser = struct {
         };
 
         const AtRule = struct {
-            index_of_block: ?Ast.Size = null,
+            at_rule: ?Token.AtRule,
+            parsed_block: bool = false,
         };
 
         const DeclarationValue = struct {
@@ -341,14 +342,14 @@ const Parser = struct {
 
     /// `location` must be the location of the first token of the at-rule (i.e. the <at-keyword-token>).
     /// To finish this component, use `popAtRule`.
-    fn pushAtRule(parser: *Parser, ast: *AstManaged, location: TokenSource.Location) !void {
+    fn pushAtRule(parser: *Parser, ast: *AstManaged, at_rule: ?Token.AtRule, location: TokenSource.Location) !void {
         const index = try ast.addComplexComponent(.at_rule, location);
-        try parser.pushFrame(.{ .index = index, .data = .{ .at_rule = .{} } });
+        try parser.pushFrame(.{ .index = index, .data = .{ .at_rule = .{ .at_rule = at_rule } } });
     }
 
     fn popAtRule(parser: *Parser, ast: *AstManaged) void {
         const frame = parser.stack.pop();
-        ast.finishComplexComponentExtra(frame.index, .{ .index = frame.data.at_rule.index_of_block orelse 0 });
+        ast.finishComplexComponentExtra(frame.index, .{ .at_rule = frame.data.at_rule.at_rule });
     }
 
     /// `location` must be the location of the first token of the qualified rule.
@@ -447,8 +448,8 @@ fn consumeListOfRules(parser: *Parser, location: *TokenSource.Location, ast: *As
                     return;
                 }
             },
-            .token_at_keyword => {
-                return parser.pushAtRule(ast, saved_location);
+            .token_at_keyword => |at_rule| {
+                return parser.pushAtRule(ast, at_rule, saved_location);
             },
             else => {
                 location.* = saved_location;
@@ -470,7 +471,7 @@ fn consumeListOfComponentValues(parser: *Parser, location: *TokenSource.Location
 }
 
 fn consumeAtRule(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *Parser.Frame.AtRule) !void {
-    if (data.index_of_block != null) {
+    if (data.parsed_block) {
         parser.popAtRule(ast);
         return;
     }
@@ -485,7 +486,7 @@ fn consumeAtRule(parser: *Parser, location: *TokenSource.Location, ast: *AstMana
                 return parser.popAtRule(ast);
             },
             .token_left_curly => {
-                data.index_of_block = ast.len();
+                data.parsed_block = true;
                 return parser.pushSimpleBlock(ast, .token_left_curly, saved_location);
             },
             else => _ = try consumeComponentValue(parser, location, ast, token, saved_location),
@@ -528,8 +529,8 @@ fn consumeStyleBlockContents(parser: *Parser, location: *TokenSource.Location, a
         };
         switch (token) {
             .token_whitespace, .token_comments, .token_semicolon => {},
-            .token_at_keyword => {
-                try parser.pushAtRule(ast, saved_location);
+            .token_at_keyword => |at_rule| {
+                try parser.pushAtRule(ast, at_rule, saved_location);
             },
             .token_ident => try consumeDeclarationStart(parser, location, ast, data, saved_location, data.index_of_last_declaration),
             else => {
@@ -754,6 +755,7 @@ test "parse a stylesheet" {
             integer: i32,
             number: f32,
             unit: Token.Unit,
+            at_rule: ?Token.AtRule,
 
             const undef: @This() = .{ .index = 0 };
         },
@@ -761,26 +763,26 @@ test "parse a stylesheet" {
 
     // zig fmt: off
     const expecteds = [20]TestComponent{
-        .{ .next_sibling = 20, .tag = .rule_list,             .location = @enumFromInt(0),  .extra = .undef           },
-        .{ .next_sibling = 4,  .tag = .at_rule,               .location = @enumFromInt(0),  .extra = .{ .index = 0 }  },
-        .{ .next_sibling = 3,  .tag = .token_whitespace,      .location = @enumFromInt(8),  .extra = .undef           },
-        .{ .next_sibling = 4,  .tag = .token_string,          .location = @enumFromInt(9),  .extra = .undef           },
-        .{ .next_sibling = 7,  .tag = .at_rule,               .location = @enumFromInt(18), .extra = .{ .index = 6 }  },
-        .{ .next_sibling = 6,  .tag = .token_whitespace,      .location = @enumFromInt(27), .extra = .undef           },
-        .{ .next_sibling = 7,  .tag = .simple_block_curly,    .location = @enumFromInt(28), .extra = .undef           },
-        .{ .next_sibling = 16, .tag = .qualified_rule,        .location = @enumFromInt(32), .extra = .{ .index = 10 } },
-        .{ .next_sibling = 9,  .tag = .token_ident,           .location = @enumFromInt(32), .extra = .undef           },
-        .{ .next_sibling = 10, .tag = .token_whitespace,      .location = @enumFromInt(36), .extra = .undef           },
-        .{ .next_sibling = 16, .tag = .style_block,           .location = @enumFromInt(37), .extra = .{ .index = 13 } },
-        .{ .next_sibling = 13, .tag = .declaration_normal,    .location = @enumFromInt(43), .extra = .{ .index = 0 }  },
-        .{ .next_sibling = 13, .tag = .token_ident,           .location = @enumFromInt(49), .extra = .undef           },
-        .{ .next_sibling = 16, .tag = .declaration_important, .location = @enumFromInt(60), .extra = .{ .index = 11 } },
-        .{ .next_sibling = 16, .tag = .function,              .location = @enumFromInt(67), .extra = .undef           },
-        .{ .next_sibling = 16, .tag = .token_ident,           .location = @enumFromInt(72), .extra = .undef           },
-        .{ .next_sibling = 20, .tag = .qualified_rule,        .location = @enumFromInt(91), .extra = .{ .index = 19 } },
-        .{ .next_sibling = 18, .tag = .token_ident,           .location = @enumFromInt(91), .extra = .undef           },
-        .{ .next_sibling = 19, .tag = .token_whitespace,      .location = @enumFromInt(96), .extra = .undef           },
-        .{ .next_sibling = 20, .tag = .style_block,           .location = @enumFromInt(97), .extra = .{ .index = 0 }  },
+        .{ .next_sibling = 20, .tag = .rule_list,             .location = @enumFromInt(0),  .extra = .undef               },
+        .{ .next_sibling = 4,  .tag = .at_rule,               .location = @enumFromInt(0),  .extra = .{ .at_rule = null } },
+        .{ .next_sibling = 3,  .tag = .token_whitespace,      .location = @enumFromInt(8),  .extra = .undef               },
+        .{ .next_sibling = 4,  .tag = .token_string,          .location = @enumFromInt(9),  .extra = .undef               },
+        .{ .next_sibling = 7,  .tag = .at_rule,               .location = @enumFromInt(18), .extra = .{ .at_rule = null } },
+        .{ .next_sibling = 6,  .tag = .token_whitespace,      .location = @enumFromInt(27), .extra = .undef               },
+        .{ .next_sibling = 7,  .tag = .simple_block_curly,    .location = @enumFromInt(28), .extra = .undef               },
+        .{ .next_sibling = 16, .tag = .qualified_rule,        .location = @enumFromInt(32), .extra = .{ .index = 10 }     },
+        .{ .next_sibling = 9,  .tag = .token_ident,           .location = @enumFromInt(32), .extra = .undef               },
+        .{ .next_sibling = 10, .tag = .token_whitespace,      .location = @enumFromInt(36), .extra = .undef               },
+        .{ .next_sibling = 16, .tag = .style_block,           .location = @enumFromInt(37), .extra = .{ .index = 13 }     },
+        .{ .next_sibling = 13, .tag = .declaration_normal,    .location = @enumFromInt(43), .extra = .{ .index = 0 }      },
+        .{ .next_sibling = 13, .tag = .token_ident,           .location = @enumFromInt(49), .extra = .undef               },
+        .{ .next_sibling = 16, .tag = .declaration_important, .location = @enumFromInt(60), .extra = .{ .index = 11 }     },
+        .{ .next_sibling = 16, .tag = .function,              .location = @enumFromInt(67), .extra = .undef               },
+        .{ .next_sibling = 16, .tag = .token_ident,           .location = @enumFromInt(72), .extra = .undef               },
+        .{ .next_sibling = 20, .tag = .qualified_rule,        .location = @enumFromInt(91), .extra = .{ .index = 19 }     },
+        .{ .next_sibling = 18, .tag = .token_ident,           .location = @enumFromInt(91), .extra = .undef               },
+        .{ .next_sibling = 19, .tag = .token_whitespace,      .location = @enumFromInt(96), .extra = .undef               },
+        .{ .next_sibling = 20, .tag = .style_block,           .location = @enumFromInt(97), .extra = .{ .index = 0 }      },
     };
     // zig fmt: on
 

@@ -1,4 +1,6 @@
 const zss = @import("../zss.zig");
+const Stylesheet = zss.Stylesheet;
+
 const selectors = zss.selectors;
 const ComplexSelector = selectors.ComplexSelector;
 const ComplexSelectorList = selectors.ComplexSelectorList;
@@ -13,7 +15,6 @@ const Component = syntax.Component;
 const TokenSource = syntax.TokenSource;
 
 const std = @import("std");
-const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
@@ -23,8 +24,10 @@ pub const Parser = struct {
     source: TokenSource,
     ast: Ast,
     sequence: Ast.Sequence,
+    namespace_prefixes: *const std.StringArrayHashMapUnmanaged(NamespaceId),
     default_namespace: NamespaceId,
 
+    valid: bool = true,
     data: zss.ArrayListSized(ComplexSelector.Data) = undefined,
     specificity: Specificity = undefined,
 
@@ -34,7 +37,7 @@ pub const Parser = struct {
         source: TokenSource,
         ast: Ast,
         sequence: Ast.Sequence,
-        default_namespace: ?NamespaceId,
+        namespaces: *const Stylesheet.Namespaces,
     ) Parser {
         return Parser{
             .env = env,
@@ -42,7 +45,8 @@ pub const Parser = struct {
             .source = source,
             .ast = ast,
             .sequence = sequence,
-            .default_namespace = default_namespace orelse .any,
+            .namespace_prefixes = &namespaces.prefixes,
+            .default_namespace = namespaces.default orelse .any,
         };
     }
 
@@ -66,6 +70,8 @@ pub const Parser = struct {
                 try list.ensureUnusedCapacity(parser.allocator, 1);
                 parser.specificity = .{};
                 try parseComplexSelector(parser);
+                if (!parser.valid) return parser.fail();
+
                 const data = try parser.data.toOwnedSlice(parser.allocator);
                 list.appendAssumeCapacity(.{ .complex = .{ .data = data }, .specificity = parser.specificity });
                 expecting_comma = true;
@@ -184,7 +190,7 @@ fn parseTypeSelector(parser: *Parser) !?void {
     const ty = (try parseType(parser)) orelse return null;
     const type_selector: selectors.Type = .{
         .namespace = switch (ty.namespace) {
-            .identifier => panic("TODO: Namespaces in type selectors", .{}),
+            .identifier => |identifier| try resolveNamespace(parser, identifier),
             .none => .none,
             .any => .any,
             .default => parser.default_namespace,
@@ -282,6 +288,16 @@ fn parseTypeName(parser: *Parser) !Type.Name {
     };
 }
 
+fn resolveNamespace(parser: *Parser, location: TokenSource.Location) !NamespaceId {
+    const copy = try parser.source.copyIdentifier(location, parser.allocator);
+    defer parser.allocator.free(copy);
+    const id = parser.namespace_prefixes.get(copy) orelse {
+        parser.valid = false;
+        return undefined;
+    };
+    return id;
+}
+
 fn parseSubclassSelector(parser: *Parser) !?void {
     const first_component_tag, const first_component_index = parser.nextComponent() orelse return null;
     switch (first_component_tag) {
@@ -340,7 +356,7 @@ fn parseAttributeSelector(parser: *Parser) !void {
     const element_type = (try parseType(parser)) orelse return parser.fail();
     const attribute_selector: selectors.Type = .{
         .namespace = switch (element_type.namespace) {
-            .identifier => panic("TODO: Namespaces in attribute selectors", .{}),
+            .identifier => |identifier| try resolveNamespace(parser, identifier),
             .none => .none,
             .any => .any,
             .default => .none,

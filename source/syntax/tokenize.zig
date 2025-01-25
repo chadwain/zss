@@ -352,8 +352,8 @@ fn nextToken(source: Source, location: Source.Location) Source.Error!NextToken {
             _ = try readCodepoints(source, next.next_location, &next_3);
 
             if (codepointsStartAnIdentSequence(next_3)) {
-                const after_ident = try consumeIdentSequence(source, next.next_location);
-                return NextToken{ .token = .token_at_keyword, .next_location = after_ident };
+                const at_rule, const after_ident = try consumeIdentSequenceWithMatch(source, next.next_location, Token.AtRule);
+                return NextToken{ .token = .{ .token_at_keyword = at_rule }, .next_location = after_ident };
             } else {
                 return NextToken{ .token = .{ .token_delim = next.codepoint }, .next_location = next.next_location };
             }
@@ -808,18 +808,18 @@ fn consumeIdentSequence(source: Source, start: Source.Location) !Source.Location
     return location;
 }
 
-fn ComptimePrefixTree(comptime Enum: type, comptime Index: type, comptime size: Index) type {
+fn ComptimePrefixTree(comptime Enum: type) type {
     const Node = struct {
-        skip: Index,
+        skip: u16,
         character: u7,
         field_index: ?usize,
     };
 
     const Interval = struct {
-        begin: Index,
-        end: Index,
+        begin: u16,
+        end: u16,
 
-        fn next(interval: *@This(), nodes: []const Node) ?Index {
+        fn next(interval: *@This(), nodes: []const Node) ?u16 {
             if (interval.begin == interval.end) return null;
             defer interval.begin += nodes[interval.begin].skip;
             return interval.begin;
@@ -827,10 +827,10 @@ fn ComptimePrefixTree(comptime Enum: type, comptime Index: type, comptime size: 
     };
 
     const my = struct {
-        fn BoundedArray(comptime T: type, comptime max: Index) type {
+        fn BoundedArray(comptime T: type, comptime max: comptime_int) type {
             return struct {
                 buffer: [max]T = undefined,
-                len: Index = 0,
+                len: u16 = 0,
 
                 fn slice(self: *@This()) []T {
                     return self.buffer[0..self.len];
@@ -841,7 +841,7 @@ fn ComptimePrefixTree(comptime Enum: type, comptime Index: type, comptime size: 
                     self.buffer[self.len] = item;
                 }
 
-                fn insertManyAsSlice(self: *@This(), insertion_index: Index, n: Index) []T {
+                fn insertManyAsSlice(self: *@This(), insertion_index: u16, n: u16) []T {
                     defer self.len += n;
                     std.mem.copyBackwards(Node, self.buffer[insertion_index + n .. self.len + n], self.buffer[insertion_index..self.len]);
                     return self.buffer[insertion_index..][0..n];
@@ -851,8 +851,17 @@ fn ComptimePrefixTree(comptime Enum: type, comptime Index: type, comptime size: 
     };
 
     const fields = @typeInfo(Enum).@"enum".fields;
-    var stack = my.BoundedArray(Index, 16){};
-    comptime var nodes = my.BoundedArray(Node, size){};
+    const max_tree_size, const max_stack_size = comptime blk: {
+        var sum = 1;
+        var longest = 0;
+        for (fields) |field| {
+            sum += field.name.len;
+            longest = @max(longest, field.name.len);
+        }
+        break :blk .{ sum, 1 + longest };
+    };
+    var nodes = my.BoundedArray(Node, max_tree_size){};
+    var stack = my.BoundedArray(u16, max_stack_size){};
     nodes.append(.{ .skip = 1, .character = 0, .field_index = null });
     inline for (fields, 0..) |field, field_index| {
         assert(field.value == field_index);
@@ -894,19 +903,17 @@ fn ComptimePrefixTree(comptime Enum: type, comptime Index: type, comptime size: 
         } else unreachable;
     }
 
-    if (nodes.len != size) {
-        @compileError(std.fmt.comptimePrint("Expected size {}, got {}", .{ nodes.len, size }));
-    }
-    const final_nodes: [size]Node = nodes.buffer;
+    const final_nodes: [nodes.len]Node = nodes.buffer[0..nodes.len].*;
 
     return struct {
+        const Index = std.math.IntFittingRange(0, final_nodes.len);
         const skips = blk: {
-            var result: [size]Index = undefined;
+            var result: [final_nodes.len]Index = undefined;
             for (final_nodes, &result) |in, *out| out.* = in.skip;
             break :blk result;
         };
         const characters = blk: {
-            var result: [size]u7 = undefined;
+            var result: [final_nodes.len]u8 = undefined;
             for (final_nodes, &result) |in, *out| out.* = in.character;
             break :blk result;
         };
@@ -946,26 +953,26 @@ fn ComptimePrefixTree(comptime Enum: type, comptime Index: type, comptime size: 
     };
 }
 
-fn consumeIdentSequenceWithPrefixTree(
+fn consumeIdentSequenceWithMatch(
     source: Source,
     start: Source.Location,
-    prefix_tree: anytype,
-) !Source.Location {
+    comptime Enum: type,
+) !struct { ?Enum, Source.Location } {
     var location = start;
+    var prefix_tree = ComptimePrefixTree(Enum){};
     while (try consumeIdentSequenceCodepoint(source, location)) |next| {
         location = next.next_location;
         prefix_tree.nextCodepoint(next.codepoint);
     }
-    return location;
+    return .{ prefix_tree.findMatch(), location };
 }
 
 fn consumeIdentLikeToken(source: Source, start: Source.Location) !NextToken {
-    var prefix_tree = ComptimePrefixTree(enum { url }, u8, 4){};
-    const after_ident = try consumeIdentSequenceWithPrefixTree(source, start, &prefix_tree);
+    const is_url, const after_ident = try consumeIdentSequenceWithMatch(source, start, enum { url });
 
     const left_paren = try nextCodepoint(source, after_ident);
     if (left_paren.codepoint == '(') {
-        if (prefix_tree.findMatch()) |_| {
+        if (is_url) |_| {
             var previous_location: Source.Location = undefined;
             var location = left_paren.next_location;
             var has_preceding_whitespace = false;
@@ -1105,7 +1112,7 @@ test "tokenization" {
     ;
     const source = try Source.init(input);
     const expected = [_]Token{
-        .token_at_keyword,
+        .{ .token_at_keyword = null },
         .token_whitespace,
         .token_string,
         .token_semicolon,
