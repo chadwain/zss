@@ -8,7 +8,6 @@ const zss = @import("../zss.zig");
 const hexDigitToNumber = zss.unicode.hexDigitToNumber;
 const toLowercase = zss.unicode.toLowercase;
 const CheckedInt = zss.math.CheckedInt;
-const Component = zss.syntax.Component;
 const Token = zss.syntax.Token;
 const Unit = Token.Unit;
 
@@ -809,59 +808,164 @@ fn consumeIdentSequence(source: Source, start: Source.Location) !Source.Location
     return location;
 }
 
-const ComsumeIdentSequenceMatch = struct { after_ident: Source.Location, matches: bool };
+fn ComptimePrefixTree(comptime Enum: type, comptime Index: type, comptime size: Index) type {
+    const Node = struct {
+        skip: Index,
+        character: u7,
+        field_index: ?usize,
+    };
 
-fn consumeIdentSequenceMatch(
+    const Interval = struct {
+        begin: Index,
+        end: Index,
+
+        fn next(interval: *@This(), nodes: []const Node) ?Index {
+            if (interval.begin == interval.end) return null;
+            defer interval.begin += nodes[interval.begin].skip;
+            return interval.begin;
+        }
+    };
+
+    const my = struct {
+        fn BoundedArray(comptime T: type, comptime max: Index) type {
+            return struct {
+                buffer: [max]T = undefined,
+                len: Index = 0,
+
+                fn slice(self: *@This()) []T {
+                    return self.buffer[0..self.len];
+                }
+
+                fn append(self: *@This(), item: T) void {
+                    defer self.len += 1;
+                    self.buffer[self.len] = item;
+                }
+
+                fn insertManyAsSlice(self: *@This(), insertion_index: Index, n: Index) []T {
+                    defer self.len += n;
+                    std.mem.copyBackwards(Node, self.buffer[insertion_index + n .. self.len + n], self.buffer[insertion_index..self.len]);
+                    return self.buffer[insertion_index..][0..n];
+                }
+            };
+        }
+    };
+
+    const fields = @typeInfo(Enum).@"enum".fields;
+    var stack = my.BoundedArray(Index, 16){};
+    comptime var nodes = my.BoundedArray(Node, size){};
+    nodes.append(.{ .skip = 1, .character = 0, .field_index = null });
+    inline for (fields, 0..) |field, field_index| {
+        assert(field.value == field_index);
+        stack.len = 0;
+        stack.append(0);
+        var interval = Interval{ .begin = 1, .end = nodes.buffer[0].skip };
+
+        character_loop: for (field.name, 0..) |character, character_index| {
+            const insertion_index = while (interval.next(nodes.slice())) |index| {
+                const character_lowercase = switch (character) {
+                    'A'...'Z' => character - 'A' + 'a',
+                    0x80...0xFF => @compileError(std.fmt.comptimePrint("Field name '{s}' contains non-ascii characters", .{field.name})),
+                    else => character,
+                };
+                switch (std.math.order(character_lowercase, nodes.buffer[index].character)) {
+                    .lt => break index,
+                    .gt => {},
+                    .eq => {
+                        stack.append(index);
+                        interval = .{ .begin = index + 1, .end = index + nodes.buffer[index].skip };
+                        continue :character_loop;
+                    },
+                }
+            } else interval.end;
+
+            const new = nodes.insertManyAsSlice(insertion_index, @intCast(field.name.len - character_index));
+            for (new, 0..) |*node, i| {
+                node.* = .{
+                    .skip = new.len - i,
+                    .character = field.name[character_index + i],
+                    .field_index = null,
+                };
+            }
+            new[new.len - 1].field_index = field_index;
+            for (stack.slice()) |index| {
+                nodes.buffer[index].skip += new.len;
+            }
+            break :character_loop;
+        } else unreachable;
+    }
+
+    if (nodes.len != size) {
+        @compileError(std.fmt.comptimePrint("Expected size {}, got {}", .{ nodes.len, size }));
+    }
+    const final_nodes: [size]Node = nodes.buffer;
+
+    return struct {
+        const skips = blk: {
+            var result: [size]Index = undefined;
+            for (final_nodes, &result) |in, *out| out.* = in.skip;
+            break :blk result;
+        };
+        const characters = blk: {
+            var result: [size]u7 = undefined;
+            for (final_nodes, &result) |in, *out| out.* = in.character;
+            break :blk result;
+        };
+        const leaves = blk: {
+            var result: [fields.len]Index = undefined;
+            for (final_nodes, 0..) |node, i| {
+                if (node.field_index) |field_index| {
+                    result[field_index] = i;
+                }
+            }
+            break :blk result;
+        };
+
+        const Self = @This();
+        index: Index = 0,
+
+        fn nextCodepoint(self: *Self, codepoint: u21) void {
+            if (self.index == skips.len) return;
+            const character: u8 = switch (codepoint) {
+                'A'...'Z' => @intCast(codepoint - 'A' + 'a'),
+                0x80...std.math.maxInt(u21) => 0xFF,
+                else => @intCast(codepoint),
+            };
+            const end = self.index + skips[self.index];
+            self.index += 1;
+            while (self.index < end) : (self.index += skips[self.index]) {
+                if (character == characters[self.index]) return;
+            }
+            self.index = skips.len;
+        }
+
+        fn findMatch(self: Self) ?Enum {
+            if (self.index == skips.len) return null;
+            const field_index = std.mem.indexOfScalar(Index, &leaves, self.index) orelse return null;
+            return @enumFromInt(field_index);
+        }
+    };
+}
+
+fn consumeIdentSequenceWithPrefixTree(
     source: Source,
     start: Source.Location,
-    string: []const u21,
-    comptime ignore_case: bool,
-    keep_going: bool,
-) !ComsumeIdentSequenceMatch {
-    var string_matcher = struct {
-        num_matching_codepoints: usize = 0,
-        matches: ?bool = null,
-
-        fn nextCodepoint(self: *@This(), str: []const u21, codepoint: u21) void {
-            if (self.matches == null) {
-                const is_eql = switch (ignore_case) {
-                    false => str[self.num_matching_codepoints] == codepoint,
-                    true => toLowercase(str[self.num_matching_codepoints]) == toLowercase(codepoint),
-                };
-
-                if (is_eql) {
-                    self.num_matching_codepoints += 1;
-                    if (self.num_matching_codepoints == str.len) {
-                        self.matches = true;
-                    }
-                } else {
-                    self.matches = false;
-                }
-            } else {
-                self.matches = false;
-            }
-        }
-    }{};
-
+    prefix_tree: anytype,
+) !Source.Location {
     var location = start;
     while (try consumeIdentSequenceCodepoint(source, location)) |next| {
         location = next.next_location;
-        string_matcher.nextCodepoint(string, next.codepoint);
-        if (keep_going) continue;
-        if (string_matcher.matches == false) {
-            return ComsumeIdentSequenceMatch{ .after_ident = undefined, .matches = false };
-        }
+        prefix_tree.nextCodepoint(next.codepoint);
     }
-
-    return ComsumeIdentSequenceMatch{ .after_ident = location, .matches = string_matcher.matches orelse false };
+    return location;
 }
 
 fn consumeIdentLikeToken(source: Source, start: Source.Location) !NextToken {
-    const result = try consumeIdentSequenceMatch(source, start, &.{ 'u', 'r', 'l' }, true, true);
+    var prefix_tree = ComptimePrefixTree(enum { url }, u8, 4){};
+    const after_ident = try consumeIdentSequenceWithPrefixTree(source, start, &prefix_tree);
 
-    const left_paren = try nextCodepoint(source, result.after_ident);
+    const left_paren = try nextCodepoint(source, after_ident);
     if (left_paren.codepoint == '(') {
-        if (result.matches) {
+        if (prefix_tree.findMatch()) |_| {
             var previous_location: Source.Location = undefined;
             var location = left_paren.next_location;
             var has_preceding_whitespace = false;
@@ -887,7 +991,7 @@ fn consumeIdentLikeToken(source: Source, start: Source.Location) !NextToken {
         return NextToken{ .token = .token_function, .next_location = left_paren.next_location };
     }
 
-    return NextToken{ .token = .token_ident, .next_location = result.after_ident };
+    return NextToken{ .token = .token_ident, .next_location = after_ident };
 }
 
 fn consumeUrlToken(source: Source, start: Source.Location) !NextToken {
