@@ -403,6 +403,8 @@ fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, actu
             }
 
             for (expected_compound.pseudo_elements) |expected_element| {
+                _ = data[index].simple_selector_tag;
+                index += 1;
                 const actual_element = data[index].pseudo_element_selector;
                 index += 1;
                 try expectEqual(expected_element.element, actual_element);
@@ -509,6 +511,27 @@ test "parsing selector lists" {
         .complex = &.{.{
             .compound = .{
                 .type = .{ .name = n(0) },
+            },
+        }},
+    }});
+    try testParseSelectorList("a||b", &.{.{
+        .complex = &.{
+            .{
+                .compound = .{ .type = .{ .name = n(0) } },
+                .combinator = .column,
+            },
+            .{
+                .compound = .{ .type = .{ .name = n(1) } },
+            },
+        },
+    }});
+    try testParseSelectorList("a::unknown", &.{.{
+        .complex = &.{.{
+            .compound = .{
+                .type = .{ .name = n(0) },
+                .pseudo_elements = &.{
+                    .{ .element = .unrecognized },
+                },
             },
         }},
     }});

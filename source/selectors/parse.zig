@@ -247,7 +247,7 @@ fn parseType(parser: *Parser) !?Type {
             .token_delim => switch (parser.ast.extra(index).codepoint) {
                 '*' => break :name .any,
                 '|' => {
-                    const name = try parseTypeName(parser);
+                    const name = parseTypeName(parser) orelse return null;
                     return .{
                         .namespace = .none,
                         .name = name,
@@ -263,13 +263,14 @@ fn parseType(parser: *Parser) !?Type {
 
     if (parser.acceptComponent(.token_delim)) |pipe_index| {
         if (parser.ast.extra(pipe_index).codepoint == '|') {
-            const name = try parseTypeName(parser);
-            ty.namespace = switch (ty.name) {
-                .identifier => |location| .{ .identifier = location },
-                .any => .any,
-            };
-            ty.name = name;
-            return ty;
+            if (parseTypeName(parser)) |name| {
+                ty.namespace = switch (ty.name) {
+                    .identifier => |location| .{ .identifier = location },
+                    .any => .any,
+                };
+                ty.name = name;
+                return ty;
+            }
         }
         parser.sequence.reset(pipe_index);
     }
@@ -279,13 +280,15 @@ fn parseType(parser: *Parser) !?Type {
 }
 
 /// Syntax: <ident-token> | '*'
-fn parseTypeName(parser: *Parser) !Type.Name {
-    const tag, const index = parser.nextComponent() orelse return parser.fail();
-    return switch (tag) {
-        .token_ident => .{ .identifier = parser.ast.location(index) },
-        .token_delim => if (parser.ast.extra(index).codepoint == '*') .any else parser.fail(),
-        else => parser.fail(),
-    };
+fn parseTypeName(parser: *Parser) ?Type.Name {
+    const tag, const index = parser.nextComponent() orelse return null;
+    switch (tag) {
+        .token_ident => return .{ .identifier = parser.ast.location(index) },
+        .token_delim => if (parser.ast.extra(index).codepoint == '*') return .any,
+        else => {},
+    }
+    parser.sequence.reset(index);
+    return null;
 }
 
 fn resolveNamespace(parser: *Parser, location: TokenSource.Location) !NamespaceId {
@@ -311,18 +314,17 @@ fn parseSubclassSelector(parser: *Parser) !?void {
             parser.specificity.add(.id);
             return;
         },
-        .token_delim => {
-            if (parser.ast.extra(first_component_index).codepoint == '.') {
-                const class_name = try parser.expectComponent(.token_ident);
-                const location = parser.ast.location(class_name);
-                const name = try parser.env.addClassName(location, parser.source);
-                try parser.data.appendSlice(parser.allocator, &.{
-                    .{ .simple_selector_tag = .class },
-                    .{ .class_selector = name },
-                });
-                parser.specificity.add(.class);
-                return;
-            }
+        .token_delim => class_selector: {
+            if (parser.ast.extra(first_component_index).codepoint != '.') break :class_selector;
+            const class_name = try parser.expectComponent(.token_ident);
+            const location = parser.ast.location(class_name);
+            const name = try parser.env.addClassName(location, parser.source);
+            try parser.data.appendSlice(parser.allocator, &.{
+                .{ .simple_selector_tag = .class },
+                .{ .class_selector = name },
+            });
+            parser.specificity.add(.class);
+            return;
         },
         .simple_block_square => {
             const saved_sequence = parser.sequence;
@@ -334,8 +336,8 @@ fn parseSubclassSelector(parser: *Parser) !?void {
             parser.specificity.add(.attribute);
             return;
         },
-        .token_colon => {
-            const pseudo_class = try parsePseudo(parser, .class);
+        .token_colon => pseudo_class_selector: {
+            const pseudo_class = parsePseudo(parser, .class) orelse break :pseudo_class_selector;
             try parser.data.appendSlice(parser.allocator, &.{
                 .{ .simple_selector_tag = .pseudo_class },
                 .{ .pseudo_class_selector = pseudo_class },
@@ -421,7 +423,7 @@ fn parsePseudoElementSelector(parser: *Parser) !?void {
     _ = parser.acceptComponent(.token_colon) orelse return null;
     _ = try parser.expectComponent(.token_colon);
 
-    const pseudo_element = try parsePseudo(parser, .element);
+    const pseudo_element = parsePseudo(parser, .element) orelse return parser.fail();
     try parser.data.appendSlice(parser.allocator, &.{
         .{ .simple_selector_tag = .pseudo_element },
         .{ .pseudo_element_selector = pseudo_element },
@@ -430,7 +432,7 @@ fn parsePseudoElementSelector(parser: *Parser) !?void {
 
     while (true) {
         _ = parser.acceptComponent(.token_colon) orelse break;
-        const pseudo_class = try parsePseudo(parser, .class);
+        const pseudo_class = parsePseudo(parser, .class) orelse return parser.fail();
         try parser.data.appendSlice(parser.allocator, &.{
             .{ .simple_selector_tag = .pseudo_class },
             .{ .pseudo_class_selector = pseudo_class },
@@ -440,11 +442,11 @@ fn parsePseudoElementSelector(parser: *Parser) !?void {
 }
 
 // Assumes that the previous Ast node was a `token_colon`.
-fn parsePseudo(parser: *Parser, comptime what: enum { element, class }) !switch (what) {
+fn parsePseudo(parser: *Parser, comptime what: enum { element, class }) ?switch (what) {
     .element => selectors.PseudoElement,
     .class => selectors.PseudoClass,
 } {
-    const main_component_tag, const main_component_index = parser.nextComponent() orelse return parser.fail();
+    const main_component_tag, const main_component_index = parser.nextComponent() orelse return null;
     switch (main_component_tag) {
         .token_ident => {
             // TODO: Get the actual pseudo element/class name.
@@ -459,7 +461,8 @@ fn parsePseudo(parser: *Parser, comptime what: enum { element, class }) !switch 
         },
         else => {},
     }
-    return parser.fail();
+    parser.sequence.reset(main_component_index);
+    return null;
 }
 
 /// Returns true if the sequence matches the grammar of <any-value>.

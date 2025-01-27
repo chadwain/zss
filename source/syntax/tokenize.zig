@@ -870,13 +870,13 @@ fn ComptimePrefixTree(comptime Enum: type) type {
         var interval = Interval{ .begin = 1, .end = nodes.buffer[0].skip };
 
         character_loop: for (field.name, 0..) |character, character_index| {
+            const normalized = switch (character) {
+                'A'...'Z' => character - 'A' + 'a',
+                0x80...0xFF => @compileError(std.fmt.comptimePrint("Field name '{s}' contains non-ascii characters", .{field.name})),
+                else => character,
+            };
             const insertion_index = while (interval.next(nodes.slice())) |index| {
-                const character_lowercase = switch (character) {
-                    'A'...'Z' => character - 'A' + 'a',
-                    0x80...0xFF => @compileError(std.fmt.comptimePrint("Field name '{s}' contains non-ascii characters", .{field.name})),
-                    else => character,
-                };
-                switch (std.math.order(character_lowercase, nodes.buffer[index].character)) {
+                switch (std.math.order(normalized, nodes.buffer[index].character)) {
                     .lt => break index,
                     .gt => {},
                     .eq => {
@@ -932,7 +932,7 @@ fn ComptimePrefixTree(comptime Enum: type) type {
 
         fn nextCodepoint(self: *Self, codepoint: u21) void {
             if (self.index == skips.len) return;
-            const character: u8 = switch (codepoint) {
+            const normalized: u8 = switch (codepoint) {
                 'A'...'Z' => @intCast(codepoint - 'A' + 'a'),
                 0x80...std.math.maxInt(u21) => 0xFF,
                 else => @intCast(codepoint),
@@ -940,7 +940,7 @@ fn ComptimePrefixTree(comptime Enum: type) type {
             const end = self.index + skips[self.index];
             self.index += 1;
             while (self.index < end) : (self.index += skips[self.index]) {
-                if (character == characters[self.index]) return;
+                if (normalized == characters[self.index]) return;
             }
             self.index = skips.len;
         }
