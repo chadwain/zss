@@ -601,12 +601,12 @@ const ConsumeNumber = struct {
 };
 
 const NumberBuffer = struct {
-    data: [63]u8 = undefined,
+    data: [64]u8 = undefined,
     len: u8 = 0,
 
     fn append(buffer: *NumberBuffer, char: u8) void {
-        if (buffer.len >= buffer.data.len) return;
         defer buffer.len +|= 1;
+        if (buffer.len >= buffer.data.len) return;
         buffer.data[buffer.len] = char;
     }
 
@@ -615,7 +615,6 @@ const NumberBuffer = struct {
     }
 
     fn slice(buffer: NumberBuffer) []const u8 {
-        assert(!buffer.overflow());
         return buffer.data[0..buffer.len];
     }
 };
