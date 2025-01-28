@@ -185,5 +185,11 @@ pub fn CheckedInt(comptime Int: type) type {
             checked.value = mul_result[0];
             checked.overflow = checked.overflow or @bitCast(mul_result[1]);
         }
+
+        pub fn negate(checked: *CheckedInt(Int)) void {
+            const sub_result = @subWithOverflow(0, checked.value);
+            checked.value = sub_result[0];
+            checked.overflow = checked.overflow or @bitCast(sub_result[1]);
+        }
     };
 }

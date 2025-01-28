@@ -78,6 +78,7 @@ pub const AstManaged = struct {
             .token_number     =>    |number| return ast.addBasicComponentExtra(.token_number,     location, .{ .number = number }),
             .token_percentage =>    |number| return ast.addBasicComponentExtra(.token_percentage, location, .{ .number = number }),
             .token_dimension  => |dimension| return ast.addDimension(location, dimension),
+            .token_error      =>  |@"error"| return ast.addBasicComponentExtra(.token_error,      location, .{ .@"error" = @"error" }),
             else              =>             return ast.addBasicComponent(token.cast(Component.Tag), location),
         }
         // zig fmt: on
@@ -754,8 +755,9 @@ test "parse a stylesheet" {
             codepoint: u21,
             integer: i32,
             number: f32,
-            unit: Token.Unit,
+            unit: ?Token.Unit,
             at_rule: ?Token.AtRule,
+            @"error": Token.Error,
 
             const undef: @This() = .{ .index = 0 };
         },

@@ -32,7 +32,7 @@ pub const Source = struct {
 
         pub const Dimension = struct {
             number: f32,
-            unit: Unit,
+            unit: ?Unit,
         };
     };
 
@@ -228,8 +228,8 @@ test "css value parsing" {
     try testParsing(types.ZIndex, "42", .{ .integer = 42 }, true);
     try testParsing(types.ZIndex, "-42", .{ .integer = -42 }, true);
     try testParsing(types.ZIndex, "auto", .auto, true);
-    try testParsing(types.ZIndex, "9999999999999999", .{ .integer = 0 }, true);
-    try testParsing(types.ZIndex, "-9999999999999999", .{ .integer = 0 }, true);
+    try testParsing(types.ZIndex, "9999999999999999", null, true);
+    try testParsing(types.ZIndex, "-9999999999999999", null, true);
 
     try testParsing(types.LengthPercentage, "5px", .{ .px = 5 }, true);
     try testParsing(types.LengthPercentage, "5%", .{ .percentage = 5 }, true);
@@ -374,8 +374,8 @@ pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const Tok
 
 pub fn genericLength(comptime Type: type, dimension: Source.Value.Dimension) !Type {
     const number = dimension.number;
-    return switch (dimension.unit) {
-        .unrecognized => error.ParseError,
+    const unit = dimension.unit orelse return error.ParseError;
+    return switch (unit) {
         .px => .{ .px = number },
     };
 }

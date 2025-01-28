@@ -9,11 +9,10 @@ const hexDigitToNumber = zss.unicode.hexDigitToNumber;
 const toLowercase = zss.unicode.toLowercase;
 const CheckedInt = zss.math.CheckedInt;
 const Token = zss.syntax.Token;
-const Unit = Token.Unit;
 
 const u21_max = std.math.maxInt(u21);
 const replacement_character: u21 = 0xfffd;
-const eof_codepoint: u21 = std.math.maxInt(u21);
+const eof_codepoint = u21_max;
 
 /// A source of `Token`.
 
@@ -559,19 +558,24 @@ fn consumeNumericToken(source: Source, start: Source.Location) !NextToken {
     _ = try readCodepoints(source, result.after_number, &next_3);
 
     if (codepointsStartAnIdentSequence(next_3)) {
-        const consume_unit = try consumeUnit(source, result.after_number);
-        const numeric_value: f32 = switch (result.value) {
-            .integer => |integer| @floatFromInt(integer),
-            .number => |number| number,
-        };
-        return NextToken{
-            .token = .{ .token_dimension = .{
-                .number = numeric_value,
-                .unit = consume_unit.unit,
+        const unit, const after_unit = try consumeIdentSequenceWithMatch(source, result.after_number, Token.Unit);
+        const token: Token = switch (result.value) {
+            .integer => |integer| .{ .token_dimension = .{
+                .number = @floatFromInt(integer),
+                .unit = unit,
                 .unit_location = result.after_number,
             } },
-            .next_location = consume_unit.after_unit,
+            .number => |number| .{ .token_dimension = .{
+                .number = number,
+                .unit = unit,
+                .unit_location = result.after_number,
+            } },
+            .@"error" => |cause| .{ .token_error = .{
+                .tokenize_as = .token_dimension,
+                .cause = cause,
+            } },
         };
+        return NextToken{ .token = token, .next_location = after_unit };
     }
 
     const percent_sign = try nextCodepoint(source, result.after_number);
@@ -579,6 +583,10 @@ fn consumeNumericToken(source: Source, start: Source.Location) !NextToken {
         const token: Token = switch (result.value) {
             .integer => |integer| .{ .token_percentage = @floatFromInt(integer) },
             .number => |number| .{ .token_percentage = number },
+            .@"error" => |cause| .{ .token_error = .{
+                .tokenize_as = .token_percentage,
+                .cause = cause,
+            } },
         };
         return NextToken{ .token = token, .next_location = percent_sign.next_location };
     }
@@ -586,17 +594,26 @@ fn consumeNumericToken(source: Source, start: Source.Location) !NextToken {
     const token: Token = switch (result.value) {
         .integer => |integer| .{ .token_integer = integer },
         .number => |number| .{ .token_number = number },
+        .@"error" => |cause| .{ .token_error = .{
+            .tokenize_as = switch (cause) {
+                .integer_overflow => .token_integer,
+                .float_too_long, .invalid_float => .token_number,
+            },
+            .cause = cause,
+        } },
     };
     return NextToken{ .token = token, .next_location = result.after_number };
 }
 
 const ConsumeNumber = struct {
-    const Type = enum { integer, number };
-
-    value: union(Type) {
+    const Type = enum { integer, number, @"error" };
+    const Value = union(Type) {
         integer: i32,
         number: f32,
-    },
+        @"error": Token.Error.Cause,
+    };
+
+    value: Value,
     after_number: Source.Location,
 };
 
@@ -638,7 +655,8 @@ fn consumeNumber(source: Source, start: Source.Location) !ConsumeNumber {
         is_negative = false;
     }
 
-    const integral_part = try consumeDigits(source, location, &buffer);
+    // TODO: Skip leading zeroes
+    var integral_part = try consumeDigits(source, location, &buffer);
     location = integral_part.next_location;
 
     const dot = try nextCodepoint(source, location);
@@ -647,6 +665,7 @@ fn consumeNumber(source: Source, start: Source.Location) !ConsumeNumber {
             '0'...'9' => {
                 number_type = .number;
                 buffer.append('.');
+                // TODO: Skip trailing zeroes
                 const fractional_part = try consumeDigits(source, dot.next_location, &buffer);
                 location = fractional_part.next_location;
             },
@@ -670,6 +689,7 @@ fn consumeNumber(source: Source, start: Source.Location) !ConsumeNumber {
                     // There was an exponent sign
                     buffer.append(@intCast(exponent_sign.codepoint));
                 }
+                // TODO: Skip trailing zeroes
                 const exponent_part = try consumeDigits(source, location2, &buffer);
                 location = exponent_part.next_location;
             },
@@ -677,42 +697,36 @@ fn consumeNumber(source: Source, start: Source.Location) !ConsumeNumber {
         }
     }
 
-    switch (number_type) {
+    const value: ConsumeNumber.Value = value: switch (number_type) {
         .integer => {
-            // TODO: Should the default value be 0, or some really big number?
-            const unwrapped = integral_part.value.unwrap() catch 0;
-            comptime assert(@TypeOf(unwrapped) == u31);
-            var integer: i32 = unwrapped;
-            if (is_negative) integer = -integer;
-            return ConsumeNumber{ .value = .{ .integer = integer }, .after_number = location };
+            if (is_negative) integral_part.value.negate();
+            const integer = integral_part.value.unwrap() catch break :value .{ .@"error" = .integer_overflow };
+            break :value .{ .integer = integer };
         },
         .number => {
-            var float: f32 = undefined;
-            if (buffer.overflow()) {
-                // TODO: Should the default value be 0, or some really big number/infinity/NaN?
+            if (buffer.overflow()) break :value .{ .@"error" = .float_too_long };
+            var float = std.fmt.parseFloat(f32, buffer.slice()) catch |err| switch (err) {
+                error.InvalidCharacter => unreachable,
+            };
+            if (std.math.isPositiveZero(float) or std.math.isNegativeZero(float)) {
                 float = 0.0;
-            } else {
-                float = std.fmt.parseFloat(f32, buffer.slice()) catch |err| switch (err) {
-                    error.InvalidCharacter => unreachable,
-                };
-                assert(!std.math.isNan(float));
-                if (!std.math.isNormal(float)) {
-                    // TODO: Should the default value be 0, or some really big number/infinity/NaN?
-                    float = 0.0;
-                }
+            } else if (!std.math.isNormal(float)) {
+                break :value .{ .@"error" = .invalid_float };
             }
-            return ConsumeNumber{ .value = .{ .number = float }, .after_number = location };
+            break :value .{ .number = float };
         },
-    }
+        .@"error" => unreachable,
+    };
+    return ConsumeNumber{ .value = value, .after_number = location };
 }
 
 const ConsumeDigits = struct {
-    value: CheckedInt(u31),
+    value: CheckedInt(i32),
     next_location: Source.Location,
 };
 
 fn consumeDigits(source: Source, start: Source.Location, buffer: *NumberBuffer) !ConsumeDigits {
-    var value: CheckedInt(u31) = .init(0);
+    var value: CheckedInt(i32) = .init(0);
     var location = start;
     while (true) {
         const next = try nextCodepoint(source, location);
@@ -726,56 +740,6 @@ fn consumeDigits(source: Source, start: Source.Location, buffer: *NumberBuffer) 
             else => return ConsumeDigits{ .value = value, .next_location = location },
         }
     }
-}
-
-const ConsumeUnit = struct {
-    unit: Unit,
-    after_unit: Source.Location,
-};
-
-fn consumeUnit(source: Source, start: Source.Location) !ConsumeUnit {
-    const map, const max_unit_len = comptime blk: {
-        const KV = struct { []const u8, Unit };
-        const units = std.meta.fields(Unit);
-
-        var kvs: [units.len - 1]KV = undefined;
-        var max_unit_len: usize = 0;
-        var i = 0;
-        for (units) |field_info| {
-            const unit: Unit = @enumFromInt(field_info.value);
-            const name = switch (unit) {
-                .unrecognized => continue,
-                .px => "px",
-            };
-            kvs[i] = .{ name, unit };
-            max_unit_len = @max(max_unit_len, name.len);
-            i += 1;
-        }
-
-        const map = zss.syntax.ComptimeIdentifierMap(Unit).init(kvs);
-        assert(map.get("unrecognized") == null);
-        break :blk .{ map, max_unit_len };
-    };
-
-    var location = start;
-    var unit_buffer: [max_unit_len]u8 = undefined;
-    var count: usize = 0;
-    while (try consumeIdentSequenceCodepoint(source, location)) |next| {
-        if (count < max_unit_len and next.codepoint <= 0xFF) {
-            unit_buffer[count] = @intCast(next.codepoint);
-            count += 1;
-        } else {
-            count = comptime max_unit_len + 1;
-        }
-        location = next.next_location;
-    }
-
-    const unit = if (count <= max_unit_len)
-        map.get(unit_buffer[0..count]) orelse .unrecognized
-    else
-        .unrecognized;
-
-    return ConsumeUnit{ .unit = unit, .after_unit = location };
 }
 
 fn consumeIdentSequenceCodepoint(source: Source, location: Source.Location) !?NextCodepoint {
@@ -814,111 +778,113 @@ fn ComptimePrefixTree(comptime Enum: type) type {
         field_index: ?usize,
     };
 
-    const Interval = struct {
-        begin: u16,
-        end: u16,
-
-        fn next(interval: *@This(), nodes: []const Node) ?u16 {
-            if (interval.begin == interval.end) return null;
-            defer interval.begin += nodes[interval.begin].skip;
-            return interval.begin;
-        }
-    };
-
-    const my = struct {
-        fn BoundedArray(comptime T: type, comptime max: comptime_int) type {
-            return struct {
-                buffer: [max]T = undefined,
-                len: u16 = 0,
-
-                fn slice(self: *@This()) []T {
-                    return self.buffer[0..self.len];
-                }
-
-                fn append(self: *@This(), item: T) void {
-                    defer self.len += 1;
-                    self.buffer[self.len] = item;
-                }
-
-                fn insertManyAsSlice(self: *@This(), insertion_index: u16, n: u16) []T {
-                    defer self.len += n;
-                    std.mem.copyBackwards(Node, self.buffer[insertion_index + n .. self.len + n], self.buffer[insertion_index..self.len]);
-                    return self.buffer[insertion_index..][0..n];
-                }
-            };
-        }
-    };
-
     const fields = @typeInfo(Enum).@"enum".fields;
-    const max_tree_size, const max_stack_size = comptime blk: {
-        var sum = 1;
-        var longest = 0;
-        for (fields) |field| {
-            sum += field.name.len;
-            longest = @max(longest, field.name.len);
-        }
-        break :blk .{ sum, 1 + longest };
-    };
-    var nodes = my.BoundedArray(Node, max_tree_size){};
-    var stack = my.BoundedArray(u16, max_stack_size){};
-    nodes.append(.{ .skip = 1, .character = 0, .field_index = null });
-    inline for (fields, 0..) |field, field_index| {
-        assert(field.value == field_index);
-        stack.len = 0;
-        stack.append(0);
-        var interval = Interval{ .begin = 1, .end = nodes.buffer[0].skip };
+    const nodes = comptime nodes: {
+        const Interval = struct {
+            begin: u16,
+            end: u16,
 
-        character_loop: for (field.name, 0..) |character, character_index| {
-            const normalized = switch (character) {
-                'A'...'Z' => character - 'A' + 'a',
-                0x80...0xFF => @compileError(std.fmt.comptimePrint("Field name '{s}' contains non-ascii characters", .{field.name})),
-                else => character,
-            };
-            const insertion_index = while (interval.next(nodes.slice())) |index| {
-                switch (std.math.order(normalized, nodes.buffer[index].character)) {
-                    .lt => break index,
-                    .gt => {},
-                    .eq => {
-                        stack.append(index);
-                        interval = .{ .begin = index + 1, .end = index + nodes.buffer[index].skip };
-                        continue :character_loop;
-                    },
-                }
-            } else interval.end;
+            fn next(interval: *@This(), nodes: []const Node) ?u16 {
+                if (interval.begin == interval.end) return null;
+                defer interval.begin += nodes[interval.begin].skip;
+                return interval.begin;
+            }
+        };
 
-            const new = nodes.insertManyAsSlice(insertion_index, @intCast(field.name.len - character_index));
-            for (new, 0..) |*node, i| {
-                node.* = .{
-                    .skip = new.len - i,
-                    .character = field.name[character_index + i],
-                    .field_index = null,
+        const my = struct {
+            fn BoundedArray(comptime T: type, comptime max: comptime_int) type {
+                return struct {
+                    buffer: [max]T = undefined,
+                    len: u16 = 0,
+
+                    fn slice(self: *@This()) []T {
+                        return self.buffer[0..self.len];
+                    }
+
+                    fn append(self: *@This(), item: T) void {
+                        defer self.len += 1;
+                        self.buffer[self.len] = item;
+                    }
+
+                    fn insertManyAsSlice(self: *@This(), insertion_index: u16, n: u16) []T {
+                        defer self.len += n;
+                        std.mem.copyBackwards(Node, self.buffer[insertion_index + n .. self.len + n], self.buffer[insertion_index..self.len]);
+                        return self.buffer[insertion_index..][0..n];
+                    }
                 };
             }
-            new[new.len - 1].field_index = field_index;
-            for (stack.slice()) |index| {
-                nodes.buffer[index].skip += new.len;
-            }
-            break :character_loop;
-        } else unreachable;
-    }
+        };
 
-    const final_nodes: [nodes.len]Node = nodes.buffer[0..nodes.len].*;
+        const max_tree_size, const max_stack_size = blk: {
+            var sum = 0;
+            var longest = 0;
+            for (fields) |field| {
+                sum += field.name.len;
+                longest = @max(longest, field.name.len);
+            }
+            break :blk .{ 1 + sum, 1 + longest };
+        };
+        var nodes = my.BoundedArray(Node, max_tree_size){};
+        var stack = my.BoundedArray(u16, max_stack_size){};
+        nodes.append(.{ .skip = 1, .character = 0, .field_index = null });
+        for (fields, 0..) |field, field_index| {
+            assert(field.value == field_index);
+            stack.len = 0;
+            stack.append(0);
+            var interval = Interval{ .begin = 1, .end = nodes.buffer[0].skip };
+
+            character_loop: for (field.name, 0..) |character, character_index| {
+                const normalized = switch (character) {
+                    'A'...'Z' => character - 'A' + 'a',
+                    0x80...0xFF => @compileError(std.fmt.comptimePrint("Field name '{s}' contains non-ascii characters", .{field.name})),
+                    else => character,
+                };
+                const insertion_index = while (interval.next(nodes.slice())) |index| {
+                    switch (std.math.order(normalized, nodes.buffer[index].character)) {
+                        .lt => break index,
+                        .gt => {},
+                        .eq => {
+                            stack.append(index);
+                            interval = .{ .begin = index + 1, .end = index + nodes.buffer[index].skip };
+                            continue :character_loop;
+                        },
+                    }
+                } else interval.end;
+
+                const new = nodes.insertManyAsSlice(insertion_index, @intCast(field.name.len - character_index));
+                for (new, 0..) |*node, i| {
+                    node.* = .{
+                        .skip = new.len - i,
+                        .character = field.name[character_index + i],
+                        .field_index = null,
+                    };
+                }
+                new[new.len - 1].field_index = field_index;
+                for (stack.slice()) |index| {
+                    nodes.buffer[index].skip += new.len;
+                }
+                break :character_loop;
+            } else unreachable;
+        }
+
+        break :nodes nodes.buffer[0..nodes.len].*;
+    };
 
     return struct {
-        const Index = std.math.IntFittingRange(0, final_nodes.len);
-        const skips = blk: {
-            var result: [final_nodes.len]Index = undefined;
-            for (final_nodes, &result) |in, *out| out.* = in.skip;
+        const Index = std.math.IntFittingRange(0, nodes.len);
+        const next_siblings = blk: {
+            var result: [nodes.len]Index = undefined;
+            for (nodes, &result, 0..) |node, *out, index| out.* = index + node.skip;
             break :blk result;
         };
         const characters = blk: {
-            var result: [final_nodes.len]u8 = undefined;
-            for (final_nodes, &result) |in, *out| out.* = in.character;
+            var result: [nodes.len]u8 = undefined;
+            for (nodes, &result) |node, *out| out.* = node.character;
             break :blk result;
         };
         const leaves = blk: {
             var result: [fields.len]Index = undefined;
-            for (final_nodes, 0..) |node, i| {
+            for (nodes, 0..) |node, i| {
                 if (node.field_index) |field_index| {
                     result[field_index] = i;
                 }
@@ -930,22 +896,22 @@ fn ComptimePrefixTree(comptime Enum: type) type {
         index: Index = 0,
 
         fn nextCodepoint(self: *Self, codepoint: u21) void {
-            if (self.index == skips.len) return;
+            if (self.index == nodes.len) return;
             const normalized: u8 = switch (codepoint) {
                 'A'...'Z' => @intCast(codepoint - 'A' + 'a'),
-                0x80...std.math.maxInt(u21) => 0xFF,
+                0x80...u21_max => 0xFF,
                 else => @intCast(codepoint),
             };
-            const end = self.index + skips[self.index];
+            const end = next_siblings[self.index];
             self.index += 1;
-            while (self.index < end) : (self.index += skips[self.index]) {
+            while (self.index < end) : (self.index = next_siblings[self.index]) {
                 if (normalized == characters[self.index]) return;
             }
-            self.index = skips.len;
+            self.index = nodes.len;
         }
 
         fn findMatch(self: Self) ?Enum {
-            if (self.index == skips.len) return null;
+            if (self.index == nodes.len) return null;
             const field_index = std.mem.indexOfScalar(Index, &leaves, self.index) orelse return null;
             return @enumFromInt(field_index);
         }

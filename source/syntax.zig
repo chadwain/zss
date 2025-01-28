@@ -22,7 +22,10 @@ pub const Token = union(enum) {
     /// description: The end of a sequence of tokens
     ///    location: The end of the source document
     token_eof,
-    /// description: A sequence of one or more comment blocks
+    /// description: A value that could not be represented as a token, and therefore raised a tokenization error
+    ///    location: The location should be interpreted as if this token was equal to the `tokenize_as` field of the error payload
+    token_error: Error,
+    /// description: A sequence of one or more consecutive comment blocks
     ///    location: The opening '/' of the first comment block
     token_comments,
     /// description: An identifier
@@ -104,14 +107,35 @@ pub const Token = union(enum) {
     ///    location: The codepoint
     token_right_curly,
 
+    pub const Error = struct {
+        tokenize_as: TokenizeAs,
+        cause: Cause,
+
+        pub const TokenizeAs = enum {
+            token_integer,
+            token_number,
+            token_percentage,
+            token_dimension,
+        };
+
+        pub const Cause = enum {
+            /// The integer value could not fit into the destination integer type.
+            integer_overflow,
+            /// The floating point value was too long to be parsed.
+            float_too_long,
+            /// The floating point value was either a subnormal, infinity, or NaN.
+            /// Floating point values must be either positive zero, negative zero, or normal.
+            invalid_float,
+        };
+    };
+
     pub const Unit = enum {
-        unrecognized,
         px,
     };
 
     pub const Dimension = struct {
         number: f32,
-        unit: Unit,
+        unit: ?Unit,
         unit_location: TokenSource.Location,
     };
 
@@ -147,7 +171,8 @@ pub const Component = struct {
         codepoint: u21,
         integer: i32,
         number: f32,
-        unit: Token.Unit,
+        @"error": Token.Error,
+        unit: ?Token.Unit,
         at_rule: ?Token.AtRule,
 
         pub const undef: Extra = .{ .index = 0 };
@@ -172,6 +197,8 @@ pub const Component = struct {
     pub const Tag = enum {
         ///        note: This component never appears within the Ast
         token_eof,
+        ///       extra: Use `extra.@"error"` to get the error as a `Token.Error`
+        token_error,
         token_comments,
         token_ident,
         ///        note: This component never appears within the Ast
@@ -213,6 +240,7 @@ pub const Component = struct {
         /// description: A dimension's unit (an identifier)
         ///    location: The first codepoint of the unit identifier
         ///       extra: Use `extra.unit` to get the unit as a `Token.Unit`
+        ///              A value of `null` represents an unrecognized unit.
         unit,
         /// description: A function
         ///    children: The function's arguments (an arbitrary sequence of components)
@@ -432,9 +460,8 @@ pub const Ast = struct {
     pub const Debug = struct {
         pub fn print(debug: *const Debug, allocator: Allocator, writer: std.io.AnyWriter) !void {
             const ast = @as(*const Ast, @alignCast(@fieldParentPtr("debug", debug))).*;
-            try writer.writeAll("Ast (index, component, location, extra)\n");
+            try writer.print("Ast (index, component, location, extra), size = {}\n", .{ast.components.len});
             if (ast.components.len == 0) return;
-            try writer.print("tree size {}\n", .{ast.nextSibling(0)});
 
             var stack = zss.Stack(Sequence){};
             defer stack.deinit(allocator);
@@ -448,7 +475,11 @@ pub const Ast = struct {
                 const component = ast.components.get(index);
                 const indent = (stack.len() - 1) * 4;
                 try writer.writeByteNTimes(' ', indent);
-                try writer.print("{} {s} {} ", .{ index, @tagName(component.tag), @intFromEnum(component.location) });
+                try writer.print("{} {s} {} ", .{
+                    index,
+                    if (component.tag != .token_error) @tagName(component.tag) else @tagName(component.extra.@"error".tokenize_as),
+                    @intFromEnum(component.location),
+                });
                 try printExtra(writer, component.tag, component.extra);
                 try writer.writeAll("\n");
 
@@ -464,7 +495,8 @@ pub const Ast = struct {
                 .token_delim => try writer.print("U+{X}", .{component_extra.codepoint}),
                 .token_integer => try writer.print("{}", .{component_extra.integer}),
                 .token_number, .token_dimension => try writer.print("{d}", .{component_extra.number}),
-                .unit => try writer.print("{s}", .{@tagName(component_extra.unit)}),
+                .token_error => try writer.print("(error: {s})", .{@tagName(component_extra.@"error".cause)}),
+                .unit => if (component_extra.unit) |unit| try writer.print("{s}", .{@tagName(unit)}),
                 .token_percentage => try writer.print("{d}%", .{component_extra.number}),
                 .declaration_normal,
                 .declaration_important,
