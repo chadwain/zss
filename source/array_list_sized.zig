@@ -33,5 +33,9 @@ pub fn ArrayListSized(comptime Item: type) type {
         pub fn toOwnedSlice(self: *Self, allocator: Allocator) ![]Item {
             return self.std_list.toOwnedSlice(allocator);
         }
+
+        pub fn clearRetainingCapacity(self: *Self) void {
+            self.std_list.clearRetainingCapacity();
+        }
     };
 }

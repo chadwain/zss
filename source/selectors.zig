@@ -72,18 +72,6 @@ pub const Specificity = packed struct {
     b: u8 = 0,
     c: u8 = 0,
 
-    pub const SelectorKind = enum { id, class, attribute, pseudo_class, type_ident, pseudo_element };
-
-    pub fn add(specificity: *Specificity, comptime kind: SelectorKind) void {
-        const field_name = switch (kind) {
-            .id => "a",
-            .class, .attribute, .pseudo_class => "b",
-            .type_ident, .pseudo_element => "c",
-        };
-        const field = &@field(specificity, field_name);
-        if (field.* < 254) field.* += 1;
-    }
-
     pub fn order(lhs: Specificity, rhs: Specificity) std.math.Order {
         return std.math.order(lhs.toInt(), rhs.toInt());
     }
@@ -143,10 +131,10 @@ pub const ComplexSelector = struct {
             /// The next Data is a `pseudo_element_selector`
             pseudo_element,
         },
-        type_selector: Type,
+        type_selector: QualifiedName,
         id_selector: IdId,
         class_selector: ClassId,
-        attribute_selector: Type,
+        attribute_selector: QualifiedName,
         // TODO: Store attribute values parsed from selectors in the Environment
         attribute_selector_value: Ast.Size,
         pseudo_class_selector: PseudoClass,
@@ -244,23 +232,23 @@ pub const ComplexSelector = struct {
     }
 };
 
-pub const Type = struct {
+pub const QualifiedName = struct {
     namespace: NamespaceId,
     name: NameId,
 
-    fn matchElement(ty: Type, element_type: ElementTree.FqType) bool {
+    fn matchElement(qualified: QualifiedName, element_type: ElementTree.FqType) bool {
         assert(element_type.namespace != .any);
         assert(element_type.name != .any);
 
-        switch (ty.namespace) {
+        switch (qualified.namespace) {
             .any => {},
-            else => if (ty.namespace != element_type.namespace) return false,
+            else => if (qualified.namespace != element_type.namespace) return false,
         }
 
-        switch (ty.name) {
+        switch (qualified.name) {
             .any => {},
             .anonymous => return false,
-            _ => if (ty.name != element_type.name) return false,
+            _ => if (qualified.name != element_type.name) return false,
         }
 
         return true;
@@ -287,7 +275,7 @@ test "matching type selectors" {
     const e4 = ElementTree.FqType{ .namespace = some_namespace, .name = some_name };
 
     const expect = std.testing.expect;
-    const matches = Type.matchElement;
+    const matches = QualifiedName.matchElement;
 
     try expect(matches(.{ .namespace = .any, .name = .any }, e1));
     try expect(matches(.{ .namespace = .any, .name = .any }, e2));
