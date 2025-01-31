@@ -143,7 +143,7 @@ fn parseComplexSelector(parser: *Parser) !void {
     (try parseCompoundSelector(parser)) orelse return parser.fail();
 
     while (true) {
-        const combinator = (try parseCombinator(parser)) orelse {
+        const combinator = parseCombinator(parser) orelse {
             try parser.data.append(parser.allocator, .{ .trailing = .{ .combinator = undefined, .compound_selector_start = start } });
             break;
         };
@@ -163,7 +163,7 @@ fn parseComplexSelector(parser: *Parser) !void {
 }
 
 /// Syntax: <combinator> = '>' | '+' | '~' | [ '|' '|' ]
-fn parseCombinator(parser: *Parser) !?selectors.Combinator {
+fn parseCombinator(parser: *Parser) ?selectors.Combinator {
     const has_space = parser.skipSpaces();
     if (parser.accept(.token_delim)) |index| {
         switch (parser.ast.extra(index).codepoint) {
@@ -252,10 +252,10 @@ fn parseQualifiedName(parser: *Parser) ?QualifiedName {
     //         <ns-prefix>     = <type-name>? '|'
     //         <type-name>     = <ident-token> | '*'
 
-    var ty: QualifiedName = undefined;
+    var qn: QualifiedName = undefined;
 
     const tag, const index = parser.next() orelse return null;
-    ty.name = name: {
+    qn.name = name: {
         switch (tag) {
             .token_ident => break :name .{ .identifier = parser.ast.location(index) },
             .token_delim => switch (parser.ast.extra(index).codepoint) {
@@ -279,19 +279,19 @@ fn parseQualifiedName(parser: *Parser) ?QualifiedName {
     if (parser.accept(.token_delim)) |pipe_index| {
         if (parser.ast.extra(pipe_index).codepoint == '|') {
             if (parseName(parser)) |name| {
-                ty.namespace = switch (ty.name) {
+                qn.namespace = switch (qn.name) {
                     .identifier => |location| .{ .identifier = location },
                     .any => .any,
                 };
-                ty.name = name;
-                return ty;
+                qn.name = name;
+                return qn;
             }
         }
         parser.sequence.reset(pipe_index);
     }
 
-    ty.namespace = .default;
-    return ty;
+    qn.namespace = .default;
+    return qn;
 }
 
 /// Syntax: <ident-token> | '*'
@@ -307,6 +307,7 @@ fn parseName(parser: *Parser) ?QualifiedName.Name {
 }
 
 fn resolveNamespace(parser: *Parser, location: TokenSource.Location) !NamespaceId {
+    // TODO: Don't allocate memory
     const copy = try parser.source.copyIdentifier(location, parser.allocator);
     defer parser.allocator.free(copy);
     const id = parser.namespace_prefixes.get(copy) orelse {
@@ -384,7 +385,7 @@ fn parseAttributeSelector(parser: *Parser, block_index: Ast.Size) !void {
     };
 
     _ = parser.skipSpaces();
-    const attr_matcher_tag, const attr_matcher_index = parser.next() orelse {
+    const after_qn_tag, const after_qn_index = parser.next() orelse {
         try parser.data.appendSlice(parser.allocator, &.{
             .{ .simple_selector_tag = .{ .attribute = null } },
             .{ .attribute_selector = attribute_selector },
@@ -393,22 +394,24 @@ fn parseAttributeSelector(parser: *Parser, block_index: Ast.Size) !void {
     };
 
     // Parse the attribute matcher
-    if (attr_matcher_tag != .token_delim) return parser.fail();
-    const attr_matcher_codepoint = parser.ast.extra(attr_matcher_index).codepoint;
-    const operator: selectors.AttributeOperator = switch (attr_matcher_codepoint) {
-        '=' => .equals,
-        '~' => .list_contains,
-        '|' => .equals_or_prefix_dash,
-        '^' => .starts_with,
-        '$' => .ends_with,
-        '*' => .contains,
-        else => return parser.fail(),
+    const operator = operator: {
+        if (after_qn_tag != .token_delim) return parser.fail();
+        const codepoint = parser.ast.extra(after_qn_index).codepoint;
+        const operator: selectors.AttributeOperator = switch (codepoint) {
+            '=' => .equals,
+            '~' => .list_contains,
+            '|' => .equals_or_prefix_dash,
+            '^' => .starts_with,
+            '$' => .ends_with,
+            '*' => .contains,
+            else => return parser.fail(),
+        };
+        if (operator != .equals) {
+            const equal_sign = try parser.expect(.token_delim);
+            if (parser.ast.extra(equal_sign).codepoint != '=') return parser.fail();
+        }
+        break :operator operator;
     };
-    if (operator != .equals) {
-        const equal_sign_index = try parser.expect(.token_delim);
-        const codepoint = parser.ast.extra(equal_sign_index).codepoint;
-        if (codepoint != '=') return parser.fail();
-    }
 
     // Parse the attribute value
     _ = parser.skipSpaces();
@@ -420,13 +423,18 @@ fn parseAttributeSelector(parser: *Parser, block_index: Ast.Size) !void {
 
     // Parse the case modifier
     _ = parser.skipSpaces();
-    const case: selectors.AttributeCase = if (parser.accept(.token_ident)) |case_index| case: {
-        const case_location = parser.ast.location(case_index);
-        break :case parser.source.mapIdentifier(case_location, selectors.AttributeCase, &.{
-            .{ "i", .ignore_case },
-            .{ "s", .same_case },
-        }) orelse return parser.fail();
-    } else .default;
+    const case: selectors.AttributeCase = case: {
+        if (parser.accept(.token_ident)) |case_index| {
+            const location = parser.ast.location(case_index);
+            const case = parser.source.mapIdentifier(location, selectors.AttributeCase, &.{
+                .{ "i", .ignore_case },
+                .{ "s", .same_case },
+            }) orelse return parser.fail();
+            break :case case;
+        } else {
+            break :case .default;
+        }
+    };
 
     _ = parser.skipSpaces();
     try parser.expectEof();
@@ -459,7 +467,7 @@ fn parsePseudoElementSelector(parser: *Parser) !?void {
         const class_index = parser.accept(.token_colon) orelse break;
         const pseudo_class = parsePseudo(.class, parser) orelse {
             parser.sequence.reset(class_index);
-            return null;
+            break;
         };
         try parser.data.appendSlice(parser.allocator, &.{
             .{ .simple_selector_tag = .pseudo_class },

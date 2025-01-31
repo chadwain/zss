@@ -178,7 +178,7 @@ pub fn typeToParseFn(comptime Type: type) switch (Type) {
     };
 }
 
-fn testParsing(comptime T: type, input: []const u8, expected: ?T, is_complete: bool) !void {
+fn testParsing(comptime T: type, input: []const u8, expected: ?T) !void {
     const allocator = std.testing.allocator;
 
     const token_source = try TokenSource.init(input);
@@ -190,178 +190,169 @@ fn testParsing(comptime T: type, input: []const u8, expected: ?T, is_complete: b
     var source = Source.init(ast, token_source, arena.allocator());
     source.sequence = ast.children(0);
     const parseFn = typeToParseFn(T);
-    const actual = parseFn(&source) catch |err| switch (err) {
-        error.ParseError => error.ParseError,
-        else => |e| return e,
-    };
+    const actual = parseFn(&source);
     if (expected) |expected_payload| {
         if (actual) |actual_payload| {
-            if (is_complete) {
-                try std.testing.expect(source.sequence.empty());
-            } else {
-                try std.testing.expect(!source.sequence.empty());
-            }
             errdefer std.debug.print("Expected: {}\nActual: {}\n", .{ expected_payload, actual_payload });
             return switch (T) {
                 types.BackgroundImage => expected_payload.expectEqualBackgroundImages(actual_payload),
                 else => std.testing.expectEqual(expected_payload, actual_payload),
             };
-        } else |_| {
+        } else {
             return error.TestExpectedEqual;
         }
     } else {
-        errdefer std.debug.print("Expected: null, found: {}\n", .{actual catch unreachable});
-        return std.testing.expect(std.meta.isError(actual));
+        errdefer std.debug.print("Expected: null, found: {}\n", .{actual.?});
+        return std.testing.expect(actual == null);
     }
 }
 
 test "css value parsing" {
-    try testParsing(types.Display, "block", .block, true);
-    try testParsing(types.Display, "inline", .@"inline", true);
+    try testParsing(types.Display, "block", .block);
+    try testParsing(types.Display, "inline", .@"inline");
 
-    try testParsing(types.Position, "static", .static, true);
+    try testParsing(types.Position, "static", .static);
 
-    try testParsing(types.Float, "left", .left, true);
-    try testParsing(types.Float, "right", .right, true);
-    try testParsing(types.Float, "none", .none, true);
+    try testParsing(types.Float, "left", .left);
+    try testParsing(types.Float, "right", .right);
+    try testParsing(types.Float, "none", .none);
 
-    try testParsing(types.ZIndex, "42", .{ .integer = 42 }, true);
-    try testParsing(types.ZIndex, "-42", .{ .integer = -42 }, true);
-    try testParsing(types.ZIndex, "auto", .auto, true);
-    try testParsing(types.ZIndex, "9999999999999999", null, true);
-    try testParsing(types.ZIndex, "-9999999999999999", null, true);
+    try testParsing(types.ZIndex, "42", .{ .integer = 42 });
+    try testParsing(types.ZIndex, "-42", .{ .integer = -42 });
+    try testParsing(types.ZIndex, "auto", .auto);
+    try testParsing(types.ZIndex, "9999999999999999", null);
+    try testParsing(types.ZIndex, "-9999999999999999", null);
 
-    try testParsing(types.LengthPercentage, "5px", .{ .px = 5 }, true);
-    try testParsing(types.LengthPercentage, "5%", .{ .percentage = 5 }, true);
-    try testParsing(types.LengthPercentage, "5", null, true);
-    try testParsing(types.LengthPercentage, "auto", null, true);
+    try testParsing(types.LengthPercentage, "5px", .{ .px = 5 });
+    try testParsing(types.LengthPercentage, "5%", .{ .percentage = 5 });
+    try testParsing(types.LengthPercentage, "5", null);
+    try testParsing(types.LengthPercentage, "auto", null);
 
-    try testParsing(types.LengthPercentageAuto, "5px", .{ .px = 5 }, true);
-    try testParsing(types.LengthPercentageAuto, "5%", .{ .percentage = 5 }, true);
-    try testParsing(types.LengthPercentageAuto, "5", null, true);
-    try testParsing(types.LengthPercentageAuto, "auto", .auto, true);
+    try testParsing(types.LengthPercentageAuto, "5px", .{ .px = 5 });
+    try testParsing(types.LengthPercentageAuto, "5%", .{ .percentage = 5 });
+    try testParsing(types.LengthPercentageAuto, "5", null);
+    try testParsing(types.LengthPercentageAuto, "auto", .auto);
 
-    try testParsing(types.MaxSize, "5px", .{ .px = 5 }, true);
-    try testParsing(types.MaxSize, "5%", .{ .percentage = 5 }, true);
-    try testParsing(types.MaxSize, "5", null, true);
-    try testParsing(types.MaxSize, "auto", null, true);
-    try testParsing(types.MaxSize, "none", .none, true);
+    try testParsing(types.MaxSize, "5px", .{ .px = 5 });
+    try testParsing(types.MaxSize, "5%", .{ .percentage = 5 });
+    try testParsing(types.MaxSize, "5", null);
+    try testParsing(types.MaxSize, "auto", null);
+    try testParsing(types.MaxSize, "none", .none);
 
-    try testParsing(types.BorderWidth, "5px", .{ .px = 5 }, true);
-    try testParsing(types.BorderWidth, "thin", .thin, true);
-    try testParsing(types.BorderWidth, "medium", .medium, true);
-    try testParsing(types.BorderWidth, "thick", .thick, true);
+    try testParsing(types.BorderWidth, "5px", .{ .px = 5 });
+    try testParsing(types.BorderWidth, "thin", .thin);
+    try testParsing(types.BorderWidth, "medium", .medium);
+    try testParsing(types.BorderWidth, "thick", .thick);
 
-    try testParsing(types.BackgroundImage, "none", .none, true);
-    try testParsing(types.BackgroundImage, "url(abcd)", .{ .url = "abcd" }, true);
-    try testParsing(types.BackgroundImage, "url( \"abcd\" )", .{ .url = "abcd" }, true);
-    try testParsing(types.BackgroundImage, "invalid", null, true);
+    try testParsing(types.BackgroundImage, "none", .none);
+    try testParsing(types.BackgroundImage, "url(abcd)", .{ .url = "abcd" });
+    try testParsing(types.BackgroundImage, "url( \"abcd\" )", .{ .url = "abcd" });
+    try testParsing(types.BackgroundImage, "invalid", null);
 
-    try testParsing(types.BackgroundRepeat, "repeat-x", .{ .repeat = .{ .x = .repeat, .y = .no_repeat } }, true);
-    try testParsing(types.BackgroundRepeat, "repeat-y", .{ .repeat = .{ .x = .no_repeat, .y = .repeat } }, true);
-    try testParsing(types.BackgroundRepeat, "repeat", .{ .repeat = .{ .x = .repeat, .y = .repeat } }, true);
-    try testParsing(types.BackgroundRepeat, "space", .{ .repeat = .{ .x = .space, .y = .space } }, true);
-    try testParsing(types.BackgroundRepeat, "round", .{ .repeat = .{ .x = .round, .y = .round } }, true);
-    try testParsing(types.BackgroundRepeat, "no-repeat", .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } }, true);
-    try testParsing(types.BackgroundRepeat, "invalid", null, true);
-    try testParsing(types.BackgroundRepeat, "repeat space", .{ .repeat = .{ .x = .repeat, .y = .space } }, true);
-    try testParsing(types.BackgroundRepeat, "round no-repeat", .{ .repeat = .{ .x = .round, .y = .no_repeat } }, true);
-    try testParsing(types.BackgroundRepeat, "invalid space", null, true);
-    try testParsing(types.BackgroundRepeat, "space invalid", .{ .repeat = .{ .x = .space, .y = .space } }, false);
-    try testParsing(types.BackgroundRepeat, "repeat-x invalid", .{ .repeat = .{ .x = .repeat, .y = .no_repeat } }, false);
+    try testParsing(types.BackgroundRepeat, "repeat-x", .{ .repeat = .{ .x = .repeat, .y = .no_repeat } });
+    try testParsing(types.BackgroundRepeat, "repeat-y", .{ .repeat = .{ .x = .no_repeat, .y = .repeat } });
+    try testParsing(types.BackgroundRepeat, "repeat", .{ .repeat = .{ .x = .repeat, .y = .repeat } });
+    try testParsing(types.BackgroundRepeat, "space", .{ .repeat = .{ .x = .space, .y = .space } });
+    try testParsing(types.BackgroundRepeat, "round", .{ .repeat = .{ .x = .round, .y = .round } });
+    try testParsing(types.BackgroundRepeat, "no-repeat", .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } });
+    try testParsing(types.BackgroundRepeat, "invalid", null);
+    try testParsing(types.BackgroundRepeat, "repeat space", .{ .repeat = .{ .x = .repeat, .y = .space } });
+    try testParsing(types.BackgroundRepeat, "round no-repeat", .{ .repeat = .{ .x = .round, .y = .no_repeat } });
+    try testParsing(types.BackgroundRepeat, "invalid space", null);
+    try testParsing(types.BackgroundRepeat, "space invalid", .{ .repeat = .{ .x = .space, .y = .space } });
+    try testParsing(types.BackgroundRepeat, "repeat-x invalid", .{ .repeat = .{ .x = .repeat, .y = .no_repeat } });
 
-    try testParsing(types.BackgroundAttachment, "scroll", .scroll, true);
-    try testParsing(types.BackgroundAttachment, "fixed", .fixed, true);
-    try testParsing(types.BackgroundAttachment, "local", .local, true);
+    try testParsing(types.BackgroundAttachment, "scroll", .scroll);
+    try testParsing(types.BackgroundAttachment, "fixed", .fixed);
+    try testParsing(types.BackgroundAttachment, "local", .local);
 
     try testParsing(types.BackgroundPosition, "center", .{ .position = .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
-    } }, true);
+    } });
     try testParsing(types.BackgroundPosition, "left", .{ .position = .{
         .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
-    } }, true);
+    } });
     try testParsing(types.BackgroundPosition, "top", .{ .position = .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .start, .offset = .{ .percentage = 0 } },
-    } }, true);
+    } });
     try testParsing(types.BackgroundPosition, "50%", .{ .position = .{
         .x = .{ .side = .start, .offset = .{ .percentage = 50 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
-    } }, true);
+    } });
     try testParsing(types.BackgroundPosition, "50px", .{ .position = .{
         .x = .{ .side = .start, .offset = .{ .px = 50 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
-    } }, true);
+    } });
     try testParsing(types.BackgroundPosition, "left top", .{ .position = .{
         .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .start, .offset = .{ .percentage = 0 } },
-    } }, true);
+    } });
     try testParsing(types.BackgroundPosition, "left center", .{ .position = .{
         .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
-    } }, true);
+    } });
     try testParsing(types.BackgroundPosition, "center right", .{ .position = .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
-    } }, false);
+    } });
     try testParsing(types.BackgroundPosition, "50px right", .{ .position = .{
         .x = .{ .side = .start, .offset = .{ .px = 50 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
-    } }, false);
+    } });
     try testParsing(types.BackgroundPosition, "right center", .{ .position = .{
         .x = .{ .side = .end, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
-    } }, true);
+    } });
     try testParsing(types.BackgroundPosition, "center center 50%", .{ .position = .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
-    } }, false);
+    } });
     try testParsing(types.BackgroundPosition, "left center 20px", .{ .position = .{
         .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
-    } }, false);
+    } });
     try testParsing(types.BackgroundPosition, "left 20px bottom 50%", .{ .position = .{
         .x = .{ .side = .start, .offset = .{ .px = 20 } },
         .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
-    } }, true);
+    } });
     try testParsing(types.BackgroundPosition, "center bottom 50%", .{ .position = .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
-    } }, true);
+    } });
     try testParsing(types.BackgroundPosition, "bottom 50% center", .{ .position = .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
-    } }, true);
+    } });
     try testParsing(types.BackgroundPosition, "bottom 50% left 20px", .{ .position = .{
         .x = .{ .side = .start, .offset = .{ .px = 20 } },
         .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
-    } }, true);
+    } });
 
-    try testParsing(types.BackgroundClip, "border-box", .border_box, true);
-    try testParsing(types.BackgroundClip, "padding-box", .padding_box, true);
-    try testParsing(types.BackgroundClip, "content-box", .content_box, true);
+    try testParsing(types.BackgroundClip, "border-box", .border_box);
+    try testParsing(types.BackgroundClip, "padding-box", .padding_box);
+    try testParsing(types.BackgroundClip, "content-box", .content_box);
 
-    try testParsing(types.BackgroundOrigin, "border-box", .border_box, true);
-    try testParsing(types.BackgroundOrigin, "padding-box", .padding_box, true);
-    try testParsing(types.BackgroundOrigin, "content-box", .content_box, true);
+    try testParsing(types.BackgroundOrigin, "border-box", .border_box);
+    try testParsing(types.BackgroundOrigin, "padding-box", .padding_box);
+    try testParsing(types.BackgroundOrigin, "content-box", .content_box);
 
-    try testParsing(types.BackgroundSize, "contain", .contain, true);
-    try testParsing(types.BackgroundSize, "cover", .cover, true);
-    try testParsing(types.BackgroundSize, "auto", .{ .size = .{ .width = .auto, .height = .auto } }, true);
-    try testParsing(types.BackgroundSize, "auto auto", .{ .size = .{ .width = .auto, .height = .auto } }, true);
-    try testParsing(types.BackgroundSize, "5px", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .px = 5 } } }, true);
-    try testParsing(types.BackgroundSize, "5px 5%", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .percentage = 5 } } }, true);
+    try testParsing(types.BackgroundSize, "contain", .contain);
+    try testParsing(types.BackgroundSize, "cover", .cover);
+    try testParsing(types.BackgroundSize, "auto", .{ .size = .{ .width = .auto, .height = .auto } });
+    try testParsing(types.BackgroundSize, "auto auto", .{ .size = .{ .width = .auto, .height = .auto } });
+    try testParsing(types.BackgroundSize, "5px", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .px = 5 } } });
+    try testParsing(types.BackgroundSize, "5px 5%", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .percentage = 5 } } });
 
-    try testParsing(types.Color, "currentColor", .current_color, true);
-    try testParsing(types.Color, "transparent", .transparent, true);
-    try testParsing(types.Color, "#abc", .{ .rgba = 0xaabbcc00 }, true);
+    try testParsing(types.Color, "currentColor", .current_color);
+    try testParsing(types.Color, "transparent", .transparent);
+    try testParsing(types.Color, "#abc", .{ .rgba = 0xaabbcc00 });
 }
 
-pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const TokenSource.KV(Type)) !Type {
-    const keyword = source.next() orelse return error.ParseError;
-    errdefer source.sequence.reset(keyword.index);
+pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const TokenSource.KV(Type)) ?Type {
+    const keyword = source.next() orelse return null;
 
     if (keyword.type == .keyword) {
         if (source.mapKeyword(keyword.index, Type, kvs)) |value| {
@@ -369,18 +360,19 @@ pub fn parseSingleKeyword(source: *Source, comptime Type: type, kvs: []const Tok
         }
     }
 
-    return error.ParseError;
+    source.sequence.reset(keyword.index);
+    return null;
 }
 
-pub fn genericLength(comptime Type: type, dimension: Source.Value.Dimension) !Type {
+pub fn genericLength(comptime Type: type, dimension: Source.Value.Dimension) ?Type {
     const number = dimension.number;
-    const unit = dimension.unit orelse return error.ParseError;
+    const unit = dimension.unit orelse return null;
     return switch (unit) {
         .px => .{ .px = number },
     };
 }
 
-pub fn genericLengthPercentage(comptime Type: type, value: anytype) !Type {
+pub fn genericLengthPercentage(comptime Type: type, value: anytype) ?Type {
     return switch (@TypeOf(value)) {
         f32 => .{ .percentage = value },
         Source.Value.Dimension => genericLength(Type, value),
@@ -388,7 +380,7 @@ pub fn genericLengthPercentage(comptime Type: type, value: anytype) !Type {
     };
 }
 
-pub fn cssWideKeyword(source: *Source) !types.CssWideKeyword {
+pub fn cssWideKeyword(source: *Source) ?types.CssWideKeyword {
     return parseSingleKeyword(source, types.CssWideKeyword, &.{
         .{ "initial", .initial },
         .{ "inherit", .inherit },
@@ -399,7 +391,7 @@ pub fn cssWideKeyword(source: *Source) !types.CssWideKeyword {
 // Spec: CSS 2.2
 // inline | block | list-item | inline-block | table | inline-table | table-row-group | table-header-group
 // | table-footer-group | table-row | table-column-group | table-column | table-cell | table-caption | none
-pub fn display(source: *Source) !types.Display {
+pub fn display(source: *Source) ?types.Display {
     return parseSingleKeyword(source, types.Display, &.{
         .{ "inline", .@"inline" },
         .{ "block", .block },
@@ -421,7 +413,7 @@ pub fn display(source: *Source) !types.Display {
 
 // Spec: CSS 2.2
 // static | relative | absolute | fixed
-pub fn position(source: *Source) !types.Position {
+pub fn position(source: *Source) ?types.Position {
     return parseSingleKeyword(source, types.Position, &.{
         .{ "static", .static },
         .{ "relative", .relative },
@@ -432,7 +424,7 @@ pub fn position(source: *Source) !types.Position {
 
 // Spec: CSS 2.2
 // left | right | none
-pub fn float(source: *Source) !types.Float {
+pub fn float(source: *Source) ?types.Float {
     return parseSingleKeyword(source, types.Float, &.{
         .{ "left", .left },
         .{ "right", .right },
@@ -442,105 +434,124 @@ pub fn float(source: *Source) !types.Float {
 
 // Spec: CSS 2.2
 // auto | <integer>
-pub fn zIndex(source: *Source) !types.ZIndex {
-    const auto_or_int = source.next() orelse return error.ParseError;
-    errdefer source.sequence.reset(auto_or_int.index);
+pub fn zIndex(source: *Source) ?types.ZIndex {
+    const auto_or_int = source.next() orelse return null;
     switch (auto_or_int.type) {
         .integer => return types.ZIndex{ .integer = source.value(.integer, auto_or_int.index) },
-        .keyword => return source.mapKeyword(auto_or_int.index, types.ZIndex, &.{
-            .{ "auto", .auto },
-        }) orelse error.ParseError,
-        else => return error.ParseError,
+        .keyword => {
+            if (source.mapKeyword(auto_or_int.index, types.ZIndex, &.{
+                .{ "auto", .auto },
+            })) |value| return value;
+        },
+        else => {},
     }
+
+    source.sequence.reset(auto_or_int.index);
+    return null;
 }
 
 // Spec: CSS 2.2
 // <length> | <percentage>
-pub fn lengthPercentage(source: *Source) !types.LengthPercentage {
-    const item = source.next() orelse return error.ParseError;
-    errdefer source.sequence.reset(item.index);
+pub fn lengthPercentage(source: *Source) ?types.LengthPercentage {
+    const item = source.next() orelse return null;
     switch (item.type) {
         .dimension => return genericLength(types.LengthPercentage, source.value(.dimension, item.index)),
         .percentage => return .{ .percentage = source.value(.percentage, item.index) },
-        else => return error.ParseError,
+        else => {},
     }
+
+    source.sequence.reset(item.index);
+    return null;
 }
 
 // Spec: CSS 2.2
 // <length> | <percentage> | auto
-pub fn lengthPercentageAuto(source: *Source) !types.LengthPercentageAuto {
-    const item = source.next() orelse return error.ParseError;
-    errdefer source.sequence.reset(item.index);
+pub fn lengthPercentageAuto(source: *Source) ?types.LengthPercentageAuto {
+    const item = source.next() orelse return null;
     switch (item.type) {
         .dimension => return genericLength(types.LengthPercentageAuto, source.value(.dimension, item.index)),
         .percentage => return .{ .percentage = source.value(.percentage, item.index) },
-        .keyword => return source.mapKeyword(item.index, types.LengthPercentageAuto, &.{
-            .{ "auto", .auto },
-        }) orelse error.ParseError,
-        else => return error.ParseError,
+        .keyword => {
+            if (source.mapKeyword(item.index, types.LengthPercentageAuto, &.{
+                .{ "auto", .auto },
+            })) |value| return value;
+        },
+        else => {},
     }
+
+    source.sequence.reset(item.index);
+    return null;
 }
 
 // Spec: CSS 2.2
 // <length> | <percentage> | none
-pub fn maxSize(source: *Source) !types.MaxSize {
-    const item = source.next() orelse return error.ParseError;
-    errdefer source.sequence.reset(item.index);
+pub fn maxSize(source: *Source) ?types.MaxSize {
+    const item = source.next() orelse return null;
     switch (item.type) {
         .dimension => return genericLength(types.MaxSize, source.value(.dimension, item.index)),
         .percentage => return .{ .percentage = source.value(.percentage, item.index) },
-        .keyword => return source.mapKeyword(item.index, types.MaxSize, &.{
-            .{ "none", .none },
-        }) orelse error.ParseError,
-        else => return error.ParseError,
+        .keyword => {
+            if (source.mapKeyword(item.index, types.MaxSize, &.{
+                .{ "none", .none },
+            })) |value| return value;
+        },
+        else => {},
     }
+    source.sequence.reset(item.index);
+    return null;
 }
 
 // Spec: CSS 2.2
 // Syntax: <length> | thin | medium | thick
-pub fn borderWidth(source: *Source) !types.BorderWidth {
-    const item = source.next() orelse return error.ParseError;
-    errdefer source.sequence.reset(item.index);
+pub fn borderWidth(source: *Source) ?types.BorderWidth {
+    const item = source.next() orelse return null;
     switch (item.type) {
         .dimension => return genericLength(types.BorderWidth, source.value(.dimension, item.index)),
-        .keyword => return source.mapKeyword(item.index, types.BorderWidth, &.{
-            .{ "thin", .thin },
-            .{ "medium", .medium },
-            .{ "thick", .thick },
-        }) orelse error.ParseError,
-        else => return error.ParseError,
+        .keyword => {
+            if (source.mapKeyword(item.index, types.BorderWidth, &.{
+                .{ "thin", .thin },
+                .{ "medium", .medium },
+                .{ "thick", .thick },
+            })) |value| return value;
+        },
+        else => {},
     }
+
+    source.sequence.reset(item.index);
+    return null;
 }
 
 // Spec: CSS Backgrounds and Borders Level 3
 // Syntax: <image> | none
 //         <image> = <url> | <gradient>
 //         <gradient> = <linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()> | <repeating-radial-gradient()>
-pub fn backgroundImage(source: *Source) !types.BackgroundImage {
-    const item = source.next() orelse return error.ParseError;
-    errdefer source.sequence.reset(item.index);
+pub fn backgroundImage(source: *Source) ?types.BackgroundImage {
+    const item = source.next() orelse return null;
     switch (item.type) {
         .url => {
-            const url = (try source.value(.url, item.index)) orelse return error.ParseError;
-            return .{ .url = url };
+            const url = source.value(.url, item.index) catch std.debug.panic("TODO: Allocation failure", .{});
+            if (url) |value| return .{ .url = value };
         },
         .function => {
-            // TODO: parse an <image>
-            return error.ParseError;
+            // TODO: parse gradient functions
         },
-        .keyword => return source.mapKeyword(item.index, types.BackgroundImage, &.{
-            .{ "none", .none },
-        }) orelse error.ParseError,
-        else => return error.ParseError,
+        .keyword => {
+            if (source.mapKeyword(item.index, types.BackgroundImage, &.{
+                .{ "none", .none },
+            })) |value| return value;
+        },
+        else => {},
     }
+
+    source.sequence.reset(item.index);
+    return null;
 }
 
 // Spec: CSS Backgrounds and Borders Level 3
 // Syntax: <repeat-style> = repeat-x | repeat-y | [repeat | space | round | no-repeat]{1,2}
-pub fn backgroundRepeat(source: *Source) !types.BackgroundRepeat {
-    // TODO: reset point incorrect
-    const keyword1 = source.expect(.keyword) orelse return error.ParseError;
-    errdefer source.sequence.reset(keyword1.index);
+pub fn backgroundRepeat(source: *Source) ?types.BackgroundRepeat {
+    const keyword1 = source.expect(.keyword) orelse return null;
+
     if (source.mapKeyword(keyword1.index, types.BackgroundRepeat.Repeat, &.{
         .{ "repeat-x", .{ .x = .repeat, .y = .no_repeat } },
         .{ "repeat-y", .{ .x = .no_repeat, .y = .repeat } },
@@ -555,14 +566,18 @@ pub fn backgroundRepeat(source: *Source) !types.BackgroundRepeat {
         .{ "round", .round },
         .{ "no-repeat", .no_repeat },
     };
-    const x = source.mapKeyword(keyword1.index, Style, map) orelse return error.ParseError;
-    const y = parseSingleKeyword(source, Style, map) catch x;
-    return .{ .repeat = .{ .x = x, .y = y } };
+    if (source.mapKeyword(keyword1.index, Style, map)) |x| {
+        const y = parseSingleKeyword(source, Style, map) orelse x;
+        return .{ .repeat = .{ .x = x, .y = y } };
+    }
+
+    source.sequence.reset(keyword1.index);
+    return null;
 }
 
 // Spec: CSS Backgrounds and Borders Level 3
 // Syntax: <attachment> = scroll | fixed | local
-pub fn backgroundAttachment(source: *Source) !types.BackgroundAttachment {
+pub fn backgroundAttachment(source: *Source) ?types.BackgroundAttachment {
     return parseSingleKeyword(source, types.BackgroundAttachment, &.{
         .{ "scroll", .scroll },
         .{ "fixed", .fixed },
@@ -606,9 +621,8 @@ const bg_position = struct {
 ///                       |
 ///                         [ center | [ left | right ] <length-percentage>? ] &&
 ///                         [ center | [ top | bottom ] <length-percentage>? ]
-pub fn backgroundPosition(source: *Source) !types.BackgroundPosition {
-    const first_item = source.next() orelse return error.ParseError;
-    errdefer source.sequence.reset(first_item.index);
+pub fn backgroundPosition(source: *Source) ?types.BackgroundPosition {
+    const first_item = source.next() orelse return null;
 
     var items: [4]Source.Item = .{ first_item, undefined, undefined, undefined };
     for (items[1..]) |*item| {
@@ -616,9 +630,12 @@ pub fn backgroundPosition(source: *Source) !types.BackgroundPosition {
     }
 
     const result =
-        backgroundPosition3Or4Values(items, source) catch
-        backgroundPosition1Or2Values(items, source) catch
-        return error.ParseError;
+        backgroundPosition3Or4Values(items, source) orelse
+        backgroundPosition1Or2Values(items, source) orelse
+        {
+        source.sequence.reset(first_item.index);
+        return null;
+    };
 
     if (result.num_items_used < 4) {
         source.sequence.reset(items[result.num_items_used].index);
@@ -629,11 +646,11 @@ pub fn backgroundPosition(source: *Source) !types.BackgroundPosition {
 /// Spec: CSS Backgrounds and Borders Level 3
 /// Syntax: [ center | [ left | right ] <length-percentage>? ] &&
 ///         [ center | [ top | bottom ] <length-percentage>? ]
-fn backgroundPosition3Or4Values(items: [4]Source.Item, source: *Source) !bg_position.ResultTuple {
+fn backgroundPosition3Or4Values(items: [4]Source.Item, source: *Source) ?bg_position.ResultTuple {
     var num_items_used: u3 = 0;
-    const first = try backgroundPosition3Or4ValuesInfo(items, &num_items_used, source);
-    const second = try backgroundPosition3Or4ValuesInfo(items, &num_items_used, source);
-    if (num_items_used < 3) return error.ParseError;
+    const first = backgroundPosition3Or4ValuesInfo(items, &num_items_used, source) orelse return null;
+    const second = backgroundPosition3Or4ValuesInfo(items, &num_items_used, source) orelse return null;
+    if (num_items_used < 3) return null;
 
     var x_axis: *const bg_position.Info = undefined;
     var y_axis: *const bg_position.Info = undefined;
@@ -642,7 +659,7 @@ fn backgroundPosition3Or4Values(items: [4]Source.Item, source: *Source) !bg_posi
         .x => {
             x_axis = &first;
             y_axis = switch (second.axis) {
-                .x => return error.ParseError,
+                .x => return null,
                 .y => &second,
                 .either => &second,
             };
@@ -650,7 +667,7 @@ fn backgroundPosition3Or4Values(items: [4]Source.Item, source: *Source) !bg_posi
         .y => {
             x_axis = switch (second.axis) {
                 .x => &second,
-                .y => return error.ParseError,
+                .y => return null,
                 .either => &second,
             };
             y_axis = &first;
@@ -682,10 +699,10 @@ fn backgroundPosition3Or4Values(items: [4]Source.Item, source: *Source) !bg_posi
     return .{ .bg_position = result, .num_items_used = num_items_used };
 }
 
-fn backgroundPosition3Or4ValuesInfo(items: [4]Source.Item, num_items_used: *u3, source: *Source) !bg_position.Info {
+fn backgroundPosition3Or4ValuesInfo(items: [4]Source.Item, num_items_used: *u3, source: *Source) ?bg_position.Info {
     const side_item = items[num_items_used.*];
-    if (side_item.type != .keyword) return error.ParseError;
-    const map_value = source.mapKeyword(side_item.index, bg_position.KeywordMapValue, bg_position.keyword_map) orelse return error.ParseError;
+    if (side_item.type != .keyword) return null;
+    const map_value = source.mapKeyword(side_item.index, bg_position.KeywordMapValue, bg_position.keyword_map) orelse return null;
 
     var offset: bg_position.Offset = undefined;
     switch (map_value.side) {
@@ -700,7 +717,7 @@ fn backgroundPosition3Or4ValuesInfo(items: [4]Source.Item, num_items_used: *u3, 
                     if (genericLengthPercentage(bg_position.Offset, source.value(@"type", offset_item.index))) |value| {
                         num_items_used.* += 2;
                         offset = value;
-                    } else |_| {
+                    } else {
                         num_items_used.* += 1;
                         offset = .{ .percentage = 0 };
                     }
@@ -721,11 +738,11 @@ fn backgroundPosition3Or4ValuesInfo(items: [4]Source.Item, num_items_used: *u3, 
 ///       |
 ///         [ left | center | right | <length-percentage> ]
 ///         [ top | center | bottom | <length-percentage> ]
-fn backgroundPosition1Or2Values(items: [4]Source.Item, source: *Source) !bg_position.ResultTuple {
-    const first = try backgroundPosition1Or2ValuesInfo(items[0], source);
+fn backgroundPosition1Or2Values(items: [4]Source.Item, source: *Source) ?bg_position.ResultTuple {
+    const first = backgroundPosition1Or2ValuesInfo(items[0], source) orelse return null;
     twoValues: {
         if (first.axis == .y) break :twoValues;
-        const second = backgroundPosition1Or2ValuesInfo(items[1], source) catch break :twoValues;
+        const second = backgroundPosition1Or2ValuesInfo(items[1], source) orelse break :twoValues;
         if (second.axis == .x) break :twoValues;
 
         const result = types.BackgroundPosition{
@@ -761,23 +778,24 @@ fn backgroundPosition1Or2Values(items: [4]Source.Item, source: *Source) !bg_posi
     return .{ .bg_position = result, .num_items_used = 1 };
 }
 
-fn backgroundPosition1Or2ValuesInfo(item: Source.Item, source: *Source) !bg_position.Info {
+fn backgroundPosition1Or2ValuesInfo(item: Source.Item, source: *Source) ?bg_position.Info {
     switch (item.type) {
         .keyword => {
-            const map_value = source.mapKeyword(item.index, bg_position.KeywordMapValue, bg_position.keyword_map) orelse return error.ParseError;
+            const map_value = source.mapKeyword(item.index, bg_position.KeywordMapValue, bg_position.keyword_map) orelse return null;
             return .{ .axis = map_value.axis, .side = map_value.side, .offset = .{ .percentage = 0 } };
         },
         inline .dimension, .percentage => |@"type"| {
-            const offset = try genericLengthPercentage(bg_position.Offset, source.value(@"type", item.index));
-            return .{ .axis = .either, .side = .start, .offset = offset };
+            if (genericLengthPercentage(bg_position.Offset, source.value(@"type", item.index))) |offset|
+                return .{ .axis = .either, .side = .start, .offset = offset };
         },
-        else => return error.ParseError,
+        else => {},
     }
+    return null;
 }
 
 /// Spec: CSS Backgrounds and Borders Level 3
 /// Syntax: <box> = border-box | padding-box | content-box
-pub fn backgroundClip(source: *Source) !types.BackgroundClip {
+pub fn backgroundClip(source: *Source) ?types.BackgroundClip {
     return parseSingleKeyword(source, types.BackgroundClip, &.{
         .{ "border-box", .border_box },
         .{ "padding-box", .padding_box },
@@ -787,7 +805,7 @@ pub fn backgroundClip(source: *Source) !types.BackgroundClip {
 
 /// Spec: CSS Backgrounds and Borders Level 3
 /// Syntax: <box> = border-box | padding-box | content-box
-pub fn backgroundOrigin(source: *Source) !types.BackgroundOrigin {
+pub fn backgroundOrigin(source: *Source) ?types.BackgroundOrigin {
     return parseSingleKeyword(source, types.BackgroundOrigin, &.{
         .{ "border-box", .border_box },
         .{ "padding-box", .padding_box },
@@ -797,9 +815,8 @@ pub fn backgroundOrigin(source: *Source) !types.BackgroundOrigin {
 
 /// Spec: CSS Backgrounds and Borders Level 3
 /// Syntax: <bg-size> = [ <length-percentage [0,infinity]> | auto ]{1,2} | cover | contain
-pub fn backgroundSize(source: *Source) !types.BackgroundSize {
-    // TODO: reset point incorrect
-    const first = source.next() orelse return error.ParseError;
+pub fn backgroundSize(source: *Source) ?types.BackgroundSize {
+    const first = source.next() orelse return null;
     switch (first.type) {
         .keyword => {
             if (source.mapKeyword(first.index, types.BackgroundSize, &.{
@@ -810,16 +827,23 @@ pub fn backgroundSize(source: *Source) !types.BackgroundSize {
         else => {},
     }
 
-    const width = try backgroundSizeOne(first, source);
-    const height = blk: {
-        const second = source.next() orelse break :blk width;
-        const result = backgroundSizeOne(second, source) catch break :blk width;
-        break :blk result;
-    };
-    return types.BackgroundSize{ .size = .{ .width = width, .height = height } };
+    if (backgroundSizeOne(first, source)) |width| {
+        const height = blk: {
+            const second = source.next() orelse break :blk width;
+            const result = backgroundSizeOne(second, source) orelse {
+                source.sequence.reset(second.index);
+                break :blk width;
+            };
+            break :blk result;
+        };
+        return types.BackgroundSize{ .size = .{ .width = width, .height = height } };
+    }
+
+    source.sequence.reset(first.index);
+    return null;
 }
 
-fn backgroundSizeOne(item: Source.Item, source: *Source) !types.BackgroundSize.SizeType {
+fn backgroundSizeOne(item: Source.Item, source: *Source) ?types.BackgroundSize.SizeType {
     switch (item.type) {
         inline .dimension, .percentage => |@"type"| {
             // TODO: Range checking?
@@ -827,18 +851,17 @@ fn backgroundSizeOne(item: Source.Item, source: *Source) !types.BackgroundSize.S
         },
         .keyword => return source.mapKeyword(item.index, types.BackgroundSize.SizeType, &.{
             .{ "auto", .auto },
-        }) orelse error.ParseError,
-        else => return error.ParseError,
+        }),
+        else => return null,
     }
 }
 
 /// Spec: CSS Color Level 4
 /// Syntax: <color> = <color-base> | currentColor | <system-color>
 ///         <color-base> = <hex-color> | <color-function> | <named-color> | transparent
-fn color(source: *Source) !types.Color {
+fn color(source: *Source) ?types.Color {
     // TODO: Named colors, system colors, color functions
-    const item = source.next() orelse return error.ParseError;
-    errdefer source.sequence.reset(item.index);
+    const item = source.next() orelse return null;
 
     switch (item.type) {
         .keyword => {
@@ -849,14 +872,14 @@ fn color(source: *Source) !types.Color {
                 return value;
             }
         },
-        .hash => {
-            const hash = try source.value(.hash, item.index);
+        .hash => hash: {
+            const hash = source.value(.hash, item.index) catch std.debug.panic("TODO: Allocation failure", .{});
             switch (hash.len) {
                 3 => {
                     const rgba = blk: {
                         var result: u32 = 0;
                         for (hash, 0..) |codepoint, i| {
-                            const digit: u32 = zss.unicode.hexDigitToNumber(codepoint) catch return error.ParseError;
+                            const digit: u32 = zss.unicode.hexDigitToNumber(codepoint) catch break :hash;
                             const digit_duped = digit | (digit << 4);
                             result |= (digit_duped << @intCast((3 - i) * 8));
                         }
@@ -866,11 +889,12 @@ fn color(source: *Source) !types.Color {
                 },
                 // TODO: 4, 6, and 8 color hex values
                 4, 6, 8 => {},
-                else => return error.ParseError,
+                else => {},
             }
         },
         else => {},
     }
 
-    return error.ParseError;
+    source.sequence.reset(item.index);
+    return null;
 }

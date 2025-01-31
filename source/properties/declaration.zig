@@ -58,10 +58,7 @@ fn parseDeclaration(
 
     value_source.sequence = decl_value_sequence;
     const css_wide_keyword = blk: {
-        const value = zss.values.parse.cssWideKeyword(value_source) catch |err| switch (err) {
-            error.ParseError => break :blk null,
-            else => |e| return e,
-        };
+        const value = zss.values.parse.cssWideKeyword(value_source) orelse break :blk null;
         if (!value_source.sequence.empty()) break :blk null;
         break :blk value;
     };
@@ -87,10 +84,7 @@ fn parseDeclaration(
                         const parseFn = zss.values.parse.typeToParseFn(field_info.type);
                         value_source.sequence = decl_value_sequence;
                         // TODO: If parsing fails, "reset" the arena
-                        const value = parseFn(value_source) catch |err| switch (err) {
-                            error.ParseError => return,
-                            else => |e| return e,
-                        };
+                        const value = parseFn(value_source) orelse return;
                         if (!value_source.sequence.empty()) return;
                         try cascaded.addValue(arena, simple.aggregate_tag, simple.field, value);
                     }
