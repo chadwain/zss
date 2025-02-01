@@ -166,7 +166,7 @@ fn applyStyleBlockDeclarations(
     cascade_arena: *ArenaAllocator,
 ) !void {
     var value_source = zss.values.Source.init(ast, token_source, cascade_arena.allocator());
-    const parsed_declarations = try zss.properties.declaration.parseDeclarationsFromAst(&value_source, cascade_arena, last_declaration);
+    const parsed_declarations = try zss.properties.parse.parseDeclarationsFromAst(&value_source, cascade_arena, last_declaration);
     const sources = [2]*const CascadedValues{ &parsed_declarations.important, &parsed_declarations.normal };
     try element_tree.updateCascadedValues(element, &sources);
 }

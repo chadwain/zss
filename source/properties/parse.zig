@@ -10,6 +10,8 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
+const parsers = @import("parsers.zig");
+
 pub const ParsedDeclarations = struct {
     normal: CascadedValues,
     important: CascadedValues,
@@ -59,7 +61,10 @@ fn parseDeclaration(
     value_source.sequence = decl_value_sequence;
     const css_wide_keyword = blk: {
         const value = zss.values.parse.cssWideKeyword(value_source) orelse break :blk null;
-        if (!value_source.sequence.empty()) break :blk null;
+        if (!value_source.sequence.empty()) {
+            value_source.sequence = decl_value_sequence;
+            break :blk null;
+        }
         break :blk value;
     };
     switch (property_name) {
@@ -73,16 +78,13 @@ fn parseDeclaration(
                     }
                 },
                 .simple => |simple| {
-                    const Aggregate = simple.aggregate_tag.Value();
-                    const field_info = comptime std.meta.fieldInfo(Aggregate, simple.field);
-
                     if (css_wide_keyword) |cwk| {
-                        var value: field_info.type = undefined;
+                        const Aggregate = simple.aggregate_tag.Value();
+                        var value: std.meta.FieldType(Aggregate, simple.field) = undefined;
                         cwk.apply(.{&value});
                         try cascaded.addValue(arena, simple.aggregate_tag, simple.field, value);
                     } else {
-                        const parseFn = zss.values.parse.typeToParseFn(field_info.type);
-                        value_source.sequence = decl_value_sequence;
+                        const parseFn = @field(parsers, @tagName(comptime_property_name));
                         // TODO: If parsing fails, "reset" the arena
                         const value = parseFn(value_source) orelse return;
                         if (!value_source.sequence.empty()) return;
@@ -99,6 +101,7 @@ fn parsePropertyName(
     token_source: TokenSource,
     declaration_index: Ast.Size,
 ) ?PropertyName {
+    // TODO: Use syntax.tokenize.ComptimePrefixTree
     const map = comptime blk: {
         const names = std.meta.fields(PropertyName);
         var result: [names.len]TokenSource.KV(PropertyName) = undefined;
@@ -112,7 +115,7 @@ fn parsePropertyName(
     return token_source.mapIdentifier(location, PropertyName, map);
 }
 
-test {
+test "parsing properties from a stylesheet" {
     const allocator = std.testing.allocator;
     const input =
         \\test {
