@@ -172,7 +172,9 @@ pub const Component = struct {
         integer: i32,
         number: f32,
         @"error": Token.Error,
+        // TODO: Consider making unrecognized units an error, causing this to be non-optional
         unit: ?Token.Unit,
+        // TODO: Consider making unrecognized at-rules an error, causing this to be non-optional
         at_rule: ?Token.AtRule,
 
         pub const undef: Extra = .{ .index = 0 };
@@ -198,6 +200,7 @@ pub const Component = struct {
         ///        note: This component never appears within the Ast
         token_eof,
         ///       extra: Use `extra.@"error"` to get the error as a `Token.Error`
+        // TODO: Error tokens are an "in-band" source of errors, which need to be handled in all cases
         token_error,
         token_comments,
         token_ident,
@@ -399,9 +402,6 @@ pub const Ast = struct {
             return sequence.start;
         }
 
-        /// Returns the next component in a declaration's value.
-        pub const nextDeclComponent = nextSkipSpaces;
-
         /// Returns true if any space components were encountered.
         pub fn skipSpaces(sequence: *Sequence, ast: Ast) bool {
             const initial_index = sequence.start;
@@ -418,6 +418,7 @@ pub const Ast = struct {
         /// Returns to a previously visited point in the sequence.
         /// `index` must be a value that was previously returned from one of the `next*` functions.
         pub fn reset(sequence: *Sequence, index: Size) void {
+            assert(index < sequence.end);
             sequence.start = index;
         }
     };

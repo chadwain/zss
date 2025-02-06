@@ -155,6 +155,10 @@ pub const Source = struct {
     }
 };
 
+// TODO: (IdentSequenceIterator, StringTokenIterator, UrlTokenIterator, stringIsIdentSequence)
+// These methods are nothing more than copy-pastes of the actual tokenizing functions.
+// Can they be implemented without duplicating code?
+
 pub const IdentSequenceIterator = struct {
     location: Source.Location,
 

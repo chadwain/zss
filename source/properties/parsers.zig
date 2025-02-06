@@ -11,7 +11,7 @@ const Source = values.Source;
 // inline | block | list-item | inline-block | table | inline-table | table-row-group | table-header-group
 // | table-footer-group | table-row | table-column-group | table-column | table-cell | table-caption | none
 pub fn display(source: *Source) ?types.Display {
-    return values.parse.parseSingleKeyword(source, types.Display, &.{
+    return values.parse.keyword(source, types.Display, &.{
         .{ "inline", .@"inline" },
         .{ "block", .block },
         // .{ "list-item", .list_item },
@@ -33,7 +33,7 @@ pub fn display(source: *Source) ?types.Display {
 // Spec: CSS 2.2
 // static | relative | absolute | fixed
 pub fn position(source: *Source) ?types.Position {
-    return values.parse.parseSingleKeyword(source, types.Position, &.{
+    return values.parse.keyword(source, types.Position, &.{
         .{ "static", .static },
         .{ "relative", .relative },
         .{ "absolute", .absolute },
@@ -44,7 +44,7 @@ pub fn position(source: *Source) ?types.Position {
 // Spec: CSS 2.2
 // left | right | none
 pub fn float(source: *Source) ?types.Float {
-    return values.parse.parseSingleKeyword(source, types.Float, &.{
+    return values.parse.keyword(source, types.Float, &.{
         .{ "left", .left },
         .{ "right", .right },
         .{ "none", .none },
@@ -54,19 +54,11 @@ pub fn float(source: *Source) ?types.Float {
 // Spec: CSS 2.2
 // auto | <integer>
 pub fn @"z-index"(source: *Source) ?types.ZIndex {
-    const auto_or_int = source.next() orelse return null;
-    switch (auto_or_int.type) {
-        .integer => return types.ZIndex{ .integer = source.value(.integer, auto_or_int.index) },
-        .keyword => {
-            if (source.mapKeyword(auto_or_int.index, types.ZIndex, &.{
-                .{ "auto", .auto },
-            })) |value| return value;
-        },
-        else => {},
+    if (values.parse.integer(source)) |integer| {
+        return .{ .integer = integer };
+    } else {
+        return values.parse.keyword(source, types.ZIndex, &.{.{ "auto", .auto }});
     }
-
-    source.sequence.reset(auto_or_int.index);
-    return null;
 }
 
 pub const width = lengthPercentageAuto;
@@ -79,19 +71,7 @@ pub const @"max-height" = maxSize;
 // Spec: CSS 2.2
 // <length> | <percentage> | none
 fn maxSize(source: *Source) ?types.MaxSize {
-    const item = source.next() orelse return null;
-    switch (item.type) {
-        .dimension => return values.parse.genericLength(types.MaxSize, source.value(.dimension, item.index)),
-        .percentage => return .{ .percentage = source.value(.percentage, item.index) },
-        .keyword => {
-            if (source.mapKeyword(item.index, types.MaxSize, &.{
-                .{ "none", .none },
-            })) |value| return value;
-        },
-        else => {},
-    }
-    source.sequence.reset(item.index);
-    return null;
+    return values.parse.lengthPercentageNone(source, types.MaxSize);
 }
 
 pub const @"padding-left" = lengthPercentage;
@@ -107,21 +87,12 @@ pub const @"border-bottom-width" = borderWidth;
 // Spec: CSS 2.2
 // Syntax: <length> | thin | medium | thick
 fn borderWidth(source: *Source) ?types.BorderWidth {
-    const item = source.next() orelse return null;
-    switch (item.type) {
-        .dimension => return values.parse.genericLength(types.BorderWidth, source.value(.dimension, item.index)),
-        .keyword => {
-            if (source.mapKeyword(item.index, types.BorderWidth, &.{
-                .{ "thin", .thin },
-                .{ "medium", .medium },
-                .{ "thick", .thick },
-            })) |value| return value;
-        },
-        else => {},
-    }
-
-    source.sequence.reset(item.index);
-    return null;
+    return values.parse.length(source, types.BorderWidth) orelse
+        values.parse.keyword(source, types.BorderWidth, &.{
+        .{ "thin", .thin },
+        .{ "medium", .medium },
+        .{ "thick", .thick },
+    });
 }
 
 pub const @"margin-left" = lengthPercentageAuto;
@@ -137,34 +108,13 @@ pub const bottom = lengthPercentageAuto;
 // Spec: CSS 2.2
 // <length> | <percentage>
 fn lengthPercentage(source: *Source) ?types.LengthPercentage {
-    const item = source.next() orelse return null;
-    switch (item.type) {
-        .dimension => return values.parse.genericLength(types.LengthPercentage, source.value(.dimension, item.index)),
-        .percentage => return .{ .percentage = source.value(.percentage, item.index) },
-        else => {},
-    }
-
-    source.sequence.reset(item.index);
-    return null;
+    return values.parse.lengthPercentage(source, types.LengthPercentage);
 }
 
 // Spec: CSS 2.2
 // <length> | <percentage> | auto
 fn lengthPercentageAuto(source: *Source) ?types.LengthPercentageAuto {
-    const item = source.next() orelse return null;
-    switch (item.type) {
-        .dimension => return values.parse.genericLength(types.LengthPercentageAuto, source.value(.dimension, item.index)),
-        .percentage => return .{ .percentage = source.value(.percentage, item.index) },
-        .keyword => {
-            if (source.mapKeyword(item.index, types.LengthPercentageAuto, &.{
-                .{ "auto", .auto },
-            })) |value| return value;
-        },
-        else => {},
-    }
-
-    source.sequence.reset(item.index);
-    return null;
+    return values.parse.lengthPercentageAuto(source, types.LengthPercentageAuto);
 }
 
 const background_mod = @import("parsers/background.zig");
@@ -200,6 +150,7 @@ fn testParser(comptime parser: anytype, input: []const u8, expected: @typeInfo(@
                 else => std.testing.expectEqual(expected_payload, actual_payload),
             };
         } else {
+            errdefer std.debug.print("Expected: {}, found: null\n", .{expected_payload});
             return error.TestExpectedEqual;
         }
     } else {
@@ -248,6 +199,7 @@ test "property parsers" {
     try testParser(@"background-image", "none", .none);
     try testParser(@"background-image", "url(abcd)", .{ .url = "abcd" });
     try testParser(@"background-image", "url( \"abcd\" )", .{ .url = "abcd" });
+    try testParser(@"background-image", "src(\"wxyz\")", .{ .url = "wxyz" });
     try testParser(@"background-image", "invalid", null);
 
     try testParser(@"background-repeat", "repeat-x", .{ .repeat = .{ .x = .repeat, .y = .no_repeat } });

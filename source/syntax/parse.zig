@@ -428,6 +428,8 @@ fn loop(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged) !voi
             .simple_block             =>      |*simple_block| consumeSimpleBlock(parser, location, ast, simple_block),
         };
         // zig fmt: on
+
+        // TODO: Using errors for control flow like this leads to stupidly long error return traces...
         result catch |err| switch (err) {
             error.ControlFlowSuspend => {},
             else => |e| return e,

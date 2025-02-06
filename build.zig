@@ -62,11 +62,13 @@ fn addUnitTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods:
         .optimize = optimize,
     });
     unit_tests.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
-    b.installArtifact(unit_tests);
 
     const run = b.addRunArtifact(unit_tests);
+    const install = b.addInstallArtifact(unit_tests, .{});
     const step = b.step("test-units", "Run unit tests");
     step.dependOn(&run.step);
+    step.dependOn(&install.step);
+    b.getInstallStep().dependOn(&install.step);
 
     return run;
 }
