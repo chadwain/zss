@@ -28,8 +28,8 @@
             .hash = "122034e87e1ed9d896c435b2b63979cc9b1a55d164687ae7e85d02aa225277fce378",
         },
         .zigimg = .{
-            .url = "git+https://github.com/zigimg/zigimg.git#5b5d718159c6ec223a54c9bb960690576e5df9c2",
-            .hash = "122040d9cc905342547e1e9da227a7f16fae5e7ae23134cb62aaef64c5b2c4f58828",
+            .url = "git+https://github.com/chadwain/zigimg.git#4c2de1f98dd06035bb3579eb7d4a62120cc27bc2",
+            .hash = "1220c015b29cc7d175cf20a23491251e65dbe58863d014755662d2f7c32c58a846b9",
         },
     },
 }

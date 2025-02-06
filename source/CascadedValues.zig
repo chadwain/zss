@@ -42,8 +42,8 @@ pub fn addValue(
     cascaded: *CascadedValues,
     arena: *ArenaAllocator,
     comptime tag: AggregateTag,
-    comptime field: std.meta.FieldEnum(tag.Value()),
-    value: std.meta.FieldType(tag.Value(), field),
+    comptime field: @TypeOf(.enum_literal),
+    value: @FieldType(tag.Value(), @tagName(field)),
 ) !void {
     if (cascaded.all != null) return;
 

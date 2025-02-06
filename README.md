@@ -4,7 +4,7 @@ zss is a [CSS](https://www.w3.org/Style/CSS/) layout engine and document rendere
 # Building zss
 To build zss, simply run `zig build --help` to see your options.
 
-zss uses unstable (master) versions of Zig. The most recently tested compiler version is 0.14.0-dev.2316+68b3f5086.
+zss uses unstable (master) versions of Zig. The most recently tested compiler version is 0.14.0-dev.3062+ff551374a.
 
 # Standards Implemented
 In general, zss tries to implement the standards contained in [CSS Snapshot 2023](https://www.w3.org/TR/css-2023/).

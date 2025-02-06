@@ -37,7 +37,7 @@ const Lists = blk: {
         out.* = .{
             .name = typeToFieldName(T),
             .type = List,
-            .default_value = &List{},
+            .default_value_ptr = &List{},
             .is_comptime = false,
             .alignment = @alignOf(List),
         };
