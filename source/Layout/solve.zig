@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const zss = @import("../zss.zig");
-const aggregates = zss.properties.aggregates;
+const aggregates = zss.property.aggregates;
 const types = zss.values.types;
 const BoxTree = zss.BoxTree;
 

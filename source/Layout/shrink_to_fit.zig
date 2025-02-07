@@ -5,7 +5,6 @@ const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
-const aggregates = zss.properties.aggregates;
 const BlockComputedSizes = zss.Layout.BlockComputedSizes;
 const BlockUsedSizes = zss.Layout.BlockUsedSizes;
 const ElementTree = zss.ElementTree;

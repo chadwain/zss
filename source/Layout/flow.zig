@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
-const aggregates = zss.properties.aggregates;
+const aggregates = zss.property.aggregates;
 const IsAutoOrPercentage = BlockUsedSizes.IsAutoOrPercentage;
 const BlockComputedSizes = zss.Layout.BlockComputedSizes;
 const BlockUsedSizes = zss.Layout.BlockUsedSizes;

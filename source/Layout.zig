@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("zss.zig");
-const aggregates = zss.properties.aggregates;
+const aggregates = zss.property.aggregates;
 const math = zss.math;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;

@@ -6,154 +6,154 @@ const types = zss.values.types;
 const Ast = zss.syntax.Ast;
 const Component = zss.syntax.Component;
 const TokenSource = zss.syntax.TokenSource;
-const Unit = zss.syntax.Token.Unit;
 
-/// A source of primitive CSS values.
-pub const Source = struct {
+// TODO: Consider using a static, fixed-size buffer to store any allocations
+
+pub const Context = struct {
     ast: Ast,
     token_source: TokenSource,
     arena: Allocator, // TODO: Store an actual ArenaAllocator
     sequence: Ast.Sequence,
 
-    pub const Item = struct {
+    pub fn init(ast: Ast, token_source: TokenSource, arena: Allocator) Context {
+        return .{ .ast = ast, .token_source = token_source, .arena = arena, .sequence = undefined };
+    }
+
+    const Item = struct {
         index: Ast.Size,
         tag: Component.Tag,
     };
 
-    pub fn init(ast: Ast, token_source: TokenSource, arena: Allocator) Source {
-        return .{ .ast = ast, .token_source = token_source, .arena = arena, .sequence = undefined };
-    }
-
-    fn next(source: *Source) ?Item {
-        const index = source.sequence.nextSkipSpaces(source.ast) orelse return null;
-        const tag = source.ast.tag(index);
+    fn next(ctx: *Context) ?Item {
+        const index = ctx.sequence.nextSkipSpaces(ctx.ast) orelse return null;
+        const tag = ctx.ast.tag(index);
         return .{ .index = index, .tag = tag };
     }
 };
 
-fn genericLength(source: *Source, comptime Type: type, index: Ast.Size) ?Type {
-    var children = source.ast.children(index);
-    const unit_index = children.nextSkipSpaces(source.ast).?;
+fn genericLength(ctx: *Context, comptime Type: type, index: Ast.Size) ?Type {
+    var children = ctx.ast.children(index);
+    const unit_index = children.nextSkipSpaces(ctx.ast).?;
 
-    const number = source.ast.extra(index).number;
-    const unit = source.ast.extra(unit_index).unit orelse return null;
+    const number = ctx.ast.extra(index).number;
+    const unit = ctx.ast.extra(unit_index).unit orelse return null;
     return switch (unit) {
         .px => .{ .px = number },
     };
 }
 
-fn genericPercentage(source: *Source, comptime Type: type, index: Ast.Size) Type {
-    const value = source.ast.extra(index).number;
+fn genericPercentage(ctx: *Context, comptime Type: type, index: Ast.Size) Type {
+    const value = ctx.ast.extra(index).number;
     return .{ .percentage = value };
 }
 
-pub fn keyword(source: *Source, comptime Type: type, kvs: []const TokenSource.KV(Type)) ?Type {
-    const item = source.next() orelse return null;
+pub fn keyword(ctx: *Context, comptime Type: type, kvs: []const TokenSource.KV(Type)) ?Type {
+    const item = ctx.next() orelse return null;
     if (item.tag == .token_ident) {
-        const location = source.ast.location(item.index);
-        if (source.token_source.mapIdentifier(location, Type, kvs)) |result| return result;
+        const location = ctx.ast.location(item.index);
+        if (ctx.token_source.mapIdentifier(location, Type, kvs)) |result| return result;
     }
 
-    source.sequence.reset(item.index);
+    ctx.sequence.reset(item.index);
     return null;
 }
 
-pub fn integer(source: *Source) ?i32 {
-    const item = source.next() orelse return null;
+pub fn integer(ctx: *Context) ?i32 {
+    const item = ctx.next() orelse return null;
     if (item.tag == .token_integer) {
-        return source.ast.extra(item.index).integer;
+        return ctx.ast.extra(item.index).integer;
     }
 
-    source.sequence.reset(item.index);
+    ctx.sequence.reset(item.index);
     return null;
 }
 
 // Spec: CSS 2.2
 // <length>
-pub fn length(source: *Source, comptime Type: type) ?Type {
-    const item = source.next() orelse return null;
+pub fn length(ctx: *Context, comptime Type: type) ?Type {
+    const item = ctx.next() orelse return null;
     if (item.tag == .token_dimension) {
-        if (genericLength(source, Type, item.index)) |result| return result;
+        if (genericLength(ctx, Type, item.index)) |result| return result;
     }
 
-    source.sequence.reset(item.index);
+    ctx.sequence.reset(item.index);
     return null;
 }
 
 // Spec: CSS 2.2
 // <percentage>
-pub fn percentage(source: *Source, comptime Type: type) ?Type {
-    const item = source.next() orelse return null;
+pub fn percentage(ctx: *Context, comptime Type: type) ?Type {
+    const item = ctx.next() orelse return null;
     if (item.tag == .token_percentage) {
-        return genericPercentage(source, Type, item.index);
+        return genericPercentage(ctx, Type, item.index);
     } else {
-        source.sequence.reset(item.index);
+        ctx.sequence.reset(item.index);
         return null;
     }
 }
 
 // Spec: CSS 2.2
 // <length> | <percentage>
-pub fn lengthPercentage(source: *Source, comptime Type: type) ?Type {
-    return length(source, Type) orelse percentage(source, Type);
+pub fn lengthPercentage(ctx: *Context, comptime Type: type) ?Type {
+    return length(ctx, Type) orelse percentage(ctx, Type);
 }
 
 // Spec: CSS 2.2
 // <length> | <percentage> | auto
-pub fn lengthPercentageAuto(source: *Source, comptime Type: type) ?Type {
-    return length(source, Type) orelse percentage(source, Type) orelse keyword(source, Type, &.{.{ "auto", .auto }});
+pub fn lengthPercentageAuto(ctx: *Context, comptime Type: type) ?Type {
+    return length(ctx, Type) orelse percentage(ctx, Type) orelse keyword(ctx, Type, &.{.{ "auto", .auto }});
 }
 
 // Spec: CSS 2.2
 // <length> | <percentage> | none
-pub fn lengthPercentageNone(source: *Source, comptime Type: type) ?Type {
-    return length(source, Type) orelse percentage(source, Type) orelse keyword(source, Type, &.{.{ "none", .none }});
+pub fn lengthPercentageNone(ctx: *Context, comptime Type: type) ?Type {
+    return length(ctx, Type) orelse percentage(ctx, Type) orelse keyword(ctx, Type, &.{.{ "none", .none }});
 }
 
-pub fn cssWideKeyword(source: *Source) ?types.CssWideKeyword {
-    return keyword(source, types.CssWideKeyword, &.{
+pub fn cssWideKeyword(ctx: *Context) ?types.CssWideKeyword {
+    return keyword(ctx, types.CssWideKeyword, &.{
         .{ "initial", .initial },
         .{ "inherit", .inherit },
         .{ "unset", .unset },
     });
 }
 
-pub fn string(source: *Source) ?[]const u8 {
-    const item = source.next() orelse return null;
+pub fn string(ctx: *Context) ?[]const u8 {
+    const item = ctx.next() orelse return null;
     if (item.tag == .token_string) {
-        const location = source.ast.location(item.index);
-        return source.token_source.copyString(location, source.arena) catch std.debug.panic("TODO: Allocation failure", .{});
+        const location = ctx.ast.location(item.index);
+        return ctx.token_source.copyString(location, ctx.arena) catch std.debug.panic("TODO: Allocation failure", .{});
     }
 
-    source.sequence.reset(item.index);
+    ctx.sequence.reset(item.index);
     return null;
 }
 
-pub fn hashValue(source: *Source) ?[]const u8 {
-    const item = source.next() orelse return null;
+pub fn hashValue(ctx: *Context) ?[]const u8 {
+    const item = ctx.next() orelse return null;
     switch (item.tag) {
         .token_hash_id, .token_hash_unrestricted => {
-            const location = source.ast.location(item.index);
-            return source.token_source.copyHash(location, source.arena) catch std.debug.panic("TODO: Allocation failure", .{});
+            const location = ctx.ast.location(item.index);
+            return ctx.token_source.copyHash(location, ctx.arena) catch std.debug.panic("TODO: Allocation failure", .{});
         },
         else => {},
     }
-    source.sequence.reset(item.index);
+    ctx.sequence.reset(item.index);
     return null;
 }
 
 /// Spec: CSS Color Level 4
 /// Syntax: <color> = <color-base> | currentColor | <system-color>
 ///         <color-base> = <hex-color> | <color-function> | <named-color> | transparent
-pub fn color(source: *Source) ?types.Color {
+pub fn color(ctx: *Context) ?types.Color {
     // TODO: Named colors, system colors, color functions
-    const reset_point = source.sequence.start;
-    if (keyword(source, types.Color, &.{
+    const reset_point = ctx.sequence.start;
+    if (keyword(ctx, types.Color, &.{
         .{ "currentColor", .current_color },
         .{ "transparent", .transparent },
     })) |value| {
         return value;
-    } else if (hashValue(source)) |hash| {
+    } else if (hashValue(ctx)) |hash| {
         sw: switch (hash.len) {
             3 => {
                 const rgba = blk: {
@@ -173,7 +173,7 @@ pub fn color(source: *Source) ?types.Color {
         }
     }
 
-    source.sequence.reset(reset_point);
+    ctx.sequence.reset(reset_point);
     return null;
 }
 
@@ -181,30 +181,30 @@ pub fn color(source: *Source) ?types.Color {
 // <url> = <url()> | <src()>
 // <url()> = url( <string> <url-modifier>* ) | <url-token>
 // <src()> = src( <string> <url-modifier>* )
-pub fn url(source: *Source) ?[]const u8 {
-    const item = source.next() orelse return null;
+pub fn url(ctx: *Context) ?[]const u8 {
+    const item = ctx.next() orelse return null;
     switch (item.tag) {
         .token_url => {
-            const location = source.ast.location(item.index);
-            return source.token_source.copyUrl(location, source.arena) catch std.debug.panic("TODO: Allocation failure", .{});
+            const location = ctx.ast.location(item.index);
+            return ctx.token_source.copyUrl(location, ctx.arena) catch std.debug.panic("TODO: Allocation failure", .{});
         },
         .function => blk: {
-            const location = source.ast.location(item.index);
-            _ = source.token_source.mapIdentifier(location, void, &.{
+            const location = ctx.ast.location(item.index);
+            _ = ctx.token_source.mapIdentifier(location, void, &.{
                 .{ "url", {} },
                 .{ "src", {} },
             }) orelse break :blk;
 
-            const sequence = source.sequence;
-            defer source.sequence = sequence;
-            source.sequence = source.ast.children(item.index);
+            const sequence = ctx.sequence;
+            defer ctx.sequence = sequence;
+            ctx.sequence = ctx.ast.children(item.index);
 
-            const str = string(source) orelse break :blk;
-            if (source.next()) |_| {
+            const str = string(ctx) orelse break :blk;
+            if (ctx.next()) |_| {
                 // The URL may have contained URL modifiers, but these are not supported by zss.
 
                 // TODO: Maybe unnecessary
-                source.arena.free(str);
+                ctx.arena.free(str);
 
                 break :blk;
             }
@@ -213,6 +213,6 @@ pub fn url(source: *Source) ?[]const u8 {
         else => {},
     }
 
-    source.sequence.reset(item.index);
+    ctx.sequence.reset(item.index);
     return null;
 }

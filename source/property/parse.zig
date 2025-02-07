@@ -1,3 +1,10 @@
+//! Parsers for every supported CSS property in zss.
+//! Each one is named exactly the same as the actual CSS property.
+//!
+//! Be aware that these parsers WILL NOT parse the CSS-wide keywords.
+//! There is also no parser for the 'all' property.
+//! These cases are instead handled by `zss.values.parse.cssWideKeyword`.
+
 const std = @import("std");
 
 const zss = @import("../zss.zig");
@@ -5,13 +12,13 @@ const TokenSource = zss.syntax.TokenSource;
 
 const values = zss.values;
 const types = values.types;
-const Source = values.Source;
+const Context = values.parse.Context;
 
 // Spec: CSS 2.2
 // inline | block | list-item | inline-block | table | inline-table | table-row-group | table-header-group
 // | table-footer-group | table-row | table-column-group | table-column | table-cell | table-caption | none
-pub fn display(source: *Source) ?types.Display {
-    return values.parse.keyword(source, types.Display, &.{
+pub fn display(ctx: *Context) ?types.Display {
+    return values.parse.keyword(ctx, types.Display, &.{
         .{ "inline", .@"inline" },
         .{ "block", .block },
         // .{ "list-item", .list_item },
@@ -32,8 +39,8 @@ pub fn display(source: *Source) ?types.Display {
 
 // Spec: CSS 2.2
 // static | relative | absolute | fixed
-pub fn position(source: *Source) ?types.Position {
-    return values.parse.keyword(source, types.Position, &.{
+pub fn position(ctx: *Context) ?types.Position {
+    return values.parse.keyword(ctx, types.Position, &.{
         .{ "static", .static },
         .{ "relative", .relative },
         .{ "absolute", .absolute },
@@ -43,8 +50,8 @@ pub fn position(source: *Source) ?types.Position {
 
 // Spec: CSS 2.2
 // left | right | none
-pub fn float(source: *Source) ?types.Float {
-    return values.parse.keyword(source, types.Float, &.{
+pub fn float(ctx: *Context) ?types.Float {
+    return values.parse.keyword(ctx, types.Float, &.{
         .{ "left", .left },
         .{ "right", .right },
         .{ "none", .none },
@@ -53,11 +60,11 @@ pub fn float(source: *Source) ?types.Float {
 
 // Spec: CSS 2.2
 // auto | <integer>
-pub fn @"z-index"(source: *Source) ?types.ZIndex {
-    if (values.parse.integer(source)) |integer| {
+pub fn @"z-index"(ctx: *Context) ?types.ZIndex {
+    if (values.parse.integer(ctx)) |integer| {
         return .{ .integer = integer };
     } else {
-        return values.parse.keyword(source, types.ZIndex, &.{.{ "auto", .auto }});
+        return values.parse.keyword(ctx, types.ZIndex, &.{.{ "auto", .auto }});
     }
 }
 
@@ -70,8 +77,8 @@ pub const @"max-height" = maxSize;
 
 // Spec: CSS 2.2
 // <length> | <percentage> | none
-fn maxSize(source: *Source) ?types.MaxSize {
-    return values.parse.lengthPercentageNone(source, types.MaxSize);
+fn maxSize(ctx: *Context) ?types.MaxSize {
+    return values.parse.lengthPercentageNone(ctx, types.MaxSize);
 }
 
 pub const @"padding-left" = lengthPercentage;
@@ -86,9 +93,9 @@ pub const @"border-bottom-width" = borderWidth;
 
 // Spec: CSS 2.2
 // Syntax: <length> | thin | medium | thick
-fn borderWidth(source: *Source) ?types.BorderWidth {
-    return values.parse.length(source, types.BorderWidth) orelse
-        values.parse.keyword(source, types.BorderWidth, &.{
+fn borderWidth(ctx: *Context) ?types.BorderWidth {
+    return values.parse.length(ctx, types.BorderWidth) orelse
+        values.parse.keyword(ctx, types.BorderWidth, &.{
         .{ "thin", .thin },
         .{ "medium", .medium },
         .{ "thick", .thick },
@@ -107,17 +114,17 @@ pub const bottom = lengthPercentageAuto;
 
 // Spec: CSS 2.2
 // <length> | <percentage>
-fn lengthPercentage(source: *Source) ?types.LengthPercentage {
-    return values.parse.lengthPercentage(source, types.LengthPercentage);
+fn lengthPercentage(ctx: *Context) ?types.LengthPercentage {
+    return values.parse.lengthPercentage(ctx, types.LengthPercentage);
 }
 
 // Spec: CSS 2.2
 // <length> | <percentage> | auto
-fn lengthPercentageAuto(source: *Source) ?types.LengthPercentageAuto {
-    return values.parse.lengthPercentageAuto(source, types.LengthPercentageAuto);
+fn lengthPercentageAuto(ctx: *Context) ?types.LengthPercentageAuto {
+    return values.parse.lengthPercentageAuto(ctx, types.LengthPercentageAuto);
 }
 
-const background_mod = @import("parsers/background.zig");
+const background_mod = @import("parse/background.zig");
 pub const @"background-image" = background_mod.@"background-image";
 pub const @"background-repeat" = background_mod.@"background-repeat";
 pub const @"background-attachment" = background_mod.@"background-attachment";
@@ -138,10 +145,10 @@ fn testParser(comptime parser: anytype, input: []const u8, expected: @typeInfo(@
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    var source = Source.init(ast, token_source, arena.allocator());
-    source.sequence = ast.children(0);
+    var ctx = Context.init(ast, token_source, arena.allocator());
+    ctx.sequence = ast.children(0);
 
-    const actual = parser(&source);
+    const actual = parser(&ctx);
     if (expected) |expected_payload| {
         if (actual) |actual_payload| {
             errdefer std.debug.print("Expected: {}\nActual: {}\n", .{ expected_payload, actual_payload });

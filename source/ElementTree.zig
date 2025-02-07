@@ -1,5 +1,5 @@
 const zss = @import("zss.zig");
-const AggregateTag = zss.properties.aggregates.Tag;
+const AggregateTag = zss.property.aggregates.Tag;
 const CascadedValues = zss.CascadedValues;
 const Environment = zss.Environment;
 const NamespaceId = Environment.Namespaces.Id;

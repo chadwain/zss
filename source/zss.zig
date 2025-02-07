@@ -1,6 +1,6 @@
 pub const debug = @import("debug.zig");
 pub const math = @import("math.zig");
-pub const properties = @import("properties.zig");
+pub const property = @import("property.zig");
 pub const render = @import("render.zig");
 pub const selectors = @import("selectors.zig");
 pub const syntax = @import("syntax.zig");

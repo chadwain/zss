@@ -6,7 +6,7 @@ const Ast = zss.syntax.Ast;
 const AtRule = zss.syntax.Token.AtRule;
 const Environment = zss.Environment;
 const NamespaceId = Environment.Namespaces.Id;
-const ParsedDeclarations = zss.properties.parse.ParsedDeclarations;
+const ParsedDeclarations = zss.property.ParsedDeclarations;
 const Source = zss.syntax.TokenSource;
 
 const std = @import("std");
@@ -71,8 +71,8 @@ pub fn create(ast: Ast, source: Source, child_allocator: Allocator, env: *Enviro
                 const selector_sequence: Ast.Sequence = .{ .start = index + 1, .end = end_of_prelude };
                 const selector_list = try zss.selectors.parseSelectorList(env, allocator, source, ast, selector_sequence, &stylesheet.namespaces);
                 const last_declaration = ast.extra(end_of_prelude).index;
-                var value_source = zss.values.parse.Source.init(ast, source, arena.allocator());
-                const decls = try zss.properties.parse.parseDeclarationsFromAst(&value_source, &arena, last_declaration);
+                var value_ctx = zss.values.parse.Context.init(ast, source, arena.allocator());
+                const decls = try zss.property.parseDeclarationsFromAst(&value_ctx, &arena, last_declaration);
                 stylesheet.rules.appendAssumeCapacity(.{ .selector = selector_list, .declarations = decls });
             },
             else => unreachable,

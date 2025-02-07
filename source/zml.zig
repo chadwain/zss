@@ -165,8 +165,8 @@ fn applyStyleBlockDeclarations(
     token_source: TokenSource,
     cascade_arena: *ArenaAllocator,
 ) !void {
-    var value_source = zss.values.Source.init(ast, token_source, cascade_arena.allocator());
-    const parsed_declarations = try zss.properties.parse.parseDeclarationsFromAst(&value_source, cascade_arena, last_declaration);
+    var value_ctx = zss.values.parse.Context.init(ast, token_source, cascade_arena.allocator());
+    const parsed_declarations = try zss.property.parseDeclarationsFromAst(&value_ctx, cascade_arena, last_declaration);
     const sources = [2]*const CascadedValues{ &parsed_declarations.important, &parsed_declarations.normal };
     try element_tree.updateCascadedValues(element, &sources);
 }
@@ -197,7 +197,7 @@ test astToElement {
 
     const root_element = try astToElement(&element_tree, &env, ast, 1, token_source, allocator);
     const slice = element_tree.slice();
-    const aggregates = zss.properties.aggregates;
+    const aggregates = zss.property.aggregates;
     const CssWideKeyword = zss.values.types.CssWideKeyword;
 
     {
