@@ -1,7 +1,7 @@
 const zss = @import("zss.zig");
 const aggregates = zss.property.aggregates;
 const AggregateTag = aggregates.Tag;
-const CssWideKeyword = zss.values.types.CssWideKeyword;
+const All = zss.values.types.All;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -12,7 +12,7 @@ const CascadedValues = @This();
 
 // TODO: Use a map better suited for arena allocation
 map: AutoArrayHashMapUnmanaged(AggregateTag, usize) = .{},
-all: ?CssWideKeyword = null,
+all: ?All = null,
 
 pub fn isEmpty(cascaded: CascadedValues) bool {
     return cascaded.map.count() == 0 and cascaded.all == null;
@@ -63,7 +63,7 @@ pub fn addValue(
     }
 }
 
-pub fn addAll(cascaded: *CascadedValues, value: CssWideKeyword) void {
+pub fn addAll(cascaded: *CascadedValues, value: All) void {
     if (cascaded.all != null) return;
     cascaded.all = value;
 }
@@ -119,7 +119,7 @@ test {
     const horizontal_edges = cascaded.get(.horizontal_edges) orelse return error.TestFailure;
     const all = cascaded.all orelse return error.TestFailure;
 
-    try expectEqual(CssWideKeyword.initial, all);
+    try expectEqual(All.initial, all);
     try expectEqual(@as(?aggregates.ZIndex, null), cascaded.get(.z_index));
     try expect(std.meta.eql(box_style, .{ .display = .none }));
     try expect(std.meta.eql(horizontal_edges, .{ .margin_left = .auto }));

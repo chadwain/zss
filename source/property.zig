@@ -145,7 +145,8 @@ fn parseDeclaration(
     if (cascaded.all != null) return;
 
     // TODO: If this property has already been declared, skip parsing a value entirely.
-    const property = parsePropertyName(value_ctx.ast, value_ctx.token_source, declaration_index) orelse {
+    const location = value_ctx.ast.location(declaration_index);
+    const property = value_ctx.token_source.matchIdentifierEnum(location, Property) orelse {
         const name_string = value_ctx.token_source.copyIdentifier(value_ctx.ast.location(declaration_index), arena.allocator()) catch return;
         zss.log.warn("Ignoring declaration with unrecognized name: {s}", .{name_string});
         return;
@@ -156,7 +157,10 @@ fn parseDeclaration(
         inline else => |comptime_property| {
             switch (comptime comptime_property.description()) {
                 .all => {
-                    const cwk = zss.values.parse.cssWideKeyword(value_ctx) orelse return;
+                    const cwk = zss.values.parse.cssWideKeyword(value_ctx, zss.values.types.All) orelse return;
+                    if (!value_ctx.sequence.empty()) {
+                        return;
+                    }
                     // `cascaded.all` was already checked to be null earlier, so it's okay to write this value.
                     cascaded.all = cwk;
                 },
@@ -167,10 +171,9 @@ fn parseDeclaration(
                         if (parseFn(value_ctx)) |parsed_value| {
                             break :blk parsed_value;
                         } else {
-                            const cwk = zss.values.parse.cssWideKeyword(value_ctx) orelse return;
                             const Aggregate = non_shorthand.aggregate_tag.Value();
-                            var parsed_value: @FieldType(Aggregate, @tagName(non_shorthand.field)) = undefined;
-                            cwk.apply(.{&parsed_value});
+                            const Field = @FieldType(Aggregate, @tagName(non_shorthand.field));
+                            const parsed_value = zss.values.parse.cssWideKeyword(value_ctx, Field) orelse return;
                             break :blk parsed_value;
                         }
                     };
@@ -184,25 +187,6 @@ fn parseDeclaration(
             }
         },
     }
-}
-
-fn parsePropertyName(
-    ast: Ast,
-    token_source: TokenSource,
-    declaration_index: Ast.Size,
-) ?Property {
-    // TODO: Use syntax.tokenize.ComptimePrefixTree
-    const map = comptime blk: {
-        const fields = std.meta.fields(Property);
-        var result: [fields.len]TokenSource.KV(Property) = undefined;
-        for (fields, &result) |property, *entry| {
-            entry.* = .{ property.name, @enumFromInt(property.value) };
-        }
-        const const_result = result;
-        break :blk &const_result;
-    };
-    const location = ast.location(declaration_index);
-    return token_source.mapIdentifier(location, Property, map);
 }
 
 test "parsing properties from a stylesheet" {
@@ -276,7 +260,7 @@ test "parsing properties from a stylesheet" {
     const expectEqual = std.testing.expectEqual;
 
     const all = decls.normal.all orelse return error.TestFailure;
-    try expectEqual(zss.values.types.CssWideKeyword.unset, all);
+    try expectEqual(zss.values.types.All.unset, all);
 
     const box_style = decls.normal.get(.box_style) orelse return error.TestFailure;
     try expectEqual(aggregates.BoxStyle{

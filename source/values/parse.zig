@@ -110,8 +110,8 @@ pub fn lengthPercentageNone(ctx: *Context, comptime Type: type) ?Type {
     return length(ctx, Type) orelse percentage(ctx, Type) orelse keyword(ctx, Type, &.{.{ "none", .none }});
 }
 
-pub fn cssWideKeyword(ctx: *Context) ?types.CssWideKeyword {
-    return keyword(ctx, types.CssWideKeyword, &.{
+pub fn cssWideKeyword(ctx: *Context, comptime Type: type) ?Type {
+    return keyword(ctx, Type, &.{
         .{ "initial", .initial },
         .{ "inherit", .inherit },
         .{ "unset", .unset },

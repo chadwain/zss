@@ -3,29 +3,10 @@ const std = @import("std");
 const zss = @import("../zss.zig");
 const Storage = zss.values.Storage;
 
-pub const CssWideKeyword = enum {
+pub const All = enum {
     initial,
     inherit,
     unset,
-
-    pub fn apply(cwk: CssWideKeyword, ptrs: anytype) void {
-        switch (cwk) {
-            inline else => |cwk_comptime| {
-                const cwk_as_enum_literal = cwk_comptime.toEnumLiteral();
-                inline for (ptrs) |ptr| {
-                    ptr.* = cwk_as_enum_literal;
-                }
-            },
-        }
-    }
-
-    fn toEnumLiteral(comptime cwk: CssWideKeyword) @Type(.enum_literal) {
-        return switch (cwk) {
-            .initial => .initial,
-            .inherit => .inherit,
-            .unset => .unset,
-        };
-    }
 };
 
 pub const Text = []const u8;

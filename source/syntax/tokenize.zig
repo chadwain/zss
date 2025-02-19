@@ -153,6 +153,13 @@ pub const Source = struct {
         }
         return null;
     }
+
+    /// Given that `location` is the location of an <ident-token>, if the identifier matches any of the
+    /// fields of `Enum` using case-insensitive matching, returns that enum field. If there was no match, null is returned.
+    pub fn matchIdentifierEnum(source: Source, location: Location, comptime Enum: type) ?Enum {
+        const result, _ = consumeIdentSequenceWithMatch(source, location, Enum) catch unreachable;
+        return result;
+    }
 };
 
 // TODO: (IdentSequenceIterator, StringTokenIterator, UrlTokenIterator, stringIsIdentSequence)
@@ -249,6 +256,7 @@ pub fn stringIsIdentSequence(utf8_string: []const u8) bool {
 
 const NextCodepoint = struct { next_location: Source.Location, codepoint: u21 };
 
+// TODO: Make public?
 fn nextCodepoint(source: Source, location: Source.Location) !NextCodepoint {
     if (@intFromEnum(location) == source.data.len) return NextCodepoint{ .next_location = location, .codepoint = eof_codepoint };
 
@@ -783,6 +791,7 @@ fn ComptimePrefixTree(comptime Enum: type) type {
     };
 
     const fields = @typeInfo(Enum).@"enum".fields;
+    @setEvalBranchQuota(fields.len * 200);
     const nodes = comptime nodes: {
         const Interval = struct {
             begin: u16,

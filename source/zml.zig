@@ -198,7 +198,7 @@ test astToElement {
     const root_element = try astToElement(&element_tree, &env, ast, 1, token_source, allocator);
     const slice = element_tree.slice();
     const aggregates = zss.property.aggregates;
-    const CssWideKeyword = zss.values.types.CssWideKeyword;
+    const All = zss.values.types.All;
 
     {
         const element = root_element;
@@ -214,7 +214,7 @@ test astToElement {
         try std.testing.expectEqual(type1, slice.get(.fq_type, element).name);
         const cascaded_values = slice.get(.cascaded_values, element);
         const all = cascaded_values.all orelse return error.TestFailure;
-        try std.testing.expectEqual(@as(?CssWideKeyword, .unset), all);
+        try std.testing.expectEqual(@as(?All, .unset), all);
     }
 
     {
@@ -224,6 +224,6 @@ test astToElement {
         const cascaded_values = slice.get(.cascaded_values, element);
         const all = cascaded_values.all orelse return error.TestFailure;
         try std.testing.expect(cascaded_values.get(.box_style) == null);
-        try std.testing.expectEqual(@as(?CssWideKeyword, .inherit), all);
+        try std.testing.expectEqual(@as(?All, .inherit), all);
     }
 }
