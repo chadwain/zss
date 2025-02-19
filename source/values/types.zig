@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const zss = @import("../zss.zig");
+const SourceLocation = zss.syntax.TokenSource.Location;
 const Storage = zss.values.Storage;
 
 pub const All = enum {
@@ -211,32 +212,13 @@ pub const Color = union(enum) {
 
 pub const BackgroundImage = union(enum) {
     image: zss.Images.Handle,
-    url: []const u8,
+    url: Url,
     none,
     many: Storage.Handle,
     initial,
     inherit,
     unset,
     undeclared,
-
-    pub fn expectEqualBackgroundImages(lhs: BackgroundImage, rhs: BackgroundImage) !void {
-        const expectEqual = std.testing.expectEqual;
-        const expectEqualSlices = std.testing.expectEqualSlices;
-
-        const Tag = std.meta.Tag(BackgroundImage);
-        try expectEqual(@as(Tag, lhs), @as(Tag, rhs));
-        switch (lhs) {
-            .image => try expectEqual(lhs.image, rhs.image),
-            .url => try expectEqualSlices(u8, lhs.url, rhs.url),
-            .none => {},
-            .many => std.debug.panic("TODO", .{}),
-            .initial,
-            .inherit,
-            .unset,
-            .undeclared,
-            => {},
-        }
-    }
 };
 
 pub const BackgroundRepeat = union(enum) {
@@ -342,4 +324,9 @@ pub const Font = union(enum) {
     inherit,
     unset,
     undeclared,
+};
+
+pub const Url = union(enum) {
+    url_token: SourceLocation,
+    string_token: SourceLocation,
 };

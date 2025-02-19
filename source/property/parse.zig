@@ -152,10 +152,7 @@ fn testParser(comptime parser: anytype, input: []const u8, expected: @typeInfo(@
     if (expected) |expected_payload| {
         if (actual) |actual_payload| {
             errdefer std.debug.print("Expected: {}\nActual: {}\n", .{ expected_payload, actual_payload });
-            return switch (@TypeOf(expected_payload)) {
-                zss.values.types.BackgroundImage => expected_payload.expectEqualBackgroundImages(actual_payload),
-                else => std.testing.expectEqual(expected_payload, actual_payload),
-            };
+            return std.testing.expectEqual(expected_payload, actual_payload);
         } else {
             errdefer std.debug.print("Expected: {}, found: null\n", .{expected_payload});
             return error.TestExpectedEqual;
@@ -204,9 +201,9 @@ test "property parsers" {
     try testParser(borderWidth, "thick", .thick);
 
     try testParser(@"background-image", "none", .none);
-    try testParser(@"background-image", "url(abcd)", .{ .url = "abcd" });
-    try testParser(@"background-image", "url( \"abcd\" )", .{ .url = "abcd" });
-    try testParser(@"background-image", "src(\"wxyz\")", .{ .url = "wxyz" });
+    try testParser(@"background-image", "url(abcd)", .{ .url = .{ .url_token = @enumFromInt(0) } });
+    try testParser(@"background-image", "url( \"abcd\" )", .{ .url = .{ .string_token = @enumFromInt(5) } });
+    try testParser(@"background-image", "src(\"wxyz\")", .{ .url = .{ .string_token = @enumFromInt(4) } });
     try testParser(@"background-image", "invalid", null);
 
     try testParser(@"background-repeat", "repeat-x", .{ .repeat = .{ .x = .repeat, .y = .no_repeat } });
@@ -308,5 +305,8 @@ test "property parsers" {
 
     try testParser(color, "currentColor", .current_color);
     try testParser(color, "transparent", .transparent);
-    try testParser(color, "#abc", .{ .rgba = 0xaabbcc00 });
+    try testParser(color, "#abc", .{ .rgba = 0xaabbccff });
+    try testParser(color, "#abcd", .{ .rgba = 0xaabbccdd });
+    try testParser(color, "#123456", .{ .rgba = 0x123456ff });
+    try testParser(color, "#12345678", .{ .rgba = 0x12345678 });
 }

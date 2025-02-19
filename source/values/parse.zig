@@ -6,6 +6,7 @@ const types = zss.values.types;
 const Ast = zss.syntax.Ast;
 const Component = zss.syntax.Component;
 const TokenSource = zss.syntax.TokenSource;
+const Location = TokenSource.Location;
 
 // TODO: Consider using a static, fixed-size buffer to store any allocations
 
@@ -28,6 +29,10 @@ pub const Context = struct {
         const index = ctx.sequence.nextSkipSpaces(ctx.ast) orelse return null;
         const tag = ctx.ast.tag(index);
         return .{ .index = index, .tag = tag };
+    }
+
+    fn empty(ctx: *Context) bool {
+        return ctx.sequence.empty();
     }
 };
 
@@ -118,24 +123,20 @@ pub fn cssWideKeyword(ctx: *Context, comptime Type: type) ?Type {
     });
 }
 
-pub fn string(ctx: *Context) ?[]const u8 {
+pub fn string(ctx: *Context) ?Location {
     const item = ctx.next() orelse return null;
     if (item.tag == .token_string) {
-        const location = ctx.ast.location(item.index);
-        return ctx.token_source.copyString(location, ctx.arena) catch std.debug.panic("TODO: Allocation failure", .{});
+        return ctx.ast.location(item.index);
     }
 
     ctx.sequence.reset(item.index);
     return null;
 }
 
-pub fn hashValue(ctx: *Context) ?[]const u8 {
+pub fn hash(ctx: *Context) ?Location {
     const item = ctx.next() orelse return null;
     switch (item.tag) {
-        .token_hash_id, .token_hash_unrestricted => {
-            const location = ctx.ast.location(item.index);
-            return ctx.token_source.copyHash(location, ctx.arena) catch std.debug.panic("TODO: Allocation failure", .{});
-        },
+        .token_hash_id, .token_hash_unrestricted => return ctx.ast.location(item.index),
         else => {},
     }
     ctx.sequence.reset(item.index);
@@ -153,24 +154,43 @@ pub fn color(ctx: *Context) ?types.Color {
         .{ "transparent", .transparent },
     })) |value| {
         return value;
-    } else if (hashValue(ctx)) |hash| {
-        sw: switch (hash.len) {
+    } else if (hash(ctx)) |location| blk: {
+        var digits: @Vector(8, u8) = undefined;
+        const len = len: {
+            var iterator = ctx.token_source.hashTokenIterator(location);
+            var index: u4 = 0;
+            while (iterator.next(ctx.token_source)) |codepoint| : (index += 1) {
+                if (index == 8) break :blk;
+                digits[index] = zss.unicode.hexDigitToNumber(codepoint) catch break :blk;
+            }
+            break :len index;
+        };
+
+        const rgba_vec: @Vector(4, u8) = sw: switch (len) {
             3 => {
-                const rgba = blk: {
-                    var result: u32 = 0;
-                    for (hash, 0..) |codepoint, i| {
-                        const digit: u32 = zss.unicode.hexDigitToNumber(codepoint) catch break :sw;
-                        const digit_duped = digit | (digit << 4);
-                        result |= (digit_duped << @intCast((3 - i) * 8));
-                    }
-                    break :blk result;
-                };
-                return .{ .rgba = rgba };
+                digits[3] = 0xF;
+                continue :sw 4;
             },
-            // TODO: 4, 6, and 8 color hex values
-            4, 6, 8 => {},
-            else => {},
-        }
+            4 => {
+                const vec = @shuffle(u8, digits, undefined, @Vector(4, i32){ 0, 1, 2, 3 });
+                break :sw (vec << @splat(4)) | vec;
+            },
+            6 => {
+                digits[6] = 0xF;
+                digits[7] = 0xF;
+                continue :sw 8;
+            },
+            8 => {
+                const high = @shuffle(u8, digits, undefined, @Vector(4, i32){ 0, 2, 4, 6 });
+                const low = @shuffle(u8, digits, undefined, @Vector(4, i32){ 1, 3, 5, 7 });
+                break :sw (high << @splat(4)) | low;
+            },
+            else => break :blk,
+        };
+
+        var rgba = std.mem.bytesToValue(u32, &@as([4]u8, rgba_vec));
+        rgba = std.mem.bigToNative(u32, rgba);
+        return .{ .rgba = rgba };
     }
 
     ctx.sequence.reset(reset_point);
@@ -181,12 +201,11 @@ pub fn color(ctx: *Context) ?types.Color {
 // <url> = <url()> | <src()>
 // <url()> = url( <string> <url-modifier>* ) | <url-token>
 // <src()> = src( <string> <url-modifier>* )
-pub fn url(ctx: *Context) ?[]const u8 {
+pub fn url(ctx: *Context) ?types.Url {
     const item = ctx.next() orelse return null;
     switch (item.tag) {
         .token_url => {
-            const location = ctx.ast.location(item.index);
-            return ctx.token_source.copyUrl(location, ctx.arena) catch std.debug.panic("TODO: Allocation failure", .{});
+            return .{ .url_token = ctx.ast.location(item.index) };
         },
         .function => blk: {
             const location = ctx.ast.location(item.index);
@@ -200,15 +219,11 @@ pub fn url(ctx: *Context) ?[]const u8 {
             ctx.sequence = ctx.ast.children(item.index);
 
             const str = string(ctx) orelse break :blk;
-            if (ctx.next()) |_| {
+            if (!ctx.empty()) {
                 // The URL may have contained URL modifiers, but these are not supported by zss.
-
-                // TODO: Maybe unnecessary
-                ctx.arena.free(str);
-
                 break :blk;
             }
-            return str;
+            return .{ .string_token = str };
         },
         else => {},
     }

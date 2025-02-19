@@ -1,4 +1,4 @@
-//! CSS properties are grouped in aggregates.
+//! In zss, CSS properties are grouped in aggregates.
 //! Each aggregate contains properties that are likely to be used together.
 //! Within an aggregate, each property *must* have the same inheritance type
 //! (i.e. they must be all inherited properties or all non-inherited properties.
@@ -80,7 +80,7 @@ pub const Tag = enum {
     }
 };
 
-/// font -> Does not correspond to any CSS property. Instead it represents a font object.
+// TODO: font does not correspond to any CSS property
 pub const Font = struct {
     font: types.Font = .undeclared,
 

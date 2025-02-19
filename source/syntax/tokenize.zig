@@ -58,7 +58,7 @@ pub const Source = struct {
     pub fn hashTokenIterator(source: Source, start: Location) IdentSequenceIterator {
         const hash = nextCodepoint(source, start) catch unreachable;
         assert(hash.codepoint == '#');
-        return identTokenIterator(source, hash.next_location);
+        return IdentSequenceIterator{ .location = hash.next_location };
     }
 
     /// Asserts that `start` is the location of the start of a at-keyword token.
