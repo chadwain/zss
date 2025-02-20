@@ -36,19 +36,19 @@ pub const Context = struct {
     }
 };
 
-fn genericLength(ctx: *Context, comptime Type: type, index: Ast.Size) ?Type {
+fn genericLength(ctx: *const Context, comptime Type: type, index: Ast.Size) ?Type {
     var children = ctx.ast.children(index);
     const unit_index = children.nextSkipSpaces(ctx.ast).?;
 
-    const number = ctx.ast.extra(index).number;
+    const number = ctx.ast.extra(index).number orelse return null;
     const unit = ctx.ast.extra(unit_index).unit orelse return null;
     return switch (unit) {
         .px => .{ .px = number },
     };
 }
 
-fn genericPercentage(ctx: *Context, comptime Type: type, index: Ast.Size) Type {
-    const value = ctx.ast.extra(index).number;
+fn genericPercentage(ctx: *const Context, comptime Type: type, index: Ast.Size) ?Type {
+    const value = ctx.ast.extra(index).number orelse return null;
     return .{ .percentage = value };
 }
 
@@ -66,7 +66,7 @@ pub fn keyword(ctx: *Context, comptime Type: type, kvs: []const TokenSource.KV(T
 pub fn integer(ctx: *Context) ?i32 {
     const item = ctx.next() orelse return null;
     if (item.tag == .token_integer) {
-        return ctx.ast.extra(item.index).integer;
+        if (ctx.ast.extra(item.index).integer) |value| return value;
     }
 
     ctx.sequence.reset(item.index);
@@ -90,11 +90,11 @@ pub fn length(ctx: *Context, comptime Type: type) ?Type {
 pub fn percentage(ctx: *Context, comptime Type: type) ?Type {
     const item = ctx.next() orelse return null;
     if (item.tag == .token_percentage) {
-        return genericPercentage(ctx, Type, item.index);
-    } else {
-        ctx.sequence.reset(item.index);
-        return null;
+        if (genericPercentage(ctx, Type, item.index)) |value| return value;
     }
+
+    ctx.sequence.reset(item.index);
+    return null;
 }
 
 // Spec: CSS 2.2

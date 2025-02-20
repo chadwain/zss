@@ -5,16 +5,18 @@ const Stack = zss.Stack;
 
 /// Two enums `Base` and `Derived` are compatible if, for every field of `Base`, there is a field in `Derived` with the same name and value.
 pub fn ensureCompatibleEnums(comptime Base: type, comptime Derived: type) void {
-    @setEvalBranchQuota(std.meta.fields(Derived).len * 1000);
-    for (std.meta.fields(Base)) |field_info| {
-        const derived_field = std.meta.stringToEnum(Derived, field_info.name) orelse
-            @compileError(@typeName(Derived) ++ " has no field named " ++ field_info.name);
-        const derived_value = @intFromEnum(derived_field);
-        if (field_info.value != derived_value)
-            @compileError(std.fmt.comptimePrint(
-                "{s}.{s} has value {}, expected {}",
-                .{ @typeName(Derived), field_info.name, derived_value, field_info.value },
-            ));
+    comptime {
+        @setEvalBranchQuota(std.meta.fields(Derived).len * 1000);
+        for (std.meta.fields(Base)) |field_info| {
+            const derived_field = std.meta.stringToEnum(Derived, field_info.name) orelse
+                @compileError(@typeName(Derived) ++ " has no field named " ++ field_info.name);
+            const derived_value = @intFromEnum(derived_field);
+            if (field_info.value != derived_value)
+                @compileError(std.fmt.comptimePrint(
+                    "{s}.{s} has value {}, expected {}",
+                    .{ @typeName(Derived), field_info.name, derived_value, field_info.value },
+                ));
+        }
     }
 }
 

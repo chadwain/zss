@@ -571,34 +571,26 @@ fn consumeNumericToken(source: Source, start: Source.Location) !NextToken {
 
     if (codepointsStartAnIdentSequence(next_3)) {
         const unit, const after_unit = try consumeIdentSequenceWithMatch(source, result.after_number, Token.Unit);
-        const token: Token = switch (result.value) {
-            .integer => |integer| .{ .token_dimension = .{
-                .number = @floatFromInt(integer),
+        const token: Token = .{
+            .token_dimension = .{
+                .number = switch (result.value) {
+                    .integer => |integer| if (integer) |int| @floatFromInt(int) else null,
+                    .number => |number| number,
+                },
                 .unit = unit,
                 .unit_location = result.after_number,
-            } },
-            .number => |number| .{ .token_dimension = .{
-                .number = number,
-                .unit = unit,
-                .unit_location = result.after_number,
-            } },
-            .@"error" => |cause| .{ .token_error = .{
-                .tokenize_as = .token_dimension,
-                .cause = cause,
-            } },
+            },
         };
         return NextToken{ .token = token, .next_location = after_unit };
     }
 
     const percent_sign = try nextCodepoint(source, result.after_number);
     if (percent_sign.codepoint == '%') {
-        const token: Token = switch (result.value) {
-            .integer => |integer| .{ .token_percentage = @floatFromInt(integer) },
-            .number => |number| .{ .token_percentage = number },
-            .@"error" => |cause| .{ .token_error = .{
-                .tokenize_as = .token_percentage,
-                .cause = cause,
-            } },
+        const token: Token = .{
+            .token_percentage = switch (result.value) {
+                .integer => |integer| if (integer) |int| @floatFromInt(int) else null,
+                .number => |number| number,
+            },
         };
         return NextToken{ .token = token, .next_location = percent_sign.next_location };
     }
@@ -606,23 +598,15 @@ fn consumeNumericToken(source: Source, start: Source.Location) !NextToken {
     const token: Token = switch (result.value) {
         .integer => |integer| .{ .token_integer = integer },
         .number => |number| .{ .token_number = number },
-        .@"error" => |cause| .{ .token_error = .{
-            .tokenize_as = switch (cause) {
-                .integer_overflow => .token_integer,
-                .float_too_long, .invalid_float => .token_number,
-            },
-            .cause = cause,
-        } },
     };
     return NextToken{ .token = token, .next_location = result.after_number };
 }
 
 const ConsumeNumber = struct {
-    const Type = enum { integer, number, @"error" };
+    const Type = enum { integer, number };
     const Value = union(Type) {
-        integer: i32,
-        number: f32,
-        @"error": Token.Error.Cause,
+        integer: ?i32,
+        number: ?f32,
     };
 
     value: Value,
@@ -712,22 +696,21 @@ fn consumeNumber(source: Source, start: Source.Location) !ConsumeNumber {
     const value: ConsumeNumber.Value = value: switch (number_type) {
         .integer => {
             if (is_negative) integral_part.value.negate();
-            const integer = integral_part.value.unwrap() catch break :value .{ .@"error" = .integer_overflow };
+            const integer = integral_part.value.unwrap() catch break :value .{ .integer = null };
             break :value .{ .integer = integer };
         },
         .number => {
-            if (buffer.overflow()) break :value .{ .@"error" = .float_too_long };
+            if (buffer.overflow()) break :value .{ .number = null };
             var float = std.fmt.parseFloat(f32, buffer.slice()) catch |err| switch (err) {
                 error.InvalidCharacter => unreachable,
             };
             if (std.math.isPositiveZero(float) or std.math.isNegativeZero(float)) {
                 float = 0.0;
             } else if (!std.math.isNormal(float)) {
-                break :value .{ .@"error" = .invalid_float };
+                break :value .{ .number = null };
             }
             break :value .{ .number = float };
         },
-        .@"error" => unreachable,
     };
     return ConsumeNumber{ .value = value, .after_number = location };
 }
@@ -964,6 +947,7 @@ fn consumeIdentLikeToken(source: Source, start: Source.Location) !NextToken {
                     },
                     '\'', '"' => {
                         if (has_preceding_whitespace) {
+                            // TODO: rewrite this to preserve the location of the first whitespace codepoint
                             location = previous_location;
                         }
                         return NextToken{ .token = .token_function, .next_location = location };

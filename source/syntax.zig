@@ -22,9 +22,6 @@ pub const Token = union(enum) {
     /// description: The end of a sequence of tokens
     ///    location: The end of the source document
     token_eof,
-    /// description: A value that could not be represented as a token, and therefore raised a tokenization error
-    ///    location: The location should be interpreted as if this token was equal to the `tokenize_as` field of the error payload
-    token_error: Error,
     /// description: A sequence of one or more consecutive comment blocks
     ///    location: The opening '/' of the first comment block
     token_comments,
@@ -60,13 +57,13 @@ pub const Token = union(enum) {
     token_delim: u21,
     /// description: An optional '+' or '-' codepoint + a sequence of digits
     ///    location: The +/- sign or the first digit
-    token_integer: i32,
+    token_integer: ?i32,
     /// description: A numeric value (integral or floating point)
     ///    location: The first codepoint of the number
-    token_number: f32,
+    token_number: ?f32,
     /// description: A numeric value (integral or floating point) + a '%' codepoint
     ///    location: The first codepoint of the number
-    token_percentage: f32,
+    token_percentage: ?f32,
     /// description: A numeric value (integral or floating point) + an identifier
     ///    location: The first codepoint of the number
     token_dimension: Dimension,
@@ -107,34 +104,12 @@ pub const Token = union(enum) {
     ///    location: The codepoint
     token_right_curly,
 
-    pub const Error = struct {
-        tokenize_as: TokenizeAs,
-        cause: Cause,
-
-        pub const TokenizeAs = enum {
-            token_integer,
-            token_number,
-            token_percentage,
-            token_dimension,
-        };
-
-        pub const Cause = enum {
-            /// The integer value could not fit into the destination integer type.
-            integer_overflow,
-            /// The floating point value was too long to be parsed.
-            float_too_long,
-            /// The floating point value was either a subnormal, infinity, or NaN.
-            /// Floating point values must be either positive zero, negative zero, or normal.
-            invalid_float,
-        };
-    };
-
     pub const Unit = enum {
         px,
     };
 
     pub const Dimension = struct {
-        number: f32,
+        number: ?f32,
         unit: ?Unit,
         unit_location: TokenSource.Location,
     };
@@ -169,12 +144,9 @@ pub const Component = struct {
     pub const Extra = union {
         index: Ast.Size,
         codepoint: u21,
-        integer: i32,
-        number: f32,
-        @"error": Token.Error,
-        // TODO: Consider making unrecognized units an error, causing this to be non-optional
+        integer: ?i32,
+        number: ?f32,
         unit: ?Token.Unit,
-        // TODO: Consider making unrecognized at-rules an error, causing this to be non-optional
         at_rule: ?Token.AtRule,
 
         pub const undef: Extra = .{ .index = 0 };
@@ -199,12 +171,10 @@ pub const Component = struct {
     pub const Tag = enum {
         ///        note: This component never appears within the Ast
         token_eof,
-        ///       extra: Use `extra.@"error"` to get the error as a `Token.Error`
-        // TODO: Error tokens are an "in-band" source of errors, which need to be handled in all cases
-        token_error,
         token_comments,
         token_ident,
-        ///        note: This component never appears within the Ast
+        ///        note: This component never appears within the Ast, because
+        ///              the equivalent token will always create a `function` component instead.
         token_function,
         token_at_keyword,
         token_hash_unrestricted,
@@ -215,14 +185,14 @@ pub const Component = struct {
         token_bad_url,
         ///       extra: Use `extra.codepoint` to get the value of the codepoint as a `u21`
         token_delim,
-        ///       extra: Use `extra.integer` to get the integer as an `i32`
+        ///       extra: Use `extra.integer` to get the integer as a `?i32`
         token_integer,
-        ///       extra: Use `extra.number` to get the number as an `f32`
+        ///       extra: Use `extra.number` to get the number as a `?f32`
         token_number,
-        ///       extra: Use `extra.number` to get the number as an `f32`
+        ///       extra: Use `extra.number` to get the number as a `?f32`
         token_percentage,
         ///    children: The dimension's unit (a `unit`)
-        ///       extra: Use `extra.number` to get the number as an `f32`
+        ///       extra: Use `extra.number` to get the number as a `?f32`
         token_dimension,
         token_whitespace,
         token_cdo,
@@ -230,13 +200,16 @@ pub const Component = struct {
         token_colon,
         token_semicolon,
         token_comma,
-        ///        note: This component never appears within the Ast
+        ///        note: This component never appears within the Ast, because
+        ///              the equivalent token will always create a `simple_block_square` component instead.
         token_left_square,
-        ///        note: This component never appears within the Ast
         token_right_square,
-        ///        note: This component never appears within the Ast
+        ///        note: This component never appears within the Ast, because
+        ///              the equivalent token will always create a `simple_block_paren` component instead.
         token_left_paren,
         token_right_paren,
+        ///        note: This component never appears within the Ast, because
+        ///              the equivalent token will always create a `simple_block_curly` component instead.
         token_left_curly,
         token_right_curly,
 
@@ -476,11 +449,7 @@ pub const Ast = struct {
                 const component = ast.components.get(index);
                 const indent = (stack.len() - 1) * 4;
                 try writer.writeByteNTimes(' ', indent);
-                try writer.print("{} {s} {} ", .{
-                    index,
-                    if (component.tag != .token_error) @tagName(component.tag) else @tagName(component.extra.@"error".tokenize_as),
-                    @intFromEnum(component.location),
-                });
+                try writer.print("{} {s} {} ", .{ index, @tagName(component.tag), @intFromEnum(component.location) });
                 try printExtra(writer, component.tag, component.extra);
                 try writer.writeAll("\n");
 
@@ -496,7 +465,6 @@ pub const Ast = struct {
                 .token_delim => try writer.print("U+{X}", .{component_extra.codepoint}),
                 .token_integer => try writer.print("{}", .{component_extra.integer}),
                 .token_number, .token_dimension => try writer.print("{d}", .{component_extra.number}),
-                .token_error => try writer.print("(error: {s})", .{@tagName(component_extra.@"error".cause)}),
                 .unit => if (component_extra.unit) |unit| try writer.print("{s}", .{@tagName(unit)}),
                 .token_percentage => try writer.print("{d}%", .{component_extra.number}),
                 .declaration_normal,

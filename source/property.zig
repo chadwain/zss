@@ -142,6 +142,7 @@ fn parseDeclaration(
     value_ctx: *ValueContext,
     declaration_index: Ast.Size,
 ) !void {
+    // TODO: `all` does not affect some properties
     if (cascaded.all != null) return;
 
     // TODO: If this property has already been declared, skip parsing a value entirely.
@@ -167,15 +168,10 @@ fn parseDeclaration(
                 .non_shorthand => |non_shorthand| {
                     // TODO: If parsing fails, "reset" the arena
                     const parsed_value = blk: {
+                        const Aggregate = non_shorthand.aggregate_tag.Value();
+                        const Field = @FieldType(Aggregate, @tagName(non_shorthand.field));
                         const parseFn = @field(parse, @tagName(comptime_property));
-                        if (parseFn(value_ctx)) |parsed_value| {
-                            break :blk parsed_value;
-                        } else {
-                            const Aggregate = non_shorthand.aggregate_tag.Value();
-                            const Field = @FieldType(Aggregate, @tagName(non_shorthand.field));
-                            const parsed_value = zss.values.parse.cssWideKeyword(value_ctx, Field) orelse return;
-                            break :blk parsed_value;
-                        }
+                        break :blk parseFn(value_ctx) orelse zss.values.parse.cssWideKeyword(value_ctx, Field) orelse return;
                     };
 
                     if (!value_ctx.sequence.empty()) {
