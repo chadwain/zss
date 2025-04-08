@@ -1,5 +1,7 @@
 //! Assigns unique indeces to CSS identifiers.
 
+// TODO: Consider turning this from a set into a map
+
 const IdentifierSet = @This();
 
 const zss = @import("../zss.zig");

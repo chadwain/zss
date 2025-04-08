@@ -22,7 +22,6 @@ pub const Source = struct {
     data: []const u8,
 
     pub const Location = enum(u32) {
-        start = 0,
         _,
     };
 
@@ -245,7 +244,7 @@ pub const UrlTokenIterator = struct {
 
 pub fn stringIsIdentSequence(utf8_string: []const u8) bool {
     const source = Source.init(utf8_string) catch return false;
-    var location: Source.Location = .start;
+    var location: Source.Location = @enumFromInt(0);
     var first_3: [3]u21 = undefined;
     _ = readCodepoints(source, location, &first_3) catch return false;
     if (!codepointsStartAnIdentSequence(first_3)) return false;
@@ -1107,7 +1106,7 @@ test "tokenization" {
         .token_eof,
     };
 
-    var location: Source.Location = .start;
+    var location: Source.Location = @enumFromInt(0);
     var i: usize = 0;
     while (true) {
         if (i >= expected.len) return error.TestFailure;

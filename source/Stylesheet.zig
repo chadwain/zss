@@ -97,7 +97,7 @@ fn atRule(
         .namespace => {
             var sequence = ast.children(at_rule_index);
             const prefix_opt: ?Ast.Size = prefix: {
-                const index = sequence.nextSkipSpaces(ast) orelse return error.InvalidAtRule;
+                const index = sequence.nextSkipSpaces(ast) orelse break :prefix null;
                 if (ast.tag(index) != .token_ident) {
                     sequence.reset(index);
                     break :prefix null;

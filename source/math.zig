@@ -141,6 +141,7 @@ pub const Color = extern struct {
         return @bitCast(std.mem.nativeToBig(u32, value));
     }
 
+    // TODO: change to a test
     comptime {
         const eql = std.meta.eql;
         assert(eql(toRgbaArray(.{ .r = 0, .g = 0, .b = 0, .a = 0 }), .{ 0x00, 0x00, 0x00, 0x00 }));

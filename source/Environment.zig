@@ -27,7 +27,9 @@ pub fn init(allocator: Allocator) Environment {
 pub fn deinit(env: *Environment) void {
     env.type_or_attribute_names.deinit(env.allocator);
     env.id_or_class_names.deinit(env.allocator);
-    for (env.stylesheets.items) |*stylesheet| stylesheet.deinit(env.allocator);
+    for (env.stylesheets.items) |*stylesheet| {
+        stylesheet.deinit(env.allocator);
+    }
     env.stylesheets.deinit(env.allocator);
     env.namespaces.deinit(env.allocator);
 }
@@ -41,6 +43,7 @@ pub fn addStylesheet(env: *Environment, source: TokenSource) !void {
     env.stylesheets.appendAssumeCapacity(stylesheet);
 }
 
+// TODO: consider making an `IdentifierMap` structure for this use case
 pub const Namespaces = struct {
     map: std.StringArrayHashMapUnmanaged(void) = .empty,
 

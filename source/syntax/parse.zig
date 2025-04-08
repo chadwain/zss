@@ -176,6 +176,7 @@ pub const AstManaged = struct {
             false => .{ .declaration_normal, 1 },
         };
         const is_empty_declaration = last_3.len < min_required_components;
+        // TODO: If is_empty_declaration == true, then (declaration_index + 1) may not be the next sibling due to whitespace/comments
         const next_sibling = if (is_empty_declaration) declaration_index + 1 else blk: {
             const last_component = last_3.components[3 - min_required_components];
             break :blk components.items(.next_sibling)[last_component];
@@ -219,7 +220,7 @@ pub fn parseCssStylesheet(token_source: TokenSource, allocator: Allocator) !Ast 
     var parser: Parser = .{ .token_source = token_source, .allocator = allocator };
     defer parser.deinit();
 
-    var location: TokenSource.Location = .start;
+    var location: TokenSource.Location = @enumFromInt(0);
     const index = try managed.addComplexComponent(.rule_list, location);
     parser.stack.top = .{
         .index = index,
@@ -239,7 +240,7 @@ pub fn parseListOfComponentValues(token_source: TokenSource, allocator: Allocato
     var parser: Parser = .{ .token_source = token_source, .allocator = allocator };
     defer parser.deinit();
 
-    var location: TokenSource.Location = .start;
+    var location: TokenSource.Location = @enumFromInt(0);
     const index = try managed.addComplexComponent(.component_list, location);
     parser.stack.top = .{ .index = index, .data = .list_of_component_values };
     try loop(&parser, &location, &managed);

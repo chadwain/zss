@@ -24,6 +24,23 @@ pub fn main() !u8 {
         var tree = try parse.parseCssStylesheet(source, allocator);
         defer tree.deinit(allocator);
         try tree.debug.print(allocator, stdout);
+    } else if (std.mem.eql(u8, args[1], "zml")) {
+        const source = try TokenSource.init(string);
+        var parser = zss.zml.Parser.init(source, allocator);
+        defer parser.deinit();
+
+        var ast = parser.parse(allocator) catch |err| {
+            switch (err) {
+                error.ParseError => {
+                    const stderr = std.io.getStdErr().writer();
+                    try stderr.print("error at location {}: {s}\n", .{ @intFromEnum(parser.failure.location), parser.failure.cause.debugErrMsg() });
+                },
+                else => {},
+            }
+            return err;
+        };
+        defer ast.deinit(allocator);
+        try ast.debug.print(allocator, stdout);
     } else if (std.mem.eql(u8, args[1], "components")) {
         const source = try TokenSource.init(string);
         var tree = try parse.parseListOfComponentValues(source, allocator);
@@ -32,7 +49,7 @@ pub fn main() !u8 {
     } else if (std.mem.eql(u8, args[1], "tokens")) {
         const source = try TokenSource.init(string);
 
-        var location: TokenSource.Location = .start;
+        var location: TokenSource.Location = @enumFromInt(0);
         var i: usize = 0;
         while (true) {
             const token = try source.next(&location);

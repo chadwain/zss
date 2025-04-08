@@ -17,7 +17,7 @@ comptime {
 
 /// Each field has the following information:
 ///     description: A basic description of the component
-///        location: What the component's `location` field represents
+///        location: Where the component's `location` field points to in the source document
 pub const Token = union(enum) {
     /// description: The end of a sequence of tokens
     ///    location: The end of the source document
@@ -154,7 +154,7 @@ pub const Component = struct {
 
     /// Each field has the following information:
     ///     description: A basic description of the component
-    ///        location: What the component's `location` field represents
+    ///        location: Where the component's `location` field points to in the source document
     ///        children: The children that the component is allowed to have.
     ///                  If not specified, then the component cannot have any children.
     ///           extra: What the component's `extra` field represents.
@@ -260,13 +260,13 @@ pub const Component = struct {
         /// description: A '{}-block' containing style rules
         ///    location: The location of the <{-token> that opens this block
         ///    children: A sequence of `declaration_normal`, `declaration_important`, `qualified_rule`, and `at_rule`
-        ///              (Note: This sequence will match the order that each component appeared in the stylesheet.
-        ///              However, logically, it must be treated as if all of the declarations appear first, followed by the rules.
-        ///              See CSS Syntax Level 3 section 5.4.4 "Consume a style block's contents".)
         ///       extra: Use `extra.index` to get a component tree index.
         ///              Then, if the value is 0, the style block does not contain any declarations.
         ///              Otherwise, the value is the index of the *last* declaration in the style block
         ///              (with tag = `declaration_normal` or `declaration_important`).
+        ///        note: This element's children will be in the order that each component appeared in the stylesheet.
+        ///              However, logically, it must be treated as if all of the declarations appear first, followed by the rules.
+        ///              See CSS Syntax Level 3 section 5.4.4 "Consume a style block's contents".)
         style_block,
         /// description: An at-rule
         ///    children: A prelude (an arbitrary sequence of components) + optionally, a `simple_block_curly`
@@ -463,10 +463,12 @@ pub const Ast = struct {
         fn printExtra(writer: std.io.AnyWriter, component_tag: Component.Tag, component_extra: Component.Extra) !void {
             switch (component_tag) {
                 .token_delim => try writer.print("U+{X}", .{component_extra.codepoint}),
-                .token_integer => try writer.print("{}", .{component_extra.integer}),
-                .token_number, .token_dimension => try writer.print("{d}", .{component_extra.number}),
+                .token_integer => if (component_extra.integer) |integer| try writer.print("{}", .{integer}),
+                .token_number,
+                .token_dimension,
+                => if (component_extra.number) |number| try writer.print("{d}", .{number}),
                 .unit => if (component_extra.unit) |unit| try writer.print("{s}", .{@tagName(unit)}),
-                .token_percentage => try writer.print("{d}%", .{component_extra.number}),
+                .token_percentage => if (component_extra.number) |number| try writer.print("{d}%", .{number}),
                 .declaration_normal,
                 .declaration_important,
                 .style_block,

@@ -72,7 +72,7 @@ test "parse a zml document" {
         error.ParseError => {
             std.log.err(
                 "zml parse error: location = {}, char = '{c}' msg = {s}",
-                .{ @intFromEnum(parser.failure.location), input[@intFromEnum(parser.failure.location)], parser.failure.cause.errMsg() },
+                .{ @intFromEnum(parser.failure.location), input[@intFromEnum(parser.failure.location)], parser.failure.cause.debugErrMsg() },
             );
             return;
         },
@@ -131,13 +131,14 @@ pub const Parser = struct {
             expected_identifier,
             inline_style_block_before_features,
             invalid_feature,
+            invalid_id,
             invalid_token,
             missing_space_between_features,
             multiple_types,
             multiple_inline_style_blocks,
             unexpected_eof,
 
-            pub fn errMsg(cause: Cause) []const u8 {
+            pub fn debugErrMsg(cause: Cause) []const u8 {
                 return switch (cause) {
                     .block_depth_limit_reached => "block depth limit reached",
                     .element_depth_limit_reached => "element depth limit reached",
@@ -149,10 +150,11 @@ pub const Parser = struct {
                     .expected_identifier => "expected identifier",
                     .inline_style_block_before_features => "inline style block must appear after all features",
                     .invalid_feature => "invalid feature",
+                    .invalid_id => "invalid id (not a valid CSS identifier)",
                     .invalid_token => "invalid token",
                     .missing_space_between_features => "features must be separated with whitespace or comments",
                     .multiple_types => "only one type feature is allowed on an element",
-                    .multiple_inline_style_blocks => "only one inline style block is allowed",
+                    .multiple_inline_style_blocks => "only one inline style block is allowed per element",
                     .unexpected_eof => "unexpected end-of-file",
                 };
             }
@@ -162,7 +164,7 @@ pub const Parser = struct {
     pub fn init(token_source: TokenSource, allocator: Allocator) Parser {
         return .{
             .token_source = token_source,
-            .location = .start,
+            .location = @enumFromInt(0),
             .allocator = allocator,
             .element_stack = .{},
             .block_stack = .{},
@@ -358,6 +360,9 @@ fn parseFeature(parser: *Parser, ast: *AstManaged, main_token: Token, main_locat
         .token_hash_id => {
             _ = try ast.addBasicComponent(.zml_id, main_location);
             return;
+        },
+        .token_hash_unrestricted => {
+            return parser.fail(.invalid_id, main_location);
         },
         .token_left_square => blk: {
             const name, const name_location = try parser.nextTokenSkipWhitespace();
