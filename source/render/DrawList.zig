@@ -176,13 +176,13 @@ pub fn create(box_tree: *const BoxTree, allocator: Allocator) !DrawList {
             // Add the initial containing block stacking context to the draw order list
             try allocateIcbSubList(&builder, &draw_list, allocator);
             try builder.makeSublistReady(allocator, 0, .{ .x = 0, .y = 0 });
-            const description = builder.ready_sub_lists.pop();
+            const description = builder.ready_sub_lists.pop().?;
             root_sub_list = description.index;
             try populateSubList(&draw_list, &builder, description, allocator, box_tree, view);
         }
 
         while (builder.ready_sub_lists.items.len > 0) {
-            const description = builder.ready_sub_lists.pop();
+            const description = builder.ready_sub_lists.pop().?;
             try populateSubList(&draw_list, &builder, description, allocator, box_tree, view);
         }
 

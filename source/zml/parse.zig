@@ -81,7 +81,7 @@ test "parse a zml document" {
     defer ast.deinit(allocator);
 }
 
-fn fuzzOne(input: []const u8) !void {
+fn fuzzOne(_: void, input: []const u8) !void {
     const token_source = try TokenSource.init(input);
     const allocator = std.testing.allocator;
 
@@ -97,7 +97,7 @@ fn fuzzOne(input: []const u8) !void {
 
 test "zml parser fuzz test" {
     // TODO: It could be useful to include a corpus.
-    try std.testing.fuzz(fuzzOne, .{});
+    try std.testing.fuzz({}, fuzzOne, .{});
 }
 
 pub const Parser = struct {
@@ -280,7 +280,7 @@ fn parseElement(parser: *Parser, ast: *AstManaged) !void {
         .token_right_curly => {
             const no_open_elements = (parser.element_stack.items.len == 0);
             if (no_open_elements) return parser.fail(.invalid_token, main_location);
-            const item = parser.element_stack.pop();
+            const item = parser.element_stack.pop().?;
             ast.finishElement(item.element_index, item.block_index);
             return;
         },

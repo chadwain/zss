@@ -120,7 +120,7 @@ pub fn run(layout: *Layout) !void {
                 },
             }
         } else {
-            const mode = context.mode.pop();
+            const mode = context.mode.pop().?;
             switch (mode) {
                 .InitialContainingBlock => unreachable,
                 .Flow => {

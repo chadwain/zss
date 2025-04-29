@@ -196,8 +196,8 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
                 } else {
                     const available_width_unclamped = ifc.containing_block_size.width -
                         (sizes.margin_inline_start_untagged + sizes.margin_inline_end_untagged +
-                        sizes.border_inline_start + sizes.border_inline_end +
-                        sizes.padding_inline_start + sizes.padding_inline_end);
+                            sizes.border_inline_start + sizes.border_inline_end +
+                            sizes.padding_inline_start + sizes.padding_inline_end);
                     const available_width = solve.clampSize(available_width_unclamped, sizes.min_inline_size, sizes.max_inline_size);
 
                     const ref = try layout.pushFlowBlock(.ShrinkToFit, sizes, available_width, stacking_context);
@@ -1002,7 +1002,7 @@ const IFCLineSplitState = struct {
     fn popInlineBox(self: *IFCLineSplitState, index: Ifc.Size) void {
         assert(self.current_inline_box == index);
         if (index != 0) {
-            self.current_inline_box = self.inline_box_stack.pop();
+            self.current_inline_box = self.inline_box_stack.pop().?;
         } else {
             self.current_inline_box = undefined;
         }

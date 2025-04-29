@@ -659,7 +659,7 @@ fn consumeComponentValue(parser: *Parser, location: *TokenSource.Location, ast: 
                     },
                     .token_right_curly, .token_right_square, .token_right_paren => {
                         if (block_stack.items[block_stack.items.len - 1][0] == token.cast(Component.Tag)) {
-                            _, const index = block_stack.pop();
+                            _, const index = block_stack.pop().?;
                             ast.finishComplexComponent(index);
                             if (block_stack.items.len == 0) break;
                         }

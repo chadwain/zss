@@ -1,6 +1,7 @@
 .{
-    .name = "zss",
+    .name = .zss,
     .version = "0.0.0",
+    .fingerprint = 0x6b393e274b72e099,
     .paths = .{
         "demo/",
         "examples/",
@@ -20,16 +21,16 @@
             .hash = "1220adfccce3dbc4e4fa8650fdaec110a676f6b8a1462ed6ef422815207f8288e9d2",
         },
         .@"mach-glfw" = .{
-            .url = "git+https://github.com/slimsag/mach-glfw#affdd6ae6f2ac2c3b9162784bdad345c561eeeea",
-            .hash = "122022ea6df16700e521078c20d7d01f894c6f967e6c6ce1ea166426b4fc61667de3",
+            .url = "git+https://github.com/AshishBhattarai/mach-glfw#e4257404105c802971fd224ca445337ae59094a2",
+            .hash = "mach_glfw-0.2.0-dJFhSBIsBQDqEtFpU2nv4v5FaOPDjfOivzZdHkiUc8RP",
         },
         .zgl = .{
             .url = "git+https://github.com/chadwain/zgl.git#53c75bf06c40f763608fe2230a1a7f33e45a86eb",
             .hash = "122034e87e1ed9d896c435b2b63979cc9b1a55d164687ae7e85d02aa225277fce378",
         },
         .zigimg = .{
-            .url = "git+https://github.com/chadwain/zigimg.git#4c2de1f98dd06035bb3579eb7d4a62120cc27bc2",
-            .hash = "1220c015b29cc7d175cf20a23491251e65dbe58863d014755662d2f7c32c58a846b9",
+            .url = "git+https://github.com/TUSF/zigimg#7e098bf6be568cb8bd659397c2d5c291893095bc",
+            .hash = "zigimg-0.1.0-lly-O8QREQDj96arPVPqvkcjKQpmVijvw_6U6FuqhURQ",
         },
     },
 }

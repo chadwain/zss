@@ -35,7 +35,7 @@ pub fn Stack(comptime T: type) type {
         /// If there is nothing in `stack.rest`, then `stack.top` becomes null.
         /// This function must not be called if `stack.top` is already null.
         pub fn pop(stack: *Stack(T)) T {
-            defer stack.top = stack.rest.popOrNull();
+            defer stack.top = stack.rest.pop();
             return stack.top.?;
         }
     };

@@ -83,7 +83,7 @@ fn validateStackingContexts(box_tree: *zss.BoxTree, allocator: Allocator) !void 
     try expect(z_indeces[0] == 0);
     stack.append(.{ .current = 0, .end = skips[0] }) catch unreachable;
     while (stack.items.len > 0) {
-        const parent = stack.pop();
+        const parent = stack.pop().?;
         var child = parent.current + 1;
         var previous_z_index: ZIndex = std.math.minInt(ZIndex);
         while (child < parent.end) : (child += skips[child]) {
