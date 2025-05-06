@@ -20,8 +20,9 @@ pub fn Stack(comptime T: type) type {
             stack.rest.deinit(allocator);
         }
 
-        pub fn len(stack: Stack(T)) usize {
-            return @intFromBool(stack.top != null) + stack.rest.items.len;
+        pub fn lenExcludingTop(stack: Stack(T)) usize {
+            std.debug.assert(stack.top != null);
+            return stack.rest.items.len;
         }
 
         /// Causes `new_top` to become the new highest item in the stack.

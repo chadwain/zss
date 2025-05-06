@@ -447,7 +447,7 @@ pub const Ast = struct {
                     continue;
                 };
                 const component = ast.components.get(index);
-                const indent = (stack.len() - 1) * 4;
+                const indent = stack.lenExcludingTop() * 4;
                 try writer.writeByteNTimes(' ', indent);
                 try writer.print("{} {s} {} ", .{ index, @tagName(component.tag), @intFromEnum(component.location) });
                 try printExtra(writer, component.tag, component.extra);

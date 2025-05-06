@@ -48,7 +48,7 @@ pub fn skipArrayIterate(
             defer top.begin += skips[top.begin];
             break :index top.begin;
         };
-        try callback(context, index, @intCast(stack.len() - 1));
+        try callback(context, index, @intCast(stack.lenExcludingTop()));
         const skip = skips[index];
         if (skip != 1) {
             try stack.push(allocator, .{ .begin = index + 1, .end = index + skip });

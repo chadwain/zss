@@ -469,13 +469,13 @@ pub const Debug = struct {
                 _ = stack.pop();
                 continue;
             };
-            try writer.writeByteNTimes(' ', stack.len() * 4);
+            try writer.writeByteNTimes(' ', (stack.lenExcludingTop() + 1) * 4);
             try printBlock(top.view, index, writer);
 
             switch (top.view.items(.type)[index]) {
                 .subtree_proxy => |subtree_id| {
                     const view = box_tree.getSubtree(subtree_id).view();
-                    try writer.writeByteNTimes(' ', stack.len() * 4);
+                    try writer.writeByteNTimes(' ', (stack.lenExcludingTop() + 1) * 4);
                     try writer.print("Subtree({}) size({})\n", .{ @intFromEnum(subtree_id), view.len });
                     try stack.push(allocator, .{ .iterator = Subtree.root(view), .view = view });
                 },

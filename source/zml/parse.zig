@@ -393,7 +393,7 @@ fn parseInlineStyleBlock(parser: *Parser, ast: *AstManaged, main_location: Locat
     var previous_declaration: ?Ast.Size = null;
     parser.block_stack.top = .{ .ending_tag = .token_right_paren, .component_index = undefined };
     while (parser.block_stack.top != null) {
-        assert(parser.block_stack.len() == 1);
+        assert(parser.block_stack.lenExcludingTop() == 0);
 
         {
             const token, const location = try parser.nextTokenSkipWhitespace();
@@ -417,7 +417,7 @@ fn parseInlineStyleBlock(parser: *Parser, ast: *AstManaged, main_location: Locat
             const token, const location = try parser.nextToken();
             switch (token) {
                 .token_semicolon => {
-                    if (parser.block_stack.len() == 1) break;
+                    if (parser.block_stack.lenExcludingTop() == 0) break;
                     const component_index = try ast.addBasicComponent(.token_semicolon, location);
                     last_3.append(component_index);
                 },
@@ -441,7 +441,7 @@ fn parseInlineStyleBlock(parser: *Parser, ast: *AstManaged, main_location: Locat
                     } else {
                         parser.location = after_open_location;
                         const max_block_depth = 32;
-                        if (parser.block_stack.len() == max_block_depth) return parser.fail(.block_depth_limit_reached, location);
+                        if (parser.block_stack.lenExcludingTop() == max_block_depth) return parser.fail(.block_depth_limit_reached, location);
                         try parser.block_stack.push(parser.allocator, .{ .ending_tag = ending_tag, .component_index = component_index });
                     }
                     last_3.append(component_index);
