@@ -90,7 +90,7 @@ pub const Property = enum {
             .right                  => nonShorthand(.insets          , .right         ),
             .top                    => nonShorthand(.insets          , .top           ),
             .bottom                 => nonShorthand(.insets          , .bottom        ),
-            .@"background-image"    => nonShorthand(.background2     , .image         ),
+            .@"background-image"    => nonShorthand(.background      , .image         ),
             .color                  => nonShorthand(.color           , .color         ),
         };
         // zig fmt: on
@@ -307,8 +307,8 @@ test "parsing properties from a stylesheet" {
         .bottom = .unset,
     }, insets);
 
-    const background2 = decls.normal.get(.background2) orelse return error.TestFailure;
-    try expectEqual(aggregates.Background2{
+    const background = decls.normal.get(.background) orelse return error.TestFailure;
+    try expectEqual(aggregates.Background{
         .image = .none,
-    }, background2);
+    }, background);
 }

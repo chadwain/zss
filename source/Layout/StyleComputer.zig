@@ -43,8 +43,9 @@ const CosmeticComputedValues = struct {
     box_style: ?aggregates.BoxStyle = null,
     border_colors: ?aggregates.BorderColors = null,
     border_styles: ?aggregates.BorderStyles = null,
-    background1: ?aggregates.Background1 = null,
-    background2: ?aggregates.Background2 = null,
+    background_color: ?aggregates.BackgroundColor = null,
+    background_clip: ?aggregates.BackgroundClip = null,
+    background: ?aggregates.Background = null,
     color: ?aggregates.Color = null,
     insets: ?aggregates.Insets = null,
 };
@@ -60,10 +61,12 @@ current: Current,
 allocator: Allocator,
 stage: union {
     box_gen: struct {
+        // TODO: Use ElementHashMap
         map: std.AutoHashMapUnmanaged(Element, BoxGenComputedValues) = .{},
         current_computed: BoxGenComputedValues = undefined,
     },
     cosmetic: struct {
+        // TODO: Use ElementHashMap
         map: std.AutoHashMapUnmanaged(Element, CosmeticComputedValues) = .{},
         current_computed: CosmeticComputedValues = undefined,
     },

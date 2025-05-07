@@ -77,6 +77,7 @@ pub const Specificity = packed struct {
     }
 
     fn toInt(specificity: Specificity) u24 {
+        // TODO: Figure out how to avoid this byte swapping
         return std.mem.nativeToBig(u24, @as(u24, @bitCast(specificity)));
     }
 };
@@ -98,10 +99,10 @@ test "Specificity.order" {
     try ex(Order.lt, order(.{}, .{ .a = 255, .b = 255, .c = 255 }));
 }
 
-// Data layout:
-// <complex-selector> = [ <compound-selector>+ <trailing> ]+
-// <compound-selector> = <simple-selector-tag> <simple-selector>
-// <simple-selector> = <variable data, depends on simple-selector-tag>
+/// Data layout:
+/// <complex-selector> = [ <compound-selector>+ <trailing> ]+
+/// <compound-selector> = <simple-selector-tag> <simple-selector>
+/// <simple-selector> = <variable data, depends on simple-selector-tag>
 pub const ComplexSelector = struct {
     data: []const Data,
 

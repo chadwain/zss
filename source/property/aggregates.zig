@@ -20,14 +20,17 @@ pub const Tag = enum {
     insets,
     border_colors,
     border_styles,
-    background1,
-    background2,
+    background_color,
+    background_clip,
+    background,
 
     color,
     font,
     // Not yet implemented.
     direction,
+    // Not yet implemented.
     unicode_bidi,
+    // Not yet implemented.
     custom, // Custom property
 
     pub fn Value(comptime tag: Tag) type {
@@ -41,8 +44,9 @@ pub const Tag = enum {
             .insets => Insets,
             .border_colors => BorderColors,
             .border_styles => BorderStyles,
-            .background1 => Background1,
-            .background2 => Background2,
+            .background_color => BackgroundColor,
+            .background_clip => BackgroundClip,
+            .background => Background,
             .color => Color,
             .font => Font,
 
@@ -66,8 +70,9 @@ pub const Tag = enum {
             .insets,
             .border_colors,
             .border_styles,
-            .background1,
-            .background2,
+            .background_color,
+            .background_clip,
+            .background,
             .unicode_bidi,
             => .not_inherited,
 
@@ -256,13 +261,19 @@ pub const BorderStyles = struct {
 };
 
 /// color -> background-color
-/// clip  -> background-clip
-pub const Background1 = struct {
+pub const BackgroundColor = struct {
     color: types.Color = .undeclared,
+
+    pub const initial_values = BackgroundColor{
+        .color = types.Color.transparent,
+    };
+};
+
+/// clip  -> background-clip
+pub const BackgroundClip = struct {
     clip: types.BackgroundClip = .undeclared,
 
-    pub const initial_values = Background1{
-        .color = types.Color.transparent,
+    pub const initial_values = BackgroundClip{
         .clip = .border_box,
     };
 };
@@ -272,14 +283,14 @@ pub const Background1 = struct {
 /// position -> background-position
 /// origin   -> background-origin
 /// size     -> background-size
-pub const Background2 = struct {
+pub const Background = struct {
     image: types.BackgroundImage = .undeclared,
     repeat: types.BackgroundRepeat = .undeclared,
     position: types.BackgroundPosition = .undeclared,
     origin: types.BackgroundOrigin = .undeclared,
     size: types.BackgroundSize = .undeclared,
 
-    pub const initial_values = Background2{
+    pub const initial_values = Background{
         .image = .none,
         .repeat = .{ .repeat = .{ .x = .repeat, .y = .repeat } },
         .position = .{ .position = .{

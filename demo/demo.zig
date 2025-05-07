@@ -362,8 +362,8 @@ fn createElements(
             .left = root_border_color,
         });
         try cv.add(arena, .border_styles, .{ .top = .solid, .right = .solid, .bottom = .solid, .left = .solid });
-        try cv.add(arena, .background1, .{ .color = .{ .rgba = bg_color } });
-        try cv.add(arena, .background2, .{
+        try cv.add(arena, .background_color, .{ .color = .{ .rgba = bg_color } });
+        try cv.add(arena, .background, .{
             .position = .{ .position = .{
                 .x = .{ .side = .end, .offset = .{ .percentage = 0 } },
                 .y = .{ .side = .start, .offset = .{ .px = 10 } },
@@ -377,7 +377,7 @@ fn createElements(
         try cv.add(arena, .box_style, .{ .display = .none });
         try cv.add(arena, .content_width, .{ .width = .{ .px = 10000 } });
         try cv.add(arena, .content_height, .{ .height = .{ .px = 10000 } });
-        try cv.add(arena, .background1, .{ .color = .{ .rgba = 0xff00ffff } });
+        try cv.add(arena, .background_color, .{ .color = .{ .rgba = 0xff00ffff } });
 
         // Title block box
         cv = slice.ptr(.cascaded_values, title_block);
@@ -401,7 +401,7 @@ fn createElements(
             .border_top = .{ .px = 10 },
             .border_bottom = .{ .px = 10 },
         });
-        try cv.add(arena, .background1, .{ .color = .{ .rgba = 0xfa58007f } });
+        try cv.add(arena, .background_color, .{ .color = .{ .rgba = 0xfa58007f } });
         try cv.add(arena, .border_styles, .{ .top = .solid, .right = .solid, .bottom = .solid, .left = .solid });
         try cv.add(arena, .border_colors, .{
             .top = .{ .rgba = 0xaa1010ff },
@@ -420,7 +420,7 @@ fn createElements(
         // Body inline box
         cv = slice.ptr(.cascaded_values, body_inline_box);
         try cv.add(arena, .box_style, .{ .display = .@"inline" });
-        try cv.add(arena, .background1, .{ .color = .{ .rgba = 0x1010507f } });
+        try cv.add(arena, .background_color, .{ .color = .{ .rgba = 0x1010507f } });
 
         // Body text
         slice.set(.text, body_text, file_contents);
@@ -434,8 +434,8 @@ fn createElements(
         try cv.add(arena, .vertical_edges, .{ .margin_top = .{ .px = 10 }, .border_top = .inherit, .border_bottom = .inherit });
         try cv.add(arena, .border_colors, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
         try cv.add(arena, .border_styles, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
-        try cv.add(arena, .background1, .{ .clip = .padding_box });
-        try cv.add(arena, .background2, .{
+        try cv.add(arena, .background_clip, .{ .clip = .padding_box });
+        try cv.add(arena, .background, .{
             .image = .{ .image = footer_image_handle },
             .position = .{ .position = .{
                 .x = .{ .side = .start, .offset = .{ .percentage = 0.5 } },

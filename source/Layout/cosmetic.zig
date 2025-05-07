@@ -142,8 +142,9 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comp
         .color = layout.computer.getSpecifiedValue(.cosmetic, .color),
         .border_colors = layout.computer.getSpecifiedValue(.cosmetic, .border_colors),
         .border_styles = layout.computer.getSpecifiedValue(.cosmetic, .border_styles),
-        .background1 = layout.computer.getSpecifiedValue(.cosmetic, .background1),
-        .background2 = layout.computer.getSpecifiedValue(.cosmetic, .background2),
+        .background_color = layout.computer.getSpecifiedValue(.cosmetic, .background_color),
+        .background_clip = layout.computer.getSpecifiedValue(.cosmetic, .background_clip),
+        .background = layout.computer.getSpecifiedValue(.cosmetic, .background),
         .insets = layout.computer.getSpecifiedValue(.cosmetic, .insets),
     };
 
@@ -191,7 +192,11 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comp
             box_offsets_ptr,
             borders_ptr,
             used_color,
-            .{ .background1 = &specified.background1, .background2 = &specified.background2 },
+            .{
+                .background_color = &specified.background_color,
+                .background_clip = &specified.background_clip,
+                .background = &specified.background,
+            },
             background_ptr,
         );
     }
@@ -202,8 +207,9 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comp
     // TODO: Pretending that specified values are computed values...
     layout.computer.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
     layout.computer.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
-    layout.computer.setComputedValue(.cosmetic, .background1, specified.background1);
-    layout.computer.setComputedValue(.cosmetic, .background2, specified.background2);
+    layout.computer.setComputedValue(.cosmetic, .background_color, specified.background_color);
+    layout.computer.setComputedValue(.cosmetic, .background_clip, specified.background_clip);
+    layout.computer.setComputedValue(.cosmetic, .background, specified.background);
 }
 
 fn solveInsetsStatic(
@@ -327,30 +333,31 @@ fn blockBoxBackgrounds(
     borders: *const BoxTree.Borders,
     current_color: Color,
     specified: struct {
-        background1: *const aggregates.Background1,
-        background2: *const aggregates.Background2,
+        background_color: *const aggregates.BackgroundColor,
+        background_clip: *const aggregates.BackgroundClip,
+        background: *const aggregates.Background,
     },
     background_ptr: *BoxTree.BlockBoxBackground,
 ) !void {
-    background_ptr.color = solve.color(specified.background1.color, current_color);
+    background_ptr.color = solve.color(specified.background_color.color, current_color);
 
-    const images: []const types.BackgroundImage = switch (specified.background2.image) {
+    const images: []const types.BackgroundImage = switch (specified.background.image) {
         .many => |storage_handle| inputs.storage.get(types.BackgroundImage, storage_handle),
-        .image, .url => (&specified.background2.image)[0..1],
+        .image, .url => (&specified.background.image)[0..1],
         .none => {
             background_ptr.images = .invalid;
-            background_ptr.color_clip = comptime solve.backgroundClip(aggregates.Background1.initial_values.clip);
+            background_ptr.color_clip = comptime solve.backgroundClip(aggregates.BackgroundClip.initial_values.clip);
             return;
         },
         .initial, .inherit, .unset, .undeclared => unreachable,
     };
-    const clips = getBackgroundPropertyArray(inputs, &specified.background1.clip);
+    const clips = getBackgroundPropertyArray(inputs, &specified.background_clip.clip);
     background_ptr.color_clip = solve.backgroundClip(clips[(images.len - 1) % clips.len]);
 
-    const origins = getBackgroundPropertyArray(inputs, &specified.background2.origin);
-    const positions = getBackgroundPropertyArray(inputs, &specified.background2.position);
-    const sizes = getBackgroundPropertyArray(inputs, &specified.background2.size);
-    const repeats = getBackgroundPropertyArray(inputs, &specified.background2.repeat);
+    const origins = getBackgroundPropertyArray(inputs, &specified.background.origin);
+    const positions = getBackgroundPropertyArray(inputs, &specified.background.position);
+    const sizes = getBackgroundPropertyArray(inputs, &specified.background.size);
+    const repeats = getBackgroundPropertyArray(inputs, &specified.background.repeat);
 
     const handle, const buffer = try box_tree.allocBackgroundImages(@intCast(images.len));
     for (images, buffer, 0..) |image, *dest, index| {
@@ -411,8 +418,9 @@ fn inlineBoxCosmeticLayout(
         .color = layout.computer.getSpecifiedValue(.cosmetic, .color),
         .border_colors = layout.computer.getSpecifiedValue(.cosmetic, .border_colors),
         .border_styles = layout.computer.getSpecifiedValue(.cosmetic, .border_styles),
-        .background1 = layout.computer.getSpecifiedValue(.cosmetic, .background1),
-        .background2 = layout.computer.getSpecifiedValue(.cosmetic, .background2), // TODO: Inline boxes don't need background2
+        .background_color = layout.computer.getSpecifiedValue(.cosmetic, .background_color),
+        .background_clip = layout.computer.getSpecifiedValue(.cosmetic, .background_clip),
+        .background = layout.computer.getSpecifiedValue(.cosmetic, .background), // TODO: Inline boxes don't need background
         .insets = layout.computer.getSpecifiedValue(.cosmetic, .insets),
     };
 
@@ -444,7 +452,7 @@ fn inlineBoxCosmeticLayout(
     solve.borderStyles(specified.border_styles);
 
     {
-        const background_clip = switch (specified.background1.clip) {
+        const background_clip = switch (specified.background_clip.clip) {
             .many => |storage_handle| blk: {
                 const array = layout.inputs.storage.get(zss.values.types.BackgroundClip, storage_handle);
                 // CSS-BACKGROUNDS-3§2.2:
@@ -454,7 +462,7 @@ fn inlineBoxCosmeticLayout(
             else => |tag| tag,
         };
         const background_ptr = &ifc_slice.items(.background)[inline_box_index];
-        background_ptr.* = solve.inlineBoxBackground(specified.background1.color, background_clip, used_color);
+        background_ptr.* = solve.inlineBoxBackground(specified.background_color.color, background_clip, used_color);
     }
 
     layout.computer.setComputedValue(.cosmetic, .box_style, computed_box_style);
@@ -463,8 +471,9 @@ fn inlineBoxCosmeticLayout(
     // TODO: Pretending that specified values are computed values...
     layout.computer.setComputedValue(.cosmetic, .border_colors, specified.border_colors);
     layout.computer.setComputedValue(.cosmetic, .border_styles, specified.border_styles);
-    layout.computer.setComputedValue(.cosmetic, .background1, specified.background1);
-    layout.computer.setComputedValue(.cosmetic, .background2, specified.background2);
+    layout.computer.setComputedValue(.cosmetic, .background_color, specified.background_color);
+    layout.computer.setComputedValue(.cosmetic, .background_clip, specified.background_clip);
+    layout.computer.setComputedValue(.cosmetic, .background, specified.background);
 }
 
 fn rootInlineBoxCosmeticLayout(ifc: *Ifc) void {
