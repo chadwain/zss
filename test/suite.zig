@@ -83,7 +83,7 @@ pub fn main() !void {
 
     var fonts = zss.Fonts.init();
     defer fonts.deinit();
-    const font_handle = fonts.setFont(.{ .handle = font });
+    const font_handle = fonts.setFont(font);
 
     var images = zss.Images{};
     defer images.deinit(allocator);

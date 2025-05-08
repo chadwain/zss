@@ -27,7 +27,7 @@ const Vector = math.Vector;
 const Ratio = math.Ratio;
 
 const zgl = @import("zgl");
-const hb = @import("mach-harfbuzz");
+const hb = @import("mach-harfbuzz").c;
 
 // TODO: Check for OpenGL errors
 // TODO: Potentially lossy casts from integers to floats
@@ -195,17 +195,16 @@ pub const Renderer = struct {
         renderer.indeces.deinit(renderer.allocator);
     }
 
-    pub fn initGlyphs(renderer: *Renderer, c_font: *hb.c.hb_font_t) !void {
-        const font = hb.Font{ .handle = c_font };
-        const face = font.getFreetypeFace();
-        try face.selectCharmap(.unicode);
+    pub fn initGlyphs(renderer: *Renderer, font: *hb.hb_font_t) !void {
+        const face = hb.hb_ft_font_get_face(font);
+        if (hb.FT_Select_Charmap(face, hb.FT_ENCODING_UNICODE) != hb.FT_Err_Ok) return error.SelectCharmapFail;
 
         const max_width, const max_height = blk: {
-            const max_bbox = face.bbox();
-            const metrics = face.size().metrics();
+            const max_bbox = face.*.bbox;
+            const metrics = face.*.size.*.metrics;
             break :blk .{
-                @as(u32, @intCast(max_bbox.xMax - max_bbox.xMin)) * metrics.x_ppem / face.unitsPerEM(),
-                @as(u32, @intCast(max_bbox.yMax - max_bbox.yMin)) * metrics.y_ppem / face.unitsPerEM(),
+                @as(u32, @intCast(max_bbox.xMax - max_bbox.xMin)) * metrics.x_ppem / face.*.units_per_EM,
+                @as(u32, @intCast(max_bbox.yMax - max_bbox.yMin)) * metrics.y_ppem / face.*.units_per_EM,
             };
         };
 
@@ -231,20 +230,21 @@ pub const Renderer = struct {
         var exists = [1]bool{false} ** max_glyphs;
         var metrics = [1]GlyphMetrics{undefined} ** max_glyphs;
         for (0..max_glyphs) |glyph_index| {
-            try face.loadGlyph(@intCast(glyph_index), .{});
-            const glyph = face.glyph();
-            try glyph.render(.normal);
+            if (hb.FT_Load_Glyph(face, @intCast(glyph_index), 0) != hb.FT_Err_Ok) return error.LoadGlyphFail;
+            const glyph = face.*.glyph;
+            if (hb.FT_Render_Glyph(glyph, hb.FT_RENDER_MODE_NORMAL) != hb.FT_Err_Ok) return error.RenderGlyphFail;
 
-            const bitmap = glyph.bitmap();
-            if (bitmap.buffer()) |src| {
+            const bitmap = glyph.*.bitmap;
+            if (bitmap.buffer != null) {
+                const src = bitmap.buffer[0 .. @abs(bitmap.pitch) * bitmap.rows];
                 const glyph_x = glyph_index % glyphs_per_row;
                 const glyph_y = glyph_index / glyphs_per_row;
 
                 const dest_index = (glyph_x * max_width) + (glyph_y * max_height * buffer_stride);
 
-                const src_width = bitmap.width();
-                const src_height = bitmap.rows();
-                const src_stride: u32 = @abs(bitmap.pitch());
+                const src_width = bitmap.width;
+                const src_height = bitmap.rows;
+                const src_stride: u32 = @abs(bitmap.pitch);
                 for (0..src_height) |y| {
                     @memcpy(
                         buffer[dest_index + y * buffer_stride ..][0..src_width],
@@ -256,7 +256,7 @@ pub const Renderer = struct {
                 metrics[glyph_index] = .{
                     .width_px = src_width,
                     .height_px = src_height,
-                    .ascender_px = glyph.bitmapTop(),
+                    .ascender_px = glyph.*.bitmap_top,
                 };
             }
         }

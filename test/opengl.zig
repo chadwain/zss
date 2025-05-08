@@ -65,7 +65,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
         defer box_tree.deinit();
 
         const font_opt = t.fonts.get(t.font_handle);
-        if (font_opt) |font| try renderer.initGlyphs(font.handle);
+        if (font_opt) |font| try renderer.initGlyphs(font);
         defer if (font_opt) |_| renderer.deinitGlyphs();
 
         var draw_list = try DrawList.create(&box_tree, allocator);

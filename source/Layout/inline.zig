@@ -157,7 +157,7 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
             layout.inline_context.setFont(handle);
             if (layout.inputs.fonts.get(handle)) |hb_font| {
                 const text = layout.computer.getText();
-                try ifcAddText(layout.box_tree, ifc.ptr, text, hb_font.handle);
+                try ifcAddText(layout.box_tree, ifc.ptr, text, hb_font);
             }
 
             layout.advanceElement();
@@ -871,7 +871,7 @@ fn ifcSolveMetrics(ifc: *Ifc, subtree: Subtree.View, fonts: *const Fonts) void {
             const special = Ifc.Special.decode(glyphs_slice.items(.index)[i]);
             const kind = @as(std.meta.Tag(BoxTreeManaged.SpecialGlyph), @enumFromInt(@intFromEnum(special.kind)));
             switch (kind) {
-                .ZeroGlyphIndex => setMetricsGlyph(metrics, font.?.handle, 0),
+                .ZeroGlyphIndex => setMetricsGlyph(metrics, font.?, 0),
                 .BoxStart => {
                     const inline_box_index = @as(Ifc.Size, special.data);
                     setMetricsBoxStart(metrics, ifc_slice, inline_box_index);
@@ -887,7 +887,7 @@ fn ifcSolveMetrics(ifc: *Ifc, subtree: Subtree.View, fonts: *const Fonts) void {
                 .LineBreak => setMetricsLineBreak(metrics),
             }
         } else {
-            setMetricsGlyph(metrics, font.?.handle, glyph_index);
+            setMetricsGlyph(metrics, font.?, glyph_index);
         }
     }
 }
@@ -1027,7 +1027,7 @@ pub fn splitIntoLineBoxes(
     if (layout.inputs.fonts.get(ifc.font)) |font| {
         // TODO assuming ltr direction
         var font_extents: hb.hb_font_extents_t = undefined;
-        assert(hb.hb_font_get_h_extents(font.handle, &font_extents) != 0);
+        assert(hb.hb_font_get_h_extents(font, &font_extents) != 0);
         ifc.ascender = @divFloor(font_extents.ascender * units_per_pixel, 64);
         ifc.descender = @divFloor(-font_extents.descender * units_per_pixel, 64);
         top_height = @divFloor((font_extents.ascender + @divFloor(font_extents.line_gap, 2) + @mod(font_extents.line_gap, 2)) * units_per_pixel, 64);
