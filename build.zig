@@ -1,67 +1,81 @@
 const std = @import("std");
 const Build = std.Build;
+const Dependency = Build.Dependency;
 const LazyPath = Build.LazyPath;
 const Module = Build.Module;
 const OptimizeMode = std.builtin.OptimizeMode;
 const ResolvedTarget = Build.ResolvedTarget;
 const Step = Build.Step;
 
+const Config = struct {
+    optimize: OptimizeMode,
+    target: ResolvedTarget,
+};
+
+const Deps = struct {
+    harfbuzz: *Dependency,
+    zgl: *Dependency,
+
+    fn machGlfw(b: *Build, config: Config) ?*Dependency {
+        return b.lazyDependency("mach-glfw", .{
+            .optimize = config.optimize,
+            .target = config.target,
+        });
+    }
+
+    fn zigimg(b: *Build, config: Config) ?*Dependency {
+        return b.lazyDependency("zigimg", .{
+            .optimize = config.optimize,
+            .target = config.target,
+        });
+    }
+};
+
 pub fn build(b: *Build) void {
-    const optimize = b.standardOptimizeOption(.{});
-    const target = b.standardTargetOptions(.{});
+    const config = Config{
+        .optimize = b.standardOptimizeOption(.{}),
+        .target = b.standardTargetOptions(.{}),
+    };
 
-    _ = b.addModule("zss", .{
+    const deps = Deps{
+        .harfbuzz = b.dependency("harfbuzz", .{
+            .optimize = config.optimize,
+            .target = config.target,
+        }),
+        .zgl = b.dependency("zgl", .{
+            .optimize = config.optimize,
+            .target = config.target,
+        }),
+    };
+
+    const zss = b.addModule("zss", .{
         .root_source_file = b.path("source/zss.zig"),
-        .target = target,
-        .optimize = optimize,
+        .target = config.target,
+        .optimize = config.optimize,
     });
+    zss.addImport("harfbuzz", deps.harfbuzz.module("harfbuzz"));
+    zss.addImport("zgl", deps.zgl.module("zgl"));
+    zss.linkLibrary(deps.harfbuzz.artifact("harfbuzz"));
 
-    const mods = getModules(b, optimize, target);
-    const unit_tests = addUnitTests(b, optimize, target, mods);
-    const test_suite = addTestSuite(b, optimize, target, mods);
-    addDemo(b, optimize, target, mods);
-    addExamples(b, optimize, target, mods);
+    const unit_tests = addUnitTests(b, config, deps);
+    const test_suite = addTestSuite(b, config, deps, zss);
+    addDemo(b, config, deps, zss);
+    addExamples(b, config, zss);
 
     const all_tests = b.step("test", "Run all tests");
     all_tests.dependOn(&unit_tests.step);
     all_tests.dependOn(&test_suite.step);
 }
 
-const Modules = struct {
-    mach_glfw: *Module,
-    mach_harfbuzz: *Module,
-    zgl: *Module,
-    zigimg: *Module,
-};
-
-fn getModules(b: *Build, optimize: OptimizeMode, target: ResolvedTarget) Modules {
-    const mach_freetype_dep = b.dependency("mach-freetype", .{
-        .optimize = optimize,
-        .target = target,
-    });
-    const mach_glfw_dep = b.dependency("mach-glfw", .{
-        .optimize = optimize,
-        .target = target,
-    });
-    const zigimg_dep = b.dependency("zigimg", .{});
-    const zgl_dep = b.dependency("zgl", .{});
-
-    return .{
-        .mach_harfbuzz = mach_freetype_dep.module("mach-harfbuzz"),
-        .mach_glfw = mach_glfw_dep.module("mach-glfw"),
-        .zgl = zgl_dep.module("zgl"),
-        .zigimg = zigimg_dep.module("zigimg"),
-    };
-}
-
-fn addUnitTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) *Step.Run {
+fn addUnitTests(b: *Build, config: Config, deps: Deps) *Step.Run {
     const unit_tests = b.addTest(.{
         .name = "zss-unit-tests",
         .root_source_file = b.path("source/zss.zig"),
-        .target = target,
-        .optimize = optimize,
+        .target = config.target,
+        .optimize = config.optimize,
     });
-    unit_tests.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
+    unit_tests.root_module.addImport("harfbuzz", deps.harfbuzz.module("harfbuzz"));
+    unit_tests.linkLibrary(deps.harfbuzz.artifact("harfbuzz"));
 
     const run = b.addRunArtifact(unit_tests);
     const install = b.addInstallArtifact(unit_tests, .{});
@@ -73,14 +87,13 @@ fn addUnitTests(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods:
     return run;
 }
 
-fn addTestSuite(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) *Step.Run {
+fn addTestSuite(b: *Build, config: Config, deps: Deps, zss: *Module) *Step.Run {
     const test_suite = b.addExecutable(.{
         .name = "zss-test-suite",
         .root_source_file = b.path("test/suite.zig"),
-        .target = target,
-        .optimize = optimize,
+        .target = config.target,
+        .optimize = config.optimize,
     });
-    b.installArtifact(test_suite);
 
     {
         const TestSuiteCategory = enum {
@@ -106,21 +119,14 @@ fn addTestSuite(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods:
         test_suite.root_module.addOptions("build-options", options_module);
     }
 
-    {
-        const zss_mod = b.createModule(.{
-            .root_source_file = b.path("source/zss.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
-                .{ .name = "zgl", .module = mods.zgl },
-            },
-        });
-        test_suite.root_module.addImport("zss", zss_mod);
-        test_suite.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
-        test_suite.root_module.addImport("zgl", mods.zgl);
-        test_suite.root_module.addImport("zigimg", mods.zigimg);
-        test_suite.root_module.addImport("mach-glfw", mods.mach_glfw);
+    test_suite.root_module.addImport("zss", zss);
+    test_suite.root_module.addImport("harfbuzz", deps.harfbuzz.module("harfbuzz"));
+    test_suite.root_module.addImport("zgl", deps.zgl.module("zgl"));
+    if (Deps.zigimg(b, config)) |zigimg| {
+        test_suite.root_module.addImport("zigimg", zigimg.module("zigimg"));
+    }
+    if (Deps.machGlfw(b, config)) |mach_glfw| {
+        test_suite.root_module.addImport("mach-glfw", mach_glfw.module("mach-glfw"));
     }
 
     const run = b.addRunArtifact(test_suite);
@@ -132,58 +138,50 @@ fn addTestSuite(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods:
     run.addDirectoryArg(output_path);
     if (b.args) |args| run.addArgs(args);
 
+    const install = b.addInstallArtifact(test_suite, .{});
     const step = b.step("test-suite", "Run the test suite");
     step.dependOn(&run.step);
+    step.dependOn(&install.step);
+    b.getInstallStep().dependOn(&install.step);
 
     return run;
 }
 
-fn addDemo(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) void {
+fn addDemo(b: *Build, config: Config, deps: Deps, zss: *Module) void {
     const demo = b.addExecutable(.{
         .name = "demo",
         .root_source_file = b.path("demo/demo.zig"),
-        .target = target,
-        .optimize = optimize,
+        .target = config.target,
+        .optimize = config.optimize,
     });
-    demo.root_module.addAnonymousImport("zss", .{
-        .root_source_file = b.path("source/zss.zig"),
-        .imports = &.{
-            .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
-            .{ .name = "zgl", .module = mods.zgl },
-        },
-        .target = target,
-        .optimize = optimize,
-    });
-    demo.root_module.addImport("mach-harfbuzz", mods.mach_harfbuzz);
-    demo.root_module.addImport("zgl", mods.zgl);
-    demo.root_module.addImport("zigimg", mods.zigimg);
-    demo.root_module.addImport("mach-glfw", mods.mach_glfw);
-    b.installArtifact(demo);
+    demo.root_module.addImport("zss", zss);
+    demo.root_module.addImport("harfbuzz", deps.harfbuzz.module("harfbuzz"));
+    demo.root_module.addImport("zgl", deps.zgl.module("zgl"));
+    if (Deps.zigimg(b, config)) |zigimg| {
+        demo.root_module.addImport("zigimg", zigimg.module("zigimg"));
+    }
+    if (Deps.machGlfw(b, config)) |mach_glfw| {
+        demo.root_module.addImport("mach-glfw", mach_glfw.module("mach-glfw"));
+    }
 
-    const demo_step = b.step("demo", "Run a graphical demo program");
-    const run_demo = b.addRunArtifact(demo);
-    demo_step.dependOn(&run_demo.step);
-    if (b.args) |args| run_demo.addArgs(args);
+    const run = b.addRunArtifact(demo);
+    if (b.args) |args| run.addArgs(args);
+    const install = b.addInstallArtifact(demo, .{});
+    const step = b.step("demo", "Run a graphical demo program");
+    step.dependOn(&run.step);
+    step.dependOn(&install.step);
+    b.getInstallStep().dependOn(&install.step);
 }
 
-fn addExamples(b: *Build, optimize: OptimizeMode, target: ResolvedTarget, mods: Modules) void {
-    const zss_mod = b.createModule(.{
-        .root_source_file = b.path("source/zss.zig"),
-        .imports = &.{
-            .{ .name = "mach-harfbuzz", .module = mods.mach_harfbuzz },
-        },
-        .target = target,
-        .optimize = optimize,
-    });
-    addExample(b, optimize, target, zss_mod, "parse", "examples/parse.zig", "Run an example parser program");
-    addExample(b, optimize, target, zss_mod, "usage", "examples/usage.zig", "Run an example usage program");
+fn addExamples(b: *Build, config: Config, zss: *Module) void {
+    addExample(b, config, zss, "parse", "examples/parse.zig", "Run an example parser program");
+    addExample(b, config, zss, "usage", "examples/usage.zig", "Run an example usage program");
 }
 
 fn addExample(
     b: *Build,
-    optimize: OptimizeMode,
-    target: ResolvedTarget,
-    zss_mod: *Module,
+    config: Config,
+    zss: *Module,
     name: []const u8,
     path: []const u8,
     description: []const u8,
@@ -191,14 +189,17 @@ fn addExample(
     const exe = b.addExecutable(.{
         .name = name,
         .root_source_file = b.path(path),
-        .target = target,
-        .optimize = optimize,
+        .target = config.target,
+        .optimize = config.optimize,
     });
-    exe.root_module.addImport("zss", zss_mod);
+    exe.root_module.addImport("zss", zss);
     b.installArtifact(exe);
 
-    const step = b.step(name, description);
     const run = b.addRunArtifact(exe);
-    step.dependOn(&run.step);
     if (b.args) |args| run.addArgs(args);
+    const install = b.addInstallArtifact(exe, .{});
+    const step = b.step(name, description);
+    step.dependOn(&run.step);
+    step.dependOn(&install.step);
+    b.getInstallStep().dependOn(&install.step);
 }

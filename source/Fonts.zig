@@ -1,6 +1,6 @@
 const Fonts = @This();
 
-const hb = @import("mach-harfbuzz").c;
+const hb = @import("harfbuzz").c;
 
 pub const Handle = enum { invalid, the_only_handle };
 

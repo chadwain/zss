@@ -10,7 +10,7 @@ const Allocator = std.mem.Allocator;
 const Test = @import("Test.zig");
 
 const glfw = @import("mach-glfw");
-const hb = @import("mach-harfbuzz").c;
+const hb = @import("harfbuzz").c;
 const zgl = @import("zgl");
 const zigimg = @import("zigimg");
 

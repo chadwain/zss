@@ -264,7 +264,7 @@ pub const InlineFormattingContext = struct {
     });
     pub const Slice = InlineBoxList.Slice;
 
-    const hb = @import("mach-harfbuzz").c;
+    const hb = @import("harfbuzz").c;
 
     pub const GlyphIndex = hb.hb_codepoint_t;
 

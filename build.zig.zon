@@ -16,21 +16,23 @@
         "README.md",
     },
     .dependencies = .{
-        .@"mach-freetype" = .{
-            .url = "https://pkg.machengine.org/mach-freetype/d63efa5534c17f3a12ed3d327e0ad42a64adc20a.tar.gz",
-            .hash = "1220adfccce3dbc4e4fa8650fdaec110a676f6b8a1462ed6ef422815207f8288e9d2",
+        .harfbuzz = .{
+            .url = "git+https://github.com/chadwain/harfbuzz#12f24e14aa1922a3faa02cdbb5f67c7f33e39b40",
+            .hash = "harfbuzz-8.4.0-Ip1VAkOZAAAtmxl58v96XEQHbDIOchqBGcUgs099iAyH",
         },
         .@"mach-glfw" = .{
             .url = "git+https://github.com/AshishBhattarai/mach-glfw#e4257404105c802971fd224ca445337ae59094a2",
             .hash = "mach_glfw-0.2.0-dJFhSBIsBQDqEtFpU2nv4v5FaOPDjfOivzZdHkiUc8RP",
+            .lazy = true,
         },
         .zgl = .{
             .url = "git+https://github.com/chadwain/zgl.git#53c75bf06c40f763608fe2230a1a7f33e45a86eb",
-            .hash = "122034e87e1ed9d896c435b2b63979cc9b1a55d164687ae7e85d02aa225277fce378",
+            .hash = "zgl-1.1.0-AAAAALhjBQA06H4e2diWxDWytjl5zJsaVdFkaHrn6F0C",
         },
         .zigimg = .{
             .url = "git+https://github.com/TUSF/zigimg#7e098bf6be568cb8bd659397c2d5c291893095bc",
             .hash = "zigimg-0.1.0-lly-O8QREQDj96arPVPqvkcjKQpmVijvw_6U6FuqhURQ",
+            .lazy = true,
         },
     },
 }

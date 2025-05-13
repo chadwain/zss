@@ -30,7 +30,7 @@ const GlyphIndex = Ifc.GlyphIndex;
 const GeneratedBox = BoxTree.GeneratedBox;
 const Subtree = BoxTree.Subtree;
 
-const hb = @import("mach-harfbuzz").c;
+const hb = @import("harfbuzz").c;
 
 pub const Result = struct {
     min_width: Unit,

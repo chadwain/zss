@@ -9,7 +9,7 @@ const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const TokenSource = zss.syntax.TokenSource;
 
-const hb = @import("mach-harfbuzz").c;
+const hb = @import("harfbuzz").c;
 
 const Test = @import("Test.zig");
 

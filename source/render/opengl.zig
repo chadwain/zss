@@ -27,7 +27,7 @@ const Vector = math.Vector;
 const Ratio = math.Ratio;
 
 const zgl = @import("zgl");
-const hb = @import("mach-harfbuzz").c;
+const hb = @import("harfbuzz").c;
 
 // TODO: Check for OpenGL errors
 // TODO: Potentially lossy casts from integers to floats
