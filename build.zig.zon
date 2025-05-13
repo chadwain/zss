@@ -17,8 +17,8 @@
     },
     .dependencies = .{
         .harfbuzz = .{
-            .url = "git+https://github.com/chadwain/harfbuzz#12f24e14aa1922a3faa02cdbb5f67c7f33e39b40",
-            .hash = "harfbuzz-8.4.0-Ip1VAkOZAAAtmxl58v96XEQHbDIOchqBGcUgs099iAyH",
+            .url = "git+https://github.com/chadwain/harfbuzz#a0f4771122f7db10f8b8cf574c1a1fa4d5d7fbed",
+            .hash = "harfbuzz-10.0.0-Ip1VAkWZAAC1rvZZCeLAF1Ii5dFBnzIhGXWy9rcV_VIx",
         },
         .@"mach-glfw" = .{
             .url = "git+https://github.com/AshishBhattarai/mach-glfw#e4257404105c802971fd224ca445337ae59094a2",
