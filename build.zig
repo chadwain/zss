@@ -94,6 +94,9 @@ fn addTestSuite(b: *Build, config: Config, deps: Deps, zss: *Module) *Step.Run {
         .target = config.target,
         .optimize = config.optimize,
     });
+    test_suite.root_module.addImport("zss", zss);
+    test_suite.root_module.addImport("harfbuzz", deps.harfbuzz.module("harfbuzz"));
+    test_suite.root_module.addImport("zgl", deps.zgl.module("zgl"));
 
     {
         const TestSuiteCategory = enum {
@@ -111,22 +114,24 @@ fn addTestSuite(b: *Build, config: Config, deps: Deps, zss: *Module) *Step.Run {
             if (!category_set.contains(val)) {
                 category_set.insert(val);
                 final_categories.appendAssumeCapacity(in);
+
+                switch (val) {
+                    .check, .memory, .print => {},
+                    .opengl => {
+                        if (Deps.zigimg(b, config)) |zigimg| {
+                            test_suite.root_module.addImport("zigimg", zigimg.module("zigimg"));
+                        }
+                        if (Deps.machGlfw(b, config)) |mach_glfw| {
+                            test_suite.root_module.addImport("mach-glfw", mach_glfw.module("mach-glfw"));
+                        }
+                    },
+                }
             }
         }
 
         const options_module = b.addOptions();
         options_module.addOption([]const []const u8, "test_categories", final_categories.slice());
         test_suite.root_module.addOptions("build-options", options_module);
-    }
-
-    test_suite.root_module.addImport("zss", zss);
-    test_suite.root_module.addImport("harfbuzz", deps.harfbuzz.module("harfbuzz"));
-    test_suite.root_module.addImport("zgl", deps.zgl.module("zgl"));
-    if (Deps.zigimg(b, config)) |zigimg| {
-        test_suite.root_module.addImport("zigimg", zigimg.module("zigimg"));
-    }
-    if (Deps.machGlfw(b, config)) |mach_glfw| {
-        test_suite.root_module.addImport("mach-glfw", mach_glfw.module("mach-glfw"));
     }
 
     const run = b.addRunArtifact(test_suite);

@@ -93,15 +93,15 @@ pub fn main() !void {
 
     const tests = try getAllTests(args, &arena, &fonts, font_handle, images.slice(), &storage);
 
-    const category_fns = std.StaticStringMap(*const fn ([]const *Test, []const u8) anyerror!void).initComptime(&.{
-        .{ "check", @import("check.zig").run },
-        .{ "memory", @import("memory.zig").run },
-        .{ "opengl", @import("opengl.zig").run },
-        .{ "print", @import("print.zig").run },
-    });
+    const Category = enum { check, memory, opengl, print };
     inline for (@import("build-options").test_categories) |category| {
-        const runFn = comptime category_fns.get(category) orelse @compileError("TODO");
-        try runFn(tests, args.output_path);
+        const module = comptime switch (std.meta.stringToEnum(Category, category) orelse @compileError("unknown test category: " ++ category)) {
+            .check => @import("check.zig"),
+            .memory => @import("memory.zig"),
+            .opengl => @import("opengl.zig"),
+            .print => @import("print.zig"),
+        };
+        try module.run(tests, args.output_path);
     }
 }
 
