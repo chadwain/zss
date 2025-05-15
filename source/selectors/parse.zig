@@ -29,7 +29,7 @@ pub const Parser = struct {
 
     list: MultiArrayList(ComplexSelectorList.Item) = undefined,
     valid: bool = true,
-    data: zss.ArrayListSized(ComplexSelector.Data) = undefined,
+    data: zss.ArrayListWithIndex(ComplexSelector.Data, ComplexSelector.Index) = undefined,
     specificity: Specificity = undefined,
 
     pub fn init(
@@ -52,7 +52,7 @@ pub const Parser = struct {
     }
 
     pub fn parseComplexSelectorList(parser: *Parser) !ComplexSelectorList {
-        parser.data = .{ .max_size = std.math.maxInt(ComplexSelector.Index) };
+        parser.data = .empty;
         defer parser.data.deinit(parser.allocator);
 
         parser.list = .{};
@@ -138,7 +138,7 @@ pub const Parser = struct {
 };
 
 fn parseComplexSelector(parser: *Parser) !void {
-    var start: ComplexSelector.Index = @intCast(parser.data.len());
+    var start: ComplexSelector.Index = parser.data.len();
     _ = parser.skipSpaces();
     (try parseCompoundSelector(parser)) orelse return parser.fail();
 
@@ -149,7 +149,7 @@ fn parseComplexSelector(parser: *Parser) !void {
         };
         try parser.data.append(parser.allocator, .{ .trailing = .{ .combinator = combinator, .compound_selector_start = start } });
 
-        start = @intCast(parser.data.len());
+        start = parser.data.len();
         _ = parser.skipSpaces();
         (try parseCompoundSelector(parser)) orelse {
             if (combinator == .descendant) {
