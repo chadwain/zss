@@ -39,7 +39,7 @@ pub fn addStylesheet(env: *Environment, source: TokenSource) !void {
     defer ast.deinit(env.allocator);
 
     try env.stylesheets.ensureUnusedCapacity(env.allocator, 1);
-    const stylesheet = try Stylesheet.create(ast, source, env.allocator, env);
+    const stylesheet = try Stylesheet.create(ast, 0, source, env, env.allocator);
     env.stylesheets.appendAssumeCapacity(stylesheet);
 }
 

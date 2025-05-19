@@ -345,81 +345,33 @@ pub const Slice = struct {
         if (env.stylesheets.items.len == 0) return;
         if (env.stylesheets.items.len > 1) panic("TODO: runCascade: Can only handle one stylesheet", .{});
 
-        var sources = ArrayListUnmanaged(*const CascadedValues){};
-        defer sources.deinit(allocator);
+        var decl_blocks: std.AutoArrayHashMapUnmanaged(zss.Stylesheet.DeclBlockIndex, *const CascadedValues) = .empty;
+        defer decl_blocks.deinit(allocator);
 
-        // Determines the order for values that have the same precedence in the cascade (i.e. they have the same origin, specificity, etc.).
-        const ValuePrecedence = struct {
-            specificity: Specificity,
-            important: bool,
-        };
-
-        var precedences = MultiArrayList(ValuePrecedence){};
-        defer precedences.deinit(allocator);
-
-        const stylesheet_index: usize = 0;
-        const rules = env.stylesheets.items[stylesheet_index].rules.slice();
-        for (rules.items(.selector), rules.items(.declarations)) |selector, declarations| {
-            const specificity = selector.matchElement(self, element) orelse continue;
-
-            var precendence = ValuePrecedence{
-                .specificity = specificity,
-                .important = undefined,
+        const stylesheet = env.stylesheets.items[0];
+        const Important = enum { yes, no };
+        for ([_]Important{ .yes, .no }) |importance| {
+            const selectors = switch (importance) {
+                .yes => &stylesheet.selectors_important,
+                .no => &stylesheet.selectors_normal,
             };
-
-            if (!declarations.important.isEmpty()) {
-                precendence.important = true;
-                try sources.append(allocator, &declarations.important);
-                try precedences.append(allocator, precendence);
-            }
-
-            if (!declarations.normal.isEmpty()) {
-                precendence.important = false;
-                try sources.append(allocator, &declarations.normal);
-                try precedences.append(allocator, precendence);
+            for (selectors.items(.complex), selectors.items(.decl_block_index)) |complex_selector, index| {
+                if (decl_blocks.contains(index)) continue;
+                if (complex_selector.matchElement(self, element)) {
+                    try decl_blocks.putNoClobber(allocator, index, &stylesheet.decl_blocks[index]);
+                }
             }
         }
 
-        // Sort the declared values such that values that are of higher precedence in the cascade are earlier in the list.
-        const SortContext = struct {
-            sources: []*const CascadedValues,
-            precedences: MultiArrayList(ValuePrecedence).Slice,
-
-            pub fn swap(sc: @This(), a_index: usize, b_index: usize) void {
-                std.mem.swap(*const CascadedValues, &sc.sources[a_index], &sc.sources[b_index]);
-                inline for (std.meta.fields(ValuePrecedence), 0..) |field_info, i| {
-                    const field = @as(std.meta.FieldEnum(ValuePrecedence), @enumFromInt(i));
-                    const items = sc.precedences.items(field);
-                    std.mem.swap(field_info.type, &items[a_index], &items[b_index]);
-                }
-            }
-
-            pub fn lessThan(sc: @This(), a_index: usize, b_index: usize) bool {
-                const left_important = sc.precedences.items(.important)[a_index];
-                const right_important = sc.precedences.items(.important)[b_index];
-                if (left_important != right_important) {
-                    return left_important;
-                }
-
-                const left_specificity = sc.precedences.items(.specificity)[a_index];
-                const right_specificity = sc.precedences.items(.specificity)[b_index];
-                switch (left_specificity.order(right_specificity)) {
-                    .lt => return false,
-                    .gt => return true,
-                    .eq => {},
-                }
-
-                return false;
-            }
-        };
-
-        // Must be a stable sort.
-        std.sort.insertionContext(0, sources.items.len, SortContext{ .sources = sources.items, .precedences = precedences.slice() });
-
-        try updateCascadedValues(self, element, sources.items);
+        try updateCascadedValues(self, element, decl_blocks.values());
     }
 
-    pub fn updateCascadedValues(self: Slice, element: Element, sources: []const *const CascadedValues) !void {
+    pub fn updateCascadedValues(
+        self: Slice,
+        element: Element,
+        /// This slice should be such that sources with a higher cascade order appear earlier.
+        sources: []const *const CascadedValues,
+    ) !void {
         self.validateElement(element);
         const cascaded_values = &self.ptrs.cascaded_values[element.index];
         for (sources) |source| {

@@ -53,6 +53,7 @@ pub const ComplexSelectorList = struct {
     /// it is that of the most specific selector in the list that matches the element.
     /// See CSS Selectors Level 4 section 17 "Calculating a selector's specificity".
     pub fn matchElement(complex_selector_list: ComplexSelectorList, tree: ElementTree.Slice, element: Element) ?Specificity {
+        // TODO: This function may have no callers within zss, and can be deleted
         // TODO: If selectors in the list were already sorted by specificity (highest to lowest), we could return on the first match.
         var result: ?Specificity = null;
         for (complex_selector_list.list.items(.complex), 0..) |complex, i| {
@@ -146,7 +147,7 @@ pub const ComplexSelector = struct {
         allocator.free(complex.data);
     }
 
-    fn matchElement(complex: ComplexSelector, tree: ElementTree.Slice, match_candidate: Element) bool {
+    pub fn matchElement(complex: ComplexSelector, tree: ElementTree.Slice, match_candidate: Element) bool {
         switch (tree.category(match_candidate)) {
             .normal => {},
             .text => unreachable,
