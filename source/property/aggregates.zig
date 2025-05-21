@@ -286,6 +286,7 @@ pub const BackgroundClip = struct {
 pub const Background = struct {
     image: types.BackgroundImage = .undeclared,
     repeat: types.BackgroundRepeat = .undeclared,
+    attachment: types.BackgroundAttachment = .undeclared,
     position: types.BackgroundPosition = .undeclared,
     origin: types.BackgroundOrigin = .undeclared,
     size: types.BackgroundSize = .undeclared,
@@ -293,6 +294,7 @@ pub const Background = struct {
     pub const initial_values = Background{
         .image = .none,
         .repeat = .{ .repeat = .{ .x = .repeat, .y = .repeat } },
+        .attachment = .scroll,
         .position = .{ .position = .{
             .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
             .y = .{ .side = .start, .offset = .{ .percentage = 0 } },

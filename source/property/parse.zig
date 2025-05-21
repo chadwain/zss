@@ -96,10 +96,10 @@ pub const @"border-bottom-width" = borderWidth;
 fn borderWidth(ctx: *Context) ?types.BorderWidth {
     return values.parse.length(ctx, types.BorderWidth) orelse
         values.parse.keyword(ctx, types.BorderWidth, &.{
-        .{ "thin", .thin },
-        .{ "medium", .medium },
-        .{ "thick", .thick },
-    });
+            .{ "thin", .thin },
+            .{ "medium", .medium },
+            .{ "thick", .thick },
+        });
 }
 
 pub const @"margin-left" = lengthPercentageAuto;
@@ -125,6 +125,7 @@ fn lengthPercentageAuto(ctx: *Context) ?types.LengthPercentageAuto {
 }
 
 const background_mod = @import("parse/background.zig");
+pub const @"background-color" = values.parse.color;
 pub const @"background-image" = background_mod.@"background-image";
 pub const @"background-repeat" = background_mod.@"background-repeat";
 pub const @"background-attachment" = background_mod.@"background-attachment";

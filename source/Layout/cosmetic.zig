@@ -358,6 +358,7 @@ fn blockBoxBackgrounds(
     const positions = getBackgroundPropertyArray(inputs, &specified.background.position);
     const sizes = getBackgroundPropertyArray(inputs, &specified.background.size);
     const repeats = getBackgroundPropertyArray(inputs, &specified.background.repeat);
+    const attachments = getBackgroundPropertyArray(inputs, &specified.background.attachment);
 
     const handle, const buffer = try box_tree.allocBackgroundImages(@intCast(images.len));
     for (images, buffer, 0..) |image, *dest, index| {
@@ -380,6 +381,7 @@ fn blockBoxBackgrounds(
                 .position = positions[index % positions.len],
                 .size = sizes[index % sizes.len],
                 .repeat = repeats[index % repeats.len],
+                .attachment = attachments[index % attachments.len],
                 .clip = clips[index % clips.len],
             },
             box_offsets,

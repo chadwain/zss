@@ -240,6 +240,7 @@ pub fn backgroundImage(
         position: types.BackgroundPosition,
         size: types.BackgroundSize,
         repeat: types.BackgroundRepeat,
+        attachment: types.BackgroundAttachment,
         clip: types.BackgroundClip,
     },
     box_offsets: *const BoxTree.BoxOffsets,
