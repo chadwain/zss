@@ -18,6 +18,7 @@
         .harfbuzz = .{
             .url = "git+https://github.com/chadwain/harfbuzz#a0f4771122f7db10f8b8cf574c1a1fa4d5d7fbed",
             .hash = "harfbuzz-10.0.0-Ip1VAkWZAAC1rvZZCeLAF1Ii5dFBnzIhGXWy9rcV_VIx",
+            .lazy = true,
         },
         .@"mach-glfw" = .{
             .url = "git+https://github.com/AshishBhattarai/mach-glfw#e4257404105c802971fd224ca445337ae59094a2",
@@ -27,6 +28,7 @@
         .zgl = .{
             .url = "git+https://github.com/chadwain/zgl.git#53c75bf06c40f763608fe2230a1a7f33e45a86eb",
             .hash = "zgl-1.1.0-AAAAALhjBQA06H4e2diWxDWytjl5zJsaVdFkaHrn6F0C",
+            .lazy = true,
         },
         .zigimg = .{
             .url = "git+https://github.com/TUSF/zigimg#7e098bf6be568cb8bd659397c2d5c291893095bc",

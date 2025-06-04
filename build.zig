@@ -10,24 +10,48 @@ const Step = Build.Step;
 const Config = struct {
     optimize: OptimizeMode,
     target: ResolvedTarget,
+    enable_harfbuzz: bool,
+    enable_opengl: bool,
 };
 
-const Deps = struct {
-    harfbuzz: *Dependency,
-    zgl: *Dependency,
-
-    fn machGlfw(b: *Build, config: Config) ?*Dependency {
-        return b.lazyDependency("mach-glfw", .{
+const deps = struct {
+    fn addHarfbuzz(b: *Build, config: Config, module: *Module) void {
+        if (!config.enable_harfbuzz) return;
+        if (b.lazyDependency("harfbuzz", .{
             .optimize = config.optimize,
             .target = config.target,
-        });
+        })) |harfbuzz| {
+            module.addImport("harfbuzz", harfbuzz.module("harfbuzz"));
+            module.linkLibrary(harfbuzz.artifact("harfbuzz"));
+        }
     }
 
-    fn zigimg(b: *Build, config: Config) ?*Dependency {
-        return b.lazyDependency("zigimg", .{
+    fn addMachGlfw(b: *Build, config: Config, module: *Module) void {
+        if (b.lazyDependency("mach-glfw", .{
             .optimize = config.optimize,
             .target = config.target,
-        });
+        })) |mach_glfw| {
+            module.addImport("mach-glfw", mach_glfw.module("mach-glfw"));
+        }
+    }
+
+    fn addZgl(b: *Build, config: Config, module: *Module) void {
+        if (!config.enable_opengl) return;
+        if (b.lazyDependency("zgl", .{
+            .optimize = config.optimize,
+            .target = config.target,
+        })) |zgl| {
+            module.addImport("zgl", zgl.module("zgl"));
+        }
+    }
+
+    fn addZigimg(b: *Build, config: Config, module: *Module) void {
+        if (b.lazyDependency("zigimg", .{
+            .optimize = config.optimize,
+            .target = config.target,
+        })) |zigimg| {
+            module.addImport("zigimg", zigimg.module("zigimg"));
+        }
     }
 };
 
@@ -35,17 +59,8 @@ pub fn build(b: *Build) void {
     const config = Config{
         .optimize = b.standardOptimizeOption(.{}),
         .target = b.standardTargetOptions(.{}),
-    };
-
-    const deps = Deps{
-        .harfbuzz = b.dependency("harfbuzz", .{
-            .optimize = config.optimize,
-            .target = config.target,
-        }),
-        .zgl = b.dependency("zgl", .{
-            .optimize = config.optimize,
-            .target = config.target,
-        }),
+        .enable_harfbuzz = b.option(bool, "enable-harfbuzz", "Enable Harfbuzz support") orelse true,
+        .enable_opengl = b.option(bool, "enable-opengl", "Enable OpenGL support") orelse true,
     };
 
     const zss = b.addModule("zss", .{
@@ -53,13 +68,12 @@ pub fn build(b: *Build) void {
         .target = config.target,
         .optimize = config.optimize,
     });
-    zss.addImport("harfbuzz", deps.harfbuzz.module("harfbuzz"));
-    zss.addImport("zgl", deps.zgl.module("zgl"));
-    zss.linkLibrary(deps.harfbuzz.artifact("harfbuzz"));
+    deps.addHarfbuzz(b, config, zss);
+    deps.addZgl(b, config, zss);
 
-    const unit_tests = addUnitTests(b, config, deps);
-    const test_suite = addTestSuite(b, config, deps, zss);
-    addDemo(b, config, deps, zss);
+    const unit_tests = addUnitTests(b, config);
+    const test_suite = addTestSuite(b, config, zss);
+    addDemo(b, config, zss);
     addExamples(b, config, zss);
 
     const all_tests = b.step("test", "Run all tests");
@@ -67,15 +81,14 @@ pub fn build(b: *Build) void {
     all_tests.dependOn(&test_suite.step);
 }
 
-fn addUnitTests(b: *Build, config: Config, deps: Deps) *Step.Run {
+fn addUnitTests(b: *Build, config: Config) *Step.Run {
     const unit_tests = b.addTest(.{
         .name = "zss-unit-tests",
         .root_source_file = b.path("source/zss.zig"),
         .target = config.target,
         .optimize = config.optimize,
     });
-    unit_tests.root_module.addImport("harfbuzz", deps.harfbuzz.module("harfbuzz"));
-    unit_tests.linkLibrary(deps.harfbuzz.artifact("harfbuzz"));
+    deps.addHarfbuzz(b, config, unit_tests.root_module);
 
     const run = b.addRunArtifact(unit_tests);
     const install = b.addInstallArtifact(unit_tests, .{});
@@ -87,7 +100,7 @@ fn addUnitTests(b: *Build, config: Config, deps: Deps) *Step.Run {
     return run;
 }
 
-fn addTestSuite(b: *Build, config: Config, deps: Deps, zss: *Module) *Step.Run {
+fn addTestSuite(b: *Build, config: Config, zss: *Module) *Step.Run {
     const test_suite = b.addExecutable(.{
         .name = "zss-test-suite",
         .root_source_file = b.path("test/suite.zig"),
@@ -95,8 +108,8 @@ fn addTestSuite(b: *Build, config: Config, deps: Deps, zss: *Module) *Step.Run {
         .optimize = config.optimize,
     });
     test_suite.root_module.addImport("zss", zss);
-    test_suite.root_module.addImport("harfbuzz", deps.harfbuzz.module("harfbuzz"));
-    test_suite.root_module.addImport("zgl", deps.zgl.module("zgl"));
+    deps.addHarfbuzz(b, config, test_suite.root_module);
+    deps.addZgl(b, config, test_suite.root_module);
 
     {
         const TestSuiteCategory = enum {
@@ -118,12 +131,8 @@ fn addTestSuite(b: *Build, config: Config, deps: Deps, zss: *Module) *Step.Run {
                 switch (val) {
                     .check, .memory, .print => {},
                     .opengl => {
-                        if (Deps.zigimg(b, config)) |zigimg| {
-                            test_suite.root_module.addImport("zigimg", zigimg.module("zigimg"));
-                        }
-                        if (Deps.machGlfw(b, config)) |mach_glfw| {
-                            test_suite.root_module.addImport("mach-glfw", mach_glfw.module("mach-glfw"));
-                        }
+                        deps.addMachGlfw(b, config, test_suite.root_module);
+                        deps.addZigimg(b, config, test_suite.root_module);
                     },
                 }
             }
@@ -152,7 +161,7 @@ fn addTestSuite(b: *Build, config: Config, deps: Deps, zss: *Module) *Step.Run {
     return run;
 }
 
-fn addDemo(b: *Build, config: Config, deps: Deps, zss: *Module) void {
+fn addDemo(b: *Build, config: Config, zss: *Module) void {
     const demo = b.addExecutable(.{
         .name = "demo",
         .root_source_file = b.path("demo/demo.zig"),
@@ -160,14 +169,10 @@ fn addDemo(b: *Build, config: Config, deps: Deps, zss: *Module) void {
         .optimize = config.optimize,
     });
     demo.root_module.addImport("zss", zss);
-    demo.root_module.addImport("harfbuzz", deps.harfbuzz.module("harfbuzz"));
-    demo.root_module.addImport("zgl", deps.zgl.module("zgl"));
-    if (Deps.zigimg(b, config)) |zigimg| {
-        demo.root_module.addImport("zigimg", zigimg.module("zigimg"));
-    }
-    if (Deps.machGlfw(b, config)) |mach_glfw| {
-        demo.root_module.addImport("mach-glfw", mach_glfw.module("mach-glfw"));
-    }
+    deps.addHarfbuzz(b, config, demo.root_module);
+    deps.addZgl(b, config, demo.root_module);
+    deps.addZigimg(b, config, demo.root_module);
+    deps.addMachGlfw(b, config, demo.root_module);
 
     const run = b.addRunArtifact(demo);
     if (b.args) |args| run.addArgs(args);
