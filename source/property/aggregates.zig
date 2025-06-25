@@ -59,7 +59,7 @@ pub const Tag = enum {
 
     pub const InheritanceType = enum { inherited, not_inherited };
 
-    pub fn inheritanceType(tag: Tag) InheritanceType {
+    pub fn inheritanceType(comptime tag: Tag) InheritanceType {
         return switch (tag) {
             .box_style,
             .content_width,
@@ -81,6 +81,31 @@ pub const Tag = enum {
             .direction,
             .custom,
             => .inherited,
+        };
+    }
+
+    pub const Size = enum { single, multi };
+
+    // TODO: Remove the ability to return null here
+    pub fn size(comptime tag: Tag) ?Size {
+        return switch (tag) {
+            .box_style,
+            .content_width,
+            .horizontal_edges,
+            .content_height,
+            .vertical_edges,
+            .z_index,
+            .insets,
+            .border_colors,
+            .border_styles,
+            .background_color,
+            => .single,
+
+            .background_clip,
+            .background,
+            => .multi,
+
+            else => null,
         };
     }
 };
