@@ -227,7 +227,9 @@ fn analyzeElement(layout: *Layout, comptime is_root: IsRoot) !?AnalyzeResult {
 
 fn dispatch(
     layout: *Layout,
+    /// True if the current element being dispatched is the root element.
     comptime is_root: IsRoot,
+    /// The parent layout mode.
     mode: switch (is_root) {
         .Root => void,
         .NonRoot => Mode,

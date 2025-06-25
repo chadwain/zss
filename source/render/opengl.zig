@@ -712,38 +712,43 @@ fn drawBackgroundImage(
 
 // Tiling Background Images
 //
-//                             Painting area
-// |------------------------------------------------------------------|
-// | |---------|  |--------  Positioning area  -------|  ----------|  |
-// | ||----------------------------------------------------------| |  |
-// | ||(-2, -1)|  | (-1, -1)|  | (0, -1) |  | (1, -1) |  | (2, -1| |  |
-// | ||--------|  |----------  ----------|  |---------|  --------|-|  |
-// |  |                                                          |    |
-// |  |                          Center                          |    |
-// | ||--------|  |---------|  |---------|  |---------|  |-------|-|  |
-// | ||Image   |  | Image   |  | Image   |  | Image   |  | Image | |  |
-// | ||(-2, 0) |  | (-1, 0) |  | (0, 0)  |  | (1, 0)  |  | (2, 0)| |  |
-// | ||--------|  |---------|  |---------|  |---------|  |-------|-|  |
-// |  |                                                          |    |
-// |  |                                                          |    |
-// | ||--------|  |---------|  |---------|  |---------|  |-------|-|  |
-// | ||Image   |  | Image   |  | Image   |  | Image   |  | Image | |  |
-// | ||(-2, 1) |  | (-1, 1) |  | (0, 1)  |  | (1, 1)  |  | (2, 1)| |  |
-// | ||--------|  |---------|  |---------|  |---------|  |-------|-|  |
-// |  |                                                          |    |
-// |  |                                                          |    |
-// | ||--------|  |---------|  |---------|  |---------|  |---------|  |
-// | ||(-2, 2) |  | (-1, 2) |  | (0, 2)  |  | (1, 2)  |  | (2, 2)| |  |
-// | ||----------------------------------------------------------| |  |
-// | |---------|  |---------|  |---------|  |---------|  |---------|  |
-// |------------------------------------------------------------------|
+//                                   Painting area
+// |------------------------------------------------------------------------------|
+// |                                                                              |
+// | |---------|  |--------  Positioning area  -------|  |---------|  |---------| |
+// | | +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ |  | Image   | |
+// | | +-2, -1)|  | (-1, -1)|  | (0, -1) |  | (1, -1) |  | (2, -1+ |  | (3, -1) | |
+// | |-+-------|  |----------  ----------|  |---------|  |-------+-|  |---------| |
+// |   +                                                         +                |
+// |   +                         Center                          +                |
+// | |-+-------|  |---------|  |---------|  |---------|  |-------+-|  |---------| |
+// | | +Image  |  | Image   |  | Image   |  | Image   |  | Image + |  | Image   | |
+// | | +-2, 0) |  | (-1, 0) |  | (0, 0)  |  | (1, 0)  |  | (2, 0)+ |  | (3, 0)  | |
+// | |-+-------|  |---------|  |---------|  |---------|  |-------+-|  |---------| |
+// |   +                                                         +                |
+// |   +                                                         +                |
+// | |-+-------|  |---------|  |---------|  |---------|  |-------+-|  |---------| |
+// | | +Image  |  | Image   |  | Image   |  | Image   |  | Image + |  | Image   | |
+// | | +-2, 1) |  | (-1, 1) |  | (0, 1)  |  | (1, 1)  |  | (2, 1)+ |  | (3, 1)  | |
+// | |-+-------|  |---------|  |---------|  |---------|  |-------+-|  |---------| |
+// |   +                                                         +                |
+// |   +                                                         +                |
+// | |-+-------|  |---------|  |---------|  |---------|  |-------+-|  |---------| |
+// | | +-2, 2) |  | (-1, 2) |  | (0, 2)  |  | (1, 2)  |  | (2, 2)+ |  | Image   | |
+// | | +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ |  | (3, 2)  | |
+// | |---------|  |---------|  |---------|  |---------|  |---------|  |---------| |
+// |                                                                              |
+// |------------------------------------------------------------------------------|
 //
-// Background images are positioned within the background positioning area, and painted within the background painting area.
+// Background images are positioned within the background positioning area (large rectangle made of +'s),
+//     and painted within the background painting area (large rectangle made of lines).
 // In this diagram the positioning area is smaller than the painting area, but it could be the other way around.
 // The images have (x, y) coordinates that increase going to the right and down.
 // One image with a known position is designated to be the "center image", and given the coordinates (0, 0).
 // All the other images are positioned relative to the center image.
 // The spacing, position, and size of the images can be determined for the x and y axes independently.
+// In this diagram, enough images are drawn to completely cover the background painting area; however,
+//     whether this actually happens or not depends on various properties.
 
 const BackgroundImageTilingInfo = struct {
     /// The index of the left-most/top-most image to be drawn.

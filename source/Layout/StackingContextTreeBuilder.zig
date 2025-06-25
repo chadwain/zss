@@ -16,7 +16,7 @@ const StackingContextTree = BoxTree.StackingContextTree;
 const Size = StackingContextTree.Size;
 const Id = StackingContextTree.Id;
 
-/// A value is pushed for every new stacking context.
+/// A value is pushed for every stacking context.
 contexts: Stack(struct {
     index: Size,
     parentable: bool,
