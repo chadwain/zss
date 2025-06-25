@@ -1,5 +1,6 @@
 pub const debug = @import("debug.zig");
 pub const math = @import("math.zig");
+pub const meta = @import("meta.zig");
 pub const property = @import("property.zig");
 pub const render = @import("render.zig");
 pub const selectors = @import("selectors.zig");
@@ -11,6 +12,7 @@ pub const zml = @import("zml.zig");
 pub const ArrayListWithIndex = @import("array_list_with_index.zig").ArrayListWithIndex;
 pub const BoxTree = @import("BoxTree.zig");
 pub const CascadedValues = @import("CascadedValues.zig");
+pub const Declarations = @import("Declarations.zig");
 pub const ElementTree = @import("ElementTree.zig");
 pub const Environment = @import("Environment.zig");
 pub const Fonts = @import("Fonts.zig");
