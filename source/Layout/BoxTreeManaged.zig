@@ -15,6 +15,20 @@ const Subtree = BoxTree.Subtree;
 ptr: *BoxTree,
 
 pub fn setGeneratedBox(box_tree: BoxTreeManaged, element: Element, generated_box: GeneratedBox) !void {
+    switch (generated_box) {
+        .block_ref => |block_ref| {
+            const subtree = box_tree.ptr.getSubtree(block_ref.subtree);
+            subtree.blocks.items(.element)[block_ref.index] = element;
+        },
+        .inline_box => |inline_box| {
+            const ifc = box_tree.ptr.getIfc(inline_box.ifc_id);
+            ifc.inline_boxes.items(.element)[inline_box.index] = element;
+        },
+        .text => |text| {
+            const ifc = box_tree.ptr.getIfc(text);
+            ifc.element = element;
+        },
+    }
     try box_tree.ptr.element_to_generated_box.putNoClobber(box_tree.ptr.allocator, element, generated_box);
 }
 
