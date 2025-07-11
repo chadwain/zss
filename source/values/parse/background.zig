@@ -11,7 +11,7 @@ const Context = values.parse.Context;
 // Syntax: <image> | none
 //         <image> = <url> | <gradient>
 //         <gradient> = <linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()> | <repeating-radial-gradient()>
-pub fn @"background-image"(ctx: *Context) ?types.BackgroundImage {
+pub fn image(ctx: *Context) ?types.BackgroundImage {
     // TODO: parse gradient functions
     if (values.parse.keyword(ctx, types.BackgroundImage, &.{.{ "none", .none }})) |value| {
         return value;
@@ -24,12 +24,12 @@ pub fn @"background-image"(ctx: *Context) ?types.BackgroundImage {
 
 // Spec: CSS Backgrounds and Borders Level 3
 // Syntax: <repeat-style> = repeat-x | repeat-y | [repeat | space | round | no-repeat]{1,2}
-pub fn @"background-repeat"(ctx: *Context) ?types.BackgroundRepeat {
-    if (values.parse.keyword(ctx, types.BackgroundRepeat.Repeat, &.{
+pub fn repeat(ctx: *Context) ?types.BackgroundRepeat {
+    if (values.parse.keyword(ctx, types.BackgroundRepeat, &.{
         .{ "repeat-x", .{ .x = .repeat, .y = .no_repeat } },
         .{ "repeat-y", .{ .x = .no_repeat, .y = .repeat } },
     })) |value| {
-        return .{ .repeat = value };
+        return value;
     }
 
     const Style = types.BackgroundRepeat.Style;
@@ -41,7 +41,7 @@ pub fn @"background-repeat"(ctx: *Context) ?types.BackgroundRepeat {
     };
     if (values.parse.keyword(ctx, Style, map)) |x| {
         const y = values.parse.keyword(ctx, Style, map) orelse x;
-        return .{ .repeat = .{ .x = x, .y = y } };
+        return .{ .x = x, .y = y };
     }
 
     return null;
@@ -49,7 +49,7 @@ pub fn @"background-repeat"(ctx: *Context) ?types.BackgroundRepeat {
 
 // Spec: CSS Backgrounds and Borders Level 3
 // Syntax: <attachment> = scroll | fixed | local
-pub fn @"background-attachment"(ctx: *Context) ?types.BackgroundAttachment {
+pub fn attachment(ctx: *Context) ?types.BackgroundAttachment {
     return values.parse.keyword(ctx, types.BackgroundAttachment, &.{
         .{ "scroll", .scroll },
         .{ "fixed", .fixed },
@@ -93,7 +93,7 @@ const bg_position = struct {
 ///                       |
 ///                         [ center | [ left | right ] <length-percentage>? ] &&
 ///                         [ center | [ top | bottom ] <length-percentage>? ]
-pub fn @"background-position"(ctx: *Context) ?types.BackgroundPosition {
+pub fn position(ctx: *Context) ?types.BackgroundPosition {
     const reset_point = ctx.sequence.start;
     return backgroundPosition3Or4Values(ctx) orelse blk: {
         ctx.sequence.reset(reset_point);
@@ -142,15 +142,13 @@ fn backgroundPosition3Or4Values(ctx: *Context) ?types.BackgroundPosition {
     }
 
     return .{
-        .position = .{
-            .x = .{
-                .side = x_axis.side,
-                .offset = x_axis.offset,
-            },
-            .y = .{
-                .side = y_axis.side,
-                .offset = y_axis.offset,
-            },
+        .x = .{
+            .side = x_axis.side,
+            .offset = x_axis.offset,
+        },
+        .y = .{
+            .side = y_axis.side,
+            .offset = y_axis.offset,
         },
     };
 }
@@ -187,33 +185,29 @@ fn backgroundPosition1Or2Values(ctx: *Context) ?types.BackgroundPosition {
         }
 
         return .{
-            .position = .{
-                .x = .{
-                    .side = first.side,
-                    .offset = first.offset,
-                },
-                .y = .{
-                    .side = second.side,
-                    .offset = second.offset,
-                },
-            },
-        };
-    }
-
-    var result = types.BackgroundPosition{
-        .position = .{
             .x = .{
                 .side = first.side,
                 .offset = first.offset,
             },
             .y = .{
-                .side = .center,
-                .offset = .{ .percentage = 0 },
+                .side = second.side,
+                .offset = second.offset,
             },
+        };
+    }
+
+    var result = types.BackgroundPosition{
+        .x = .{
+            .side = first.side,
+            .offset = first.offset,
+        },
+        .y = .{
+            .side = .center,
+            .offset = .{ .percentage = 0 },
         },
     };
     if (first.axis == .y) {
-        std.mem.swap(types.BackgroundPosition.SideOffset, &result.position.x, &result.position.y);
+        std.mem.swap(types.BackgroundPosition.SideOffset, &result.x, &result.y);
     }
     return result;
 }
@@ -230,7 +224,7 @@ fn backgroundPosition1Or2ValuesInfo(ctx: *Context) ?bg_position.Info {
 
 /// Spec: CSS Backgrounds and Borders Level 3
 /// Syntax: <box> = border-box | padding-box | content-box
-pub fn @"background-clip"(ctx: *Context) ?types.BackgroundClip {
+pub fn clip(ctx: *Context) ?types.BackgroundClip {
     return values.parse.keyword(ctx, types.BackgroundClip, &.{
         .{ "border-box", .border_box },
         .{ "padding-box", .padding_box },
@@ -240,7 +234,7 @@ pub fn @"background-clip"(ctx: *Context) ?types.BackgroundClip {
 
 /// Spec: CSS Backgrounds and Borders Level 3
 /// Syntax: <box> = border-box | padding-box | content-box
-pub fn @"background-origin"(ctx: *Context) ?types.BackgroundOrigin {
+pub fn origin(ctx: *Context) ?types.BackgroundOrigin {
     return values.parse.keyword(ctx, types.BackgroundOrigin, &.{
         .{ "border-box", .border_box },
         .{ "padding-box", .padding_box },
@@ -250,7 +244,7 @@ pub fn @"background-origin"(ctx: *Context) ?types.BackgroundOrigin {
 
 /// Spec: CSS Backgrounds and Borders Level 3
 /// Syntax: <bg-size> = [ <length-percentage [0,infinity]> | auto ]{1,2} | cover | contain
-pub fn @"background-size"(ctx: *Context) ?types.BackgroundSize {
+pub fn size(ctx: *Context) ?types.BackgroundSize {
     if (values.parse.keyword(ctx, types.BackgroundSize, &.{
         .{ "cover", .cover },
         .{ "contain", .contain },

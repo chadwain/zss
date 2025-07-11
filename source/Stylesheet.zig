@@ -126,7 +126,7 @@ pub fn create(
                 const selector_list = try zss.selectors.parseSelectorList(env, allocator, token_source, ast, selector_sequence, &stylesheet.namespaces);
 
                 const last_declaration = ast.extra(end_of_prelude).index;
-                var value_ctx = zss.values.parse.Context.init(ast, token_source, arena.allocator());
+                var value_ctx = zss.values.parse.Context.init(ast, token_source);
                 const decls = try zss.property.parseDeclarationsFromAst(&value_ctx, &arena, last_declaration);
 
                 for ([_]Important{ .yes, .no }) |importance| {

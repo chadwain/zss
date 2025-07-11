@@ -4,6 +4,7 @@ const zss = @import("zss.zig");
 const Stack = zss.Stack;
 
 /// Two enums `Base` and `Derived` are compatible if, for every field of `Base`, there is a field in `Derived` with the same name and value.
+// TODO: move to meta
 pub fn ensureCompatibleEnums(comptime Base: type, comptime Derived: type) void {
     comptime {
         @setEvalBranchQuota(std.meta.fields(Derived).len * 1000);
