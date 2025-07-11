@@ -2,9 +2,8 @@ const std = @import("std");
 
 const zss = @import("../zss.zig");
 const SourceLocation = zss.syntax.TokenSource.Location;
-const Storage = zss.values.Storage;
 
-pub const All = enum {
+pub const CssWideKeyword = enum {
     initial,
     inherit,
     unset,
@@ -17,10 +16,6 @@ pub const Display = enum {
     @"inline",
     inline_block,
     none,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
 //pub const Display = enum {
@@ -87,9 +82,6 @@ pub const Display = enum {
 //    legacy_inline_flex,
 //    legacy_inline_grid,
 //    // css-wide
-//    initial,
-//    inherit,
-//    unset,
 //};
 
 pub const Position = enum {
@@ -98,29 +90,17 @@ pub const Position = enum {
     absolute,
     sticky,
     fixed,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
 pub const ZIndex = union(enum) {
     integer: i32,
     auto,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
 pub const Float = enum {
     left,
     right,
     none,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
 pub const Clear = enum {
@@ -128,20 +108,12 @@ pub const Clear = enum {
     right,
     both,
     none,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
 pub const LengthPercentageAuto = union(enum) {
     px: f32,
     percentage: f32,
     auto,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
 pub const Size = LengthPercentageAuto;
@@ -151,10 +123,6 @@ pub const Inset = LengthPercentageAuto;
 pub const LengthPercentage = union(enum) {
     px: f32,
     percentage: f32,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
 pub const MinSize = LengthPercentage;
@@ -164,10 +132,6 @@ pub const MaxSize = union(enum) {
     px: f32,
     percentage: f32,
     none,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
 pub const BorderWidth = union(enum) {
@@ -175,10 +139,6 @@ pub const BorderWidth = union(enum) {
     thin,
     medium,
     thick,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
 pub const BorderStyle = enum {
@@ -192,20 +152,12 @@ pub const BorderStyle = enum {
     ridge,
     inset,
     outset,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
 pub const Color = union(enum) {
     rgba: u32,
     current_color,
     transparent,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 
     pub const black = Color{ .rgba = 0xff };
 };
@@ -214,41 +166,22 @@ pub const BackgroundImage = union(enum) {
     image: zss.Images.Handle,
     url: Url,
     none,
-    many: Storage.Handle,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
-pub const BackgroundRepeat = union(enum) {
+pub const BackgroundRepeat = struct {
     pub const Style = enum { repeat, no_repeat, space, round };
 
-    pub const Repeat = struct {
-        x: Style = .repeat,
-        y: Style = .repeat,
-    };
-
-    repeat: Repeat,
-    many: Storage.Handle,
-    initial,
-    inherit,
-    unset,
-    undeclared,
+    x: Style = .repeat,
+    y: Style = .repeat,
 };
 
-pub const BackgroundAttachment = union(enum) {
+pub const BackgroundAttachment = enum {
     scroll,
     fixed,
     local,
-    many: Storage.Handle,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
-pub const BackgroundPosition = union(enum) {
+pub const BackgroundPosition = struct {
     pub const Side = enum { start, end, center };
     pub const Offset = union(enum) {
         px: f32,
@@ -264,37 +197,20 @@ pub const BackgroundPosition = union(enum) {
         offset: Offset,
     };
 
-    position: struct {
-        x: SideOffset,
-        y: SideOffset,
-    },
-    many: Storage.Handle,
-    initial,
-    inherit,
-    unset,
-    undeclared,
+    x: SideOffset,
+    y: SideOffset,
 };
 
-pub const BackgroundClip = union(enum) {
+pub const BackgroundClip = enum {
     border_box,
     padding_box,
     content_box,
-    many: Storage.Handle,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
-pub const BackgroundOrigin = union(enum) {
+pub const BackgroundOrigin = enum {
     border_box,
     padding_box,
     content_box,
-    many: Storage.Handle,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
 pub const BackgroundSize = union(enum) {
@@ -310,23 +226,15 @@ pub const BackgroundSize = union(enum) {
     },
     contain,
     cover,
-    many: Storage.Handle,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
-pub const Font = union(enum) {
+pub const Font = enum {
     default,
     none,
-    initial,
-    inherit,
-    unset,
-    undeclared,
 };
 
 pub const Url = union(enum) {
+    // TODO: Consider not storing references to Ast nodes
     url_token: SourceLocation,
     string_token: SourceLocation,
 };
