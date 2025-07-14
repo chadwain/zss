@@ -1,7 +1,6 @@
 const zss = @import("zss.zig");
 const Ast = zss.syntax.Ast;
 const CascadedValues = zss.CascadedValues;
-const Declarations = zss.Declarations;
 const TokenSource = zss.syntax.TokenSource;
 const ValueContext = zss.values.parse.Context;
 
@@ -12,10 +11,12 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 // TODO: rename to group
 pub const aggregates = @import("property/aggregates.zig");
 pub const parse = @import("property/parse.zig");
+pub const Declarations = @import("property/Declarations.zig");
 
 comptime {
     if (@import("builtin").is_test) {
         _ = parse;
+        _ = Declarations;
     }
 }
 
@@ -56,7 +57,7 @@ pub const Property = enum {
     @"background-clip",
     @"background-origin",
     @"background-size",
-    // color,
+    color,
 
     pub const Description = union(enum) {
         all,
@@ -110,7 +111,7 @@ pub const Property = enum {
             .@"background-clip"       => nonShorthand(.background_clip , .clip          , .multi ),
             .@"background-origin"     => nonShorthand(.background      , .origin        , .multi ),
             .@"background-size"       => nonShorthand(.background      , .size          , .multi ),
-            // .color                    => nonShorthand(.color           , .color         , .single),
+            .color                    => nonShorthand(.color           , .color         , .single),
         };
         // zig fmt: on
     }
@@ -181,7 +182,13 @@ pub const Property = enum {
     }
 };
 
+pub const Important = enum(u1) {
+    normal = 0,
+    important = 1,
+};
+
 // TODO: Pick a "smarter" number
+// TODO: Consider just creating a buffer outselves instead of requiring the user to provide one
 pub const recommended_buffer_size = Declarations.max_list_len * 10;
 
 pub fn parseDeclarationsFromAst(
@@ -194,34 +201,34 @@ pub fn parseDeclarationsFromAst(
     buffer: []u8,
     /// The last declaration in a list of declarations, or 0 if the list is empty.
     last_declaration_index: Ast.Size,
-) !Declarations.BlockId {
+) !Declarations.Block {
     var fba = std.heap.FixedBufferAllocator.init(buffer);
-    const block = try decls.newBlock(allocator);
+    const block = try decls.openBlock(allocator);
 
     // We parse declarations in the reverse order in which they appear.
     // This is because later declarations will override previous ones.
     var index = last_declaration_index;
     while (index != 0) {
-        const important = switch (value_ctx.ast.tag(index)) {
-            .declaration_important => true,
-            .declaration_normal => false,
+        const important: Important = switch (value_ctx.ast.tag(index)) {
+            .declaration_important => .important,
+            .declaration_normal => .normal,
             else => unreachable,
         };
-        try parseDeclaration(decls, block, allocator, value_ctx, &fba, index, important);
+        try parseDeclaration(decls, allocator, value_ctx, &fba, index, important);
         index = value_ctx.ast.extra(index).index;
     }
 
+    decls.closeBlock();
     return block;
 }
 
 fn parseDeclaration(
     decls: *Declarations,
-    block: Declarations.BlockId,
     allocator: Allocator,
     value_ctx: *ValueContext,
     fba: *std.heap.FixedBufferAllocator,
     declaration_index: Ast.Size,
-    important: bool,
+    important: Important,
 ) !void {
     // TODO: If this property has already been declared, skip parsing a value entirely.
     const location = value_ctx.ast.location(declaration_index);
@@ -242,7 +249,7 @@ fn parseDeclaration(
                     if (!value_ctx.sequence.empty()) {
                         return;
                     }
-                    decls.addAll(block, important, cwk);
+                    decls.addAll(important, cwk);
                 },
                 .non_shorthand => |non_shorthand| {
                     const parseFn = @field(parse, @tagName(comptime_property));
@@ -265,7 +272,7 @@ fn parseDeclaration(
                         return;
                     }
 
-                    try decls.addValues(allocator, block, important, parsed_value);
+                    try decls.addValues(allocator, important, parsed_value);
                 },
             }
         },
@@ -328,7 +335,10 @@ test "parsing properties from a stylesheet" {
     var ast = try zss.syntax.parse.parseCssStylesheet(source, allocator);
     defer ast.deinit(allocator);
 
-    const qualified_rule: Ast.Size = 1;
+    const rule_list: Ast.Size = 0;
+    std.debug.assert(ast.tag(rule_list) == .rule_list);
+    var rules = ast.children(rule_list);
+    const qualified_rule = rules.nextSkipSpaces(ast).?;
     std.debug.assert(ast.tag(qualified_rule) == .qualified_rule);
     const style_block = ast.extra(qualified_rule).index;
     std.debug.assert(ast.tag(style_block) == .style_block);
@@ -338,13 +348,19 @@ test "parsing properties from a stylesheet" {
         fn expectEqual(
             comptime aggregate_tag: aggregates.Tag,
             decls: *const Declarations,
-            block: Declarations.BlockId,
+            block: Declarations.Block,
             expected: Declarations.AllAggregateValues(aggregate_tag),
         ) !void {
+            const meta = decls.getMeta(block);
             const Values = Declarations.AllAggregateValues(aggregate_tag);
             var values = Values{};
-            decls.apply(aggregate_tag, block, false, &values);
-            try std.testing.expectEqual(expected, values);
+            decls.apply(aggregate_tag, block, .normal, meta, &values);
+
+            inline for (std.meta.fields(Values)) |field| {
+                const expected_field = @field(expected, field.name);
+                const actual_field = @field(values, field.name);
+                try expected_field.expectEqual(actual_field);
+            }
         }
     };
 
@@ -352,7 +368,8 @@ test "parsing properties from a stylesheet" {
     defer decls.deinit(allocator);
 
     var value_ctx = ValueContext.init(ast, source);
-    const block = try parseDeclarationsFromAst(&decls, allocator, &value_ctx, &[0]u8{}, last_declaration);
+    var buffer: [recommended_buffer_size]u8 = undefined;
+    const block = try parseDeclarationsFromAst(&decls, allocator, &value_ctx, &buffer, last_declaration);
 
     try ns.expectEqual(.box_style, &decls, block, .{
         .display = .{ .declared = .@"inline" },
@@ -368,21 +385,21 @@ test "parsing properties from a stylesheet" {
 
     try ns.expectEqual(.content_height, &decls, block, .{
         .height = .{ .declared = .{ .percentage = 10 } },
-        .min_height = .undeclared,
+        .min_height = .unset,
         .max_height = .{ .declared = .none },
     });
 
     try ns.expectEqual(.horizontal_edges, &decls, block, .{
-        .padding_left = .undeclared,
+        .padding_left = .unset,
         .padding_right = .{ .declared = .{ .px = 0 } },
         .border_left = .{ .declared = .{ .px = 100 } },
         .border_right = .{ .declared = .thin },
         .margin_left = .{ .declared = .auto },
-        .margin_right = .undeclared,
+        .margin_right = .unset,
     });
 
     try ns.expectEqual(.vertical_edges, &decls, block, .{
-        .padding_top = .undeclared,
+        .padding_top = .unset,
         .padding_bottom = .{ .declared = .{ .px = -7 } },
         .border_top = .{ .declared = .medium },
         .border_bottom = .{ .declared = .thick },
@@ -399,5 +416,10 @@ test "parsing properties from a stylesheet" {
 
     try ns.expectEqual(.background, &decls, block, .{
         .image = .{ .declared = &.{.none} },
+        .repeat = .unset,
+        .attachment = .unset,
+        .position = .unset,
+        .origin = .unset,
+        .size = .unset,
     });
 }

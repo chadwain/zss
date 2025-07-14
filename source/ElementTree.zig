@@ -1,7 +1,9 @@
 const zss = @import("zss.zig");
 const AggregateTag = zss.property.aggregates.Tag;
 const CascadedValues = zss.CascadedValues;
+const Declarations = zss.property.Declarations;
 const Environment = zss.Environment;
+const Important = zss.property.Important;
 const NamespaceId = Environment.Namespaces.Id;
 const NameId = Environment.NameId;
 const Specificity = zss.selectors.Specificity;
@@ -349,11 +351,10 @@ pub const Slice = struct {
         defer decl_blocks.deinit(allocator);
 
         const stylesheet = env.stylesheets.items[0];
-        const Important = enum { yes, no };
-        for ([_]Important{ .yes, .no }) |importance| {
+        for ([_]Important{ .important, .normal }) |importance| {
             const selectors = switch (importance) {
-                .yes => &stylesheet.selectors_important,
-                .no => &stylesheet.selectors_normal,
+                .important => &stylesheet.selectors_important,
+                .normal => &stylesheet.selectors_normal,
             };
             for (selectors.items(.complex), selectors.items(.decl_block_index)) |complex_selector, index| {
                 if (decl_blocks.contains(index)) continue;
@@ -366,26 +367,20 @@ pub const Slice = struct {
         try updateCascadedValues(self, element, decl_blocks.values());
     }
 
+    pub const ValueSource = struct {
+        block: Declarations.Block,
+        important: Important,
+    };
+
     pub fn updateCascadedValues(
         self: Slice,
         element: Element,
+        decls: *const Declarations,
         /// This slice should be such that sources with a higher cascade order appear earlier.
-        sources: []const *const CascadedValues,
+        sources: []const ValueSource,
     ) !void {
         self.validateElement(element);
         const cascaded_values = &self.ptrs.cascaded_values[element.index];
-        for (sources) |source| {
-            // TODO: CascadedValues should have a higher level API
-            if (source.all) |all| cascaded_values.addAll(all);
-            for (source.map.keys(), 0..) |tag, index| {
-                switch (tag) {
-                    inline else => |tag_comptime| {
-                        const source_value = source.getByIndex(tag_comptime, index);
-                        try cascaded_values.add(self.arena, tag_comptime, source_value);
-                    },
-                    .direction, .unicode_bidi, .custom => std.debug.panic("TODO", .{}),
-                }
-            }
-        }
+        for (sources) |source| try cascaded_values.applyDeclBlock(self.arena, decls, source.block, source.important);
     }
 };

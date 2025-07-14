@@ -1,7 +1,9 @@
 const zss = @import("zss.zig");
 const aggregates = zss.property.aggregates;
 const AggregateTag = aggregates.Tag;
+const AllAggregateValues = Declarations.AllAggregateValues;
 const CssWideKeyword = zss.values.types.CssWideKeyword;
+const Declarations = zss.property.Declarations;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -11,86 +13,58 @@ const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
 const CascadedValues = @This();
 
 // TODO: Use a map better suited for arena allocation
-map: AutoArrayHashMapUnmanaged(AggregateTag, usize) = .{},
+map: Map = .{},
 all: ?CssWideKeyword = null,
 
-pub fn isEmpty(cascaded: CascadedValues) bool {
-    return cascaded.map.count() == 0 and cascaded.all == null;
-}
+const Map = AutoArrayHashMapUnmanaged(AggregateTag, usize);
 
-pub fn add(cascaded: *CascadedValues, arena: *ArenaAllocator, comptime tag: AggregateTag, value: tag.Value()) !void {
-    if (cascaded.all != null) return;
-
-    const gop_result = try cascaded.map.getOrPut(arena.allocator(), tag);
-    errdefer cascaded.map.swapRemoveAt(gop_result.index);
-
-    const Aggregate = tag.Value();
-    if (gop_result.found_existing) {
-        const aggregate_ptr = getAggregatePtr(tag, gop_result.value_ptr);
-        inline for (std.meta.fields(Aggregate)) |field_info| {
-            const aggregate_field_ptr = &@field(aggregate_ptr, field_info.name);
-            if (aggregate_field_ptr.* == .undeclared) {
-                aggregate_field_ptr.* = @field(value, field_info.name);
-            }
-        }
-    } else {
-        try initAggregate(arena, tag, gop_result.value_ptr, value);
-    }
-}
-
-pub fn addValue(
+pub fn applyDeclBlock(
     cascaded: *CascadedValues,
     arena: *ArenaAllocator,
-    comptime tag: AggregateTag,
-    comptime field: @TypeOf(.enum_literal),
-    value: @FieldType(tag.Value(), @tagName(field)),
+    decls: *const Declarations,
+    block: Declarations.Block,
+    important: zss.property.Important,
 ) !void {
+    // TODO: The 'all' property does not affect some properties
     if (cascaded.all != null) return;
 
-    const gop_result = try cascaded.map.getOrPut(arena.allocator(), tag);
-    errdefer cascaded.map.swapRemoveAt(gop_result.index);
+    const meta = decls.getMeta(block);
+    if (meta.getAll(important)) |all| cascaded.all = all;
 
-    if (gop_result.found_existing) {
-        const aggregate_ptr = getAggregatePtr(tag, gop_result.value_ptr);
-        const aggregate_field_ptr = &@field(aggregate_ptr, @tagName(field));
-        if (aggregate_field_ptr.* == .undeclared) {
-            aggregate_field_ptr.* = value;
+    var iterator = meta.tagIterator(important);
+    while (iterator.next()) |aggregate_tag| {
+        const gop_result = try cascaded.map.getOrPut(arena.allocator(), aggregate_tag);
+        switch (aggregate_tag) {
+            inline else => |comptime_tag| {
+                try initValues(comptime_tag, arena, gop_result);
+                const values = castValuePtr(comptime_tag, gop_result.value_ptr);
+                decls.apply(comptime_tag, block, important, meta, values);
+            },
         }
-    } else {
-        var aggregate = tag.Value(){};
-        @field(aggregate, @tagName(field)) = value;
-        try initAggregate(arena, tag, gop_result.value_ptr, aggregate);
     }
 }
 
-pub fn addAll(cascaded: *CascadedValues, value: CssWideKeyword) void {
-    if (cascaded.all != null) return;
-    cascaded.all = value;
-}
-
-pub fn get(cascaded: CascadedValues, comptime tag: AggregateTag) ?tag.Value() {
+pub fn get(cascaded: CascadedValues, comptime tag: AggregateTag) ?*const AllAggregateValues(tag) {
     const map_value_ptr = cascaded.map.getPtr(tag) orelse return null;
-    return getAggregatePtr(tag, map_value_ptr).*;
+    return castValuePtr(tag, map_value_ptr);
 }
 
-pub fn getByIndex(cascaded: CascadedValues, comptime tag: AggregateTag, index: usize) tag.Value() {
-    assert(cascaded.map.keys()[index] == tag);
-    return getAggregatePtr(tag, &cascaded.map.values()[index]).*;
-}
-
-fn initAggregate(arena: *ArenaAllocator, comptime tag: AggregateTag, map_value_ptr: *usize, initial_value: tag.Value()) !void {
-    const Aggregate = tag.Value();
-    if (!canFitWithinUsize(Aggregate)) {
-        const aggregate_ptr = try arena.allocator().create(Aggregate);
-        map_value_ptr.* = @intFromPtr(aggregate_ptr);
+fn initValues(comptime tag: AggregateTag, arena: *ArenaAllocator, gop_result: Map.GetOrPutResult) !void {
+    if (gop_result.found_existing) return;
+    const Values = AllAggregateValues(tag);
+    if (canFitWithinUsize(Values)) {
+        const values: *Values = @ptrCast(gop_result.value_ptr);
+        values.* = .{};
+    } else {
+        const values = try arena.allocator().create(Values);
+        values.* = .{};
+        gop_result.value_ptr.* = @intFromPtr(values);
     }
-    const aggregate_ptr = getAggregatePtr(tag, map_value_ptr);
-    aggregate_ptr.* = initial_value;
 }
 
-fn getAggregatePtr(comptime tag: AggregateTag, map_value_ptr: *usize) *tag.Value() {
-    const Aggregate = tag.Value();
-    if (canFitWithinUsize(Aggregate)) {
+fn castValuePtr(comptime tag: AggregateTag, map_value_ptr: *usize) *AllAggregateValues(tag) {
+    const Values = AllAggregateValues(tag);
+    if (canFitWithinUsize(Values)) {
         return @ptrCast(map_value_ptr);
     } else {
         return @ptrFromInt(map_value_ptr.*);
@@ -102,25 +76,20 @@ fn canFitWithinUsize(comptime T: type) bool {
 }
 
 test {
-    const expect = std.testing.expect;
-    const expectEqual = std.testing.expectEqual;
+    const ns = struct {
+        fn testOne(cascaded: *CascadedValues, comptime tag: AggregateTag, arena: *ArenaAllocator, values: AllAggregateValues(tag)) !void {
+            const gop_result = try cascaded.map.getOrPut(arena.allocator(), tag);
+            try initValues(tag, arena, gop_result);
+            const dest = castValuePtr(tag, gop_result.value_ptr);
+            dest.* = values;
+        }
+    };
+
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
     var cascaded = CascadedValues{};
-    try cascaded.add(&arena, .box_style, .{ .display = .none });
-    try cascaded.add(&arena, .box_style, .{ .display = .initial });
-    try cascaded.add(&arena, .horizontal_edges, .{});
-    try cascaded.add(&arena, .horizontal_edges, .{ .margin_left = .auto });
-    cascaded.addAll(.initial);
-    try cascaded.add(&arena, .z_index, .{ .z_index = .auto });
-
-    const box_style = cascaded.get(.box_style) orelse return error.TestFailure;
-    const horizontal_edges = cascaded.get(.horizontal_edges) orelse return error.TestFailure;
-    const all = cascaded.all orelse return error.TestFailure;
-
-    try expectEqual(CssWideKeyword.initial, all);
-    try expectEqual(@as(?aggregates.ZIndex, null), cascaded.get(.z_index));
-    try expect(std.meta.eql(box_style, .{ .display = .none }));
-    try expect(std.meta.eql(horizontal_edges, .{ .margin_left = .auto }));
+    try ns.testOne(&cascaded, .box_style, &arena, .{ .display = .{ .declared = .none } });
+    try ns.testOne(&cascaded, .horizontal_edges, &arena, .{ .margin_left = .{ .declared = .auto } });
+    try ns.testOne(&cascaded, .z_index, &arena, .{ .z_index = .{ .declared = .auto } });
 }

@@ -29,8 +29,8 @@ next_id: std.meta.Tag(Id) = 0,
 /// This is for debugging purposes only, and will have no effect if runtime safety is disabled.
 incompletes: IncompleteStackingContexts = .{},
 
-const IncompleteStackingContexts = switch (@import("builtin").mode) {
-    .Debug, .ReleaseSafe => struct {
+const IncompleteStackingContexts = switch (zss.debug.runtime_safety) {
+    true => struct {
         set: std.AutoHashMapUnmanaged(Id, void) = .empty,
 
         fn deinit(self: *IncompleteStackingContexts, allocator: Allocator) void {
@@ -49,7 +49,7 @@ const IncompleteStackingContexts = switch (@import("builtin").mode) {
             return self.set.count() == 0;
         }
     },
-    .ReleaseFast, .ReleaseSmall => struct {
+    false => struct {
         fn deinit(_: *IncompleteStackingContexts, _: Allocator) void {}
 
         fn insert(_: *IncompleteStackingContexts, _: Allocator, _: Id) !void {}

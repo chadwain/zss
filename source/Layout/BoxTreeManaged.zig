@@ -75,7 +75,7 @@ pub fn appendSpecialGlyph(
 ) !void {
     const special: Ifc.Special = .{
         .kind = blk: {
-            comptime zss.debug.ensureCompatibleEnums(Ifc.Special.Kind, std.meta.Tag(SpecialGlyph));
+            comptime zss.meta.ensureCompatibleEnums(Ifc.Special.Kind, std.meta.Tag(SpecialGlyph));
             @setRuntimeSafety(false);
             break :blk @enumFromInt(@intFromEnum(tag));
         },
