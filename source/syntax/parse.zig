@@ -416,25 +416,26 @@ fn nextSimpleBlockToken(parser: *Parser, location: *TokenSource.Location, ending
 
 fn loop(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged) !void {
     while (parser.stack.top) |*frame| {
-        // zig fmt: off
-        const result = switch (frame.data) {
-            // NOTE: `parser` and `&frame.data` alias
-            .list_of_rules            =>     |*list_of_rules| consumeListOfRules(parser, location, ast, list_of_rules),
-            .list_of_component_values =>                      consumeListOfComponentValues(parser, location, ast),
-            .qualified_rule           =>    |*qualified_rule| consumeQualifiedRule(parser, location, ast, qualified_rule),
-            .at_rule                  =>           |*at_rule| consumeAtRule(parser, location, ast, at_rule),
-            .style_block              =>       |*style_block| consumeStyleBlockContents(parser, location, ast, style_block),
-            .declaration_value        => |*declaration_value| consumeDeclarationValue(parser, location, ast, declaration_value),
-            .simple_block             =>      |*simple_block| consumeSimpleBlock(parser, location, ast, simple_block),
-        };
-        // zig fmt: on
-
-        // TODO: Using errors for control flow like this leads to stupidly long error return traces...
-        result catch |err| switch (err) {
+        loopInner(parser, location, ast, frame) catch |err| switch (err) {
             error.ControlFlowSuspend => {},
             else => |e| return e,
         };
     }
+}
+
+fn loopInner(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, frame: *Parser.Frame) !void {
+    // zig fmt: off
+    switch (frame.data) {
+        // NOTE: `parser` and `&frame.data` alias
+        .list_of_rules            =>     |*list_of_rules| try consumeListOfRules(parser, location, ast, list_of_rules),
+        .list_of_component_values =>                      try consumeListOfComponentValues(parser, location, ast),
+        .qualified_rule           =>    |*qualified_rule| try consumeQualifiedRule(parser, location, ast, qualified_rule),
+        .at_rule                  =>           |*at_rule| try consumeAtRule(parser, location, ast, at_rule),
+        .style_block              =>       |*style_block| try consumeStyleBlockContents(parser, location, ast, style_block),
+        .declaration_value        => |*declaration_value| try consumeDeclarationValue(parser, location, ast, declaration_value),
+        .simple_block             =>      |*simple_block| try consumeSimpleBlock(parser, location, ast, simple_block),
+    }
+    // zig fmt: on
 }
 
 fn consumeListOfRules(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *const Parser.Frame.ListOfRules) !void {
