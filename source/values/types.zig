@@ -3,10 +3,10 @@ const std = @import("std");
 const zss = @import("../zss.zig");
 const SourceLocation = zss.syntax.TokenSource.Location;
 
-pub const CssWideKeyword = enum {
-    initial,
-    inherit,
-    unset,
+pub const CssWideKeyword = enum(u2) {
+    initial = 1,
+    inherit = 2,
+    unset = 3,
 };
 
 pub const Text = []const u8;

@@ -3,6 +3,7 @@ const Environment = @This();
 const zss = @import("zss.zig");
 const syntax = zss.syntax;
 const Ast = syntax.Ast;
+const Declarations = zss.property.Declarations;
 const TokenSource = syntax.TokenSource;
 const Stylesheet = zss.Stylesheet;
 const IdentifierSet = syntax.IdentifierSet;
@@ -19,6 +20,7 @@ type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value, .case 
 // TODO: Case sensitivity depends on whether quirks mode is on
 id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensitive },
 namespaces: Namespaces = .{},
+decls: Declarations = .{},
 
 pub fn init(allocator: Allocator) Environment {
     return Environment{ .allocator = allocator };
@@ -32,6 +34,7 @@ pub fn deinit(env: *Environment) void {
     }
     env.stylesheets.deinit(env.allocator);
     env.namespaces.deinit(env.allocator);
+    env.decls.deinit(env.allocator);
 }
 
 pub fn addStylesheet(env: *Environment, source: TokenSource) !void {

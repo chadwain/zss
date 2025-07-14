@@ -1,5 +1,30 @@
 const std = @import("std");
 
+/// An enum `Base` is coercible to an enum `Derived` if: for every field of `Base`, there is a field in `Derived` with the same name and value.
+pub fn coerceEnum(comptime Derived: type, from: anytype) Derived {
+    comptime {
+        @setEvalBranchQuota(@typeInfo(Derived).@"enum".fields.len * 1000);
+        const Base = @TypeOf(from);
+        const base_fields = switch (@typeInfo(Base)) {
+            .@"enum" => |@"enum"| @"enum".fields,
+            .@"union" => |@"union"| @typeInfo(@"union".tag_type.?).@"enum".fields,
+            else => unreachable,
+        };
+        for (base_fields) |field_info| {
+            const derived_field = std.enums.nameCast(Derived, field_info.name);
+            const derived_value = @intFromEnum(derived_field);
+            if (field_info.value != derived_value)
+                @compileError(std.fmt.comptimePrint(
+                    "{s}.{s} has value {}, expected {}",
+                    .{ @typeName(Derived), field_info.name, derived_value, field_info.value },
+                ));
+        }
+    }
+
+    @setRuntimeSafety(false);
+    return @enumFromInt(@intFromEnum(from));
+}
+
 /// Returns a struct with a field corresponding to each named enum value.
 /// The type and default value of each field is determined by `map`.
 ///

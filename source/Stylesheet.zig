@@ -19,8 +19,6 @@ selectors_important: std.MultiArrayList(Selector),
 /// Selectors that apply to blocks of normal declarations.
 /// This list is sorted such that selectors with a higher cascade order appear earlier.
 selectors_normal: std.MultiArrayList(Selector),
-/// A list of all parsed declaration blocks.
-decl_blocks: []const CascadedValues,
 namespaces: Namespaces,
 /// Private fields.
 private: Private,
@@ -33,11 +31,8 @@ pub const Selector = struct {
     /// The specificity of the selector.
     specificity: Specificity,
     /// The index of the declaration block this selector is associated with.
-    decl_block_index: DeclBlockIndex,
+    decl_block: Declarations.Block,
 };
-
-/// Used for indexing into `decl_blocks`.
-pub const DeclBlockIndex = u16;
 
 pub const Namespaces = struct {
     // TODO: consider making an `IdentifierMap` structure for this use case
@@ -58,7 +53,9 @@ const CascadedValues = zss.CascadedValues;
 const ComplexSelector = zss.selectors.ComplexSelector;
 const Ast = zss.syntax.Ast;
 const AtRule = zss.syntax.Token.AtRule;
+const Declarations = zss.property.Declarations;
 const Environment = zss.Environment;
+const Important = zss.property.Important;
 const NamespaceId = Environment.Namespaces.Id;
 const Specificity = zss.selectors.Specificity;
 const TokenSource = zss.syntax.TokenSource;
@@ -83,6 +80,7 @@ pub fn create(
     env: *Environment,
     child_allocator: Allocator,
 ) !Stylesheet {
+    // TODO: Pick a different allocator
     var arena = ArenaAllocator.init(child_allocator);
     errdefer arena.deinit();
     const allocator = arena.allocator();
@@ -90,13 +88,9 @@ pub fn create(
     var stylesheet = Stylesheet{
         .selectors_important = .empty,
         .selectors_normal = .empty,
-        .decl_blocks = undefined,
         .namespaces = .{},
         .private = .{ .arena = undefined },
     };
-    var decl_blocks: zss.ArrayListWithIndex(CascadedValues, DeclBlockIndex) = .{};
-
-    const Important = enum { yes, no };
 
     std.debug.assert(ast.tag(rule_list) == .rule_list);
     var rule_sequence = ast.children(rule_list);
@@ -127,22 +121,21 @@ pub fn create(
 
                 const last_declaration = ast.extra(end_of_prelude).index;
                 var value_ctx = zss.values.parse.Context.init(ast, token_source);
-                const decls = try zss.property.parseDeclarationsFromAst(&value_ctx, &arena, last_declaration);
+                var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
+                const decl_block = try zss.property.parseDeclarationsFromAst(&env.decls, env.allocator, &value_ctx, &buffer, last_declaration);
 
-                for ([_]Important{ .yes, .no }) |importance| {
-                    const decl_block, const destination_list = switch (importance) {
-                        .yes => .{ &decls.important, &stylesheet.selectors_important },
-                        .no => .{ &decls.normal, &stylesheet.selectors_normal },
+                for ([_]Important{ .important, .normal }) |importance| {
+                    const destination_list = switch (importance) {
+                        .important => &stylesheet.selectors_important,
+                        .normal => &stylesheet.selectors_normal,
                     };
-                    if (decl_block.isEmpty()) continue;
+                    if (!env.decls.hasValues(decl_block, importance)) continue;
 
-                    const decl_block_index = decl_blocks.len();
-                    try decl_blocks.append(allocator, decl_block.*);
                     for (selector_list.list.items(.specificity), selector_list.list.items(.complex)) |specificity, complex| {
                         try destination_list.append(allocator, .{
                             .specificity = specificity,
                             .complex = complex,
-                            .decl_block_index = decl_block_index,
+                            .decl_block = decl_block,
                         });
                     }
                 }
@@ -152,14 +145,14 @@ pub fn create(
     }
 
     // Sort the selectors such that items with a higher cascade order appear earlier in each list.
-    for ([_]Important{ .yes, .no }) |importance| {
+    for ([_]Important{ .important, .normal }) |importance| {
         const selectors = switch (importance) {
-            .yes => &stylesheet.selectors_important,
-            .no => &stylesheet.selectors_normal,
+            .important => &stylesheet.selectors_important,
+            .normal => &stylesheet.selectors_normal,
         };
         const SortContext = struct {
             specificities: []const Specificity,
-            decl_block_indexes: []const DeclBlockIndex,
+            decl_blocks: []const Declarations.Block,
 
             pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
                 const a_spec = ctx.specificities[a_index];
@@ -170,19 +163,17 @@ pub fn create(
                     .eq => {},
                 }
 
-                const a_decl_index = ctx.decl_block_indexes[a_index];
-                const b_decl_index = ctx.decl_block_indexes[b_index];
-                // NOTE: This uses the fact that decl block indexes increase following the document order of decl blocks.
-                return a_decl_index > b_decl_index;
+                const a_decl_block = ctx.decl_blocks[a_index];
+                const b_decl_block = ctx.decl_blocks[b_index];
+                return !a_decl_block.earlierThan(b_decl_block);
             }
         };
         selectors.sortUnstable(SortContext{
             .specificities = selectors.items(.specificity),
-            .decl_block_indexes = selectors.items(.decl_block_index),
+            .decl_blocks = selectors.items(.decl_block),
         });
     }
 
-    stylesheet.decl_blocks = decl_blocks.items(); // NOTE: Not using `toOwnedSlice` because we're using an arena
     stylesheet.private.arena = arena.state;
     return stylesheet;
 }

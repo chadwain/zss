@@ -26,12 +26,12 @@ pub const Tag = enum {
 
     color,
     font,
-    // Not yet implemented.
-    direction,
-    // Not yet implemented.
-    unicode_bidi,
-    // Not yet implemented.
-    custom, // Custom property
+    // // Not yet implemented.
+    // direction,
+    // // Not yet implemented.
+    // unicode_bidi,
+    // // Not yet implemented.
+    // custom, // Custom property
 
     pub fn Value(comptime tag: Tag) type {
         return switch (tag) {
@@ -49,11 +49,6 @@ pub const Tag = enum {
             .background => Background,
             .color => Color,
             .font => Font,
-
-            .direction,
-            .unicode_bidi,
-            .custom,
-            => @compileError("TODO: Value(" ++ @tagName(tag) ++ ")"),
         };
     }
 
@@ -73,19 +68,15 @@ pub const Tag = enum {
             .background_color,
             .background_clip,
             .background,
-            .unicode_bidi,
             => .not_inherited,
 
             .color,
             .font,
-            .direction,
-            .custom,
             => .inherited,
         };
     }
 
-    // TODO: Remove the ability to return null here
-    pub fn size(comptime tag: Tag) ?zss.property.Property.Description.Size {
+    pub fn size(comptime tag: Tag) zss.property.Property.Description.Size {
         return switch (tag) {
             .box_style,
             .content_width,
@@ -97,13 +88,13 @@ pub const Tag = enum {
             .border_colors,
             .border_styles,
             .background_color,
+            .color,
+            .font, // TODO: should probably be multi
             => .single,
 
             .background_clip,
             .background,
             => .multi,
-
-            else => null,
         };
     }
 };

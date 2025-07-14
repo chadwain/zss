@@ -12,7 +12,6 @@ pub const zml = @import("zml.zig");
 pub const ArrayListWithIndex = @import("array_list_with_index.zig").ArrayListWithIndex;
 pub const BoxTree = @import("BoxTree.zig");
 pub const CascadedValues = @import("CascadedValues.zig");
-pub const Declarations = @import("Declarations.zig");
 pub const ElementTree = @import("ElementTree.zig");
 pub const Environment = @import("Environment.zig");
 pub const Fonts = @import("Fonts.zig");

@@ -3,23 +3,10 @@ const std = @import("std");
 const zss = @import("zss.zig");
 const Stack = zss.Stack;
 
-/// Two enums `Base` and `Derived` are compatible if, for every field of `Base`, there is a field in `Derived` with the same name and value.
-// TODO: move to meta
-pub fn ensureCompatibleEnums(comptime Base: type, comptime Derived: type) void {
-    comptime {
-        @setEvalBranchQuota(std.meta.fields(Derived).len * 1000);
-        for (std.meta.fields(Base)) |field_info| {
-            const derived_field = std.meta.stringToEnum(Derived, field_info.name) orelse
-                @compileError(@typeName(Derived) ++ " has no field named " ++ field_info.name);
-            const derived_value = @intFromEnum(derived_field);
-            if (field_info.value != derived_value)
-                @compileError(std.fmt.comptimePrint(
-                    "{s}.{s} has value {}, expected {}",
-                    .{ @typeName(Derived), field_info.name, derived_value, field_info.value },
-                ));
-        }
-    }
-}
+pub const runtime_safety = switch (@import("builtin").mode) {
+    .Debug, .ReleaseSafe => true,
+    .ReleaseFast, .ReleaseSmall => false,
+};
 
 /// Iterate over an array of skips, while also being given the depth of each element.
 pub fn skipArrayIterate(

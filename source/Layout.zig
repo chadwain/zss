@@ -11,7 +11,7 @@ const Element = ElementTree.Element;
 const Fonts = zss.Fonts;
 const Images = zss.Images;
 const Stack = zss.Stack;
-const Storage = zss.values.Storage;
+const Declarations = zss.property.Declarations;
 
 const cosmetic = @import("Layout/cosmetic.zig");
 const flow = @import("Layout/flow.zig");
@@ -67,7 +67,7 @@ pub const Inputs = struct {
     height: u32,
     images: Images.Slice,
     fonts: *const Fonts,
-    storage: *const Storage,
+    decls: *const Declarations,
 };
 
 pub const Error = error{
@@ -86,7 +86,7 @@ pub fn init(
     height: u32,
     images: Images.Slice,
     fonts: *const Fonts,
-    storage: *const Storage,
+    decls: *const Declarations,
 ) Layout {
     // TODO: Ensure the root element has no siblings
     if (!root_element.eqlNull()) {
@@ -106,7 +106,7 @@ pub fn init(
             .height = height,
             .images = images,
             .fonts = fonts,
-            .storage = storage,
+            .decls = decls,
         },
         .allocator = allocator,
         .flow_context = .{},
