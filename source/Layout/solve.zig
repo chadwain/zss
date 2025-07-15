@@ -4,6 +4,8 @@ const zss = @import("../zss.zig");
 const aggregates = zss.property.aggregates;
 const types = zss.values.types;
 const BoxTree = zss.BoxTree;
+const ComputedValues = zss.Layout.StyleComputer.ComputedValues;
+const SpecifiedValues = zss.Layout.StyleComputer.SpecifiedValues;
 
 const math = zss.math;
 const Unit = math.Unit;
@@ -57,7 +59,6 @@ pub fn borderWidthMultiplier(border_style: types.BorderStyle) f32 {
         .inset,
         .outset,
         => 1,
-        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 }
 
@@ -66,27 +67,24 @@ pub fn color(col: types.Color, current_color: math.Color) math.Color {
         .rgba => |rgba| math.Color.fromRgbaInt(rgba),
         .transparent => .transparent,
         .current_color => current_color,
-        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 }
 
-pub fn colorProperty(specified: aggregates.Color) struct { aggregates.Color, math.Color } {
-    const computed = switch (specified.color) {
-        .rgba, .transparent, .current_color => specified,
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    };
+/// Use to resolve the value of the 'color' property.
+/// To resolve the value of just a normal color value, use `color` instead.
+pub fn colorProperty(specified: SpecifiedValues(.color)) struct { ComputedValues(.color), math.Color } {
+    const computed = specified;
     const used: math.Color = switch (computed.color) {
         .rgba => |rgba| .fromRgbaInt(rgba),
         .transparent => .transparent,
         .current_color => std.debug.panic("TODO: 'currentColor' on the 'color' property", .{}),
-        .initial, .inherit, .unset, .undeclared => unreachable,
     };
     return .{ computed, used };
 }
 
 /// Implements the rules specified in section 9.7 of CSS2.2.
-pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: zss.Layout.IsRoot) struct { aggregates.BoxStyle, BoxTree.BoxStyle } {
-    var computed: aggregates.BoxStyle = .{
+pub fn boxStyle(specified: SpecifiedValues(.box_style), comptime is_root: zss.Layout.IsRoot) struct { ComputedValues(.box_style), BoxTree.BoxStyle } {
+    var computed: ComputedValues(.box_style) = .{
         .display = undefined,
         .position = specified.position,
         .float = specified.float,
@@ -112,7 +110,6 @@ pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: zss.Layout.IsR
                 },
                 .fixed => std.debug.panic("TODO: fixed positioning", .{}),
                 .static, .relative, .sticky => {},
-                .initial, .inherit, .unset, .undeclared => unreachable,
             }
 
             if (specified.float != .none) {
@@ -125,7 +122,6 @@ pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: zss.Layout.IsR
                 .relative => .relative,
                 .sticky => std.debug.panic("TODO: sticky positioning", .{}),
                 .absolute, .fixed => unreachable,
-                .initial, .inherit, .unset, .undeclared => unreachable,
             };
         },
         .Root => {
@@ -142,7 +138,6 @@ pub fn boxStyle(specified: aggregates.BoxStyle, comptime is_root: zss.Layout.IsR
             .@"inline" => .{ .@"inline" = .@"inline" },
             .inline_block => .{ .@"inline" = .{ .block = .flow } },
             .none => unreachable,
-            .initial, .inherit, .unset, .undeclared => unreachable,
         },
         .position = position,
     };
@@ -158,7 +153,6 @@ fn blockify(display: types.Display) types.Display {
         .block => .block,
         .@"inline", .inline_block => .block,
         .none => unreachable,
-        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 }
 
@@ -166,24 +160,22 @@ fn innerBlockType(computed_display: types.Display) BoxTree.BoxStyle.InnerBlock {
     return switch (computed_display) {
         .block => .flow,
         .@"inline", .inline_block, .none => unreachable,
-        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 }
 
-pub fn insets(specified: aggregates.Insets) aggregates.Insets {
-    var computed: aggregates.Insets = undefined;
+pub fn insets(specified: SpecifiedValues(.insets)) ComputedValues(.insets) {
+    var computed: ComputedValues(.insets) = undefined;
     inline for (std.meta.fields(aggregates.Insets)) |field_info| {
         @field(computed, field_info.name) = switch (@field(specified, field_info.name)) {
             .px => |value| .{ .px = value },
             .percentage => |value| .{ .percentage = value },
             .auto => .auto,
-            .initial, .inherit, .unset, .undeclared => unreachable,
         };
     }
     return computed;
 }
 
-pub fn borderColors(border_colors: aggregates.BorderColors, current_color: math.Color) BoxTree.BorderColor {
+pub fn borderColors(border_colors: SpecifiedValues(.border_colors), current_color: math.Color) BoxTree.BorderColor {
     return BoxTree.BorderColor{
         .left = color(border_colors.left, current_color),
         .right = color(border_colors.right, current_color),
@@ -192,12 +184,11 @@ pub fn borderColors(border_colors: aggregates.BorderColors, current_color: math.
     };
 }
 
-pub fn borderStyles(border_styles: aggregates.BorderStyles) void {
+pub fn borderStyles(border_styles: SpecifiedValues(.border_styles)) void {
     const solveOne = struct {
         fn f(border_style: types.BorderStyle) void {
             switch (border_style) {
                 .none, .hidden, .solid => {},
-                .initial, .inherit, .unset, .undeclared => unreachable,
                 .dotted,
                 .dashed,
                 .double,
@@ -220,8 +211,6 @@ pub fn backgroundClip(clip: types.BackgroundClip) BoxTree.BackgroundClip {
         .border_box => .border,
         .padding_box => .padding,
         .content_box => .content,
-        .many => unreachable,
-        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 }
 
@@ -274,8 +263,6 @@ pub fn backgroundImage(
         .border_box => .{ .origin = .border, .width = border_width, .height = border_height },
         .padding_box => .{ .origin = .padding, .width = padding_width, .height = padding_height },
         .content_box => .{ .origin = .content, .width = content_width, .height = content_height },
-        .many => unreachable,
-        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
     var width_was_auto = false;
@@ -317,27 +304,21 @@ pub fn backgroundImage(
                 };
             }
         },
-        .many => unreachable,
-        .initial, .inherit, .unset, .undeclared => unreachable,
     };
 
-    const repeat: BoxTree.BackgroundImage.Repeat = switch (specified.repeat) {
-        .repeat => |repeat| .{
-            .x = switch (repeat.x) {
-                .no_repeat => .none,
-                .repeat => .repeat,
-                .space => .space,
-                .round => .round,
-            },
-            .y = switch (repeat.y) {
-                .no_repeat => .none,
-                .repeat => .repeat,
-                .space => .space,
-                .round => .round,
-            },
+    const repeat: BoxTree.BackgroundImage.Repeat = .{
+        .x = switch (specified.repeat.x) {
+            .no_repeat => .none,
+            .repeat => .repeat,
+            .space => .space,
+            .round => .round,
         },
-        .many => unreachable,
-        .initial, .inherit, .unset, .undeclared => unreachable,
+        .y = switch (specified.repeat.y) {
+            .no_repeat => .none,
+            .repeat => .repeat,
+            .space => .space,
+            .round => .round,
+        },
     };
 
     // TODO: Needs review
@@ -371,49 +352,45 @@ pub fn backgroundImage(
         }
     }
 
-    const position: BoxTree.BackgroundImage.Position = switch (specified.position) {
-        .position => |position| .{
-            .x = blk: {
-                const available_space = positioning_area.width - size.w;
-                switch (position.x.side) {
-                    .start, .end => {
-                        switch (position.x.offset) {
-                            .px => |val| {
-                                const offset = length(.px, val);
-                                const offset_adjusted = if (position.x.side == .start) offset else available_space - offset;
-                                break :blk offset_adjusted;
-                            },
-                            .percentage => |p| {
-                                const percentage_adjusted = if (position.x.side == .start) p else 1 - p;
-                                break :blk percentage(percentage_adjusted, available_space);
-                            },
-                        }
-                    },
-                    .center => break :blk percentage(0.5, available_space),
-                }
-            },
-            .y = blk: {
-                const available_space = positioning_area.height - size.h;
-                switch (position.y.side) {
-                    .start, .end => {
-                        switch (position.y.offset) {
-                            .px => |val| {
-                                const offset = length(.px, val);
-                                const offset_adjusted = if (position.y.side == .start) offset else available_space - offset;
-                                break :blk offset_adjusted;
-                            },
-                            .percentage => |p| {
-                                const percentage_adjusted = if (position.y.side == .start) p else 1 - p;
-                                break :blk percentage(percentage_adjusted, available_space);
-                            },
-                        }
-                    },
-                    .center => break :blk percentage(0.5, available_space),
-                }
-            },
+    const position: BoxTree.BackgroundImage.Position = .{
+        .x = blk: {
+            const available_space = positioning_area.width - size.w;
+            switch (specified.position.x.side) {
+                .start, .end => {
+                    switch (specified.position.x.offset) {
+                        .px => |val| {
+                            const offset = length(.px, val);
+                            const offset_adjusted = if (specified.position.x.side == .start) offset else available_space - offset;
+                            break :blk offset_adjusted;
+                        },
+                        .percentage => |p| {
+                            const percentage_adjusted = if (specified.position.x.side == .start) p else 1 - p;
+                            break :blk percentage(percentage_adjusted, available_space);
+                        },
+                    }
+                },
+                .center => break :blk percentage(0.5, available_space),
+            }
         },
-        .many => unreachable,
-        .initial, .inherit, .unset, .undeclared => unreachable,
+        .y = blk: {
+            const available_space = positioning_area.height - size.h;
+            switch (specified.position.y.side) {
+                .start, .end => {
+                    switch (specified.position.y.offset) {
+                        .px => |val| {
+                            const offset = length(.px, val);
+                            const offset_adjusted = if (specified.position.y.side == .start) offset else available_space - offset;
+                            break :blk offset_adjusted;
+                        },
+                        .percentage => |p| {
+                            const percentage_adjusted = if (specified.position.y.side == .start) p else 1 - p;
+                            break :blk percentage(percentage_adjusted, available_space);
+                        },
+                    }
+                },
+                .center => break :blk percentage(0.5, available_space),
+            }
+        },
     };
 
     const clip = backgroundClip(specified.clip);

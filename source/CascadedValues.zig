@@ -23,28 +23,28 @@ pub fn applyDeclBlock(
     arena: *ArenaAllocator,
     decls: *const Declarations,
     block: Declarations.Block,
-    important: zss.property.Important,
+    importance: zss.property.Importance,
 ) !void {
     // TODO: The 'all' property does not affect some properties
     if (cascaded.all != null) return;
 
     const meta = decls.getMeta(block);
-    if (meta.getAll(important)) |all| cascaded.all = all;
+    if (meta.getAll(importance)) |all| cascaded.all = all;
 
-    var iterator = meta.tagIterator(important);
+    var iterator = meta.tagIterator(importance);
     while (iterator.next()) |aggregate_tag| {
         const gop_result = try cascaded.map.getOrPut(arena.allocator(), aggregate_tag);
         switch (aggregate_tag) {
             inline else => |comptime_tag| {
                 try initValues(comptime_tag, arena, gop_result);
                 const values = castValuePtr(comptime_tag, gop_result.value_ptr);
-                decls.apply(comptime_tag, block, important, meta, values);
+                decls.apply(comptime_tag, block, importance, meta, values);
             },
         }
     }
 }
 
-pub fn get(cascaded: CascadedValues, comptime tag: AggregateTag) ?*const AllAggregateValues(tag) {
+pub fn getPtr(cascaded: CascadedValues, comptime tag: AggregateTag) ?*const AllAggregateValues(tag) {
     const map_value_ptr = cascaded.map.getPtr(tag) orelse return null;
     return castValuePtr(tag, map_value_ptr);
 }

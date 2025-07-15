@@ -182,7 +182,7 @@ pub const Property = enum {
     }
 };
 
-pub const Important = enum(u1) {
+pub const Importance = enum(u1) {
     normal = 0,
     important = 1,
 };
@@ -209,12 +209,12 @@ pub fn parseDeclarationsFromAst(
     // This is because later declarations will override previous ones.
     var index = last_declaration_index;
     while (index != 0) {
-        const important: Important = switch (value_ctx.ast.tag(index)) {
+        const importance: Importance = switch (value_ctx.ast.tag(index)) {
             .declaration_important => .important,
             .declaration_normal => .normal,
             else => unreachable,
         };
-        try parseDeclaration(decls, allocator, value_ctx, &fba, index, important);
+        try parseDeclaration(decls, allocator, value_ctx, &fba, index, importance);
         index = value_ctx.ast.extra(index).index;
     }
 
@@ -228,7 +228,7 @@ fn parseDeclaration(
     value_ctx: *ValueContext,
     fba: *std.heap.FixedBufferAllocator,
     declaration_index: Ast.Size,
-    important: Important,
+    importance: Importance,
 ) !void {
     // TODO: If this property has already been declared, skip parsing a value entirely.
     const location = value_ctx.ast.location(declaration_index);
@@ -249,7 +249,7 @@ fn parseDeclaration(
                     if (!value_ctx.sequence.empty()) {
                         return;
                     }
-                    decls.addAll(important, cwk);
+                    decls.addAll(importance, cwk);
                 },
                 .non_shorthand => |non_shorthand| {
                     const parseFn = @field(parse, @tagName(comptime_property));
@@ -272,7 +272,7 @@ fn parseDeclaration(
                         return;
                     }
 
-                    try decls.addValues(allocator, important, parsed_value);
+                    try decls.addValues(allocator, importance, parsed_value);
                 },
             }
         },
@@ -359,7 +359,7 @@ test "parsing properties from a stylesheet" {
             inline for (std.meta.fields(Values)) |field| {
                 const expected_field = @field(expected, field.name);
                 const actual_field = @field(values, field.name);
-                try expected_field.expectEqual(actual_field);
+                try actual_field.expectEqual(expected_field);
             }
         }
     };

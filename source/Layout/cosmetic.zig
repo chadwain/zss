@@ -9,11 +9,14 @@ const aggregates = zss.property.aggregates;
 const solve = @import("./solve.zig");
 const types = zss.values.types;
 const Layout = zss.Layout;
-const StyleComputer = @import("./StyleComputer.zig");
 
 const Color = zss.math.Color;
 const Size = zss.math.Size;
 const Unit = zss.math.Unit;
+
+const StyleComputer = Layout.StyleComputer;
+const ComputedValues = StyleComputer.ComputedValues;
+const SpecifiedValues = StyleComputer.SpecifiedValues;
 
 const BoxTree = zss.BoxTree;
 const BlockRef = BoxTree.BlockRef;
@@ -160,7 +163,7 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comp
         }
     }
 
-    var computed_insets: aggregates.Insets = undefined;
+    var computed_insets: ComputedValues(.insets) = undefined;
     {
         const used_insets = &subtree.items(.insets)[ref.index];
         switch (computed_box_style.position) {
@@ -169,7 +172,6 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comp
                 const containing_block_size = context.containing_block_size.items[context.containing_block_size.items.len - 1];
                 solveInsetsRelative(specified.insets, containing_block_size, &computed_insets, used_insets);
             },
-            .initial, .inherit, .unset, .undeclared => unreachable,
             else => panic("TODO: Block insets with {s} positioning", .{@tagName(computed_box_style.position)}),
         }
     }
@@ -213,8 +215,8 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comp
 }
 
 fn solveInsetsStatic(
-    specified: aggregates.Insets,
-    computed: *aggregates.Insets,
+    specified: SpecifiedValues(.insets),
+    computed: *ComputedValues(.insets),
     used: *BoxTree.Insets,
 ) void {
     computed.* = .{
@@ -222,34 +224,30 @@ fn solveInsetsStatic(
             .px => |value| .{ .px = value },
             .percentage => |value| .{ .percentage = value },
             .auto => .auto,
-            .initial, .inherit, .unset, .undeclared => unreachable,
         },
         .right = switch (specified.right) {
             .px => |value| .{ .px = value },
             .percentage => |value| .{ .percentage = value },
             .auto => .auto,
-            .initial, .inherit, .unset, .undeclared => unreachable,
         },
         .top = switch (specified.top) {
             .px => |value| .{ .px = value },
             .percentage => |value| .{ .percentage = value },
             .auto => .auto,
-            .initial, .inherit, .unset, .undeclared => unreachable,
         },
         .bottom = switch (specified.bottom) {
             .px => |value| .{ .px = value },
             .percentage => |value| .{ .percentage = value },
             .auto => .auto,
-            .initial, .inherit, .unset, .undeclared => unreachable,
         },
     };
     used.* = .{ .x = 0, .y = 0 };
 }
 
 fn solveInsetsRelative(
-    specified: aggregates.Insets,
+    specified: SpecifiedValues(.insets),
     containing_block_size: Size,
-    computed: *aggregates.Insets,
+    computed: *ComputedValues(.insets),
     used: *BoxTree.Insets,
 ) void {
     var left: ?Unit = undefined;
@@ -270,7 +268,6 @@ fn solveInsetsRelative(
             computed.left = .auto;
             left = null;
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.right) {
         .px => |value| {
@@ -285,7 +282,6 @@ fn solveInsetsRelative(
             computed.right = .auto;
             right = null;
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.top) {
         .px => |value| {
@@ -300,7 +296,6 @@ fn solveInsetsRelative(
             computed.top = .auto;
             top = null;
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.bottom) {
         .px => |value| {
@@ -315,7 +310,6 @@ fn solveInsetsRelative(
             computed.bottom = .auto;
             bottom = null;
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     used.* = .{
@@ -333,47 +327,48 @@ fn blockBoxBackgrounds(
     borders: *const BoxTree.Borders,
     current_color: Color,
     specified: struct {
-        background_color: *const aggregates.BackgroundColor,
-        background_clip: *const aggregates.BackgroundClip,
-        background: *const aggregates.Background,
+        background_color: *const SpecifiedValues(.background_color),
+        background_clip: *const SpecifiedValues(.background_clip),
+        background: *const SpecifiedValues(.background),
     },
     background_ptr: *BoxTree.BlockBoxBackground,
 ) !void {
     background_ptr.color = solve.color(specified.background_color.color, current_color);
 
-    const images: []const types.BackgroundImage = switch (specified.background.image) {
-        .many => |storage_handle| inputs.storage.get(types.BackgroundImage, storage_handle),
-        .image, .url => (&specified.background.image)[0..1],
-        .none => {
-            background_ptr.images = .invalid;
-            background_ptr.color_clip = comptime solve.backgroundClip(aggregates.BackgroundClip.initial_values.clip);
-            return;
-        },
-        .initial, .inherit, .unset, .undeclared => unreachable,
-    };
-    const clips = getBackgroundPropertyArray(inputs, &specified.background_clip.clip);
+    const images = specified.background.image;
+    const clips = specified.background_clip.clip;
     background_ptr.color_clip = solve.backgroundClip(clips[(images.len - 1) % clips.len]);
 
-    const origins = getBackgroundPropertyArray(inputs, &specified.background.origin);
-    const positions = getBackgroundPropertyArray(inputs, &specified.background.position);
-    const sizes = getBackgroundPropertyArray(inputs, &specified.background.size);
-    const repeats = getBackgroundPropertyArray(inputs, &specified.background.repeat);
-    const attachments = getBackgroundPropertyArray(inputs, &specified.background.attachment);
+    const num_images = blk: {
+        var result: usize = 0;
+        for (images) |image| switch (image) {
+            .none => {},
+            .image, .url => result += 1,
+        };
+        break :blk result;
+    };
+    if (num_images == 0) {
+        background_ptr.images = .invalid;
+        return;
+    }
 
-    const handle, const buffer = try box_tree.allocBackgroundImages(@intCast(images.len));
-    for (images, buffer, 0..) |image, *dest, index| {
+    const origins = specified.background.origin;
+    const positions = specified.background.position;
+    const sizes = specified.background.size;
+    const repeats = specified.background.repeat;
+    const attachments = specified.background.attachment;
+
+    const handle, const buffer = try box_tree.allocBackgroundImages(@intCast(num_images));
+    var buffer_index: usize = 0;
+    for (images, 0..) |image, index| {
         const image_handle = switch (image) {
             .image => |image_handle| image_handle,
             .url => std.debug.panic("TODO: background-image URLs", .{}),
-            .none => {
-                dest.* = .{};
-                continue;
-            },
-            .many => unreachable,
-            .initial, .inherit, .unset, .undeclared => unreachable,
+            .none => continue,
         };
+        defer buffer_index += 1;
         const dimensions = inputs.images.items(.dimensions)[@intFromEnum(image_handle)];
-        dest.* = solve.backgroundImage(
+        buffer[buffer_index] = solve.backgroundImage(
             image_handle,
             dimensions,
             .{
@@ -389,15 +384,6 @@ fn blockBoxBackgrounds(
         );
     }
     background_ptr.images = handle;
-}
-
-fn getBackgroundPropertyArray(inputs: Layout.Inputs, ptr_to_value: anytype) []const std.meta.Child(@TypeOf(ptr_to_value)) {
-    const T = std.meta.Child(@TypeOf(ptr_to_value));
-    switch (ptr_to_value.*) {
-        .many => |storage_handle| return inputs.storage.get(T, storage_handle),
-        .initial, .inherit, .unset, .undeclared => unreachable,
-        else => return @as(*const [1]T, @ptrCast(ptr_to_value)),
-    }
 }
 
 fn anonymousBlockBoxCosmeticLayout(box_tree: Layout.BoxTreeManaged, ref: BlockRef) void {
@@ -428,7 +414,7 @@ fn inlineBoxCosmeticLayout(
 
     const computed_box_style, _ = solve.boxStyle(specified.box_style, .NonRoot);
 
-    var computed_insets: aggregates.Insets = undefined;
+    var computed_insets: ComputedValues(.insets) = undefined;
     {
         const used_insets = &ifc_slice.items(.insets)[inline_box_index];
         switch (computed_box_style.position) {
@@ -439,7 +425,6 @@ fn inlineBoxCosmeticLayout(
             },
             .sticky => panic("TODO: Inline insets with {s} positioning", .{@tagName(computed_box_style.position)}),
             .absolute, .fixed => unreachable,
-            .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
 
@@ -453,19 +438,11 @@ fn inlineBoxCosmeticLayout(
 
     solve.borderStyles(specified.border_styles);
 
-    {
-        const background_clip = switch (specified.background_clip.clip) {
-            .many => |storage_handle| blk: {
-                const array = layout.inputs.storage.get(zss.values.types.BackgroundClip, storage_handle);
-                // CSS-BACKGROUNDS-3§2.2:
-                // The background color is clipped according to the background-clip value associated with the bottom-most background image layer.
-                break :blk array[array.len - 1];
-            },
-            else => |tag| tag,
-        };
-        const background_ptr = &ifc_slice.items(.background)[inline_box_index];
-        background_ptr.* = solve.inlineBoxBackground(specified.background_color.color, background_clip, used_color);
-    }
+    const images = specified.background.image;
+    const clips = specified.background_clip.clip;
+    const background_clip = clips[(images.len - 1) % clips.len];
+    const background_ptr = &ifc_slice.items(.background)[inline_box_index];
+    background_ptr.* = solve.inlineBoxBackground(specified.background_color.color, background_clip, used_color);
 
     layout.computer.setComputedValue(.cosmetic, .box_style, computed_box_style);
     layout.computer.setComputedValue(.cosmetic, .insets, computed_insets);

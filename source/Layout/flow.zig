@@ -12,11 +12,14 @@ const Element = zss.ElementTree.Element;
 const Layout = zss.Layout;
 const SctBuilder = Layout.StackingContextTreeBuilder;
 const Stack = zss.Stack;
-const StyleComputer = Layout.StyleComputer;
 const Unit = zss.math.Unit;
 
 const solve = @import("./solve.zig");
 const @"inline" = @import("./inline.zig");
+
+const StyleComputer = Layout.StyleComputer;
+const SpecifiedValues = StyleComputer.SpecifiedValues;
+const ComputedValues = StyleComputer.ComputedValues;
 
 const BoxTree = zss.BoxTree;
 const BoxStyle = BoxTree.BoxStyle;
@@ -196,7 +199,6 @@ fn solveWidthAndHorizontalMargins(
                 .ShrinkToFit => 0,
             };
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_width.max_width) {
         .px => |value| {
@@ -214,7 +216,6 @@ fn solveWidthAndHorizontalMargins(
             computed.content_width.max_width = .none;
             sizes.max_inline_size = std.math.maxInt(Unit);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     switch (specified.content_width.width) {
@@ -233,7 +234,6 @@ fn solveWidthAndHorizontalMargins(
             computed.content_width.width = .auto;
             sizes.setAuto(.inline_size);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.margin_left) {
         .px => |value| {
@@ -251,7 +251,6 @@ fn solveWidthAndHorizontalMargins(
             computed.horizontal_edges.margin_left = .auto;
             sizes.setAuto(.margin_inline_start);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.margin_right) {
         .px => |value| {
@@ -269,15 +268,14 @@ fn solveWidthAndHorizontalMargins(
             computed.horizontal_edges.margin_right = .auto;
             sizes.setAuto(.margin_inline_end);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
 
 fn solveHorizontalBorderPadding(
-    specified: aggregates.HorizontalEdges,
+    specified: SpecifiedValues(.horizontal_edges),
     containing_block_width: Unit,
-    border_styles: aggregates.BorderStyles,
-    computed: *aggregates.HorizontalEdges,
+    border_styles: SpecifiedValues(.border_styles),
+    computed: *ComputedValues(.horizontal_edges),
     sizes: *BlockUsedSizes,
 ) void {
     assert(containing_block_width >= 0);
@@ -295,7 +293,6 @@ fn solveHorizontalBorderPadding(
                 computed.border_left = .{ .px = width };
                 sizes.border_inline_start = solve.positiveLength(.px, width);
             },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
     {
@@ -311,7 +308,6 @@ fn solveHorizontalBorderPadding(
                 computed.border_right = .{ .px = width };
                 sizes.border_inline_end = solve.positiveLength(.px, width);
             },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
 
@@ -324,7 +320,6 @@ fn solveHorizontalBorderPadding(
             computed.padding_left = .{ .percentage = value };
             sizes.padding_inline_start = solve.positivePercentage(value, containing_block_width);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.padding_right) {
         .px => |value| {
@@ -335,14 +330,13 @@ fn solveHorizontalBorderPadding(
             computed.padding_right = .{ .percentage = value };
             sizes.padding_inline_end = solve.positivePercentage(value, containing_block_width);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
 
 fn solveHeight(
-    specified: aggregates.ContentHeight,
+    specified: SpecifiedValues(.content_height),
     containing_block_height: ?Unit,
-    computed: *aggregates.ContentHeight,
+    computed: *ComputedValues(.content_height),
     sizes: *BlockUsedSizes,
 ) void {
     if (containing_block_height) |h| assert(h >= 0);
@@ -360,7 +354,6 @@ fn solveHeight(
             else
                 0;
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.max_height) {
         .px => |value| {
@@ -378,7 +371,6 @@ fn solveHeight(
             computed.max_height = .none;
             sizes.max_block_size = std.math.maxInt(Unit);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.height) {
         .px => |value| {
@@ -396,16 +388,15 @@ fn solveHeight(
             computed.height = .auto;
             sizes.setAuto(.block_size);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
 
 /// This is an implementation of CSS2§10.5 and CSS2§10.6.3.
 fn solveVerticalEdges(
-    specified: aggregates.VerticalEdges,
+    specified: SpecifiedValues(.vertical_edges),
     containing_block_width: Unit,
-    border_styles: aggregates.BorderStyles,
-    computed: *aggregates.VerticalEdges,
+    border_styles: SpecifiedValues(.border_styles),
+    computed: *ComputedValues(.vertical_edges),
     sizes: *BlockUsedSizes,
 ) void {
     // TODO: Also use the logical properties ('block-size', 'border-block-start', etc.) to determine lengths.
@@ -425,7 +416,6 @@ fn solveVerticalEdges(
                 computed.border_top = .{ .px = width };
                 sizes.border_block_start = solve.positiveLength(.px, width);
             },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
     {
@@ -441,7 +431,6 @@ fn solveVerticalEdges(
                 computed.border_bottom = .{ .px = width };
                 sizes.border_block_end = solve.positiveLength(.px, width);
             },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
     switch (specified.padding_top) {
@@ -453,7 +442,6 @@ fn solveVerticalEdges(
             computed.padding_top = .{ .percentage = value };
             sizes.padding_block_start = solve.positivePercentage(value, containing_block_width);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.padding_bottom) {
         .px => |value| {
@@ -464,7 +452,6 @@ fn solveVerticalEdges(
             computed.padding_bottom = .{ .percentage = value };
             sizes.padding_block_end = solve.positivePercentage(value, containing_block_width);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.margin_top) {
         .px => |value| {
@@ -479,7 +466,6 @@ fn solveVerticalEdges(
             computed.margin_top = .auto;
             sizes.margin_block_start = 0;
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.margin_bottom) {
         .px => |value| {
@@ -494,12 +480,11 @@ fn solveVerticalEdges(
             computed.margin_bottom = .auto;
             sizes.margin_block_end = 0;
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 }
 
 pub fn solveInsets(
-    computed: aggregates.Insets,
+    computed: ComputedValues(.insets),
     position: BoxTree.BoxStyle.Position,
     sizes: *BlockUsedSizes,
 ) void {
@@ -525,7 +510,6 @@ pub fn solveInsets(
                     .px => |value| sizes.setValue(pair[1], solve.length(.px, value)),
                     .percentage => |percentage| sizes.setPercentage(pair[1], percentage),
                     .auto => sizes.setAuto(pair[1]),
-                    .initial, .inherit, .unset, .undeclared => unreachable,
                 }
             }
         },
@@ -579,7 +563,6 @@ pub fn solveStackingContext(computer: *StyleComputer, position: BoxTree.BoxStyle
         .relative => switch (z_index.z_index) {
             .integer => |integer| return .{ .parentable = integer },
             .auto => return .{ .non_parentable = 0 },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         },
         .absolute => unreachable,
     }

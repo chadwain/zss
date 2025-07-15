@@ -74,11 +74,7 @@ pub fn appendSpecialGlyph(
     data: @TypeOf(@field(@as(SpecialGlyph, undefined), @tagName(tag))),
 ) !void {
     const special: Ifc.Special = .{
-        .kind = blk: {
-            comptime zss.meta.ensureCompatibleEnums(Ifc.Special.Kind, std.meta.Tag(SpecialGlyph));
-            @setRuntimeSafety(false);
-            break :blk @enumFromInt(@intFromEnum(tag));
-        },
+        .kind = zss.meta.coerceEnum(Ifc.Special.Kind, tag),
         .data = switch (tag) {
             .ZeroGlyphIndex, .LineBreak => undefined,
             .BoxStart, .BoxEnd, .InlineBlock => data,

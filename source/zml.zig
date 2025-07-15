@@ -161,7 +161,7 @@ fn applyStyleBlockDeclarations(
 ) !void {
     var value_ctx = zss.values.parse.Context.init(ast, token_source);
     const block = try zss.property.parseDeclarationsFromAst(&env.decls, env.allocator, &value_ctx, &[0]u8{}, last_declaration);
-    const sources = [2]ElementTree.Slice.ValueSource{
+    const sources = [2]ElementTree.Slice.DeclSource{
         .{ .block = block, .important = .important },
         .{ .block = block, .important = .normal },
     };
@@ -201,10 +201,7 @@ test astToElement {
         if (element.eqlNull()) return error.TestFailure;
         const cascaded_values = slice.get(.cascaded_values, element);
         const box_style = cascaded_values.get(.box_style) orelse return error.TestFailure;
-        switch (box_style.display) {
-            .declared => |declared| try std.testing.expectEqual(types.Display.block, declared),
-            else => return error.TestFailure,
-        }
+        try box_style.display.expectEqual(.{ .declared = .block });
     }
 
     {

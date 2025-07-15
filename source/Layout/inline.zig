@@ -20,7 +20,9 @@ const units_per_pixel = zss.math.units_per_pixel;
 const flow = @import("./flow.zig");
 const stf = @import("./shrink_to_fit.zig");
 const solve = @import("./solve.zig");
-const StyleComputer = @import("./StyleComputer.zig");
+
+const StyleComputer = Layout.StyleComputer;
+const ComputedValues = StyleComputer.ComputedValues;
 
 const BoxTree = zss.BoxTree;
 const BlockRef = BoxTree.BlockRef;
@@ -152,7 +154,6 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
             const handle: Fonts.Handle = switch (font.font) {
                 .default => layout.inputs.fonts.query(),
                 .none => .invalid,
-                .initial, .inherit, .unset, .undeclared => unreachable,
             };
             layout.inline_context.setFont(handle);
             if (layout.inputs.fonts.get(handle)) |hb_font| {
@@ -373,8 +374,8 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
     };
 
     var computed: struct {
-        horizontal_edges: aggregates.HorizontalEdges,
-        vertical_edges: aggregates.VerticalEdges,
+        horizontal_edges: ComputedValues(.horizontal_edges),
+        vertical_edges: ComputedValues(.vertical_edges),
     } = undefined;
 
     var used: struct {
@@ -403,7 +404,6 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
             computed.horizontal_edges.margin_left = .auto;
             used.margin_inline_start = 0;
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     {
         const multiplier = solve.borderWidthMultiplier(specified.border_styles.left);
@@ -418,7 +418,6 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
                 computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = solve.positiveLength(.px, width);
             },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
     switch (specified.horizontal_edges.padding_left) {
@@ -430,7 +429,6 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
             computed.horizontal_edges.padding_left = .{ .percentage = value };
             used.padding_inline_start = solve.positivePercentage(value, percentage_base_unit);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.margin_right) {
         .px => |value| {
@@ -445,7 +443,6 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
             computed.horizontal_edges.margin_right = .auto;
             used.margin_inline_end = 0;
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     {
         const multiplier = solve.borderWidthMultiplier(specified.border_styles.right);
@@ -460,7 +457,6 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
                 computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = solve.positiveLength(.px, width);
             },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
     switch (specified.horizontal_edges.padding_right) {
@@ -472,7 +468,6 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
             computed.horizontal_edges.padding_right = .{ .percentage = value };
             used.padding_inline_end = solve.positivePercentage(value, percentage_base_unit);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     {
@@ -488,7 +483,6 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
                 computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = solve.positiveLength(.px, width);
             },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
     switch (specified.vertical_edges.padding_top) {
@@ -500,7 +494,6 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
             computed.vertical_edges.padding_top = .{ .percentage = value };
             used.padding_block_start = solve.positivePercentage(value, percentage_base_unit);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     {
         const multiplier = solve.borderWidthMultiplier(specified.border_styles.bottom);
@@ -515,7 +508,6 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
                 computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = solve.positiveLength(.px, width);
             },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
     switch (specified.vertical_edges.padding_bottom) {
@@ -527,7 +519,6 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
             computed.vertical_edges.padding_bottom = .{ .percentage = value };
             used.padding_block_end = solve.positivePercentage(value, percentage_base_unit);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     computed.vertical_edges.margin_top = specified.vertical_edges.margin_top;
@@ -575,7 +566,6 @@ fn inlineBlockSolveSizes(
                 computed.horizontal_edges.border_left = .{ .px = width };
                 used.border_inline_start = solve.positiveLength(.px, width);
             },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
     {
@@ -591,7 +581,6 @@ fn inlineBlockSolveSizes(
                 computed.horizontal_edges.border_right = .{ .px = width };
                 used.border_inline_end = solve.positiveLength(.px, width);
             },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
     switch (specified.horizontal_edges.padding_left) {
@@ -603,7 +592,6 @@ fn inlineBlockSolveSizes(
             computed.horizontal_edges.padding_left = .{ .percentage = value };
             used.padding_inline_start = solve.positivePercentage(value, containing_block_size.width);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.padding_right) {
         .px => |value| {
@@ -614,7 +602,6 @@ fn inlineBlockSolveSizes(
             computed.horizontal_edges.padding_right = .{ .percentage = value };
             used.padding_inline_end = solve.positivePercentage(value, containing_block_size.width);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.margin_left) {
         .px => |value| {
@@ -629,7 +616,6 @@ fn inlineBlockSolveSizes(
             computed.horizontal_edges.margin_left = .auto;
             used.setValue(.margin_inline_start, 0);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.horizontal_edges.margin_right) {
         .px => |value| {
@@ -644,7 +630,6 @@ fn inlineBlockSolveSizes(
             computed.horizontal_edges.margin_right = .auto;
             used.setValue(.margin_inline_end, 0);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_width.min_width) {
         .px => |value| {
@@ -655,7 +640,6 @@ fn inlineBlockSolveSizes(
             computed.content_width.min_width = .{ .percentage = value };
             used.min_inline_size = solve.positivePercentage(value, containing_block_size.width);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_width.max_width) {
         .px => |value| {
@@ -670,7 +654,6 @@ fn inlineBlockSolveSizes(
             computed.content_width.max_width = .none;
             used.max_inline_size = std.math.maxInt(Unit);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     switch (specified.content_width.width) {
@@ -686,7 +669,6 @@ fn inlineBlockSolveSizes(
             computed.content_width.width = .auto;
             used.setAuto(.inline_size);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     {
@@ -702,7 +684,6 @@ fn inlineBlockSolveSizes(
                 computed.vertical_edges.border_top = .{ .px = width };
                 used.border_block_start = solve.positiveLength(.px, width);
             },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
     {
@@ -718,7 +699,6 @@ fn inlineBlockSolveSizes(
                 computed.vertical_edges.border_bottom = .{ .px = width };
                 used.border_block_end = solve.positiveLength(.px, width);
             },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         }
     }
     switch (specified.vertical_edges.padding_top) {
@@ -730,7 +710,6 @@ fn inlineBlockSolveSizes(
             computed.vertical_edges.padding_top = .{ .percentage = value };
             used.padding_block_start = solve.positivePercentage(value, containing_block_size.width);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.padding_bottom) {
         .px => |value| {
@@ -741,7 +720,6 @@ fn inlineBlockSolveSizes(
             computed.vertical_edges.padding_bottom = .{ .percentage = value };
             used.padding_block_end = solve.positivePercentage(value, containing_block_size.width);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.margin_top) {
         .px => |value| {
@@ -756,7 +734,6 @@ fn inlineBlockSolveSizes(
             computed.vertical_edges.margin_top = .auto;
             used.margin_block_start = 0;
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.vertical_edges.margin_bottom) {
         .px => |value| {
@@ -771,7 +748,6 @@ fn inlineBlockSolveSizes(
             computed.vertical_edges.margin_bottom = .auto;
             used.margin_block_end = 0;
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_height.min_height) {
         .px => |value| {
@@ -785,7 +761,6 @@ fn inlineBlockSolveSizes(
             else
                 0;
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_height.max_height) {
         .px => |value| {
@@ -803,7 +778,6 @@ fn inlineBlockSolveSizes(
             computed.content_height.max_height = .none;
             used.max_block_size = std.math.maxInt(Unit);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
     switch (specified.content_height.height) {
         .px => |value| {
@@ -821,7 +795,6 @@ fn inlineBlockSolveSizes(
             computed.content_height.height = .auto;
             used.setAuto(.block_size);
         },
-        .initial, .inherit, .unset, .undeclared => unreachable,
     }
 
     computed.insets = solve.insets(specified.insets);
@@ -850,7 +823,6 @@ fn inlineBlockSolveStackingContext(
         .relative => switch (z_index.z_index) {
             .integer => |integer| return .{ .parentable = integer },
             .auto => return .{ .non_parentable = 0 },
-            .initial, .inherit, .unset, .undeclared => unreachable,
         },
         .absolute => unreachable,
     }

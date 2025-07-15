@@ -1,23 +1,38 @@
 const std = @import("std");
 
-/// An enum `Base` is coercible to an enum `Derived` if: for every field of `Base`, there is a field in `Derived` with the same name and value.
+/// An enum `Base` is coercible to an enum `Derived` if for every field of `Base`, at least one of the following is true:
+///     1. there is a field in `Derived` with the same name and value
+///     2. `Derived` is non-exhaustive and does not have a field with the same name
 pub fn coerceEnum(comptime Derived: type, from: anytype) Derived {
     comptime {
-        @setEvalBranchQuota(@typeInfo(Derived).@"enum".fields.len * 1000);
+        const derived_info = @typeInfo(Derived).@"enum";
+        @setEvalBranchQuota(derived_info.fields.len * 1000);
         const Base = @TypeOf(from);
         const base_fields = switch (@typeInfo(Base)) {
             .@"enum" => |@"enum"| @"enum".fields,
             .@"union" => |@"union"| @typeInfo(@"union".tag_type.?).@"enum".fields,
             else => unreachable,
         };
-        for (base_fields) |field_info| {
-            const derived_field = std.enums.nameCast(Derived, field_info.name);
-            const derived_value = @intFromEnum(derived_field);
-            if (field_info.value != derived_value)
+        for (base_fields) |field| {
+            if (@hasField(Derived, field.name)) {
+                const derived_value = @intFromEnum(@field(Derived, field.name));
+                if (field.value != derived_value) {
+                    @compileError(std.fmt.comptimePrint(
+                        "{s}.{s} has value {}, expected {}",
+                        .{ @typeName(Derived), field.name, derived_value, field.value },
+                    ));
+                }
+            } else if (@typeInfo(Derived).@"enum".is_exhaustive) {
                 @compileError(std.fmt.comptimePrint(
-                    "{s}.{s} has value {}, expected {}",
-                    .{ @typeName(Derived), field_info.name, derived_value, field_info.value },
+                    "{s} has no field named {s}",
+                    .{ @typeName(Derived), field.name },
                 ));
+            } else {
+                _ = std.math.cast(derived_info.tag_type, field.value) orelse @compileError(std.fmt.comptimePrint(
+                    "Value {} cannot cast into enum {s} with tag type {s}",
+                    .{ field.value, @typeName(Derived), @typeName(derived_info.tag_type) },
+                ));
+            }
         }
     }
 
