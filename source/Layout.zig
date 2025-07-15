@@ -638,11 +638,13 @@ pub fn addAbsoluteBlock(layout: *Layout, element: Element, inner_box_style: BoxT
 }
 
 pub const BlockComputedSizes = struct {
-    content_width: aggregates.ContentWidth,
-    horizontal_edges: aggregates.HorizontalEdges,
-    content_height: aggregates.ContentHeight,
-    vertical_edges: aggregates.VerticalEdges,
-    insets: aggregates.Insets,
+    content_width: ComputedValues(.content_width),
+    horizontal_edges: ComputedValues(.horizontal_edges),
+    content_height: ComputedValues(.content_height),
+    vertical_edges: ComputedValues(.vertical_edges),
+    insets: ComputedValues(.insets),
+
+    const ComputedValues = StyleComputer.ComputedValues;
 };
 
 /// Fields ending with `_untagged` each have an associated flag.

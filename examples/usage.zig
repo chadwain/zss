@@ -33,10 +33,7 @@ pub fn main() !void {
     var fonts = zss.Fonts.init();
     defer fonts.deinit();
 
-    var storage = zss.values.Storage{ .allocator = allocator };
-    defer storage.deinit();
-
-    var layout = zss.Layout.init(slice, root, allocator, 100, 100, images.slice(), &fonts, &storage);
+    var layout = zss.Layout.init(slice, root, allocator, 100, 100, images.slice(), &fonts, &env.decls);
     defer layout.deinit();
 
     var box_tree = try layout.run(allocator);

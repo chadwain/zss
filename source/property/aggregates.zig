@@ -307,12 +307,12 @@ pub const Background = struct {
 
     pub const initial_values = Background{
         .image = .none,
-        .repeat = .{ .repeat = .{ .x = .repeat, .y = .repeat } },
+        .repeat = .{ .x = .repeat, .y = .repeat },
         .attachment = .scroll,
-        .position = .{ .position = .{
+        .position = .{
             .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
             .y = .{ .side = .start, .offset = .{ .percentage = 0 } },
-        } },
+        },
         .origin = .padding_box,
         .size = .{ .size = .{ .width = .auto, .height = .auto } },
     };

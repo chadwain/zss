@@ -3,7 +3,7 @@ const AggregateTag = zss.property.aggregates.Tag;
 const CascadedValues = zss.CascadedValues;
 const Declarations = zss.property.Declarations;
 const Environment = zss.Environment;
-const Important = zss.property.Important;
+const Importance = zss.property.Importance;
 const NamespaceId = Environment.Namespaces.Id;
 const NameId = Environment.NameId;
 const Specificity = zss.selectors.Specificity;
@@ -347,29 +347,30 @@ pub const Slice = struct {
         if (env.stylesheets.items.len == 0) return;
         if (env.stylesheets.items.len > 1) panic("TODO: runCascade: Can only handle one stylesheet", .{});
 
-        var decl_blocks: std.AutoArrayHashMapUnmanaged(zss.Stylesheet.DeclBlockIndex, *const CascadedValues) = .empty;
-        defer decl_blocks.deinit(allocator);
+        var decl_sources: std.AutoArrayHashMapUnmanaged(DeclSource, void) = .empty;
+        defer decl_sources.deinit(allocator);
 
         const stylesheet = env.stylesheets.items[0];
-        for ([_]Important{ .important, .normal }) |importance| {
+        for ([_]Importance{ .important, .normal }) |importance| {
             const selectors = switch (importance) {
                 .important => &stylesheet.selectors_important,
                 .normal => &stylesheet.selectors_normal,
             };
-            for (selectors.items(.complex), selectors.items(.decl_block_index)) |complex_selector, index| {
-                if (decl_blocks.contains(index)) continue;
+            for (selectors.items(.complex), selectors.items(.decl_block)) |complex_selector, decl_block| {
+                const source: DeclSource = .{ .block = decl_block, .importance = importance };
+                if (decl_sources.contains(source)) continue;
                 if (complex_selector.matchElement(self, element)) {
-                    try decl_blocks.putNoClobber(allocator, index, &stylesheet.decl_blocks[index]);
+                    try decl_sources.putNoClobber(allocator, source, {});
                 }
             }
         }
 
-        try updateCascadedValues(self, element, decl_blocks.values());
+        try updateCascadedValues(self, element, &env.decls, decl_sources.keys());
     }
 
-    pub const ValueSource = struct {
+    pub const DeclSource = struct {
         block: Declarations.Block,
-        important: Important,
+        importance: Importance,
     };
 
     pub fn updateCascadedValues(
@@ -377,10 +378,10 @@ pub const Slice = struct {
         element: Element,
         decls: *const Declarations,
         /// This slice should be such that sources with a higher cascade order appear earlier.
-        sources: []const ValueSource,
+        sources: []const DeclSource,
     ) !void {
         self.validateElement(element);
         const cascaded_values = &self.ptrs.cascaded_values[element.index];
-        for (sources) |source| try cascaded_values.applyDeclBlock(self.arena, decls, source.block, source.important);
+        for (sources) |source| try cascaded_values.applyDeclBlock(self.arena, decls, source.block, source.importance);
     }
 };

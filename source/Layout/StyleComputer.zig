@@ -28,26 +28,26 @@ pub const Stage = enum {
 };
 
 const BoxGenComputedValues = struct {
-    box_style: ?aggregates.BoxStyle = null,
-    content_width: ?aggregates.ContentWidth = null,
-    horizontal_edges: ?aggregates.HorizontalEdges = null,
-    content_height: ?aggregates.ContentHeight = null,
-    vertical_edges: ?aggregates.VerticalEdges = null,
-    border_styles: ?aggregates.BorderStyles = null,
-    insets: ?aggregates.Insets = null,
-    z_index: ?aggregates.ZIndex = null,
-    font: ?aggregates.Font = null,
+    box_style: ?ComputedValues(.box_style) = null,
+    content_width: ?ComputedValues(.content_width) = null,
+    horizontal_edges: ?ComputedValues(.horizontal_edges) = null,
+    content_height: ?ComputedValues(.content_height) = null,
+    vertical_edges: ?ComputedValues(.vertical_edges) = null,
+    border_styles: ?ComputedValues(.border_styles) = null,
+    insets: ?ComputedValues(.insets) = null,
+    z_index: ?ComputedValues(.z_index) = null,
+    font: ?ComputedValues(.font) = null,
 };
 
 const CosmeticComputedValues = struct {
-    box_style: ?aggregates.BoxStyle = null,
-    border_colors: ?aggregates.BorderColors = null,
-    border_styles: ?aggregates.BorderStyles = null,
-    background_color: ?aggregates.BackgroundColor = null,
-    background_clip: ?aggregates.BackgroundClip = null,
-    background: ?aggregates.Background = null,
-    color: ?aggregates.Color = null,
-    insets: ?aggregates.Insets = null,
+    box_style: ?ComputedValues(.box_style) = null,
+    border_colors: ?ComputedValues(.border_colors) = null,
+    border_styles: ?ComputedValues(.border_styles) = null,
+    background_color: ?ComputedValues(.background_color) = null,
+    background_clip: ?ComputedValues(.background_clip) = null,
+    background: ?ComputedValues(.background) = null,
+    color: ?ComputedValues(.color) = null,
+    insets: ?ComputedValues(.insets) = null,
 };
 
 const Current = struct {
@@ -127,21 +127,60 @@ pub fn getText(self: StyleComputer) zss.values.types.Text {
     return self.element_tree_slice.get(.text, element) orelse "";
 }
 
-pub fn getTextFont(self: StyleComputer, comptime stage: Stage) aggregates.Font {
+pub fn getTextFont(self: StyleComputer, comptime stage: Stage) ComputedValues(.font) {
     const element = self.current.element;
     assert(self.elementCategory(element) == .text);
     var inherited_value = InheritedValue(.font){ .element = element };
     return inherited_value.get(self, stage);
 }
 
-pub fn setComputedValue(self: *StyleComputer, comptime stage: Stage, comptime tag: aggregates.Tag, value: tag.Value()) void {
+pub fn SpecifiedValues(comptime tag: aggregates.Tag) type {
+    const Aggregate = tag.Value();
+    const FieldEnum = std.meta.FieldEnum(Aggregate);
+    const size = tag.size();
+    const ns = struct {
+        fn fieldMap(comptime field: FieldEnum) struct { type, ?*const anyopaque } {
+            const Field = @FieldType(Aggregate, @tagName(field));
+            const Type = switch (size) {
+                .single => Field,
+                .multi => []const Field,
+            };
+            return .{ Type, null };
+        }
+    };
+    return zss.meta.EnumFieldMapStruct(FieldEnum, ns.fieldMap);
+}
+
+pub const ComputedValues = SpecifiedValues;
+
+pub fn initialValues(comptime tag: aggregates.Tag) SpecifiedValues(tag) {
+    return comptime blk: {
+        const Aggregate = tag.Value();
+        var result: SpecifiedValues(tag) = undefined;
+        switch (tag.size()) {
+            .single => {
+                for (std.meta.fields(Aggregate)) |field| {
+                    @field(result, field.name) = @field(Aggregate.initial_values, field.name);
+                }
+            },
+            .multi => {
+                for (std.meta.fields(Aggregate)) |field| {
+                    @field(result, field.name) = &.{@field(Aggregate.initial_values, field.name)};
+                }
+            },
+        }
+        break :blk result;
+    };
+}
+
+pub fn setComputedValue(self: *StyleComputer, comptime stage: Stage, comptime tag: aggregates.Tag, value: ComputedValues(tag)) void {
     const current_stage = &@field(self.stage, @tagName(stage));
     const field = &@field(current_stage.current_computed, @tagName(tag));
     assert(field.* == null);
     field.* = value;
 }
 
-pub fn getSpecifiedValue(self: StyleComputer, comptime stage: Stage, comptime tag: aggregates.Tag) tag.Value() {
+pub fn getSpecifiedValue(self: StyleComputer, comptime stage: Stage, comptime tag: aggregates.Tag) SpecifiedValues(tag) {
     return self.getSpecifiedValueForElement(stage, tag, self.current.element, self.current.cascaded_values);
 }
 
@@ -151,22 +190,22 @@ fn getSpecifiedValueForElement(
     comptime tag: aggregates.Tag,
     element: Element,
     cascaded_values: CascadedValues,
-) tag.Value() {
+) SpecifiedValues(tag) {
     assert(self.elementCategory(element) == .normal);
-    var cascaded_value = cascaded_values.get(tag);
+    const cascaded_value = cascaded_values.getPtr(tag);
 
     const inheritance_type = comptime tag.inheritanceType();
     const default: enum { inherit, initial } = default: {
         // Use the value of the 'all' property.
+        //
+        // TODO: Handle 'direction', 'unicode-bidi', and custom properties specially here.
         // CSS-CASCADE-4§3.2: The all property is a shorthand that resets all CSS properties except direction and unicode-bidi.
         //                    [...] It does not reset custom properties.
-        if (tag != .direction and tag != .unicode_bidi and tag != .custom) {
-            if (cascaded_values.all) |all| switch (all) {
-                .initial => break :default .initial,
-                .inherit => break :default .inherit,
-                .unset => {},
-            };
-        }
+        if (cascaded_values.all) |all| switch (all) {
+            .initial => break :default .initial,
+            .inherit => break :default .inherit,
+            .unset => {},
+        };
 
         // Just use the inheritance type.
         switch (inheritance_type) {
@@ -175,8 +214,7 @@ fn getSpecifiedValueForElement(
         }
     };
 
-    const Aggregate = tag.Value();
-    const initial_value = Aggregate.initial_values;
+    const initial_value = initialValues(tag);
     if (cascaded_value == null and default == .initial) {
         return initial_value;
     }
@@ -186,40 +224,40 @@ fn getSpecifiedValueForElement(
         return inherited_value.get(self, stage);
     }
 
-    const cv = &cascaded_value.?;
-    inline for (std.meta.fields(Aggregate)) |field_info| {
-        const property = &@field(cv, field_info.name);
-        switch (property.*) {
-            .inherit => property.* = @field(inherited_value.get(self, stage), field_info.name),
-            .initial => property.* = @field(initial_value, field_info.name),
+    var specified: SpecifiedValues(tag) = undefined;
+    inline for (std.meta.fields(tag.Value())) |field_info| {
+        const cascaded_property = @field(cascaded_value.?, field_info.name);
+        const specified_property = &@field(specified, field_info.name);
+        switch (cascaded_property) {
+            .inherit => specified_property.* = @field(inherited_value.get(self, stage), field_info.name),
+            .initial => specified_property.* = @field(initial_value, field_info.name),
             .unset => switch (inheritance_type) {
-                .inherited => property.* = @field(inherited_value.get(self, stage), field_info.name),
-                .not_inherited => property.* = @field(initial_value, field_info.name),
+                .inherited => specified_property.* = @field(inherited_value.get(self, stage), field_info.name),
+                .not_inherited => specified_property.* = @field(initial_value, field_info.name),
             },
             .undeclared => switch (default) {
-                .inherit => property.* = @field(inherited_value.get(self, stage), field_info.name),
-                .initial => property.* = @field(initial_value, field_info.name),
+                .inherit => specified_property.* = @field(inherited_value.get(self, stage), field_info.name),
+                .initial => specified_property.* = @field(initial_value, field_info.name),
             },
-            else => {},
+            .declared => |declared| specified_property.* = declared,
         }
     }
 
-    return cv.*;
+    return specified;
 }
 
 fn InheritedValue(comptime tag: aggregates.Tag) type {
-    const Aggregate = tag.Value();
     return struct {
-        value: ?Aggregate = null,
+        value: ?ComputedValues(tag) = null,
         element: Element,
 
-        fn get(self: *@This(), computer: StyleComputer, comptime stage: Stage) Aggregate {
+        fn get(self: *@This(), computer: StyleComputer, comptime stage: Stage) ComputedValues(tag) {
             if (self.value) |value| return value;
 
             const current_stage = @field(computer.stage, @tagName(stage));
             const parent = computer.element_tree_slice.parent(self.element);
             self.value = if (parent.eqlNull())
-                Aggregate.initial_values
+                initialValues(tag)
             else blk: {
                 if (current_stage.map.get(parent)) |parent_computed_values| {
                     if (@field(parent_computed_values, @tagName(tag))) |inherited_value| {
@@ -238,7 +276,8 @@ fn InheritedValue(comptime tag: aggregates.Tag) type {
     };
 }
 
-fn specifiedToComputed(comptime tag: aggregates.Tag, specified: tag.Value(), computer: StyleComputer, element: Element) tag.Value() {
+/// Given a specified value, returns a computed value.
+fn specifiedToComputed(comptime tag: aggregates.Tag, specified: SpecifiedValues(tag), computer: StyleComputer, element: Element) ComputedValues(tag) {
     switch (tag) {
         .box_style => {
             const parent = computer.element_tree_slice.parent(element);
@@ -254,10 +293,7 @@ fn specifiedToComputed(comptime tag: aggregates.Tag, specified: tag.Value(), com
         },
         .color => {
             return .{
-                .color = switch (specified.color) {
-                    .rgba, .transparent, .current_color => specified.color,
-                    .initial, .inherit, .unset, .undeclared => unreachable,
-                },
+                .color = specified.color,
             };
         },
         else => std.debug.panic("TODO: specifiedToComputed for aggregate '{s}'", .{@tagName(tag)}),

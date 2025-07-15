@@ -55,7 +55,7 @@ const Ast = zss.syntax.Ast;
 const AtRule = zss.syntax.Token.AtRule;
 const Declarations = zss.property.Declarations;
 const Environment = zss.Environment;
-const Important = zss.property.Important;
+const Importance = zss.property.Importance;
 const NamespaceId = Environment.Namespaces.Id;
 const Specificity = zss.selectors.Specificity;
 const TokenSource = zss.syntax.TokenSource;
@@ -124,7 +124,7 @@ pub fn create(
                 var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
                 const decl_block = try zss.property.parseDeclarationsFromAst(&env.decls, env.allocator, &value_ctx, &buffer, last_declaration);
 
-                for ([_]Important{ .important, .normal }) |importance| {
+                for ([_]Importance{ .important, .normal }) |importance| {
                     const destination_list = switch (importance) {
                         .important => &stylesheet.selectors_important,
                         .normal => &stylesheet.selectors_normal,
@@ -145,7 +145,7 @@ pub fn create(
     }
 
     // Sort the selectors such that items with a higher cascade order appear earlier in each list.
-    for ([_]Important{ .important, .normal }) |importance| {
+    for ([_]Importance{ .important, .normal }) |importance| {
         const selectors = switch (importance) {
             .important => &stylesheet.selectors_important,
             .normal => &stylesheet.selectors_normal,
