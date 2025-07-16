@@ -176,6 +176,7 @@ pub const Subtree = struct {
     pub const Size = u16;
     pub const Id = enum(u16) { _ };
 
+    // TODO: Document the active fields for each type of block.
     pub const List = MultiArrayList(struct {
         skip: Size,
         type: BlockType,

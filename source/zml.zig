@@ -162,8 +162,8 @@ fn applyStyleBlockDeclarations(
     var value_ctx = zss.values.parse.Context.init(ast, token_source);
     const block = try zss.property.parseDeclarationsFromAst(&env.decls, env.allocator, &value_ctx, &[0]u8{}, last_declaration);
     const sources = [2]ElementTree.Slice.DeclSource{
-        .{ .block = block, .important = .important },
-        .{ .block = block, .important = .normal },
+        .{ .block = block, .importance = .important },
+        .{ .block = block, .importance = .normal },
     };
     try element_tree.updateCascadedValues(element, &env.decls, &sources);
 }
@@ -200,7 +200,7 @@ test astToElement {
         const element = root_element;
         if (element.eqlNull()) return error.TestFailure;
         const cascaded_values = slice.get(.cascaded_values, element);
-        const box_style = cascaded_values.get(.box_style) orelse return error.TestFailure;
+        const box_style = cascaded_values.getPtr(.box_style) orelse return error.TestFailure;
         try box_style.display.expectEqual(.{ .declared = .block });
     }
 
@@ -219,7 +219,7 @@ test astToElement {
         try std.testing.expectEqual(type2, slice.get(.fq_type, element).name);
         const cascaded_values = slice.get(.cascaded_values, element);
         const all = cascaded_values.all orelse return error.TestFailure;
-        try std.testing.expect(cascaded_values.get(.box_style) == null);
+        try std.testing.expect(cascaded_values.getPtr(.box_style) == null);
         try std.testing.expectEqual(types.CssWideKeyword.inherit, all);
     }
 }

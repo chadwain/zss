@@ -27,15 +27,10 @@ const ProgramState = struct {
     root_element: zss.ElementTree.Element,
     images: zss.Images.Slice,
     fonts: *const zss.Fonts,
-    storage: *const zss.values.Storage,
+    decls: *const zss.property.Declarations,
 
-    box_tree: zss.BoxTree,
-    draw_list: zss.render.DrawList,
-
-    fn deinit(self: *ProgramState) void {
-        self.box_tree.deinit();
-        self.draw_list.deinit(self.allocator);
-    }
+    box_tree: *zss.BoxTree,
+    draw_list: *zss.render.DrawList,
 
     fn resize(self: *ProgramState) !void {
         if (self.resize_timer.read() < std.time.ns_per_ms * 250) return;
@@ -50,20 +45,18 @@ const ProgramState = struct {
     fn changeMainWindowSize(self: *ProgramState, width: u32, height: u32) !void {
         self.main_window_width = width;
         self.main_window_height = height;
-        try self.layout();
+        try self.relayout();
 
-        const max_height = if (self.box_tree.element_to_generated_box.get(self.root_element)) |generated_box| blk: {
-            const ref = switch (generated_box) {
+        const box = if (self.box_tree.element_to_generated_box.get(self.root_element)) |generated_box|
+            switch (generated_box) {
                 .block_ref => |ref| ref,
                 .inline_box, .text => unreachable,
-            };
-            const subtree = self.box_tree.getSubtree(ref.subtree);
-            const box_offsets = subtree.view().items(.box_offsets)[ref.index];
-            break :blk box_offsets.border_size.h;
-        } else blk: {
-            const icb = self.box_tree.initial_containing_block;
-            const subtree = self.box_tree.getSubtree(icb.subtree);
-            const box_offsets = subtree.view().items(.box_offsets)[icb.index];
+            }
+        else
+            self.box_tree.initial_containing_block;
+        const max_height = blk: {
+            const subtree = self.box_tree.getSubtree(box.subtree);
+            const box_offsets = subtree.view().items(.box_offsets)[box.index];
             break :blk box_offsets.border_size.h;
         };
         self.max_scroll = @max(0, max_height - @as(ZssUnit, @intCast(self.main_window_height * zss_units_per_pixel)));
@@ -82,8 +75,8 @@ const ProgramState = struct {
         self.current_scroll = std.math.clamp(self.current_scroll, 0, self.max_scroll);
     }
 
-    fn layout(self: *ProgramState) !void {
-        var l = zss.Layout.init(
+    fn relayout(self: *ProgramState) !void {
+        var layout = zss.Layout.init(
             self.element_tree,
             self.root_element,
             self.allocator,
@@ -91,18 +84,18 @@ const ProgramState = struct {
             self.main_window_height,
             self.images,
             self.fonts,
-            self.storage,
+            self.decls,
         );
-        defer l.deinit();
+        defer layout.deinit();
 
-        var box_tree = try l.run(self.allocator);
+        var box_tree = try layout.run(self.allocator);
         defer box_tree.deinit();
 
         var draw_list = try zss.render.DrawList.create(&box_tree, self.allocator);
         defer draw_list.deinit(self.allocator);
 
-        std.mem.swap(zss.BoxTree, &self.box_tree, &box_tree);
-        std.mem.swap(zss.render.DrawList, &self.draw_list, &draw_list);
+        std.mem.swap(zss.BoxTree, self.box_tree, &box_tree);
+        std.mem.swap(zss.render.DrawList, self.draw_list, &draw_list);
     }
 };
 
@@ -111,17 +104,18 @@ pub fn main() !u8 {
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
-    const program_args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, program_args);
+    const args = try Args.init(allocator);
+    defer args.deinit(allocator);
 
-    const file_name = program_args[1];
-    var file_contents = try readFile(allocator, file_name);
+    const file_path = args.filePath();
+    var file_contents = try readFile(allocator, file_path);
     defer file_contents.deinit(allocator);
 
     var library: hb.FT_Library = undefined;
     _ = hb.FT_Init_FreeType(&library);
     defer _ = hb.FT_Done_FreeType(library);
 
+    // TODO: Find a better way to find these files.
     const font_filename = "demo/NotoSans-Regular.ttf";
     var face: hb.FT_Face = undefined;
     _ = hb.FT_New_Face(library, font_filename, 0, &face);
@@ -159,12 +153,15 @@ pub fn main() !u8 {
 
     glfw.swapInterval(1);
 
-    const getProcAddressWrapper = struct {
-        fn f(_: void, symbol_name: [:0]const u8) ?*const anyopaque {
+    const ns = struct {
+        fn getProcAddressWrapper(_: void, symbol_name: [:0]const u8) ?*const anyopaque {
             return glfw.getProcAddress(symbol_name);
         }
-    }.f;
-    try zgl.loadExtensions({}, getProcAddressWrapper);
+    };
+    try zgl.loadExtensions({}, ns.getProcAddressWrapper);
+
+    var decls = zss.property.Declarations{};
+    defer decls.deinit(allocator);
 
     var images = zss.Images{};
     defer images.deinit(allocator);
@@ -173,15 +170,25 @@ pub fn main() !u8 {
     defer fonts.deinit();
     _ = fonts.setFont(font);
 
+    // TODO: Find a better way to find these files.
     var zig_logo_data, const zig_logo_image = try loadImage("demo/zig.png", allocator);
     defer zig_logo_data.deinit();
     const zig_logo_handle = try images.addImage(allocator, zig_logo_image);
 
-    var storage = zss.values.Storage{ .allocator = allocator };
-    defer storage.deinit();
-
-    var tree, const root = try createElements(allocator, file_name, file_contents.items, zig_logo_handle);
+    var tree = zss.ElementTree.init(allocator);
     defer tree.deinit();
+
+    const root_element = try createElements(allocator, &tree, &decls, file_path, file_contents.items, zig_logo_handle);
+
+    var box_tree = blk: {
+        var layout = zss.Layout.init(tree.slice(), .null_element, allocator, 0, 0, images.slice(), &fonts, &decls);
+        defer layout.deinit();
+        break :blk try layout.run(allocator);
+    };
+    defer box_tree.deinit();
+
+    var draw_list = try zss.render.DrawList.create(&box_tree, allocator);
+    defer draw_list.deinit(allocator);
 
     var resize_timer = try std.time.Timer.start();
 
@@ -196,16 +203,15 @@ pub fn main() !u8 {
 
         .allocator = allocator,
         .element_tree = tree.slice(),
-        .root_element = root,
+        .root_element = root_element,
         .images = images.slice(),
         .fonts = &fonts,
-        .storage = &storage,
+        .decls = &decls,
 
-        // TODO: Don't "default initialize" these
-        .box_tree = .{ .allocator = allocator },
-        .draw_list = .{ .sub_lists = .{}, .quad_tree = .{} },
+        .box_tree = &box_tree,
+        .draw_list = &draw_list,
     };
-    defer program_state.deinit();
+
     window.setUserPointer(&program_state);
     window.setKeyCallback(keyCallback);
     window.setFramebufferSizeCallback(framebufferSizeCallback);
@@ -229,7 +235,14 @@ pub fn main() !u8 {
             .w = @intCast(program_state.main_window_width * zss_units_per_pixel),
             .h = @intCast(program_state.main_window_height * zss_units_per_pixel),
         };
-        try zss.render.opengl.drawBoxTree(&renderer, program_state.images, program_state.box_tree, program_state.draw_list, allocator, viewport_rect);
+        try zss.render.opengl.drawBoxTree(
+            &renderer,
+            program_state.images,
+            program_state.box_tree,
+            program_state.draw_list,
+            allocator,
+            viewport_rect,
+        );
 
         // zgl.clearColor(0, 0, 0, 0);
         // zgl.clear(.{ .color = true });
@@ -244,11 +257,36 @@ pub fn main() !u8 {
     return 0;
 }
 
-fn readFile(allocator: Allocator, file_name: []const u8) !std.ArrayListUnmanaged(u8) {
+const Args = struct {
+    strings: [][:0]u8,
+
+    fn init(allocator: Allocator) !Args {
+        const strings = try std.process.argsAlloc(allocator);
+        if (strings.len != 2) {
+            try std.io.getStdErr().writeAll(
+                \\Error: invalid program arguments
+                \\Usage: demo <file-path>
+                \\
+            );
+            std.process.exit(1);
+        }
+        return .{ .strings = strings };
+    }
+
+    fn deinit(args: Args, allocator: Allocator) void {
+        std.process.argsFree(allocator, args.strings);
+    }
+
+    fn filePath(args: Args) [:0]const u8 {
+        return args.strings[1];
+    }
+};
+
+fn readFile(allocator: Allocator, file_path: []const u8) !std.ArrayListUnmanaged(u8) {
     var list = std.ArrayList(u8).init(allocator);
     errdefer list.deinit();
 
-    const file = try std.fs.cwd().openFile(file_name, .{});
+    const file = try std.fs.cwd().openFile(file_path, .{});
     defer file.close();
     try file.reader().readAllArrayList(&list, 1_000_000);
 
@@ -277,176 +315,286 @@ fn loadImage(path: []const u8, allocator: Allocator) !struct { zigimg.Image, zss
     };
     errdefer zigimg_image.deinit();
 
-    const zss_image: zss.Images.Image = .{
+    var zss_image: zss.Images.Image = .{
         .dimensions = .{
             .width_px = @intCast(zigimg_image.width),
             .height_px = @intCast(zigimg_image.height),
         },
-        .format = switch (zigimg_image.pixelFormat()) {
-            .rgba32 => .rgba,
-            else => return error.Unsupported,
-        },
-        .data = switch (zigimg_image.pixelFormat()) {
-            .rgba32 => .{ .rgba = zigimg_image.rawBytes() },
-            else => return error.Unsupported,
-        },
+        .format = undefined,
+        .data = undefined,
+    };
+    zss_image.format, zss_image.data = switch (zigimg_image.pixelFormat()) {
+        .rgba32 => .{ .rgba, .{ .rgba = zigimg_image.rawBytes() } },
+        else => return error.UnsupportedPixelFormat,
     };
 
     return .{ zigimg_image, zss_image };
 }
 
+const Elements = enum {
+    root,
+    removed_block,
+    title_block,
+    title_inline_box,
+    title_text,
+    body_block,
+    body_inline_box,
+    body_text,
+    footer,
+};
+
+/// Returns the root element.
 fn createElements(
     allocator: Allocator,
+    tree: *zss.ElementTree,
+    decls: *zss.property.Declarations,
     file_name: []const u8,
     file_contents: []const u8,
     footer_image_handle: zss.Images.Handle,
-) !struct { zss.ElementTree, zss.ElementTree.Element } {
-    var tree = zss.ElementTree.init(allocator);
-    errdefer tree.deinit();
-
-    var elements: [9]zss.ElementTree.Element = undefined;
-    try tree.allocateElements(&elements);
-
-    const root = elements[0];
-    const removed_block = elements[1];
-    const title_block = elements[2];
-    const title_inline_box = elements[3];
-    const title_text = elements[4];
-    const body_block = elements[5];
-    const body_inline_box = elements[6];
-    const body_text = elements[7];
-    const footer = elements[8];
+) !zss.ElementTree.Element {
+    const element_enum_values = comptime std.enums.values(Elements);
+    const tree_elements = blk: {
+        var tree_elements: [element_enum_values.len]zss.ElementTree.Element = undefined;
+        try tree.allocateElements(&tree_elements);
+        var array: std.EnumArray(Elements, zss.ElementTree.Element) = .initUndefined();
+        for (element_enum_values, 0..) |value, index| array.set(value, tree_elements[index]);
+        break :blk array;
+    };
 
     const slice = tree.slice();
 
-    slice.initElement(root, .normal, .orphan);
-    slice.initElement(removed_block, .normal, .{ .first_child_of = root });
-    slice.initElement(title_block, .normal, .{ .last_child_of = root });
-    slice.initElement(title_inline_box, .normal, .{ .first_child_of = title_block });
-    slice.initElement(title_text, .text, .{ .first_child_of = title_inline_box });
-    slice.initElement(body_block, .normal, .{ .last_child_of = root });
-    slice.initElement(body_inline_box, .normal, .{ .last_child_of = body_block });
-    slice.initElement(body_text, .text, .{ .first_child_of = body_inline_box });
-    slice.initElement(footer, .normal, .{ .last_child_of = root });
+    // zig fmt: off
+    slice.initElement(tree_elements.get(.root),             .normal, .orphan);
+    slice.initElement(tree_elements.get(.removed_block),    .normal, .{ .first_child_of = tree_elements.get(.root) });
+    slice.initElement(tree_elements.get(.title_block),      .normal, .{ .last_child_of  = tree_elements.get(.root) });
+    slice.initElement(tree_elements.get(.title_inline_box), .normal, .{ .first_child_of = tree_elements.get(.title_block) });
+    slice.initElement(tree_elements.get(.title_text),       .text,   .{ .first_child_of = tree_elements.get(.title_inline_box) });
+    slice.initElement(tree_elements.get(.body_block),       .normal, .{ .last_child_of  = tree_elements.get(.root) });
+    slice.initElement(tree_elements.get(.body_inline_box),  .normal, .{ .last_child_of  = tree_elements.get(.body_block) });
+    slice.initElement(tree_elements.get(.body_text),        .text,   .{ .first_child_of = tree_elements.get(.body_inline_box) });
+    slice.initElement(tree_elements.get(.footer),           .normal, .{ .last_child_of  = tree_elements.get(.root) });
+    // zig fmt: on
 
-    {
-        const arena = slice.arena;
-        var cv: *zss.CascadedValues = undefined;
+    slice.set(.text, tree_elements.get(.title_text), file_name);
+    slice.set(.text, tree_elements.get(.body_text), file_contents);
 
-        const bg_color = 0xefefefff;
-        const text_color = 0x101010ff;
+    const element_style_decls = try getElementStyleDecls(decls, allocator, footer_image_handle);
+    for (element_enum_values) |value| {
+        const block = element_style_decls.get(value) orelse continue;
+        try slice.updateCascadedValues(
+            tree_elements.get(value),
+            decls,
+            &.{.{ .block = block, .importance = .normal }},
+        );
+    }
 
-        // Root element
-        cv = slice.ptr(.cascaded_values, root);
+    return tree_elements.get(.root);
+}
+
+const ElementStyleDecls = std.EnumArray(Elements, ?zss.property.Declarations.Block);
+
+fn getElementStyleDecls(
+    decls: *zss.property.Declarations,
+    allocator: Allocator,
+    footer_image_handle: zss.Images.Handle,
+) !ElementStyleDecls {
+    var result: ElementStyleDecls = .initUndefined();
+    result.set(.title_text, null);
+    result.set(.body_text, null);
+
+    const bg_color = 0xefefefff;
+    const text_color = 0x101010ff;
+    const Values = zss.property.Declarations.AllAggregateValues;
+
+    { // Root element
         const root_border = zss.values.types.BorderWidth{ .px = 10 };
         const root_padding = zss.values.types.Padding{ .px = 30 };
         const root_border_color = zss.values.types.Color{ .rgba = 0xaf2233ff };
-        try cv.add(arena, .box_style, .{ .display = .block });
-        try cv.add(arena, .content_width, .{ .min_width = .{ .px = 200 } });
-        try cv.add(arena, .horizontal_edges, .{
-            .padding_left = root_padding,
-            .padding_right = root_padding,
-            .border_left = root_border,
-            .border_right = root_border,
-        });
-        try cv.add(arena, .vertical_edges, .{
-            .padding_top = root_padding,
-            .padding_bottom = root_padding,
-            .border_top = root_border,
-            .border_bottom = root_border,
-        });
-        try cv.add(arena, .border_colors, .{
-            .top = root_border_color,
-            .right = root_border_color,
-            .bottom = root_border_color,
-            .left = root_border_color,
-        });
-        try cv.add(arena, .border_styles, .{ .top = .solid, .right = .solid, .bottom = .solid, .left = .solid });
-        try cv.add(arena, .background_color, .{ .color = .{ .rgba = bg_color } });
-        try cv.add(arena, .background, .{
-            .position = .{ .position = .{
-                .x = .{ .side = .end, .offset = .{ .percentage = 0 } },
-                .y = .{ .side = .start, .offset = .{ .px = 10 } },
-            } },
-            .repeat = .{ .repeat = .{ .x = .no_repeat, .y = .no_repeat } },
-        });
-        try cv.add(arena, .color, .{ .color = .{ .rgba = text_color } });
 
-        // Large element with display: none
-        cv = slice.ptr(.cascaded_values, removed_block);
-        try cv.add(arena, .box_style, .{ .display = .none });
-        try cv.add(arena, .content_width, .{ .width = .{ .px = 10000 } });
-        try cv.add(arena, .content_height, .{ .height = .{ .px = 10000 } });
-        try cv.add(arena, .background_color, .{ .color = .{ .rgba = 0xff00ffff } });
-
-        // Title block box
-        cv = slice.ptr(.cascaded_values, title_block);
-        try cv.add(arena, .box_style, .{ .display = .block, .position = .relative });
-        try cv.add(arena, .vertical_edges, .{ .border_bottom = .{ .px = 2 }, .margin_bottom = .{ .px = 24 } });
-        try cv.add(arena, .z_index, .{ .z_index = .{ .integer = -1 } });
-        try cv.add(arena, .border_colors, .{ .bottom = .{ .rgba = 0x202020ff } });
-        try cv.add(arena, .border_styles, .{ .bottom = .solid });
-
-        // Title inline box
-        cv = slice.ptr(.cascaded_values, title_inline_box);
-        try cv.add(arena, .box_style, .{ .display = .@"inline" });
-        try cv.add(arena, .horizontal_edges, .{
-            .padding_left = .{ .px = 10 },
-            .padding_right = .{ .px = 10 },
-            .border_left = .{ .px = 10 },
-            .border_right = .{ .px = 10 },
+        result.set(.root, try decls.openBlock(allocator));
+        try decls.addValues(allocator, .normal, .{
+            .box_style = Values(.box_style){ .display = .{ .declared = .block } },
+            .content_width = Values(.content_width){ .min_width = .{ .declared = .{ .px = 200 } } },
+            .horizontal_edges = Values(.horizontal_edges){
+                .padding_left = .{ .declared = root_padding },
+                .padding_right = .{ .declared = root_padding },
+                .border_left = .{ .declared = root_border },
+                .border_right = .{ .declared = root_border },
+            },
+            .vertical_edges = Values(.vertical_edges){
+                .padding_top = .{ .declared = root_padding },
+                .padding_bottom = .{ .declared = root_padding },
+                .border_top = .{ .declared = root_border },
+                .border_bottom = .{ .declared = root_border },
+            },
+            .border_colors = Values(.border_colors){
+                .top = .{ .declared = root_border_color },
+                .right = .{ .declared = root_border_color },
+                .bottom = .{ .declared = root_border_color },
+                .left = .{ .declared = root_border_color },
+            },
+            .border_styles = Values(.border_styles){
+                .top = .{ .declared = .solid },
+                .right = .{ .declared = .solid },
+                .bottom = .{ .declared = .solid },
+                .left = .{ .declared = .solid },
+            },
+            .background_color = Values(.background_color){
+                .color = .{ .declared = .{ .rgba = bg_color } },
+            },
+            .background = Values(.background){
+                .position = .{ .declared = &.{.{
+                    .x = .{ .side = .end, .offset = .{ .percentage = 0 } },
+                    .y = .{ .side = .start, .offset = .{ .px = 10 } },
+                }} },
+                .repeat = .{ .declared = &.{.{
+                    .x = .no_repeat,
+                    .y = .no_repeat,
+                }} },
+            },
+            .color = Values(.color){
+                .color = .{ .declared = .{ .rgba = text_color } },
+            },
         });
-        try cv.add(arena, .vertical_edges, .{
-            .padding_bottom = .{ .px = 5 },
-            .border_top = .{ .px = 10 },
-            .border_bottom = .{ .px = 10 },
-        });
-        try cv.add(arena, .background_color, .{ .color = .{ .rgba = 0xfa58007f } });
-        try cv.add(arena, .border_styles, .{ .top = .solid, .right = .solid, .bottom = .solid, .left = .solid });
-        try cv.add(arena, .border_colors, .{
-            .top = .{ .rgba = 0xaa1010ff },
-            .right = .{ .rgba = 0x10aa10ff },
-            .bottom = .{ .rgba = 0x504090ff },
-            .left = .{ .rgba = 0x1010aaff },
-        });
-
-        // Title text
-        slice.set(.text, title_text, file_name);
-
-        // Body block box
-        cv = slice.ptr(.cascaded_values, body_block);
-        try cv.add(arena, .box_style, .{ .display = .block, .position = .relative });
-
-        // Body inline box
-        cv = slice.ptr(.cascaded_values, body_inline_box);
-        try cv.add(arena, .box_style, .{ .display = .@"inline" });
-        try cv.add(arena, .background_color, .{ .color = .{ .rgba = 0x1010507f } });
-
-        // Body text
-        slice.set(.text, body_text, file_contents);
-
-        // Footer block
-        cv = slice.ptr(.cascaded_values, footer);
-        try cv.add(arena, .box_style, .{ .display = .block });
-        // try cv.add(arena, .content_width, .{ .width = .{ .px = 50 } });
-        try cv.add(arena, .content_height, .{ .height = .{ .px = 200 } });
-        try cv.add(arena, .horizontal_edges, .{ .border_left = .inherit, .border_right = .inherit });
-        try cv.add(arena, .vertical_edges, .{ .margin_top = .{ .px = 10 }, .border_top = .inherit, .border_bottom = .inherit });
-        try cv.add(arena, .border_colors, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
-        try cv.add(arena, .border_styles, .{ .top = .inherit, .right = .inherit, .bottom = .inherit, .left = .inherit });
-        try cv.add(arena, .background_clip, .{ .clip = .padding_box });
-        try cv.add(arena, .background, .{
-            .image = .{ .image = footer_image_handle },
-            .position = .{ .position = .{
-                .x = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
-                .y = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
-            } },
-            .repeat = .{ .repeat = .{ .x = .space, .y = .no_repeat } },
-            .size = .contain,
-        });
+        decls.closeBlock();
     }
 
-    return .{ tree, root };
+    { // Large element with display: none
+        result.set(.removed_block, try decls.openBlock(allocator));
+        try decls.addValues(allocator, .normal, .{
+            .box_style = Values(.box_style){ .display = .{ .declared = .none } },
+            .content_width = Values(.content_width){ .width = .{ .declared = .{ .px = 500 } } },
+            .content_height = Values(.content_height){ .height = .{ .declared = .{ .px = 500 } } },
+            .background_color = Values(.background_color){ .color = .{ .declared = .{ .rgba = 0xff00ffff } } },
+        });
+        decls.closeBlock();
+    }
+
+    { // Title block box
+        result.set(.title_block, try decls.openBlock(allocator));
+        try decls.addValues(allocator, .normal, .{
+            .box_style = Values(.box_style){
+                .display = .{ .declared = .block },
+                .position = .{ .declared = .relative },
+            },
+            .vertical_edges = Values(.vertical_edges){
+                .border_bottom = .{ .declared = .{ .px = 2 } },
+                .margin_bottom = .{ .declared = .{ .px = 24 } },
+            },
+            .z_index = Values(.z_index){
+                .z_index = .{ .declared = .{ .integer = -1 } },
+            },
+            .border_colors = Values(.border_colors){
+                .bottom = .{ .declared = .{ .rgba = 0x202020ff } },
+            },
+            .border_styles = Values(.border_styles){
+                .bottom = .{ .declared = .solid },
+            },
+        });
+        decls.closeBlock();
+    }
+
+    { // Title inline box
+        result.set(.title_inline_box, try decls.openBlock(allocator));
+        try decls.addValues(allocator, .normal, .{
+            .box_style = Values(.box_style){ .display = .{ .declared = .@"inline" } },
+            .horizontal_edges = Values(.horizontal_edges){
+                .padding_left = .{ .declared = .{ .px = 10 } },
+                .padding_right = .{ .declared = .{ .px = 10 } },
+                .border_left = .{ .declared = .{ .px = 10 } },
+                .border_right = .{ .declared = .{ .px = 10 } },
+            },
+            .vertical_edges = Values(.vertical_edges){
+                .padding_bottom = .{ .declared = .{ .px = 5 } },
+                .border_top = .{ .declared = .{ .px = 10 } },
+                .border_bottom = .{ .declared = .{ .px = 10 } },
+            },
+            .background_color = Values(.background_color){
+                .color = .{ .declared = .{ .rgba = 0xfa58007f } },
+            },
+            .border_styles = Values(.border_styles){
+                .top = .{ .declared = .solid },
+                .right = .{ .declared = .solid },
+                .bottom = .{ .declared = .solid },
+                .left = .{ .declared = .solid },
+            },
+            .border_colors = Values(.border_colors){
+                .top = .{ .declared = .{ .rgba = 0xaa1010ff } },
+                .right = .{ .declared = .{ .rgba = 0x10aa10ff } },
+                .bottom = .{ .declared = .{ .rgba = 0x504090ff } },
+                .left = .{ .declared = .{ .rgba = 0x1010aaff } },
+            },
+        });
+        decls.closeBlock();
+    }
+
+    { // Body block box
+        result.set(.body_block, try decls.openBlock(allocator));
+        try decls.addValues(allocator, .normal, .{
+            .box_style = Values(.box_style){
+                .display = .{ .declared = .block },
+                .position = .{ .declared = .relative },
+            },
+        });
+        decls.closeBlock();
+    }
+
+    { // Body inline box
+        result.set(.body_inline_box, try decls.openBlock(allocator));
+        try decls.addValues(allocator, .normal, .{
+            .box_style = Values(.box_style){ .display = .{ .declared = .@"inline" } },
+            .color = Values(.color){ .color = .{ .declared = .{ .rgba = 0x1010507f } } },
+        });
+        decls.closeBlock();
+    }
+
+    { // Footer block
+        result.set(.footer, try decls.openBlock(allocator));
+        try decls.addValues(allocator, .normal, .{
+            .box_style = Values(.box_style){
+                .display = .{ .declared = .block },
+            },
+            .content_height = Values(.content_height){
+                .height = .{ .declared = .{ .px = 200 } },
+            },
+            .horizontal_edges = Values(.horizontal_edges){
+                .border_left = .inherit,
+                .border_right = .inherit,
+            },
+            .vertical_edges = Values(.vertical_edges){
+                .margin_top = .{ .declared = .{ .px = 10 } },
+                .border_top = .inherit,
+                .border_bottom = .inherit,
+            },
+            .border_colors = Values(.border_colors){
+                .top = .inherit,
+                .right = .inherit,
+                .bottom = .inherit,
+                .left = .inherit,
+            },
+            .border_styles = Values(.border_styles){
+                .top = .inherit,
+                .right = .inherit,
+                .bottom = .inherit,
+                .left = .inherit,
+            },
+            .background_clip = Values(.background_clip){
+                .clip = .{ .declared = &.{.padding_box} },
+            },
+            .background = Values(.background){
+                .image = .{ .declared = &.{.{ .image = footer_image_handle }} },
+                .position = .{ .declared = &.{.{
+                    .x = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
+                    .y = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
+                }} },
+                .repeat = .{ .declared = &.{.{ .x = .space, .y = .no_repeat }} },
+                .size = .{ .declared = &.{.contain} },
+            },
+        });
+        decls.closeBlock();
+    }
+
+    return result;
 }
 
 fn keyCallback(window: glfw.Window, key: glfw.Key, scancode: i32, action: glfw.Action, mods: glfw.Mods) void {
