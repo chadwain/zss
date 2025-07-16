@@ -489,8 +489,8 @@ pub const Renderer = struct {
 pub fn drawBoxTree(
     renderer: *Renderer,
     images: Images.Slice,
-    box_tree: BoxTree,
-    draw_list: DrawList,
+    box_tree: *const BoxTree,
+    draw_list: *const DrawList,
     allocator: Allocator,
     viewport: Rect,
 ) !void {
@@ -528,7 +528,7 @@ pub fn drawBoxTree(
     }
 }
 
-fn getObjectsOnScreenInDrawOrder(draw_list: DrawList, allocator: Allocator, viewport: Rect) ![]QuadTree.Object {
+fn getObjectsOnScreenInDrawOrder(draw_list: *const DrawList, allocator: Allocator, viewport: Rect) ![]QuadTree.Object {
     const objects = try draw_list.quad_tree.findObjectsInRect(viewport, allocator);
     errdefer allocator.free(objects);
 
@@ -590,7 +590,7 @@ fn getThreeBoxes(
 
 fn drawBlockContainer(
     renderer: *Renderer,
-    box_tree: BoxTree,
+    box_tree: *const BoxTree,
     images: Images.Slice,
     boxes: ThreeBoxes,
     background: zss.BoxTree.BlockBoxBackground,
