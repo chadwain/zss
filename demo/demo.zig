@@ -111,32 +111,9 @@ pub fn main() !u8 {
     var file_contents = try readFile(allocator, file_path);
     defer file_contents.deinit(allocator);
 
-    var library: hb.FT_Library = undefined;
-    _ = hb.FT_Init_FreeType(&library);
-    defer _ = hb.FT_Done_FreeType(library);
+    std.debug.print("{s}\n", .{glfw.getVersionString()});
 
-    // TODO: Find a better way to find these files.
-    const font_filename = "demo/NotoSans-Regular.ttf";
-    var face: hb.FT_Face = undefined;
-    _ = hb.FT_New_Face(library, font_filename, 0, &face);
-    defer _ = hb.FT_Done_Face(face);
-
-    const font_size = 14;
-    // TODO: Get display DPI
-    _ = hb.FT_Set_Char_Size(face, 0, font_size * 64, 96, 96);
-
-    const font = hb.hb_ft_font_create_referenced(face) orelse @panic("Couldn't create font!");
-    defer hb.hb_font_destroy(font);
-    hb.hb_ft_font_set_funcs(font);
-
-    std.debug.print("\n{s}\n", .{glfw.getVersionString()});
-
-    errdefer |err| if (err == error.GlfwError) {
-        const glfw_error = glfw.getError().?;
-        std.debug.print("GLFWError({s}): {?s}\n", .{ @errorName(glfw_error.error_code), glfw_error.description });
-    };
-
-    if (!glfw.init(.{})) return error.GlfwError;
+    if (!glfw.init(.{})) return glfwError();
     defer glfw.terminate();
 
     const initial_width = 800;
@@ -145,7 +122,7 @@ pub fn main() !u8 {
         .context_version_major = 3,
         .context_version_minor = 3,
         .opengl_profile = .opengl_core_profile,
-    }) orelse return error.GlfwError;
+    }) orelse return glfwError();
     defer window.destroy();
 
     glfw.makeContextCurrent(window);
@@ -160,6 +137,29 @@ pub fn main() !u8 {
     };
     try zgl.loadExtensions({}, ns.getProcAddressWrapper);
 
+    var library: hb.FT_Library = undefined;
+    try checkFtError(hb.FT_Init_FreeType(&library));
+    defer _ = hb.FT_Done_FreeType(library);
+
+    const font_file = @embedFile("NotoSans-Regular.ttf");
+    var face: hb.FT_Face = undefined;
+    try checkFtError(hb.FT_New_Memory_Face(library, font_file.ptr, font_file.len, 0, &face));
+    defer _ = hb.FT_Done_Face(face);
+
+    const font_size = 12;
+    const dpi: struct { x: c_uint, y: c_uint } = blk: {
+        const content_scale = window.getContentScale();
+        break :blk .{ .x = @intFromFloat(content_scale.x_scale * 96), .y = @intFromFloat(content_scale.y_scale * 96) };
+    };
+    try checkFtError(hb.FT_Set_Char_Size(face, 0, font_size * 64, dpi.x, dpi.y));
+
+    const font = hb.hb_ft_font_create_referenced(face) orelse {
+        std.debug.print("Error: Can't create FT_Face from hb_font_t\n", .{});
+        return error.HarfbuzzError;
+    };
+    defer hb.hb_font_destroy(font);
+    hb.hb_ft_font_set_funcs(font);
+
     var decls = zss.property.Declarations{};
     defer decls.deinit(allocator);
 
@@ -170,8 +170,7 @@ pub fn main() !u8 {
     defer fonts.deinit();
     _ = fonts.setFont(font);
 
-    // TODO: Find a better way to find these files.
-    var zig_logo_data, const zig_logo_image = try loadImage("demo/zig.png", allocator);
+    var zig_logo_data, const zig_logo_image = try loadImage(@embedFile("zig.png"), allocator);
     defer zig_logo_data.deinit();
     const zig_logo_handle = try images.addImage(allocator, zig_logo_image);
 
@@ -215,6 +214,7 @@ pub fn main() !u8 {
     window.setUserPointer(&program_state);
     window.setKeyCallback(keyCallback);
     window.setFramebufferSizeCallback(framebufferSizeCallback);
+    // TODO: window.setContentScaleCallback
     try program_state.changeMainWindowSize(initial_width, initial_height);
 
     var renderer = zss.render.opengl.Renderer.init(allocator);
@@ -262,13 +262,14 @@ const Args = struct {
 
     fn init(allocator: Allocator) !Args {
         const strings = try std.process.argsAlloc(allocator);
+        errdefer std.process.argsFree(allocator, strings);
         if (strings.len != 2) {
-            try std.io.getStdErr().writeAll(
+            std.debug.print(
                 \\Error: invalid program arguments
                 \\Usage: demo <file-path>
                 \\
-            );
-            std.process.exit(1);
+            , .{});
+            return error.InvalidProgramArguments;
         }
         return .{ .strings = strings };
     }
@@ -282,13 +283,23 @@ const Args = struct {
     }
 };
 
+fn checkFtError(err: hb.FT_Error) error{FreeTypeError}!void {
+    if (err != hb.FT_Err_Ok) return error.FreeTypeError;
+}
+
+fn glfwError() error{GlfwError} {
+    const glfw_error = glfw.getError().?;
+    std.debug.print("GLFWError({s}): {?s}\n", .{ @errorName(glfw_error.error_code), glfw_error.description });
+    return error.GlfwError;
+}
+
 fn readFile(allocator: Allocator, file_path: []const u8) !std.ArrayListUnmanaged(u8) {
     var list = std.ArrayList(u8).init(allocator);
     errdefer list.deinit();
 
     const file = try std.fs.cwd().openFile(file_path, .{});
     defer file.close();
-    try file.reader().readAllArrayList(&list, 1_000_000);
+    try file.reader().readAllArrayList(&list, 1024 * 1024);
 
     // Exclude a trailing newline.
     if (list.items.len > 0) {
@@ -306,13 +317,8 @@ fn readFile(allocator: Allocator, file_path: []const u8) !std.ArrayListUnmanaged
     return list.moveToUnmanaged();
 }
 
-fn loadImage(path: []const u8, allocator: Allocator) !struct { zigimg.Image, zss.Images.Image } {
-    var zigimg_image = blk: {
-        var file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
-        const image = try zigimg.Image.fromFile(allocator, &file);
-        break :blk image;
-    };
+fn loadImage(bytes: []const u8, allocator: Allocator) !struct { zigimg.Image, zss.Images.Image } {
+    var zigimg_image = try zigimg.Image.fromMemory(allocator, bytes);
     errdefer zigimg_image.deinit();
 
     var zss_image: zss.Images.Image = .{
