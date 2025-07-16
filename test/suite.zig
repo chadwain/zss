@@ -88,10 +88,7 @@ pub fn main() !void {
     var images = zss.Images{};
     defer images.deinit(allocator);
 
-    var storage = zss.values.Storage{ .allocator = allocator };
-    defer storage.deinit();
-
-    const tests = try getAllTests(args, &arena, &fonts, font_handle, images.slice(), &storage);
+    const tests = try getAllTests(args, &arena, &fonts, font_handle, images.slice());
 
     const Category = enum { check, memory, opengl, print };
     inline for (@import("build-options").test_categories) |category| {
@@ -111,7 +108,6 @@ fn getAllTests(
     fonts: *const zss.Fonts,
     font_handle: zss.Fonts.Handle,
     images: zss.Images.Slice,
-    storage: *const zss.values.Storage,
 ) ![]*Test {
     const allocator = arena.allocator();
 
@@ -139,7 +135,7 @@ fn getAllTests(
 
         const name = try allocator.dupe(u8, entry.path[0 .. entry.path.len - ".zml".len]);
 
-        const t = try createTest(allocator, name, ast, token_source, fonts, font_handle, images, storage);
+        const t = try createTest(allocator, name, ast, token_source, fonts, font_handle, images);
         try list.append(t);
     }
 
@@ -154,7 +150,6 @@ fn createTest(
     fonts: *const zss.Fonts,
     font_handle: zss.Fonts.Handle,
     images: zss.Images.Slice,
-    storage: *const zss.values.Storage,
 ) !*Test {
     const t = try allocator.create(Test);
     errdefer allocator.destroy(t);
@@ -164,7 +159,6 @@ fn createTest(
         .fonts = fonts,
         .font_handle = font_handle,
         .images = images,
-        .storage = storage,
 
         .element_tree = undefined,
         .root_element = undefined,
@@ -190,8 +184,13 @@ fn createTest(
     if (!t.root_element.eqlNull()) {
         const slice = t.element_tree.slice();
         if (slice.category(t.root_element) == .normal) {
-            const cv = slice.ptr(.cascaded_values, t.root_element);
-            try cv.add(slice.arena, .color, .{ .color = .{ .rgba = 0xffffffff } });
+            const block = try t.env.decls.openBlock(t.env.allocator);
+            const AllAggregateValues = zss.property.Declarations.AllAggregateValues;
+            try t.env.decls.addValues(t.env.allocator, .normal, .{ .color = AllAggregateValues(.color){
+                .color = .{ .declared = .{ .rgba = 0xffffffff } },
+            } });
+            t.env.decls.closeBlock();
+            try slice.updateCascadedValues(t.root_element, &t.env.decls, &.{.{ .block = block, .importance = .normal }});
         }
     }
 

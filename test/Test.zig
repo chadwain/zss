@@ -13,7 +13,6 @@ env: Environment,
 fonts: *const Fonts,
 font_handle: Fonts.Handle,
 images: zss.Images.Slice,
-storage: *const zss.values.Storage,
 
 width: u32 = 400,
 height: u32 = 400,
