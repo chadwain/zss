@@ -58,7 +58,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
         try stdout.print("opengl: ({}/{}) \"{s}\" ... ", .{ ti + 1, tests.len, t.name });
         defer stdout.writeAll("\n") catch {};
 
-        var layout = zss.Layout.init(t.element_tree.slice(), t.root_element, allocator, t.width, t.height, t.images, t.fonts, t.storage);
+        var layout = zss.Layout.init(t.element_tree.slice(), t.root_element, allocator, t.width, t.height, t.images, t.fonts, &t.env.decls);
         defer layout.deinit();
 
         var box_tree = try layout.run(allocator);
@@ -94,7 +94,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
                 .w = @intCast(t.width * units_per_pixel),
                 .h = @intCast(t.height * units_per_pixel),
             };
-            try zss.render.opengl.drawBoxTree(&renderer, t.images, box_tree, draw_list, allocator, viewport);
+            try zss.render.opengl.drawBoxTree(&renderer, t.images, &box_tree, &draw_list, allocator, viewport);
             zgl.flush();
 
             const y: u32 = @intCast(i * t.height);

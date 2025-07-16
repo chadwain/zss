@@ -27,7 +27,7 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
             t.height,
             t.images,
             t.fonts,
-            t.storage,
+            &t.env.decls,
         );
         defer layout.deinit();
 

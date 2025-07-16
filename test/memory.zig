@@ -25,7 +25,7 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
             t.height,
             t.images,
             t.fonts,
-            t.storage,
+            &t.env.decls,
         });
 
         try stdout.writeAll("success");
@@ -42,9 +42,9 @@ fn testFn(
     height: u32,
     images: zss.Images.Slice,
     fonts: *const zss.Fonts,
-    storage: *const zss.values.Storage,
+    decls: *const zss.property.Declarations,
 ) !void {
-    var layout = zss.Layout.init(element_tree_slice, root, allocator, width, height, images, fonts, storage);
+    var layout = zss.Layout.init(element_tree_slice, root, allocator, width, height, images, fonts, decls);
     defer layout.deinit();
 
     var box_tree = try layout.run(allocator);
