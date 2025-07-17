@@ -410,7 +410,7 @@ fn getElementStyleDecls(
 
     const bg_color = 0xefefefff;
     const text_color = 0x101010ff;
-    const DeclaredValues = zss.property.aggregates.Tag.DeclaredValues;
+    const DeclaredValues = zss.property.groups.Tag.DeclaredValues;
 
     { // Root element
         const root_border = zss.values.types.BorderWidth{ .px = 10 };

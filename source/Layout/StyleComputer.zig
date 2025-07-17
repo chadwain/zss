@@ -10,9 +10,9 @@ const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Stack = zss.Stack;
 
-const aggregates = zss.property.aggregates;
-const SpecifiedValues = aggregates.Tag.SpecifiedValues;
-const ComputedValues = aggregates.Tag.ComputedValues;
+const groups = zss.property.groups;
+const SpecifiedValues = groups.Tag.SpecifiedValues;
+const ComputedValues = groups.Tag.ComputedValues;
 
 const solve = @import("./solve.zig");
 
@@ -137,28 +137,28 @@ pub fn getTextFont(self: StyleComputer, comptime stage: Stage) ComputedValues(.f
     return inherited_value.get(self, stage);
 }
 
-pub fn setComputedValue(self: *StyleComputer, comptime stage: Stage, comptime tag: aggregates.Tag, value: ComputedValues(tag)) void {
+pub fn setComputedValue(self: *StyleComputer, comptime stage: Stage, comptime group: groups.Tag, value: ComputedValues(group)) void {
     const current_stage = &@field(self.stage, @tagName(stage));
-    const field = &@field(current_stage.current_computed, @tagName(tag));
+    const field = &@field(current_stage.current_computed, @tagName(group));
     assert(field.* == null);
     field.* = value;
 }
 
-pub fn getSpecifiedValue(self: StyleComputer, comptime stage: Stage, comptime tag: aggregates.Tag) SpecifiedValues(tag) {
-    return self.getSpecifiedValueForElement(stage, tag, self.current.element, self.current.cascaded_values);
+pub fn getSpecifiedValue(self: StyleComputer, comptime stage: Stage, comptime group: groups.Tag) SpecifiedValues(group) {
+    return self.getSpecifiedValueForElement(stage, group, self.current.element, self.current.cascaded_values);
 }
 
 fn getSpecifiedValueForElement(
     self: StyleComputer,
     comptime stage: Stage,
-    comptime tag: aggregates.Tag,
+    comptime group: groups.Tag,
     element: Element,
     cascaded_values: CascadedValues,
-) SpecifiedValues(tag) {
+) SpecifiedValues(group) {
     assert(self.elementCategory(element) == .normal);
-    const cascaded_value = cascaded_values.getPtr(tag);
+    const cascaded_value = cascaded_values.getPtr(group);
 
-    const inheritance_type = comptime tag.inheritanceType();
+    const inheritance_type = comptime group.inheritanceType();
     const default: enum { inherit, initial } = default: {
         // Use the value of the 'all' property.
         //
@@ -178,18 +178,18 @@ fn getSpecifiedValueForElement(
         }
     };
 
-    const initial_value = tag.initialValues();
+    const initial_value = group.initialValues();
     if (cascaded_value == null and default == .initial) {
         return initial_value;
     }
 
-    var inherited_value = InheritedValue(tag){ .element = element };
+    var inherited_value = InheritedValue(group){ .element = element };
     if (cascaded_value == null and default == .inherit) {
         return inherited_value.get(self, stage);
     }
 
-    var specified: SpecifiedValues(tag) = undefined;
-    inline for (tag.fields()) |field| {
+    var specified: SpecifiedValues(group) = undefined;
+    inline for (group.fields()) |field| {
         const cascaded_property = @field(cascaded_value.?, field.name);
         const specified_property = &@field(specified, field.name);
         specified_property.* = switch (cascaded_property) {
@@ -210,21 +210,21 @@ fn getSpecifiedValueForElement(
     return specified;
 }
 
-fn InheritedValue(comptime tag: aggregates.Tag) type {
+fn InheritedValue(comptime group: groups.Tag) type {
     return struct {
-        value: ?ComputedValues(tag) = null,
+        value: ?ComputedValues(group) = null,
         element: Element,
 
-        fn get(self: *@This(), computer: StyleComputer, comptime stage: Stage) ComputedValues(tag) {
+        fn get(self: *@This(), computer: StyleComputer, comptime stage: Stage) ComputedValues(group) {
             if (self.value) |value| return value;
 
             const current_stage = @field(computer.stage, @tagName(stage));
             const parent = computer.element_tree_slice.parent(self.element);
             self.value = if (parent.eqlNull())
-                tag.initialValues()
+                group.initialValues()
             else blk: {
                 if (current_stage.map.get(parent)) |parent_computed_values| {
-                    if (@field(parent_computed_values, @tagName(tag))) |inherited_value| {
+                    if (@field(parent_computed_values, @tagName(group))) |inherited_value| {
                         break :blk inherited_value;
                     }
                 }
@@ -232,8 +232,8 @@ fn InheritedValue(comptime tag: aggregates.Tag) type {
 
                 const cascaded_values = computer.element_tree_slice.get(.cascaded_values, parent);
                 // TODO: Recursive call here
-                const specified_value = computer.getSpecifiedValueForElement(stage, tag, parent, cascaded_values);
-                break :blk specifiedToComputed(tag, specified_value, computer, parent);
+                const specified_value = computer.getSpecifiedValueForElement(stage, group, parent, cascaded_values);
+                break :blk specifiedToComputed(group, specified_value, computer, parent);
             };
             return self.value.?;
         }
@@ -241,8 +241,8 @@ fn InheritedValue(comptime tag: aggregates.Tag) type {
 }
 
 /// Given a specified value, returns a computed value.
-fn specifiedToComputed(comptime tag: aggregates.Tag, specified: SpecifiedValues(tag), computer: StyleComputer, element: Element) ComputedValues(tag) {
-    switch (tag) {
+fn specifiedToComputed(comptime group: groups.Tag, specified: SpecifiedValues(group), computer: StyleComputer, element: Element) ComputedValues(group) {
+    switch (group) {
         .box_style => {
             const parent = computer.element_tree_slice.parent(element);
             const computed_value, _ = if (parent.eqlNull())
@@ -260,6 +260,6 @@ fn specifiedToComputed(comptime tag: aggregates.Tag, specified: SpecifiedValues(
                 .color = specified.color,
             };
         },
-        else => std.debug.panic("TODO: specifiedToComputed for aggregate '{s}'", .{@tagName(tag)}),
+        else => std.debug.panic("TODO: specifiedToComputed for aggregate '{s}'", .{@tagName(group)}),
     }
 }

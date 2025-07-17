@@ -17,9 +17,9 @@ const Unit = zss.math.Unit;
 const solve = @import("./solve.zig");
 const @"inline" = @import("./inline.zig");
 
-const aggregates = zss.property.aggregates;
-const SpecifiedValues = aggregates.Tag.SpecifiedValues;
-const ComputedValues = aggregates.Tag.ComputedValues;
+const groups = zss.property.groups;
+const SpecifiedValues = groups.Tag.SpecifiedValues;
+const ComputedValues = groups.Tag.ComputedValues;
 
 const BoxTree = zss.BoxTree;
 const BoxStyle = BoxTree.BoxStyle;

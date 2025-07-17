@@ -1,6 +1,5 @@
 const zss = @import("zss.zig");
-const aggregates = zss.property.aggregates;
-const AggregateTag = aggregates.Tag;
+const groups = zss.property.groups;
 const CssWideKeyword = zss.values.types.CssWideKeyword;
 const Declarations = zss.property.Declarations;
 
@@ -15,7 +14,7 @@ const CascadedValues = @This();
 map: Map = .{},
 all: ?CssWideKeyword = null,
 
-const Map = AutoArrayHashMapUnmanaged(AggregateTag, usize);
+const Map = AutoArrayHashMapUnmanaged(groups.Tag, usize);
 
 pub fn applyDeclBlock(
     cascaded: *CascadedValues,
@@ -31,26 +30,26 @@ pub fn applyDeclBlock(
     if (meta.getAll(importance)) |all| cascaded.all = all;
 
     var iterator = meta.tagIterator(importance);
-    while (iterator.next()) |aggregate_tag| {
-        const gop_result = try cascaded.map.getOrPut(arena.allocator(), aggregate_tag);
-        switch (aggregate_tag) {
-            inline else => |comptime_tag| {
-                try initValues(comptime_tag, arena, gop_result);
-                const values = castValuePtr(comptime_tag, gop_result.value_ptr);
-                decls.apply(comptime_tag, block, importance, meta, values);
+    while (iterator.next()) |group| {
+        const gop_result = try cascaded.map.getOrPut(arena.allocator(), group);
+        switch (group) {
+            inline else => |comptime_group| {
+                try initValues(comptime_group, arena, gop_result);
+                const values = castValuePtr(comptime_group, gop_result.value_ptr);
+                decls.apply(comptime_group, block, importance, meta, values);
             },
         }
     }
 }
 
-pub fn getPtr(cascaded: CascadedValues, comptime tag: AggregateTag) ?*const tag.CascadedValues() {
-    const map_value_ptr = cascaded.map.getPtr(tag) orelse return null;
-    return castValuePtr(tag, map_value_ptr);
+pub fn getPtr(cascaded: CascadedValues, comptime group: groups.Tag) ?*const group.CascadedValues() {
+    const map_value_ptr = cascaded.map.getPtr(group) orelse return null;
+    return castValuePtr(group, map_value_ptr);
 }
 
-fn initValues(comptime tag: AggregateTag, arena: *ArenaAllocator, gop_result: Map.GetOrPutResult) !void {
+fn initValues(comptime group: groups.Tag, arena: *ArenaAllocator, gop_result: Map.GetOrPutResult) !void {
     if (gop_result.found_existing) return;
-    const Values = tag.CascadedValues();
+    const Values = group.CascadedValues();
     if (canFitWithinUsize(Values)) {
         const values: *Values = @ptrCast(gop_result.value_ptr);
         values.* = .{};
@@ -61,8 +60,8 @@ fn initValues(comptime tag: AggregateTag, arena: *ArenaAllocator, gop_result: Ma
     }
 }
 
-fn castValuePtr(comptime tag: AggregateTag, map_value_ptr: *usize) *tag.CascadedValues() {
-    const Values = tag.CascadedValues();
+fn castValuePtr(comptime group: groups.Tag, map_value_ptr: *usize) *group.CascadedValues() {
+    const Values = group.CascadedValues();
     if (canFitWithinUsize(Values)) {
         return @ptrCast(map_value_ptr);
     } else {
@@ -76,10 +75,10 @@ fn canFitWithinUsize(comptime T: type) bool {
 
 test {
     const ns = struct {
-        fn testOne(cascaded: *CascadedValues, comptime tag: AggregateTag, arena: *ArenaAllocator, values: tag.CascadedValues()) !void {
-            const gop_result = try cascaded.map.getOrPut(arena.allocator(), tag);
-            try initValues(tag, arena, gop_result);
-            const dest = castValuePtr(tag, gop_result.value_ptr);
+        fn testOne(cascaded: *CascadedValues, comptime group: groups.Tag, arena: *ArenaAllocator, values: group.CascadedValues()) !void {
+            const gop_result = try cascaded.map.getOrPut(arena.allocator(), group);
+            try initValues(group, arena, gop_result);
+            const dest = castValuePtr(group, gop_result.value_ptr);
             dest.* = values;
         }
     };

@@ -1,10 +1,10 @@
-//! In zss, CSS properties are grouped in aggregates.
-//! Each aggregate contains properties that are likely to be used together.
-//! Within an aggregate, each property *must* have the same inheritance type
+//! In zss, CSS properties are organized into groups.
+//! Each group contains properties that are likely to be used together.
+//! Within a group, each property *must* have the same inheritance type
 //! (i.e. they must be all inherited properties or all non-inherited properties.
 //! See https://www.w3.org/TR/css-cascade/#inherited-property).
 //!
-//! Each aggregate has comments which map each field to a CSS property, in this format:
+//! Each group has comments which map each field to a CSS property, in this format:
 //! /// <field-name> -> <CSS-property-name>
 
 const zss = @import("../zss.zig");
@@ -97,7 +97,7 @@ pub const Tag = enum {
     }
 
     /// A struct that can represent the declared values of all fields within
-    /// the aggregate represented by `tag`.
+    /// the group represented by `tag`.
     pub fn DeclaredValues(comptime tag: Tag) type {
         const ns = struct {
             fn fieldMap(comptime field: tag.FieldEnum()) struct { type, ?*const anyopaque } {
@@ -114,11 +114,11 @@ pub const Tag = enum {
     }
 
     /// A struct that can represent the cascaded values of all fields within
-    /// the aggregate represented by `tag`.
+    /// the group represented by `tag`.
     pub const CascadedValues = DeclaredValues;
 
     /// A struct that can represent the specified values of all fields within
-    /// the aggregate represented by `tag`.
+    /// the group represented by `tag`.
     pub fn SpecifiedValues(comptime tag: Tag) type {
         const ns = struct {
             fn fieldMap(comptime field: tag.FieldEnum()) struct { type, ?*const anyopaque } {
@@ -134,22 +134,22 @@ pub const Tag = enum {
     }
 
     /// A struct that can represent the computed values of all fields within
-    /// the aggregate represented by `tag`.
+    /// the group represented by `tag`.
     pub const ComputedValues = SpecifiedValues;
 
     pub fn initialValues(comptime tag: Tag) tag.SpecifiedValues() {
         return comptime blk: {
-            const Aggregate = tag.Value();
+            const Group = tag.Value();
             var result: tag.SpecifiedValues() = undefined;
             switch (tag.size()) {
                 .single => {
-                    for (std.meta.fields(Aggregate)) |field| {
-                        @field(result, field.name) = @field(Aggregate.initial_values, field.name);
+                    for (std.meta.fields(Group)) |field| {
+                        @field(result, field.name) = @field(Group.initial_values, field.name);
                     }
                 },
                 .multi => {
-                    for (std.meta.fields(Aggregate)) |field| {
-                        @field(result, field.name) = &.{@field(Aggregate.initial_values, field.name)};
+                    for (std.meta.fields(Group)) |field| {
+                        @field(result, field.name) = &.{@field(Group.initial_values, field.name)};
                     }
                 },
             }
@@ -157,17 +157,17 @@ pub const Tag = enum {
         };
     }
 
-    const AggregateField = struct {
+    const GroupField = struct {
         name: []const u8,
         type: type,
     };
 
-    pub fn fields(comptime tag: Tag) []const AggregateField {
+    pub fn fields(comptime tag: Tag) []const GroupField {
         return comptime blk: {
-            const Aggregate = tag.Value();
-            const aggregate_fields = std.meta.fields(Aggregate);
-            var result: [aggregate_fields.len]AggregateField = undefined;
-            for (aggregate_fields, &result) |src, *dest| {
+            const Group = tag.Value();
+            const group_fields = std.meta.fields(Group);
+            var result: [group_fields.len]GroupField = undefined;
+            for (group_fields, &result) |src, *dest| {
                 dest.* = .{ .name = src.name, .type = src.type };
             }
             break :blk &result;
@@ -175,9 +175,9 @@ pub const Tag = enum {
     }
 
     pub fn FieldEnum(comptime tag: Tag) type {
-        const Aggregate = tag.Value();
-        @setEvalBranchQuota(@typeInfo(Aggregate).@"struct".fields.len * 800);
-        return std.meta.FieldEnum(Aggregate);
+        const Group = tag.Value();
+        @setEvalBranchQuota(@typeInfo(Group).@"struct".fields.len * 800);
+        return std.meta.FieldEnum(Group);
     }
 
     pub fn FieldType(comptime tag: Tag, comptime field: tag.FieldEnum()) type {

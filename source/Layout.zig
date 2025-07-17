@@ -4,7 +4,6 @@ const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("zss.zig");
-const aggregates = zss.property.aggregates;
 const math = zss.math;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
@@ -646,7 +645,7 @@ pub const BlockComputedSizes = struct {
     vertical_edges: ComputedValues(.vertical_edges),
     insets: ComputedValues(.insets),
 
-    const ComputedValues = aggregates.Tag.ComputedValues;
+    const ComputedValues = zss.property.groups.Tag.ComputedValues;
 };
 
 /// Fields ending with `_untagged` each have an associated flag.

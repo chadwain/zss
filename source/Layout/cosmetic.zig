@@ -14,9 +14,9 @@ const Color = zss.math.Color;
 const Size = zss.math.Size;
 const Unit = zss.math.Unit;
 
-const aggregates = zss.property.aggregates;
-const ComputedValues = aggregates.Tag.ComputedValues;
-const SpecifiedValues = aggregates.Tag.SpecifiedValues;
+const groups = zss.property.groups;
+const ComputedValues = groups.Tag.ComputedValues;
+const SpecifiedValues = groups.Tag.SpecifiedValues;
 
 const BoxTree = zss.BoxTree;
 const BlockRef = BoxTree.BlockRef;

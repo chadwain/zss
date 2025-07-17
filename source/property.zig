@@ -8,8 +8,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
-// TODO: rename to group
-pub const aggregates = @import("property/aggregates.zig");
+pub const groups = @import("property/groups.zig");
 pub const parse = @import("property/parse.zig");
 pub const Declarations = @import("property/Declarations.zig");
 
@@ -64,7 +63,7 @@ pub const Property = enum {
         non_shorthand: NonShorthand,
 
         pub const NonShorthand = struct {
-            aggregate_tag: aggregates.Tag,
+            group: groups.Tag,
             field: @Type(.enum_literal),
         };
     };
@@ -114,12 +113,12 @@ pub const Property = enum {
     }
 
     fn nonShorthand(
-        comptime aggregate_tag: aggregates.Tag,
+        comptime group: groups.Tag,
         comptime field: @Type(.enum_literal),
     ) Description {
         return .{
             .non_shorthand = .{
-                .aggregate_tag = aggregate_tag,
+                .group = group,
                 .field = field,
             },
         };
@@ -129,15 +128,15 @@ pub const Property = enum {
         switch (property.description()) {
             .all => return zss.values.types.CssWideKeyword,
             .non_shorthand => |non_shorthand| {
-                const tag = non_shorthand.aggregate_tag;
-                const Field = tag.FieldType(non_shorthand.field);
+                const group = non_shorthand.group;
+                const Field = group.FieldType(non_shorthand.field);
                 return StructWithOneField(
-                    @tagName(tag),
+                    @tagName(group),
                     StructWithOneField(
                         @tagName(non_shorthand.field),
-                        switch (tag.size()) {
-                            .single => aggregates.SingleValue(Field),
-                            .multi => aggregates.MultiValue(Field),
+                        switch (group.size()) {
+                            .single => groups.SingleValue(Field),
+                            .multi => groups.MultiValue(Field),
                         },
                     ),
                 );
@@ -164,9 +163,9 @@ pub const Property = enum {
 
     fn declaredValueFromCwk(comptime property: Property, cwk: zss.values.types.CssWideKeyword) property.DeclarationType() {
         var result: property.DeclarationType() = undefined;
-        inline for (@typeInfo(property.DeclarationType()).@"struct".fields) |aggregate_field| {
-            inline for (@typeInfo(aggregate_field.type).@"struct".fields) |value_field| {
-                @field(@field(result, aggregate_field.name), value_field.name) = switch (cwk) {
+        inline for (@typeInfo(property.DeclarationType()).@"struct".fields) |group_field| {
+            inline for (@typeInfo(group_field.type).@"struct".fields) |value_field| {
+                @field(@field(result, group_field.name), value_field.name) = switch (cwk) {
                     .initial => .initial,
                     .inherit => .inherit,
                     .unset => .unset,
@@ -248,7 +247,7 @@ fn parseDeclaration(
                 },
                 .non_shorthand => |non_shorthand| {
                     const parseFn = @field(parse, @tagName(comptime_property));
-                    const parsed_value_optional = switch (comptime non_shorthand.aggregate_tag.size()) {
+                    const parsed_value_optional = switch (comptime non_shorthand.group.size()) {
                         .single => parseFn(value_ctx),
                         .multi => parseFn(value_ctx, fba) catch |err| switch (err) {
                             error.OutOfMemory => return error.OutOfBufferSpace,
@@ -341,15 +340,15 @@ test "parsing properties from a stylesheet" {
 
     const ns = struct {
         fn expectEqual(
-            comptime aggregate_tag: aggregates.Tag,
+            comptime group: groups.Tag,
             decls: *const Declarations,
             block: Declarations.Block,
-            expected: aggregate_tag.DeclaredValues(),
+            expected: group.DeclaredValues(),
         ) !void {
             const meta = decls.getMeta(block);
-            const Values = aggregate_tag.DeclaredValues();
+            const Values = group.DeclaredValues();
             var values = Values{};
-            decls.apply(aggregate_tag, block, .normal, meta, &values);
+            decls.apply(group, block, .normal, meta, &values);
 
             inline for (std.meta.fields(Values)) |field| {
                 const expected_field = @field(expected, field.name);

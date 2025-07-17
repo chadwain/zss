@@ -21,8 +21,8 @@ const flow = @import("./flow.zig");
 const stf = @import("./shrink_to_fit.zig");
 const solve = @import("./solve.zig");
 
-const aggregates = zss.property.aggregates;
-const ComputedValues = aggregates.Tag.ComputedValues;
+const groups = zss.property.groups;
+const ComputedValues = groups.Tag.ComputedValues;
 
 const BoxTree = zss.BoxTree;
 const BlockRef = BoxTree.BlockRef;

@@ -4,9 +4,9 @@ const zss = @import("../zss.zig");
 const types = zss.values.types;
 const BoxTree = zss.BoxTree;
 
-const aggregates = zss.property.aggregates;
-const ComputedValues = aggregates.Tag.ComputedValues;
-const SpecifiedValues = aggregates.Tag.SpecifiedValues;
+const groups = zss.property.groups;
+const ComputedValues = groups.Tag.ComputedValues;
+const SpecifiedValues = groups.Tag.SpecifiedValues;
 
 const math = zss.math;
 const Unit = math.Unit;
@@ -166,7 +166,7 @@ fn innerBlockType(computed_display: types.Display) BoxTree.BoxStyle.InnerBlock {
 
 pub fn insets(specified: SpecifiedValues(.insets)) ComputedValues(.insets) {
     var computed: ComputedValues(.insets) = undefined;
-    inline for (std.meta.fields(aggregates.Insets)) |field_info| {
+    inline for (std.meta.fields(groups.Insets)) |field_info| {
         @field(computed, field_info.name) = switch (@field(specified, field_info.name)) {
             .px => |value| .{ .px = value },
             .percentage => |value| .{ .percentage = value },
@@ -202,7 +202,7 @@ pub fn borderStyles(border_styles: SpecifiedValues(.border_styles)) void {
         }
     }.f;
 
-    inline for (std.meta.fields(aggregates.BorderStyles)) |field_info| {
+    inline for (std.meta.fields(groups.BorderStyles)) |field_info| {
         solveOne(@field(border_styles, field_info.name));
     }
 }

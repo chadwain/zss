@@ -28,10 +28,10 @@ const zss = @import("../zss.zig");
 const CssWideKeyword = zss.values.types.CssWideKeyword;
 const Importance = zss.property.Importance;
 
-const aggregates = zss.property.aggregates;
-const DeclaredValueTag = aggregates.DeclaredValueTag;
-const MultiValue = aggregates.MultiValue;
-const SingleValue = aggregates.SingleValue;
+const groups = zss.property.groups;
+const DeclaredValueTag = groups.DeclaredValueTag;
+const MultiValue = groups.MultiValue;
+const SingleValue = groups.SingleValue;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -59,21 +59,21 @@ pub const Block = enum(u32) {
 
 const Headers = blk: {
     const ns = struct {
-        fn fieldMap(comptime aggregate_tag: aggregates.Tag) struct { type, ?*const anyopaque } {
-            const T = std.AutoHashMapUnmanaged(Block.Tag, Header(aggregate_tag));
+        fn fieldMap(comptime group: groups.Tag) struct { type, ?*const anyopaque } {
+            const T = std.AutoHashMapUnmanaged(Block.Tag, Header(group));
             return .{ T, &T.empty };
         }
     };
-    break :blk zss.meta.EnumFieldMapStruct(aggregates.Tag, ns.fieldMap);
+    break :blk zss.meta.EnumFieldMapStruct(groups.Tag, ns.fieldMap);
 };
 
 pub const Meta = struct {
-    active_aggregates_normal: Set = .{},
-    active_aggregates_important: Set = .{},
+    active_groups_normal: Set = .{},
+    active_groups_important: Set = .{},
     all_normal: ?CssWideKeyword = null,
     all_important: ?CssWideKeyword = null,
 
-    pub const Set = std.EnumSet(aggregates.Tag);
+    pub const Set = std.EnumSet(groups.Tag);
 
     pub fn getAll(meta: *const Meta, importance: Importance) ?CssWideKeyword {
         return switch (importance) {
@@ -82,11 +82,11 @@ pub const Meta = struct {
         };
     }
 
-    /// Iterates over every aggregate tag that has declared values.
+    /// Iterates over every group tag that has declared values.
     pub fn tagIterator(meta: *const Meta, importance: Importance) Set.Iterator {
         switch (importance) {
-            .important => return meta.active_aggregates_important.iterator(),
-            .normal => return meta.active_aggregates_normal.iterator(),
+            .important => return meta.active_groups_important.iterator(),
+            .normal => return meta.active_groups_normal.iterator(),
         }
     }
 
@@ -152,15 +152,15 @@ pub fn closeBlock(decls: *Declarations) void {
     decls.current.meta = undefined;
 }
 
-/// `values` must be a struct such that each field is named after an aggregate.
+/// `values` must be a struct such that each field is named after an group.
 /// Each field of `values` must also be a struct, such that each field:
-///     is named after an aggregate member, and
-///     has a type of either `SingleValue` or `MultiValue` (depending on the aggregate)
+///     is named after an group member, and
+///     has a type of either `SingleValue` or `MultiValue` (depending on the group)
 pub fn addValues(decls: *Declarations, allocator: Allocator, importance: Importance, values: anytype) !void {
     decls.debug.assertBlockOpened();
 
-    const aggregate_fields = @typeInfo(@TypeOf(values)).@"struct".fields;
-    if (aggregate_fields.len == 0) return;
+    const group_fields = @typeInfo(@TypeOf(values)).@"struct".fields;
+    if (group_fields.len == 0) return;
 
     const meta = &decls.current.meta;
     // TODO: The 'all' property does not affect some properties
@@ -173,24 +173,24 @@ pub fn addValues(decls: *Declarations, allocator: Allocator, importance: Importa
     var arena = decls.arena.promote(allocator);
     defer decls.arena = arena.state;
 
-    inline for (aggregate_fields) |aggregate_field| {
-        const value_fields = @typeInfo(aggregate_field.type).@"struct".fields;
+    inline for (group_fields) |group_field| {
+        const value_fields = @typeInfo(group_field.type).@"struct".fields;
         if (value_fields.len == 0) continue;
 
-        const aggregate_tag = comptime std.enums.nameCast(aggregates.Tag, aggregate_field.name);
-        const size = comptime aggregate_tag.size();
+        const group = comptime std.enums.nameCast(groups.Tag, group_field.name);
+        const size = comptime group.size();
 
-        const header = try decls.getHeader(aggregate_tag, allocator, decls.current.block);
+        const header = try decls.getHeader(group, allocator, decls.current.block);
         const set = switch (importance) {
-            .important => &meta.active_aggregates_important,
-            .normal => &meta.active_aggregates_normal,
+            .important => &meta.active_groups_important,
+            .normal => &meta.active_groups_normal,
         };
-        set.insert(aggregate_tag);
+        set.insert(group);
         inline for (value_fields) |value_field| {
             // TODO: If a value of equal or higher importance already exists, then do not add this value.
 
-            const field = comptime std.enums.nameCast(aggregate_tag.FieldEnum(), value_field.name);
-            const value = @field(@field(values, aggregate_field.name), value_field.name);
+            const field = comptime std.enums.nameCast(group.FieldEnum(), value_field.name);
+            const value = @field(@field(values, group_field.name), value_field.name);
             switch (size) {
                 .single => header.set(field, importance, value),
                 .multi => try header.set(field, importance, value, &arena),
@@ -208,8 +208,8 @@ pub fn addAll(decls: *Declarations, importance: Importance, value: CssWideKeywor
     if (all.* == null) all.* = value;
 }
 
-fn getHeader(decls: *Declarations, comptime aggregate_tag: aggregates.Tag, allocator: Allocator, block: Block.Tag) !*Header(aggregate_tag) {
-    const gop_result = try @field(decls.headers, @tagName(aggregate_tag)).getOrPut(allocator, block);
+fn getHeader(decls: *Declarations, comptime group: groups.Tag, allocator: Allocator, block: Block.Tag) !*Header(group) {
+    const gop_result = try @field(decls.headers, @tagName(group)).getOrPut(allocator, block);
     if (!gop_result.found_existing) gop_result.value_ptr.* = .{};
     return gop_result.value_ptr;
 }
@@ -218,8 +218,8 @@ fn getHeader(decls: *Declarations, comptime aggregate_tag: aggregates.Tag, alloc
 pub fn hasValues(decls: *const Declarations, block: Block, importance: Importance) bool {
     const meta = decls.meta.items[@intFromEnum(block)];
     const all, const set = switch (importance) {
-        .important => .{ meta.all_important, meta.active_aggregates_important },
-        .normal => .{ meta.all_normal, meta.active_aggregates_normal },
+        .important => .{ meta.all_important, meta.active_groups_important },
+        .normal => .{ meta.all_normal, meta.active_groups_normal },
     };
     return (set.count() != 0) or (all != null);
 }
@@ -233,28 +233,28 @@ pub fn getMeta(decls: *const Declarations, block: Block) *const Meta {
 //       2. Requires passing pointers to metadata (`getMeta` should not exist)
 //       Solution: Move code from users of this API into this file.
 
-/// For each aggregate field, gets the partially cascaded value from the
+/// For each group field, gets the partially cascaded value from the
 /// declaration block and applies it to `dest`.
 ///
 /// To "apply a value from src to dest" means the following:
 /// If dest is undeclared, then copy src to dest. Otherwise, do nothing.
 pub fn apply(
     decls: *const Declarations,
-    comptime aggregate_tag: aggregates.Tag,
+    comptime group: groups.Tag,
     block: Block,
     importance: Importance,
     meta: *const Meta,
-    dest: *aggregate_tag.DeclaredValues(),
+    dest: *group.DeclaredValues(),
 ) void {
     assert(meta == &decls.meta.items[@intFromEnum(block)]);
     const default_value = meta.defaultValue(importance);
 
-    if (@field(decls.headers, @tagName(aggregate_tag)).get(@intFromEnum(block))) |header| {
+    if (@field(decls.headers, @tagName(group)).get(@intFromEnum(block))) |header| {
         return header.apply(importance, dest, default_value);
     }
 
     if (default_value == .undeclared) return;
-    inline for (aggregate_tag.fields()) |field| {
+    inline for (group.fields()) |field| {
         const dest_field = &@field(dest, field.name);
         if (dest_field.* == .undeclared) {
             dest_field.* = zss.meta.unionTagToVoidPayload(@TypeOf(dest_field.*), default_value);
@@ -300,28 +300,28 @@ const ValueCount = packed struct(u8) {
     }
 };
 
-/// The maximum number of values allowed in a multi-sized aggregate field.
+/// The maximum number of values allowed in a multi-sized group field.
 pub const max_list_len = std.math.maxInt(@FieldType(ValueCount, "num"));
 
-fn Header(comptime aggregate_tag: aggregates.Tag) type {
-    switch (aggregate_tag.size()) {
-        .single => return SingleValueHeader(aggregate_tag),
-        .multi => return MultiValueHeader(aggregate_tag),
+fn Header(comptime group: groups.Tag) type {
+    switch (group.size()) {
+        .single => return SingleValueHeader(group),
+        .multi => return MultiValueHeader(group),
     }
 }
 
-fn SingleValueHeader(comptime aggregate_tag: aggregates.Tag) type {
-    const Aggregate = aggregate_tag.SpecifiedValues();
-    const FieldEnum = aggregate_tag.FieldEnum();
+fn SingleValueHeader(comptime group: groups.Tag) type {
+    const Group = group.SpecifiedValues();
+    const FieldEnum = group.FieldEnum();
     const Counts = std.enums.EnumFieldStruct(FieldEnum, ValueCount, .undeclared);
 
     return struct {
-        normal: Aggregate = undefined,
-        important: Aggregate = undefined,
+        normal: Group = undefined,
+        important: Group = undefined,
         normal_counts: Counts = .{},
         important_counts: Counts = .{},
 
-        fn set(header: *@This(), comptime field: FieldEnum, importance: Importance, value: SingleValue(aggregate_tag.FieldType(field))) void {
+        fn set(header: *@This(), comptime field: FieldEnum, importance: Importance, value: SingleValue(group.FieldType(field))) void {
             const counts, const values = switch (importance) {
                 .important => .{ &header.important_counts, &header.important },
                 .normal => .{ &header.normal_counts, &header.normal },
@@ -338,12 +338,12 @@ fn SingleValueHeader(comptime aggregate_tag: aggregates.Tag) type {
             }
         }
 
-        fn apply(header: *const @This(), importance: Importance, dest: *aggregate_tag.DeclaredValues(), default_value: DeclaredValueTag) void {
+        fn apply(header: *const @This(), importance: Importance, dest: *group.DeclaredValues(), default_value: DeclaredValueTag) void {
             const counts, const values = switch (importance) {
                 .important => .{ header.important_counts, header.important },
                 .normal => .{ header.normal_counts, header.normal },
             };
-            inline for (aggregate_tag.fields()) |field| {
+            inline for (group.fields()) |field| {
                 const dest_field = &@field(dest, field.name);
                 if (dest_field.* == .undeclared) {
                     const count = @field(counts, field.name);
@@ -366,14 +366,14 @@ fn SingleValueHeader(comptime aggregate_tag: aggregates.Tag) type {
     };
 }
 
-fn MultiValueHeader(comptime aggregate_tag: aggregates.Tag) type {
-    const FieldEnum = aggregate_tag.FieldEnum();
+fn MultiValueHeader(comptime group: groups.Tag) type {
+    const FieldEnum = group.FieldEnum();
     const default_counts = std.enums.directEnumArrayDefault(FieldEnum, ValueCount, .undeclared, 0, .{});
     const Counts = @TypeOf(default_counts);
 
     const max_alignment = comptime blk: {
         var result = 0;
-        for (aggregate_tag.fields()) |field| {
+        for (group.fields()) |field| {
             result = @max(result, @alignOf(field.type));
         }
         break :blk result;
@@ -387,7 +387,7 @@ fn MultiValueHeader(comptime aggregate_tag: aggregates.Tag) type {
             header: *@This(),
             comptime field: FieldEnum,
             importance: Importance,
-            noalias value: MultiValue(aggregate_tag.FieldType(field)), // TODO: This can't alias header.data.items
+            noalias value: MultiValue(group.FieldType(field)), // TODO: This can't alias header.data.items
             arena: *ArenaAllocator,
         ) !void {
             const counts = switch (importance) {
@@ -403,7 +403,7 @@ fn MultiValueHeader(comptime aggregate_tag: aggregates.Tag) type {
                     if (slice.len > max_list_len) return error.TooManyListItems;
                     count.* = .fromInt(@intCast(slice.len));
 
-                    const Field = aggregate_tag.FieldType(field);
+                    const Field = group.FieldType(field);
                     const field_range_start = fieldRangeStart(header, field, importance);
                     const field_range_len = std.mem.alignForward(usize, field_range_start + @sizeOf(Field) * count.num, max_alignment);
                     const range = try header.data.addManyAt(arena.allocator(), field_range_start, field_range_len);
@@ -413,13 +413,13 @@ fn MultiValueHeader(comptime aggregate_tag: aggregates.Tag) type {
             }
         }
 
-        fn apply(header: *const @This(), importance: Importance, dest: *aggregate_tag.DeclaredValues(), default_value: DeclaredValueTag) void {
+        fn apply(header: *const @This(), importance: Importance, dest: *group.DeclaredValues(), default_value: DeclaredValueTag) void {
             const counts = switch (importance) {
                 .important => header.important_tags,
                 .normal => header.normal_tags,
             };
             var current_index = fieldRangeStart(header, @enumFromInt(0), importance);
-            inline for (aggregate_tag.fields(), 0..) |field, field_index| {
+            inline for (group.fields(), 0..) |field, field_index| {
                 const count = counts[field_index];
                 const end_index = current_index + @sizeOf(field.type) * count.num;
                 defer current_index = std.mem.alignForward(usize, end_index, max_alignment);
@@ -457,7 +457,7 @@ fn MultiValueHeader(comptime aggregate_tag: aggregates.Tag) type {
                         return current_index;
                     } else {
                         const size: usize = switch (current_field) {
-                            inline else => |comptime_field| @sizeOf(aggregate_tag.FieldType(comptime_field)),
+                            inline else => |comptime_field| @sizeOf(group.FieldType(comptime_field)),
                         };
                         current_index = std.mem.alignForward(usize, current_index + size * count.num, max_alignment);
                     }
@@ -498,10 +498,10 @@ test "adding values" {
     decls.closeBlock();
 
     const ns = struct {
-        fn getValues(d: *const Declarations, comptime aggregate_tag: aggregates.Tag, b: Block, importance: Importance) aggregate_tag.DeclaredValues() {
+        fn getValues(d: *const Declarations, comptime group: groups.Tag, b: Block, importance: Importance) group.DeclaredValues() {
             const meta = d.getMeta(b);
-            var values: aggregate_tag.DeclaredValues() = .{};
-            d.apply(aggregate_tag, b, importance, meta, &values);
+            var values: group.DeclaredValues() = .{};
+            d.apply(group, b, importance, meta, &values);
             return values;
         }
     };
