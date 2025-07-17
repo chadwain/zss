@@ -4,7 +4,6 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
-const aggregates = zss.property.aggregates;
 const BlockComputedSizes = zss.Layout.BlockComputedSizes;
 const BlockUsedSizes = zss.Layout.BlockUsedSizes;
 const BoxTreeManaged = Layout.BoxTreeManaged;
@@ -14,6 +13,7 @@ const Fonts = zss.Fonts;
 const Layout = zss.Layout;
 const SctBuilder = Layout.StackingContextTreeBuilder;
 const Stack = zss.Stack;
+const StyleComputer = Layout.StyleComputer;
 const Unit = zss.math.Unit;
 const units_per_pixel = zss.math.units_per_pixel;
 
@@ -21,8 +21,8 @@ const flow = @import("./flow.zig");
 const stf = @import("./shrink_to_fit.zig");
 const solve = @import("./solve.zig");
 
-const StyleComputer = Layout.StyleComputer;
-const ComputedValues = StyleComputer.ComputedValues;
+const aggregates = zss.property.aggregates;
+const ComputedValues = aggregates.Tag.ComputedValues;
 
 const BoxTree = zss.BoxTree;
 const BlockRef = BoxTree.BlockRef;

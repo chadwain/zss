@@ -1,7 +1,6 @@
 const zss = @import("zss.zig");
 const aggregates = zss.property.aggregates;
 const AggregateTag = aggregates.Tag;
-const AllAggregateValues = Declarations.AllAggregateValues;
 const CssWideKeyword = zss.values.types.CssWideKeyword;
 const Declarations = zss.property.Declarations;
 
@@ -44,14 +43,14 @@ pub fn applyDeclBlock(
     }
 }
 
-pub fn getPtr(cascaded: CascadedValues, comptime tag: AggregateTag) ?*const AllAggregateValues(tag) {
+pub fn getPtr(cascaded: CascadedValues, comptime tag: AggregateTag) ?*const tag.CascadedValues() {
     const map_value_ptr = cascaded.map.getPtr(tag) orelse return null;
     return castValuePtr(tag, map_value_ptr);
 }
 
 fn initValues(comptime tag: AggregateTag, arena: *ArenaAllocator, gop_result: Map.GetOrPutResult) !void {
     if (gop_result.found_existing) return;
-    const Values = AllAggregateValues(tag);
+    const Values = tag.CascadedValues();
     if (canFitWithinUsize(Values)) {
         const values: *Values = @ptrCast(gop_result.value_ptr);
         values.* = .{};
@@ -62,8 +61,8 @@ fn initValues(comptime tag: AggregateTag, arena: *ArenaAllocator, gop_result: Ma
     }
 }
 
-fn castValuePtr(comptime tag: AggregateTag, map_value_ptr: *usize) *AllAggregateValues(tag) {
-    const Values = AllAggregateValues(tag);
+fn castValuePtr(comptime tag: AggregateTag, map_value_ptr: *usize) *tag.CascadedValues() {
+    const Values = tag.CascadedValues();
     if (canFitWithinUsize(Values)) {
         return @ptrCast(map_value_ptr);
     } else {
@@ -77,7 +76,7 @@ fn canFitWithinUsize(comptime T: type) bool {
 
 test {
     const ns = struct {
-        fn testOne(cascaded: *CascadedValues, comptime tag: AggregateTag, arena: *ArenaAllocator, values: AllAggregateValues(tag)) !void {
+        fn testOne(cascaded: *CascadedValues, comptime tag: AggregateTag, arena: *ArenaAllocator, values: tag.CascadedValues()) !void {
             const gop_result = try cascaded.map.getOrPut(arena.allocator(), tag);
             try initValues(tag, arena, gop_result);
             const dest = castValuePtr(tag, gop_result.value_ptr);

@@ -646,7 +646,7 @@ pub const BlockComputedSizes = struct {
     vertical_edges: ComputedValues(.vertical_edges),
     insets: ComputedValues(.insets),
 
-    const ComputedValues = StyleComputer.ComputedValues;
+    const ComputedValues = aggregates.Tag.ComputedValues;
 };
 
 /// Fields ending with `_untagged` each have an associated flag.

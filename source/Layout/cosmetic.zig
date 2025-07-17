@@ -5,18 +5,18 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
-const aggregates = zss.property.aggregates;
 const solve = @import("./solve.zig");
 const types = zss.values.types;
 const Layout = zss.Layout;
+const StyleComputer = Layout.StyleComputer;
 
 const Color = zss.math.Color;
 const Size = zss.math.Size;
 const Unit = zss.math.Unit;
 
-const StyleComputer = Layout.StyleComputer;
-const ComputedValues = StyleComputer.ComputedValues;
-const SpecifiedValues = StyleComputer.SpecifiedValues;
+const aggregates = zss.property.aggregates;
+const ComputedValues = aggregates.Tag.ComputedValues;
+const SpecifiedValues = aggregates.Tag.SpecifiedValues;
 
 const BoxTree = zss.BoxTree;
 const BlockRef = BoxTree.BlockRef;

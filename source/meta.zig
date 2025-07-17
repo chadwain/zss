@@ -1,36 +1,39 @@
 const std = @import("std");
 
-/// An enum `Base` is coercible to an enum `Derived` if for every field of `Base`, at least one of the following is true:
-///     1. there is a field in `Derived` with the same name and value
-///     2. `Derived` is non-exhaustive and does not have a field with the same name
-pub fn coerceEnum(comptime Derived: type, from: anytype) Derived {
+/// Let `From = @TypeOf(from)`.
+/// `From` is coercible to an enum `To` if for every field of `From`, at least one of the following is true:
+///     1. there is a field in `To` with the same name and value
+///     2. `To` is non-exhaustive and does not have a field with the same name
+///
+/// `from` can be either an enum or tagged union.
+pub fn coerceEnum(comptime To: type, from: anytype) To {
     comptime {
-        const derived_info = @typeInfo(Derived).@"enum";
-        @setEvalBranchQuota(derived_info.fields.len * 1000);
-        const Base = @TypeOf(from);
-        const base_fields = switch (@typeInfo(Base)) {
+        const to_info = @typeInfo(To).@"enum";
+        @setEvalBranchQuota(to_info.fields.len * 1000);
+        const From = @TypeOf(from);
+        const from_fields = switch (@typeInfo(From)) {
             .@"enum" => |@"enum"| @"enum".fields,
             .@"union" => |@"union"| @typeInfo(@"union".tag_type.?).@"enum".fields,
             else => unreachable,
         };
-        for (base_fields) |field| {
-            if (@hasField(Derived, field.name)) {
-                const derived_value = @intFromEnum(@field(Derived, field.name));
-                if (field.value != derived_value) {
+        for (from_fields) |field| {
+            if (@hasField(To, field.name)) {
+                const to_value = @intFromEnum(@field(To, field.name));
+                if (field.value != to_value) {
                     @compileError(std.fmt.comptimePrint(
                         "{s}.{s} has value {}, expected {}",
-                        .{ @typeName(Derived), field.name, derived_value, field.value },
+                        .{ @typeName(To), field.name, to_value, field.value },
                     ));
                 }
-            } else if (@typeInfo(Derived).@"enum".is_exhaustive) {
+            } else if (to_info.is_exhaustive) {
                 @compileError(std.fmt.comptimePrint(
                     "{s} has no field named {s}",
-                    .{ @typeName(Derived), field.name },
+                    .{ @typeName(To), field.name },
                 ));
             } else {
-                _ = std.math.cast(derived_info.tag_type, field.value) orelse @compileError(std.fmt.comptimePrint(
+                _ = std.math.cast(to_info.tag_type, field.value) orelse @compileError(std.fmt.comptimePrint(
                     "Value {} cannot cast into enum {s} with tag type {s}",
-                    .{ field.value, @typeName(Derived), @typeName(derived_info.tag_type) },
+                    .{ field.value, @typeName(To), @typeName(to_info.tag_type) },
                 ));
             }
         }

@@ -410,7 +410,7 @@ fn getElementStyleDecls(
 
     const bg_color = 0xefefefff;
     const text_color = 0x101010ff;
-    const Values = zss.property.Declarations.AllAggregateValues;
+    const DeclaredValues = zss.property.aggregates.Tag.DeclaredValues;
 
     { // Root element
         const root_border = zss.values.types.BorderWidth{ .px = 10 };
@@ -419,36 +419,36 @@ fn getElementStyleDecls(
 
         result.set(.root, try decls.openBlock(allocator));
         try decls.addValues(allocator, .normal, .{
-            .box_style = Values(.box_style){ .display = .{ .declared = .block } },
-            .content_width = Values(.content_width){ .min_width = .{ .declared = .{ .px = 200 } } },
-            .horizontal_edges = Values(.horizontal_edges){
+            .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .block } },
+            .content_width = DeclaredValues(.content_width){ .min_width = .{ .declared = .{ .px = 200 } } },
+            .horizontal_edges = DeclaredValues(.horizontal_edges){
                 .padding_left = .{ .declared = root_padding },
                 .padding_right = .{ .declared = root_padding },
                 .border_left = .{ .declared = root_border },
                 .border_right = .{ .declared = root_border },
             },
-            .vertical_edges = Values(.vertical_edges){
+            .vertical_edges = DeclaredValues(.vertical_edges){
                 .padding_top = .{ .declared = root_padding },
                 .padding_bottom = .{ .declared = root_padding },
                 .border_top = .{ .declared = root_border },
                 .border_bottom = .{ .declared = root_border },
             },
-            .border_colors = Values(.border_colors){
+            .border_colors = DeclaredValues(.border_colors){
                 .top = .{ .declared = root_border_color },
                 .right = .{ .declared = root_border_color },
                 .bottom = .{ .declared = root_border_color },
                 .left = .{ .declared = root_border_color },
             },
-            .border_styles = Values(.border_styles){
+            .border_styles = DeclaredValues(.border_styles){
                 .top = .{ .declared = .solid },
                 .right = .{ .declared = .solid },
                 .bottom = .{ .declared = .solid },
                 .left = .{ .declared = .solid },
             },
-            .background_color = Values(.background_color){
+            .background_color = DeclaredValues(.background_color){
                 .color = .{ .declared = .{ .rgba = bg_color } },
             },
-            .background = Values(.background){
+            .background = DeclaredValues(.background){
                 .position = .{ .declared = &.{.{
                     .x = .{ .side = .end, .offset = .{ .percentage = 0 } },
                     .y = .{ .side = .start, .offset = .{ .px = 10 } },
@@ -458,7 +458,7 @@ fn getElementStyleDecls(
                     .y = .no_repeat,
                 }} },
             },
-            .color = Values(.color){
+            .color = DeclaredValues(.color){
                 .color = .{ .declared = .{ .rgba = text_color } },
             },
         });
@@ -468,10 +468,10 @@ fn getElementStyleDecls(
     { // Large element with display: none
         result.set(.removed_block, try decls.openBlock(allocator));
         try decls.addValues(allocator, .normal, .{
-            .box_style = Values(.box_style){ .display = .{ .declared = .none } },
-            .content_width = Values(.content_width){ .width = .{ .declared = .{ .px = 500 } } },
-            .content_height = Values(.content_height){ .height = .{ .declared = .{ .px = 500 } } },
-            .background_color = Values(.background_color){ .color = .{ .declared = .{ .rgba = 0xff00ffff } } },
+            .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .none } },
+            .content_width = DeclaredValues(.content_width){ .width = .{ .declared = .{ .px = 500 } } },
+            .content_height = DeclaredValues(.content_height){ .height = .{ .declared = .{ .px = 500 } } },
+            .background_color = DeclaredValues(.background_color){ .color = .{ .declared = .{ .rgba = 0xff00ffff } } },
         });
         decls.closeBlock();
     }
@@ -479,21 +479,21 @@ fn getElementStyleDecls(
     { // Title block box
         result.set(.title_block, try decls.openBlock(allocator));
         try decls.addValues(allocator, .normal, .{
-            .box_style = Values(.box_style){
+            .box_style = DeclaredValues(.box_style){
                 .display = .{ .declared = .block },
                 .position = .{ .declared = .relative },
             },
-            .vertical_edges = Values(.vertical_edges){
+            .vertical_edges = DeclaredValues(.vertical_edges){
                 .border_bottom = .{ .declared = .{ .px = 2 } },
                 .margin_bottom = .{ .declared = .{ .px = 24 } },
             },
-            .z_index = Values(.z_index){
+            .z_index = DeclaredValues(.z_index){
                 .z_index = .{ .declared = .{ .integer = -1 } },
             },
-            .border_colors = Values(.border_colors){
+            .border_colors = DeclaredValues(.border_colors){
                 .bottom = .{ .declared = .{ .rgba = 0x202020ff } },
             },
-            .border_styles = Values(.border_styles){
+            .border_styles = DeclaredValues(.border_styles){
                 .bottom = .{ .declared = .solid },
             },
         });
@@ -503,28 +503,28 @@ fn getElementStyleDecls(
     { // Title inline box
         result.set(.title_inline_box, try decls.openBlock(allocator));
         try decls.addValues(allocator, .normal, .{
-            .box_style = Values(.box_style){ .display = .{ .declared = .@"inline" } },
-            .horizontal_edges = Values(.horizontal_edges){
+            .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .@"inline" } },
+            .horizontal_edges = DeclaredValues(.horizontal_edges){
                 .padding_left = .{ .declared = .{ .px = 10 } },
                 .padding_right = .{ .declared = .{ .px = 10 } },
                 .border_left = .{ .declared = .{ .px = 10 } },
                 .border_right = .{ .declared = .{ .px = 10 } },
             },
-            .vertical_edges = Values(.vertical_edges){
+            .vertical_edges = DeclaredValues(.vertical_edges){
                 .padding_bottom = .{ .declared = .{ .px = 5 } },
                 .border_top = .{ .declared = .{ .px = 10 } },
                 .border_bottom = .{ .declared = .{ .px = 10 } },
             },
-            .background_color = Values(.background_color){
+            .background_color = DeclaredValues(.background_color){
                 .color = .{ .declared = .{ .rgba = 0xfa58007f } },
             },
-            .border_styles = Values(.border_styles){
+            .border_styles = DeclaredValues(.border_styles){
                 .top = .{ .declared = .solid },
                 .right = .{ .declared = .solid },
                 .bottom = .{ .declared = .solid },
                 .left = .{ .declared = .solid },
             },
-            .border_colors = Values(.border_colors){
+            .border_colors = DeclaredValues(.border_colors){
                 .top = .{ .declared = .{ .rgba = 0xaa1010ff } },
                 .right = .{ .declared = .{ .rgba = 0x10aa10ff } },
                 .bottom = .{ .declared = .{ .rgba = 0x504090ff } },
@@ -537,7 +537,7 @@ fn getElementStyleDecls(
     { // Body block box
         result.set(.body_block, try decls.openBlock(allocator));
         try decls.addValues(allocator, .normal, .{
-            .box_style = Values(.box_style){
+            .box_style = DeclaredValues(.box_style){
                 .display = .{ .declared = .block },
                 .position = .{ .declared = .relative },
             },
@@ -548,8 +548,8 @@ fn getElementStyleDecls(
     { // Body inline box
         result.set(.body_inline_box, try decls.openBlock(allocator));
         try decls.addValues(allocator, .normal, .{
-            .box_style = Values(.box_style){ .display = .{ .declared = .@"inline" } },
-            .color = Values(.color){ .color = .{ .declared = .{ .rgba = 0x1010507f } } },
+            .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .@"inline" } },
+            .color = DeclaredValues(.color){ .color = .{ .declared = .{ .rgba = 0x1010507f } } },
         });
         decls.closeBlock();
     }
@@ -557,37 +557,37 @@ fn getElementStyleDecls(
     { // Footer block
         result.set(.footer, try decls.openBlock(allocator));
         try decls.addValues(allocator, .normal, .{
-            .box_style = Values(.box_style){
+            .box_style = DeclaredValues(.box_style){
                 .display = .{ .declared = .block },
             },
-            .content_height = Values(.content_height){
+            .content_height = DeclaredValues(.content_height){
                 .height = .{ .declared = .{ .px = 200 } },
             },
-            .horizontal_edges = Values(.horizontal_edges){
+            .horizontal_edges = DeclaredValues(.horizontal_edges){
                 .border_left = .inherit,
                 .border_right = .inherit,
             },
-            .vertical_edges = Values(.vertical_edges){
+            .vertical_edges = DeclaredValues(.vertical_edges){
                 .margin_top = .{ .declared = .{ .px = 10 } },
                 .border_top = .inherit,
                 .border_bottom = .inherit,
             },
-            .border_colors = Values(.border_colors){
+            .border_colors = DeclaredValues(.border_colors){
                 .top = .inherit,
                 .right = .inherit,
                 .bottom = .inherit,
                 .left = .inherit,
             },
-            .border_styles = Values(.border_styles){
+            .border_styles = DeclaredValues(.border_styles){
                 .top = .inherit,
                 .right = .inherit,
                 .bottom = .inherit,
                 .left = .inherit,
             },
-            .background_clip = Values(.background_clip){
+            .background_clip = DeclaredValues(.background_clip){
                 .clip = .{ .declared = &.{.padding_box} },
             },
-            .background = Values(.background){
+            .background = DeclaredValues(.background){
                 .image = .{ .declared = &.{.{ .image = footer_image_handle }} },
                 .position = .{ .declared = &.{.{
                     .x = .{ .side = .start, .offset = .{ .percentage = 0.5 } },

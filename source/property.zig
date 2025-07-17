@@ -66,10 +66,7 @@ pub const Property = enum {
         pub const NonShorthand = struct {
             aggregate_tag: aggregates.Tag,
             field: @Type(.enum_literal),
-            size: Size,
         };
-
-        pub const Size = enum { single, multi };
     };
 
     pub fn description(comptime property: Property) Description {
@@ -77,41 +74,41 @@ pub const Property = enum {
         return comptime switch (property) {
             .all                      => .all,
 
-            .display                  => nonShorthand(.box_style       , .display       , .single),
-            .position                 => nonShorthand(.box_style       , .position      , .single),
-            .float                    => nonShorthand(.box_style       , .float         , .single),
-            .@"z-index"               => nonShorthand(.z_index         , .z_index       , .single),
-            .width                    => nonShorthand(.content_width   , .width         , .single),
-            .@"min-width"             => nonShorthand(.content_width   , .min_width     , .single),
-            .@"max-width"             => nonShorthand(.content_width   , .max_width     , .single),
-            .height                   => nonShorthand(.content_height  , .height        , .single),
-            .@"min-height"            => nonShorthand(.content_height  , .min_height    , .single),
-            .@"max-height"            => nonShorthand(.content_height  , .max_height    , .single),
-            .@"padding-left"          => nonShorthand(.horizontal_edges, .padding_left  , .single),
-            .@"padding-right"         => nonShorthand(.horizontal_edges, .padding_right , .single),
-            .@"padding-top"           => nonShorthand(.vertical_edges  , .padding_top   , .single),
-            .@"padding-bottom"        => nonShorthand(.vertical_edges  , .padding_bottom, .single),
-            .@"border-left-width"     => nonShorthand(.horizontal_edges, .border_left   , .single),
-            .@"border-right-width"    => nonShorthand(.horizontal_edges, .border_right  , .single),
-            .@"border-top-width"      => nonShorthand(.vertical_edges  , .border_top    , .single),
-            .@"border-bottom-width"   => nonShorthand(.vertical_edges  , .border_bottom , .single),
-            .@"margin-left"           => nonShorthand(.horizontal_edges, .margin_left   , .single),
-            .@"margin-right"          => nonShorthand(.horizontal_edges, .margin_right  , .single),
-            .@"margin-top"            => nonShorthand(.vertical_edges  , .margin_top    , .single),
-            .@"margin-bottom"         => nonShorthand(.vertical_edges  , .margin_bottom , .single),
-            .left                     => nonShorthand(.insets          , .left          , .single),
-            .right                    => nonShorthand(.insets          , .right         , .single),
-            .top                      => nonShorthand(.insets          , .top           , .single),
-            .bottom                   => nonShorthand(.insets          , .bottom        , .single),
-            .@"background-color"      => nonShorthand(.background_color, .color         , .single),
-            .@"background-image"      => nonShorthand(.background      , .image         , .multi ),
-            .@"background-repeat"     => nonShorthand(.background      , .repeat        , .multi ),
-            .@"background-attachment" => nonShorthand(.background      , .attachment    , .multi ),
-            .@"background-position"   => nonShorthand(.background      , .position      , .multi ),
-            .@"background-clip"       => nonShorthand(.background_clip , .clip          , .multi ),
-            .@"background-origin"     => nonShorthand(.background      , .origin        , .multi ),
-            .@"background-size"       => nonShorthand(.background      , .size          , .multi ),
-            .color                    => nonShorthand(.color           , .color         , .single),
+            .display                  => nonShorthand(.box_style       , .display       ),
+            .position                 => nonShorthand(.box_style       , .position      ),
+            .float                    => nonShorthand(.box_style       , .float         ),
+            .@"z-index"               => nonShorthand(.z_index         , .z_index       ),
+            .width                    => nonShorthand(.content_width   , .width         ),
+            .@"min-width"             => nonShorthand(.content_width   , .min_width     ),
+            .@"max-width"             => nonShorthand(.content_width   , .max_width     ),
+            .height                   => nonShorthand(.content_height  , .height        ),
+            .@"min-height"            => nonShorthand(.content_height  , .min_height    ),
+            .@"max-height"            => nonShorthand(.content_height  , .max_height    ),
+            .@"padding-left"          => nonShorthand(.horizontal_edges, .padding_left  ),
+            .@"padding-right"         => nonShorthand(.horizontal_edges, .padding_right ),
+            .@"padding-top"           => nonShorthand(.vertical_edges  , .padding_top   ),
+            .@"padding-bottom"        => nonShorthand(.vertical_edges  , .padding_bottom),
+            .@"border-left-width"     => nonShorthand(.horizontal_edges, .border_left   ),
+            .@"border-right-width"    => nonShorthand(.horizontal_edges, .border_right  ),
+            .@"border-top-width"      => nonShorthand(.vertical_edges  , .border_top    ),
+            .@"border-bottom-width"   => nonShorthand(.vertical_edges  , .border_bottom ),
+            .@"margin-left"           => nonShorthand(.horizontal_edges, .margin_left   ),
+            .@"margin-right"          => nonShorthand(.horizontal_edges, .margin_right  ),
+            .@"margin-top"            => nonShorthand(.vertical_edges  , .margin_top    ),
+            .@"margin-bottom"         => nonShorthand(.vertical_edges  , .margin_bottom ),
+            .left                     => nonShorthand(.insets          , .left          ),
+            .right                    => nonShorthand(.insets          , .right         ),
+            .top                      => nonShorthand(.insets          , .top           ),
+            .bottom                   => nonShorthand(.insets          , .bottom        ),
+            .@"background-color"      => nonShorthand(.background_color, .color         ),
+            .@"background-image"      => nonShorthand(.background      , .image         ),
+            .@"background-repeat"     => nonShorthand(.background      , .repeat        ),
+            .@"background-attachment" => nonShorthand(.background      , .attachment    ),
+            .@"background-position"   => nonShorthand(.background      , .position      ),
+            .@"background-clip"       => nonShorthand(.background_clip , .clip          ),
+            .@"background-origin"     => nonShorthand(.background      , .origin        ),
+            .@"background-size"       => nonShorthand(.background      , .size          ),
+            .color                    => nonShorthand(.color           , .color         ),
         };
         // zig fmt: on
     }
@@ -119,13 +116,11 @@ pub const Property = enum {
     fn nonShorthand(
         comptime aggregate_tag: aggregates.Tag,
         comptime field: @Type(.enum_literal),
-        comptime size: Description.Size,
     ) Description {
         return .{
             .non_shorthand = .{
                 .aggregate_tag = aggregate_tag,
                 .field = field,
-                .size = size,
             },
         };
     }
@@ -134,15 +129,15 @@ pub const Property = enum {
         switch (property.description()) {
             .all => return zss.values.types.CssWideKeyword,
             .non_shorthand => |non_shorthand| {
-                const Aggregate = non_shorthand.aggregate_tag.Value();
-                const Field = @FieldType(Aggregate, @tagName(non_shorthand.field));
+                const tag = non_shorthand.aggregate_tag;
+                const Field = tag.FieldType(non_shorthand.field);
                 return StructWithOneField(
-                    @tagName(non_shorthand.aggregate_tag),
+                    @tagName(tag),
                     StructWithOneField(
                         @tagName(non_shorthand.field),
-                        switch (non_shorthand.size) {
-                            .single => Declarations.SingleValue(Field),
-                            .multi => Declarations.MultiValue(Field),
+                        switch (tag.size()) {
+                            .single => aggregates.SingleValue(Field),
+                            .multi => aggregates.MultiValue(Field),
                         },
                     ),
                 );
@@ -182,9 +177,9 @@ pub const Property = enum {
     }
 };
 
-pub const Importance = enum(u1) {
-    normal = 0,
-    important = 1,
+pub const Importance = enum {
+    normal,
+    important,
 };
 
 // TODO: Pick a "smarter" number
@@ -253,7 +248,7 @@ fn parseDeclaration(
                 },
                 .non_shorthand => |non_shorthand| {
                     const parseFn = @field(parse, @tagName(comptime_property));
-                    const parsed_value_optional = switch (non_shorthand.size) {
+                    const parsed_value_optional = switch (comptime non_shorthand.aggregate_tag.size()) {
                         .single => parseFn(value_ctx),
                         .multi => parseFn(value_ctx, fba) catch |err| switch (err) {
                             error.OutOfMemory => return error.OutOfBufferSpace,
@@ -349,10 +344,10 @@ test "parsing properties from a stylesheet" {
             comptime aggregate_tag: aggregates.Tag,
             decls: *const Declarations,
             block: Declarations.Block,
-            expected: Declarations.AllAggregateValues(aggregate_tag),
+            expected: aggregate_tag.DeclaredValues(),
         ) !void {
             const meta = decls.getMeta(block);
-            const Values = Declarations.AllAggregateValues(aggregate_tag);
+            const Values = aggregate_tag.DeclaredValues();
             var values = Values{};
             decls.apply(aggregate_tag, block, .normal, meta, &values);
 

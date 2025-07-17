@@ -185,8 +185,8 @@ fn createTest(
         const slice = t.element_tree.slice();
         if (slice.category(t.root_element) == .normal) {
             const block = try t.env.decls.openBlock(t.env.allocator);
-            const AllAggregateValues = zss.property.Declarations.AllAggregateValues;
-            try t.env.decls.addValues(t.env.allocator, .normal, .{ .color = AllAggregateValues(.color){
+            const DeclaredValues = zss.property.aggregates.Tag.DeclaredValues;
+            try t.env.decls.addValues(t.env.allocator, .normal, .{ .color = DeclaredValues(.color){
                 .color = .{ .declared = .{ .rgba = 0xffffffff } },
             } });
             t.env.decls.closeBlock();

@@ -1,11 +1,12 @@
 const std = @import("std");
 
 const zss = @import("../zss.zig");
-const aggregates = zss.property.aggregates;
 const types = zss.values.types;
 const BoxTree = zss.BoxTree;
-const ComputedValues = zss.Layout.StyleComputer.ComputedValues;
-const SpecifiedValues = zss.Layout.StyleComputer.SpecifiedValues;
+
+const aggregates = zss.property.aggregates;
+const ComputedValues = aggregates.Tag.ComputedValues;
+const SpecifiedValues = aggregates.Tag.SpecifiedValues;
 
 const math = zss.math;
 const Unit = math.Unit;

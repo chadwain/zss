@@ -10,6 +10,8 @@
 const zss = @import("../zss.zig");
 const types = zss.values.types;
 
+const std = @import("std");
+
 pub const Tag = enum {
     box_style,
     content_width,
@@ -26,14 +28,8 @@ pub const Tag = enum {
 
     color,
     font,
-    // // Not yet implemented.
-    // direction,
-    // // Not yet implemented.
-    // unicode_bidi,
-    // // Not yet implemented.
-    // custom, // Custom property
 
-    pub fn Value(comptime tag: Tag) type {
+    fn Value(comptime tag: Tag) type {
         return switch (tag) {
             .box_style => BoxStyle,
             .content_width => ContentWidth,
@@ -76,7 +72,9 @@ pub const Tag = enum {
         };
     }
 
-    pub fn size(comptime tag: Tag) zss.property.Property.Description.Size {
+    pub const Size = enum { single, multi };
+
+    pub fn size(comptime tag: Tag) Size {
         return switch (tag) {
             .box_style,
             .content_width,
@@ -97,7 +95,142 @@ pub const Tag = enum {
             => .multi,
         };
     }
+
+    /// A struct that can represent the declared values of all fields within
+    /// the aggregate represented by `tag`.
+    pub fn DeclaredValues(comptime tag: Tag) type {
+        const ns = struct {
+            fn fieldMap(comptime field: tag.FieldEnum()) struct { type, ?*const anyopaque } {
+                const Field = tag.FieldType(field);
+                const Type = switch (tag.size()) {
+                    .single => SingleValue(Field),
+                    .multi => MultiValue(Field),
+                };
+                const default: *const Type = &.undeclared;
+                return .{ Type, default };
+            }
+        };
+        return zss.meta.EnumFieldMapStruct(tag.FieldEnum(), ns.fieldMap);
+    }
+
+    /// A struct that can represent the cascaded values of all fields within
+    /// the aggregate represented by `tag`.
+    pub const CascadedValues = DeclaredValues;
+
+    /// A struct that can represent the specified values of all fields within
+    /// the aggregate represented by `tag`.
+    pub fn SpecifiedValues(comptime tag: Tag) type {
+        const ns = struct {
+            fn fieldMap(comptime field: tag.FieldEnum()) struct { type, ?*const anyopaque } {
+                const Field = tag.FieldType(field);
+                const Type = switch (tag.size()) {
+                    .single => Field,
+                    .multi => []const Field,
+                };
+                return .{ Type, null };
+            }
+        };
+        return zss.meta.EnumFieldMapStruct(tag.FieldEnum(), ns.fieldMap);
+    }
+
+    /// A struct that can represent the computed values of all fields within
+    /// the aggregate represented by `tag`.
+    pub const ComputedValues = SpecifiedValues;
+
+    pub fn initialValues(comptime tag: Tag) tag.SpecifiedValues() {
+        return comptime blk: {
+            const Aggregate = tag.Value();
+            var result: tag.SpecifiedValues() = undefined;
+            switch (tag.size()) {
+                .single => {
+                    for (std.meta.fields(Aggregate)) |field| {
+                        @field(result, field.name) = @field(Aggregate.initial_values, field.name);
+                    }
+                },
+                .multi => {
+                    for (std.meta.fields(Aggregate)) |field| {
+                        @field(result, field.name) = &.{@field(Aggregate.initial_values, field.name)};
+                    }
+                },
+            }
+            break :blk result;
+        };
+    }
+
+    const AggregateField = struct {
+        name: []const u8,
+        type: type,
+    };
+
+    pub fn fields(comptime tag: Tag) []const AggregateField {
+        return comptime blk: {
+            const Aggregate = tag.Value();
+            const aggregate_fields = std.meta.fields(Aggregate);
+            var result: [aggregate_fields.len]AggregateField = undefined;
+            for (aggregate_fields, &result) |src, *dest| {
+                dest.* = .{ .name = src.name, .type = src.type };
+            }
+            break :blk &result;
+        };
+    }
+
+    pub fn FieldEnum(comptime tag: Tag) type {
+        const Aggregate = tag.Value();
+        @setEvalBranchQuota(@typeInfo(Aggregate).@"struct".fields.len * 800);
+        return std.meta.FieldEnum(Aggregate);
+    }
+
+    pub fn FieldType(comptime tag: Tag, comptime field: tag.FieldEnum()) type {
+        return @FieldType(tag.Value(), @tagName(field));
+    }
 };
+
+/// Represents either a CSS value, or a CSS-wide keyword, or `undeclared` (the absence of a declared value)
+pub const DeclaredValueTag = enum {
+    undeclared,
+    initial,
+    inherit,
+    unset,
+    declared,
+};
+
+/// Represents either a CSS value, or a CSS-wide keyword, or `undeclared` (the absence of a declared value)
+pub fn SingleValue(comptime T: type) type {
+    return union(DeclaredValueTag) {
+        undeclared,
+        initial,
+        inherit,
+        unset,
+        declared: T,
+
+        pub fn expectEqual(actual: @This(), expected: @This()) !void {
+            try std.testing.expectEqual(@as(DeclaredValueTag, expected), @as(DeclaredValueTag, actual));
+            switch (expected) {
+                .declared => |expected_value| try std.testing.expectEqual(expected_value, actual.declared),
+                else => {},
+            }
+        }
+    };
+}
+
+/// Represents either a CSS value, or a CSS-wide keyword, or `undeclared` (the absence of a declared value)
+pub fn MultiValue(comptime T: type) type {
+    return union(DeclaredValueTag) {
+        undeclared,
+        initial,
+        inherit,
+        unset,
+        declared: []const T,
+
+        pub fn expectEqual(actual: @This(), expected: @This()) !void {
+            try std.testing.expectEqual(@as(DeclaredValueTag, expected), @as(DeclaredValueTag, actual));
+            switch (expected) {
+                .declared => |expected_value| try std.testing.expectEqualSlices(T, expected_value, actual.declared),
+                else => {},
+            }
+        }
+    };
+}
 
 // TODO: font does not correspond to any CSS property
 pub const Font = struct {

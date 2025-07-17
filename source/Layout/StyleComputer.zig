@@ -4,12 +4,15 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
-const aggregates = zss.property.aggregates;
 const null_element = Element.null_element;
 const CascadedValues = zss.CascadedValues;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Stack = zss.Stack;
+
+const aggregates = zss.property.aggregates;
+const SpecifiedValues = aggregates.Tag.SpecifiedValues;
+const ComputedValues = aggregates.Tag.ComputedValues;
 
 const solve = @import("./solve.zig");
 
@@ -134,45 +137,6 @@ pub fn getTextFont(self: StyleComputer, comptime stage: Stage) ComputedValues(.f
     return inherited_value.get(self, stage);
 }
 
-pub fn SpecifiedValues(comptime tag: aggregates.Tag) type {
-    const Aggregate = tag.Value();
-    const FieldEnum = std.meta.FieldEnum(Aggregate);
-    const size = tag.size();
-    const ns = struct {
-        fn fieldMap(comptime field: FieldEnum) struct { type, ?*const anyopaque } {
-            const Field = @FieldType(Aggregate, @tagName(field));
-            const Type = switch (size) {
-                .single => Field,
-                .multi => []const Field,
-            };
-            return .{ Type, null };
-        }
-    };
-    return zss.meta.EnumFieldMapStruct(FieldEnum, ns.fieldMap);
-}
-
-pub const ComputedValues = SpecifiedValues;
-
-pub fn initialValues(comptime tag: aggregates.Tag) SpecifiedValues(tag) {
-    return comptime blk: {
-        const Aggregate = tag.Value();
-        var result: SpecifiedValues(tag) = undefined;
-        switch (tag.size()) {
-            .single => {
-                for (std.meta.fields(Aggregate)) |field| {
-                    @field(result, field.name) = @field(Aggregate.initial_values, field.name);
-                }
-            },
-            .multi => {
-                for (std.meta.fields(Aggregate)) |field| {
-                    @field(result, field.name) = &.{@field(Aggregate.initial_values, field.name)};
-                }
-            },
-        }
-        break :blk result;
-    };
-}
-
 pub fn setComputedValue(self: *StyleComputer, comptime stage: Stage, comptime tag: aggregates.Tag, value: ComputedValues(tag)) void {
     const current_stage = &@field(self.stage, @tagName(stage));
     const field = &@field(current_stage.current_computed, @tagName(tag));
@@ -214,7 +178,7 @@ fn getSpecifiedValueForElement(
         }
     };
 
-    const initial_value = initialValues(tag);
+    const initial_value = tag.initialValues();
     if (cascaded_value == null and default == .initial) {
         return initial_value;
     }
@@ -225,22 +189,22 @@ fn getSpecifiedValueForElement(
     }
 
     var specified: SpecifiedValues(tag) = undefined;
-    inline for (std.meta.fields(tag.Value())) |field_info| {
-        const cascaded_property = @field(cascaded_value.?, field_info.name);
-        const specified_property = &@field(specified, field_info.name);
-        switch (cascaded_property) {
-            .inherit => specified_property.* = @field(inherited_value.get(self, stage), field_info.name),
-            .initial => specified_property.* = @field(initial_value, field_info.name),
+    inline for (tag.fields()) |field| {
+        const cascaded_property = @field(cascaded_value.?, field.name);
+        const specified_property = &@field(specified, field.name);
+        specified_property.* = switch (cascaded_property) {
+            .inherit => @field(inherited_value.get(self, stage), field.name),
+            .initial => @field(initial_value, field.name),
             .unset => switch (inheritance_type) {
-                .inherited => specified_property.* = @field(inherited_value.get(self, stage), field_info.name),
-                .not_inherited => specified_property.* = @field(initial_value, field_info.name),
+                .inherited => @field(inherited_value.get(self, stage), field.name),
+                .not_inherited => @field(initial_value, field.name),
             },
             .undeclared => switch (default) {
-                .inherit => specified_property.* = @field(inherited_value.get(self, stage), field_info.name),
-                .initial => specified_property.* = @field(initial_value, field_info.name),
+                .inherit => @field(inherited_value.get(self, stage), field.name),
+                .initial => @field(initial_value, field.name),
             },
-            .declared => |declared| specified_property.* = declared,
-        }
+            .declared => |declared| declared,
+        };
     }
 
     return specified;
@@ -257,7 +221,7 @@ fn InheritedValue(comptime tag: aggregates.Tag) type {
             const current_stage = @field(computer.stage, @tagName(stage));
             const parent = computer.element_tree_slice.parent(self.element);
             self.value = if (parent.eqlNull())
-                initialValues(tag)
+                tag.initialValues()
             else blk: {
                 if (current_stage.map.get(parent)) |parent_computed_values| {
                     if (@field(parent_computed_values, @tagName(tag))) |inherited_value| {

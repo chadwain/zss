@@ -4,7 +4,6 @@ const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
-const aggregates = zss.property.aggregates;
 const IsAutoOrPercentage = BlockUsedSizes.IsAutoOrPercentage;
 const BlockComputedSizes = zss.Layout.BlockComputedSizes;
 const BlockUsedSizes = zss.Layout.BlockUsedSizes;
@@ -12,14 +11,15 @@ const Element = zss.ElementTree.Element;
 const Layout = zss.Layout;
 const SctBuilder = Layout.StackingContextTreeBuilder;
 const Stack = zss.Stack;
+const StyleComputer = Layout.StyleComputer;
 const Unit = zss.math.Unit;
 
 const solve = @import("./solve.zig");
 const @"inline" = @import("./inline.zig");
 
-const StyleComputer = Layout.StyleComputer;
-const SpecifiedValues = StyleComputer.SpecifiedValues;
-const ComputedValues = StyleComputer.ComputedValues;
+const aggregates = zss.property.aggregates;
+const SpecifiedValues = aggregates.Tag.SpecifiedValues;
+const ComputedValues = aggregates.Tag.ComputedValues;
 
 const BoxTree = zss.BoxTree;
 const BoxStyle = BoxTree.BoxStyle;
