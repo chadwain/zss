@@ -4,4 +4,4 @@ All files are marked with CC0 1.0 Universal unless otherwise noted. To view a co
 
 All font files from the [Noto Fonts project](https://notofonts.github.io/) are redistributed under the terms of the SIL Open Font License. To view a copy of this license, see [LICENSE-OFL](LICENSE-OFL.txt), or visit [openfontlicense.org](https://openfontlicense.org/open-font-license-official-text/).
 
-The [Zig Project Logo](https://github.com/ziglang/logo) by the Zig Project is licensed under CC BY-SA 4.0. To view a copy of this license, visit [creativecommons.org](https://creativecommons.org/licenses/by-sa/4.0/).
+The [Zig Project Logo](https://github.com/ziglang/logo) by the [Zig Project](https://ziglang.org) is licensed under CC BY-SA 4.0. To view a copy of this license, visit [creativecommons.org](https://creativecommons.org/licenses/by-sa/4.0/).
