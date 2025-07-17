@@ -181,6 +181,7 @@ pub const Subtree = struct {
         skip: Size,
         type: BlockType,
         stacking_context: ?StackingContextTree.Id,
+        element: Element,
         offset: math.Vector,
         box_offsets: BoxOffsets,
         borders: Borders,
@@ -234,6 +235,7 @@ pub const Subtree = struct {
 pub const InlineFormattingContext = struct {
     id: Id,
     parent_block: BlockRef,
+    element: Element = .null_element,
 
     glyphs: MultiArrayList(struct {
         index: GlyphIndex,
@@ -254,6 +256,7 @@ pub const InlineFormattingContext = struct {
     pub const Id = enum(u16) { _ };
 
     pub const InlineBoxList = MultiArrayList(struct {
+        element: Element,
         skip: Size,
         inline_start: BoxProperties,
         inline_end: BoxProperties,
