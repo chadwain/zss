@@ -406,6 +406,7 @@ const BlockInfo = struct {
     sizes: BlockUsedSizes,
     stacking_context_id: ?StackingContextTree.Id,
     // absolute_containing_block_id: ?Absolute.ContainingBlock.Id,
+    element: Element,
 };
 
 fn newBlock(layout: *Layout) !BlockRef {
@@ -452,6 +453,7 @@ pub fn pushInitialContainingBlock(layout: *Layout, size: math.Size) !BlockRef {
         .sizes = BlockUsedSizes.icb(size),
         .stacking_context_id = stacking_context_id,
         // .absolute_containing_block_id = absolute_containing_block_id,
+        .element = .null_element,
     };
     layout.stacks.containing_block_size.top = .{
         .width = size.w,
@@ -478,6 +480,7 @@ pub fn popInitialContainingBlock(layout: *Layout) void {
     subtree.items(.skip)[index] = block.skip;
     subtree.items(.type)[index] = .block;
     subtree.items(.stacking_context)[index] = block_info.stacking_context_id;
+    subtree.items(.element)[index] = .null_element;
     subtree.items(.box_offsets)[index] = .{
         .border_pos = .{ .x = 0, .y = 0 },
         .content_pos = .{ .x = 0, .y = 0 },
@@ -490,14 +493,14 @@ pub fn popInitialContainingBlock(layout: *Layout) void {
 
 pub fn pushFlowBlock(
     layout: *Layout,
-    comptime size_mode: SizeMode,
     // box_style: BoxTree.BoxStyle,
     sizes: BlockUsedSizes,
-    available_width: switch (size_mode) {
-        .Normal => void,
-        .ShrinkToFit => math.Unit,
+    available_width: union(SizeMode) {
+        Normal,
+        ShrinkToFit: math.Unit,
     },
     stacking_context: StackingContextTreeBuilder.Type,
+    element: Element,
 ) !BlockRef {
     const ref = try layout.pushBlock();
 
@@ -507,11 +510,12 @@ pub fn pushFlowBlock(
         .sizes = sizes,
         .stacking_context_id = stacking_context_id,
         // .absolute_containing_block_id = absolute_containing_block_id,
+        .element = element,
     });
     try layout.stacks.containing_block_size.push(layout.allocator, .{
-        .width = switch (size_mode) {
+        .width = switch (available_width) {
             .Normal => sizes.get(.inline_size).?,
-            .ShrinkToFit => available_width,
+            .ShrinkToFit => |aw| aw,
         },
         .height = sizes.get(.block_size),
     });
@@ -521,10 +525,9 @@ pub fn pushFlowBlock(
 
 pub fn popFlowBlock(
     layout: *Layout,
-    comptime size_mode: SizeMode,
-    auto_width: switch (size_mode) {
-        .Normal => void,
-        .ShrinkToFit => math.Unit,
+    auto_width: union(SizeMode) {
+        Normal,
+        ShrinkToFit: math.Unit,
     },
 ) void {
     layout.sct_builder.pop(layout.box_tree.ptr);
@@ -535,12 +538,12 @@ pub fn popFlowBlock(
 
     const subtree = layout.box_tree.ptr.getSubtree(layout.currentSubtree()).view();
     const auto_height = flow.offsetChildBlocks(subtree, block.index, block.skip);
-    const width = switch (size_mode) {
+    const width = switch (auto_width) {
         .Normal => block_info.sizes.get(.inline_size).?,
-        .ShrinkToFit => flow.solveUsedWidth(auto_width, block_info.sizes.min_inline_size, block_info.sizes.max_inline_size),
+        .ShrinkToFit => |aw| flow.solveUsedWidth(aw, block_info.sizes.min_inline_size, block_info.sizes.max_inline_size),
     };
     const height = flow.solveUsedHeight(block_info.sizes, auto_height);
-    setDataBlock(subtree, block.index, block_info.sizes, block.skip, width, height, block_info.stacking_context_id);
+    setDataBlock(subtree, block.index, block_info.sizes, block.skip, width, height, block_info.stacking_context_id, block_info.element);
 }
 
 pub fn pushStfFlowBlock(
@@ -575,6 +578,7 @@ pub fn popStfFlowBlock2(
     sizes: BlockUsedSizes,
     stacking_context_id: ?StackingContextTree.Id,
     // absolute_containing_block_id: ?Absolute.ContainingBlock.Id,
+    element: Element,
 ) void {
     const block = layout.popBlock();
 
@@ -583,7 +587,7 @@ pub fn popStfFlowBlock2(
     const auto_height = flow.offsetChildBlocks(subtree, block.index, block.skip);
     const width = flow.solveUsedWidth(auto_width, sizes.min_inline_size, sizes.max_inline_size); // TODO This is probably redundant
     const height = flow.solveUsedHeight(sizes, auto_height);
-    setDataBlock(subtree, block.index, sizes, block.skip, width, height, stacking_context_id);
+    setDataBlock(subtree, block.index, sizes, block.skip, width, height, stacking_context_id, element);
 
     const ref: BlockRef = .{ .subtree = subtree_id, .index = block.index };
     if (stacking_context_id) |id| layout.sct_builder.setBlock(id, layout.box_tree.ptr, ref);
@@ -810,10 +814,12 @@ fn setDataBlock(
     width: math.Unit,
     height: math.Unit,
     stacking_context: ?StackingContextTree.Id,
+    element: Element,
 ) void {
     subtree.items(.skip)[index] = skip;
     subtree.items(.type)[index] = .block;
     subtree.items(.stacking_context)[index] = stacking_context;
+    subtree.items(.element)[index] = element;
 
     const box_offsets = &subtree.items(.box_offsets)[index];
     const borders = &subtree.items(.borders)[index];

@@ -264,7 +264,7 @@ fn flowObject(layout: *Layout, element: Element, inner_block: BoxStyle.InnerBloc
         .flow => {
             if (sizes.get(.inline_size)) |inline_size| {
                 _ = try layout.pushSubtree();
-                const ref = try layout.pushFlowBlock(.Normal, sizes, {}, stacking_context);
+                const ref = try layout.pushFlowBlock(sizes, .Normal, stacking_context, element);
                 try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                 try layout.stf_context.appendFlowNormalObject(layout.allocator, ref, element, inline_size + edge_width);
                 try layout.pushElement();
@@ -291,7 +291,7 @@ pub fn nullElement(layout: *Layout) !void {
 }
 
 pub fn afterFlowMode(layout: *Layout) void {
-    layout.popFlowBlock(.Normal, {});
+    layout.popFlowBlock(.Normal);
     layout.popSubtree();
     layout.popElement();
 }
@@ -435,10 +435,12 @@ fn popFlowBlock(layout: *Layout, ctx: *RealizeObjectsContext, object_tree_slice:
     }
 
     const data = object_tree_slice.items(.data)[this.object_index].flow_stf;
+    const element = object_tree_slice.items(.element)[this.object_index];
     layout.popStfFlowBlock2(
         data.width_clamped,
         data.used,
         data.stacking_context_id,
         // data.absolute_containing_block_id,
+        element,
     );
 }

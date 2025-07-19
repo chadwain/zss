@@ -158,7 +158,7 @@ pub const BackgroundImage = struct {
 
 pub const BlockType = union(enum) {
     /// An ordinary block box.
-    /// Additional active fields: insets, border_colors, background
+    /// Additional active fields: element, insets, border_colors, background
     block,
     /// A block box associated with an inline formatting context.
     /// A block of this type is created for every IFC, and it completely
@@ -231,8 +231,10 @@ pub const Subtree = struct {
         box_offsets: BoxOffsets,
         borders: Borders,
         margins: Margins,
-        /// Non-null if this block creates a stacking context.
+        /// If non-null, the stacking context that this block generates.
         stacking_context: ?StackingContextTree.Id,
+        /// If non-null, the element in the element tree that generated this block.
+        element: Element,
         /// The offset given to this block by relative positioning.
         // TODO: rename to `relative_insets`, so it's not confused with absolute insets.
         insets: Insets,

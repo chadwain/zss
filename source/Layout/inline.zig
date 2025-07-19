@@ -189,7 +189,7 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
                 layout.computer.commitElement(.box_gen);
 
                 if (sizes.get(.inline_size)) |_| {
-                    const ref = try layout.pushFlowBlock(.Normal, sizes, {}, stacking_context);
+                    const ref = try layout.pushFlowBlock(sizes, .Normal, stacking_context, element);
                     try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                     try ifcAddInlineBlock(layout.box_tree, ifc.ptr, ref.index);
                     try layout.pushElement();
@@ -201,7 +201,7 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
                             sizes.padding_inline_start + sizes.padding_inline_end);
                     const available_width = solve.clampSize(available_width_unclamped, sizes.min_inline_size, sizes.max_inline_size);
 
-                    const ref = try layout.pushFlowBlock(.ShrinkToFit, sizes, available_width, stacking_context);
+                    const ref = try layout.pushFlowBlock(sizes, .{ .ShrinkToFit = available_width }, stacking_context, element);
                     try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
                     try ifcAddInlineBlock(layout.box_tree, ifc.ptr, ref.index);
                     try layout.pushElement();
@@ -230,7 +230,7 @@ pub fn nullElement(layout: *Layout) !void {
 }
 
 pub fn afterFlowMode(layout: *Layout) void {
-    layout.popFlowBlock(.Normal, {});
+    layout.popFlowBlock(.Normal);
     layout.popElement();
 }
 
@@ -239,7 +239,7 @@ pub fn afterInlineMode() noreturn {
 }
 
 pub fn afterStfMode(layout: *Layout, layout_result: stf.Result) void {
-    layout.popFlowBlock(.ShrinkToFit, layout_result.auto_width);
+    layout.popFlowBlock(.{ .ShrinkToFit = layout_result.auto_width });
     layout.popElement();
 }
 

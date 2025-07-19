@@ -25,7 +25,7 @@ pub fn blockElement(layout: *Layout, element: Element, inner_block: BoxTree.BoxS
 
     switch (inner_block) {
         .flow => {
-            const ref = try layout.pushFlowBlock(.Normal, sizes, {}, stacking_context);
+            const ref = try layout.pushFlowBlock(sizes, .Normal, stacking_context, element);
             try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
             try layout.pushElement();
             return layout.pushFlowMode(.Root);
@@ -38,7 +38,7 @@ pub fn inlineElement(layout: *Layout) !void {
 }
 
 pub fn afterFlowMode(layout: *Layout) void {
-    layout.popFlowBlock(.Normal, {});
+    layout.popFlowBlock(.Normal);
     layout.popElement();
 }
 

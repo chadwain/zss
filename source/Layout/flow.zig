@@ -106,14 +106,14 @@ fn pushBlock(
     stacking_context: SctBuilder.Type,
 ) !void {
     // The allocations here must have corresponding deallocations in popBlock.
-    const ref = try layout.pushFlowBlock(.Normal, sizes, {}, stacking_context);
+    const ref = try layout.pushFlowBlock(sizes, .Normal, stacking_context, element);
     try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
     try layout.pushElement();
 }
 
 fn popBlock(layout: *Layout) void {
     // The deallocations here must correspond to allocations in pushBlock.
-    layout.popFlowBlock(.Normal, {});
+    layout.popFlowBlock(.Normal);
     layout.popElement();
 }
 
