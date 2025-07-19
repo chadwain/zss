@@ -59,8 +59,7 @@ pub fn getSubtree(box_tree: *const BoxTree, id: Subtree.Id) *Subtree {
 
 pub const BoxOffsets = struct {
     /// The offset of the top-left corner of the border box, relative to
-    /// the top-left corner of the parent block's content box (or the top-left
-    /// corner of the screen, if this is the initial containing block).
+    /// the current offset vector.
     border_pos: math.Vector = .{ .x = 0, .y = 0 },
     /// The width and height of the border box.
     border_size: math.Size = .{ .w = 0, .h = 0 },
@@ -78,7 +77,7 @@ pub const Borders = struct {
     bottom: math.Unit = 0,
 };
 
-pub const BorderColor = struct {
+pub const BorderColors = struct {
     left: math.Color = .transparent,
     right: math.Color = .transparent,
     top: math.Color = .transparent,
@@ -158,8 +157,16 @@ pub const BackgroundImage = struct {
 };
 
 pub const BlockType = union(enum) {
+    /// An ordinary block box.
+    /// Additional active fields: insets, border_colors, background
     block,
+    /// A block box associated with an inline formatting context.
+    /// A block of this type is created for every IFC, and it completely
+    /// surrounds every line box contained within the IFC.
     ifc_container: InlineFormattingContext.Id,
+    /// A reference to a child subtree. The child subtree should be treated
+    /// as if its root block is the only child of this proxy block.
+    /// This is always a leaf node.
     subtree_proxy: Subtree.Id,
 };
 
@@ -168,27 +175,71 @@ pub const BlockRef = struct {
     index: Subtree.Size,
 };
 
+/// The block box tree is divided into subtrees.
+/// Subtrees themselves have parent-child relationships with each other, and
+/// they are linked together with special blocks called "subtree proxy" blocks.
+/// When all subtrees are put together, it forms the entire block box tree.
+/// (Thus, it might be more accurate to think of the block box tree as a forest.)
+///
+/// A subtree proxy block transparently connects a child subtree to its parent.
+/// The child subtree should be treated as if it was attached to its parent via the
+/// proxy block (as if there was an edge connecting the proxy block to the child
+/// subtree's root block), conceptually turning the pair into a single large tree.
+/// Note the wording: the proxy block is not *replaced* by the child subtree, but is
+/// *attached* to it.
+///
+/// Invariants:
+/// * The subtree that contains the initial containing block is called the root subtree.
+///   Since the initial containing block always exists, so does the root subtree.
+/// * A subtree can only have at most one parent. The root subtree has no parent.
+/// * A subtree always has at least one block, called its root block, with index 0.
+///   The root block cannot have siblings.
 pub const Subtree = struct {
+    /// A unique identifier for this subtree.
     id: Subtree.Id,
+    /// A reference to a block in this subtree's parent subtree, if it has one.
+    /// Said block will always have a type of `subtree_proxy`.
     parent: ?BlockRef,
     blocks: List = .{},
 
     pub const Size = u16;
     pub const Id = enum(u16) { _ };
 
-    // TODO: Document the active fields for each type of block.
-    pub const List = MultiArrayList(struct {
+    /// Contains information about a block box, such as its size and position,
+    /// as well as "cosmetic" information such as background/border images and colors.
+    ///
+    /// Not every field of this struct has a well-defined value at runtime.
+    /// Only fields which are "active" have well-defined values.
+    /// All other fields are considered "inactive", such that their values are
+    /// undefined, and should not be used.
+    /// The set of active and inactive fields is determined by that block's type.
+    ///
+    /// The following fields are always active for all blocks, regardless of their type:
+    ///     skip, type, offset, box_offsets, borders, margins, stacking_context
+    ///
+    /// Note that all blocks, even "weird" ones like subtree proxies, have size and
+    /// position information that must be taken into account during calculations.
+    pub const Block = struct {
+        /// The amount to add to this block's index in order to get the index of
+        /// it's next sibling block.
         skip: Size,
         type: BlockType,
-        stacking_context: ?StackingContextTree.Id,
+        /// The offset of the top-left corner of the border box, relative to
+        /// the top-left corner of the parent block's content box (or the top-left
+        /// corner of the screen, if this is the initial containing block).
         offset: math.Vector,
         box_offsets: BoxOffsets,
         borders: Borders,
         margins: Margins,
+        /// Non-null if this block creates a stacking context.
+        stacking_context: ?StackingContextTree.Id,
+        /// The offset given to this block by relative positioning.
+        // TODO: rename to `relative_insets`, so it's not confused with absolute insets.
         insets: Insets,
-        border_colors: BorderColor,
+        border_colors: BorderColors,
         background: BlockBoxBackground,
-    });
+    };
+    pub const List = MultiArrayList(Block);
     pub const View = List.Slice;
 
     fn deinit(subtree: *Subtree, allocator: Allocator) void {

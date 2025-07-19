@@ -176,8 +176,8 @@ pub fn insets(specified: SpecifiedValues(.insets)) ComputedValues(.insets) {
     return computed;
 }
 
-pub fn borderColors(border_colors: SpecifiedValues(.border_colors), current_color: math.Color) BoxTree.BorderColor {
-    return BoxTree.BorderColor{
+pub fn borderColors(border_colors: SpecifiedValues(.border_colors), current_color: math.Color) BoxTree.BorderColors {
+    return .{
         .left = color(border_colors.left, current_color),
         .right = color(border_colors.right, current_color),
         .top = color(border_colors.top, current_color),

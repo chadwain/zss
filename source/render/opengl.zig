@@ -594,7 +594,7 @@ fn drawBlockContainer(
     images: Images.Slice,
     boxes: ThreeBoxes,
     background: zss.BoxTree.BlockBoxBackground,
-    border_colors: zss.BoxTree.BorderColor,
+    border_colors: zss.BoxTree.BorderColors,
 ) !void {
     // draw background color
     switch (background.color.a) {

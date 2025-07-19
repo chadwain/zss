@@ -20,7 +20,8 @@
 //! `importance` parameter in every API that sets or retreives values.
 //!
 //! This struct manages its own memory. When declarations are added, a full copy of
-//! all the required memory is made.
+//! all the required memory is made. Also, once a block is closed, any pointers to
+//! its data will never be invalidated.
 
 const Declarations = @This();
 
@@ -221,7 +222,7 @@ pub fn hasValues(decls: *const Declarations, block: Block, importance: Importanc
         .important => .{ meta.all_important, meta.active_groups_important },
         .normal => .{ meta.all_normal, meta.active_groups_normal },
     };
-    return (set.count() != 0) or (all != null);
+    return (all != null) or (set.count() != 0);
 }
 
 pub fn getMeta(decls: *const Declarations, block: Block) *const Meta {
@@ -230,7 +231,7 @@ pub fn getMeta(decls: *const Declarations, block: Block) *const Meta {
 
 // TODO: These non-mutating APIs have some flaws:
 //       1. Too much of it is public
-//       2. Requires passing pointers to metadata (`getMeta` should not exist)
+//       2. Requires passing pointers to metadata (`getMeta` should not exist + aliasing)
 //       Solution: Move code from users of this API into this file.
 
 /// For each group field, gets the partially cascaded value from the
