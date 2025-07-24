@@ -308,6 +308,7 @@ pub const InlineFormattingContext = struct {
 
     pub const InlineBoxList = MultiArrayList(struct {
         skip: Size,
+        element: Element,
         inline_start: BoxProperties,
         inline_end: BoxProperties,
         block_start: BoxProperties,

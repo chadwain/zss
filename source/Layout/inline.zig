@@ -177,7 +177,7 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
                 layout.computer.commitElement(.box_gen);
             }
 
-            const inline_box_index = try pushInlineBox(layout);
+            const inline_box_index = try pushInlineBox(layout, element);
             const generated_box = GeneratedBox{ .inline_box = .{ .ifc_id = ifc.ptr.id, .index = inline_box_index } };
             try layout.box_tree.setGeneratedBox(element, generated_box);
             try layout.pushElement();
@@ -252,11 +252,11 @@ fn pushRootInlineBox(layout: *Layout) !void {
     try ctx.pushInlineBox(layout.allocator, index);
 }
 
-fn pushInlineBox(layout: *Layout) !Ifc.Size {
+fn pushInlineBox(layout: *Layout, element: Element) !Ifc.Size {
     const ctx = &layout.inline_context;
     const ifc = &ctx.ifc.top.?;
     const index = try layout.box_tree.appendInlineBox(ifc.ptr);
-    setDataInlineBox(&layout.computer, ifc.ptr.slice(), index, ifc.percentage_base_unit);
+    setDataInlineBox(&layout.computer, ifc.ptr.slice(), index, element, ifc.percentage_base_unit);
     try ifcAddBoxStart(layout.box_tree, ifc.ptr, index);
     try ctx.pushInlineBox(layout.allocator, index);
     return index;
@@ -358,6 +358,7 @@ fn ifcAddTextRun(box_tree: BoxTreeManaged, ifc: *Ifc, buffer: *hb.hb_buffer_t, f
 
 fn setDataRootInlineBox(ifc: *const Ifc, inline_box_index: Ifc.Size) void {
     const ifc_slice = ifc.slice();
+    ifc_slice.items(.element)[inline_box_index] = .null_element;
     ifc_slice.items(.inline_start)[inline_box_index] = .{};
     ifc_slice.items(.inline_end)[inline_box_index] = .{};
     ifc_slice.items(.block_start)[inline_box_index] = .{};
@@ -365,7 +366,7 @@ fn setDataRootInlineBox(ifc: *const Ifc, inline_box_index: Ifc.Size) void {
     ifc_slice.items(.margins)[inline_box_index] = .{};
 }
 
-fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: Ifc.Size, percentage_base_unit: Unit) void {
+fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: Ifc.Size, element: Element, percentage_base_unit: Unit) void {
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
     const specified = .{
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
@@ -528,6 +529,7 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
     computer.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
     computer.setComputedValue(.box_gen, .border_styles, specified.border_styles);
 
+    ifc.items(.element)[inline_box_index] = element;
     ifc.items(.inline_start)[inline_box_index] = .{ .border = used.border_inline_start, .padding = used.padding_inline_start };
     ifc.items(.inline_end)[inline_box_index] = .{ .border = used.border_inline_end, .padding = used.padding_inline_end };
     ifc.items(.block_start)[inline_box_index] = .{ .border = used.border_block_start, .padding = used.padding_block_start };
