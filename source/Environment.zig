@@ -23,6 +23,7 @@ id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensi
 namespaces: Namespaces = .{},
 decls: Declarations = .{},
 urls: Urls = .{},
+images: Images = .{},
 
 pub fn init(allocator: Allocator) Environment {
     return Environment{ .allocator = allocator };
@@ -38,6 +39,7 @@ pub fn deinit(env: *Environment) void {
     env.namespaces.deinit(env.allocator);
     env.decls.deinit(env.allocator);
     env.urls.deinit(env.allocator);
+    env.images.deinit(env.allocator);
 }
 
 pub fn addStylesheet(env: *Environment, source: TokenSource) !void {
@@ -227,4 +229,66 @@ pub fn addUrl(env: *Environment, desc: Urls.Description) !Urls.Id {
     const int = env.urls.nextId() orelse return error.OutOfUrls;
     try env.urls.descriptions.append(env.allocator, desc);
     return @enumFromInt(int);
+}
+
+pub const Images = struct {
+    pub const Handle = enum(u32) { _ };
+
+    pub const Image = struct {
+        dimensions: Dimensions,
+        format: Format,
+        /// Externally managed image data.
+        /// `null` means the data is not available.
+        data: ?[]const u8,
+    };
+
+    pub const Dimensions = struct {
+        width_px: u32,
+        height_px: u32,
+    };
+
+    pub const Format = enum {
+        rgba,
+    };
+
+    list: MultiArrayList(Image) = .{},
+
+    fn deinit(images: *Images, allocator: Allocator) void {
+        images.list.deinit(allocator);
+    }
+
+    fn nextHandle(images: Images) ?Handle {
+        if (images.list.len == std.math.maxInt(std.meta.Tag(Handle))) return null;
+        return @enumFromInt(images.list.len);
+    }
+
+    pub const View = struct {
+        slice: MultiArrayList(Image).Slice,
+
+        pub fn dimensions(v: View, handle: Handle) Dimensions {
+            return v.slice.items(.dimensions)[@intFromEnum(handle)];
+        }
+
+        pub fn format(v: View, handle: Handle) Format {
+            return v.slice.items(.format)[@intFromEnum(handle)];
+        }
+
+        pub fn data(v: View, handle: Handle) []const u8 {
+            return v.slice.items(.data)[@intFromEnum(handle)];
+        }
+
+        pub fn get(v: View, handle: Handle) Image {
+            return v.slice.get(@intFromEnum(handle));
+        }
+    };
+
+    pub fn view(images: Images) View {
+        return .{ .slice = images.list.slice() };
+    }
+};
+
+pub fn addImage(env: *Environment, image: Images.Image) !Images.Handle {
+    const handle = env.images.nextHandle() orelse return error.OutOfImages;
+    try env.images.list.append(env.allocator, image);
+    return handle;
 }

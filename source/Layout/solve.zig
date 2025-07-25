@@ -223,8 +223,8 @@ pub fn inlineBoxBackground(col: types.Color, clip: types.BackgroundClip, current
 }
 
 pub fn backgroundImage(
-    handle: zss.Images.Handle,
-    dimensions: zss.Images.Dimensions,
+    handle: zss.Environment.Images.Handle,
+    dimensions: zss.Environment.Images.Dimensions,
     specified: struct {
         origin: types.BackgroundOrigin,
         position: types.BackgroundPosition,

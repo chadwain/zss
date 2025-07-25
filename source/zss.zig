@@ -15,7 +15,6 @@ pub const CascadedValues = @import("CascadedValues.zig");
 pub const ElementTree = @import("ElementTree.zig");
 pub const Environment = @import("Environment.zig");
 pub const Fonts = @import("Fonts.zig");
-pub const Images = @import("Images.zig");
 pub const Layout = @import("Layout.zig");
 pub const Stack = @import("stack.zig").Stack;
 pub const Stylesheet = @import("Stylesheet.zig");

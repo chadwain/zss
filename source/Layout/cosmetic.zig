@@ -367,7 +367,7 @@ fn blockBoxBackgrounds(
             .none => continue,
         };
         defer buffer_index += 1;
-        const dimensions = inputs.images.items(.dimensions)[@intFromEnum(image_handle)];
+        const dimensions = inputs.images.dimensions(image_handle);
         buffer[buffer_index] = solve.backgroundImage(
             image_handle,
             dimensions,

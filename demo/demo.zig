@@ -25,9 +25,8 @@ const ProgramState = struct {
     allocator: Allocator,
     element_tree: zss.ElementTree.Slice,
     root_element: zss.ElementTree.Element,
-    images: zss.Images.Slice,
+    env: *zss.Environment,
     fonts: *const zss.Fonts,
-    decls: *const zss.property.Declarations,
 
     box_tree: *zss.BoxTree,
     draw_list: *zss.render.DrawList,
@@ -82,9 +81,8 @@ const ProgramState = struct {
             self.allocator,
             self.main_window_width,
             self.main_window_height,
-            self.images,
+            self.env,
             self.fonts,
-            self.decls,
         );
         defer layout.deinit();
 
@@ -160,11 +158,8 @@ pub fn main() !u8 {
     defer hb.hb_font_destroy(font);
     hb.hb_ft_font_set_funcs(font);
 
-    var decls = zss.property.Declarations{};
-    defer decls.deinit(allocator);
-
-    var images = zss.Images{};
-    defer images.deinit(allocator);
+    var env = zss.Environment.init(allocator);
+    defer env.deinit();
 
     var fonts = zss.Fonts.init();
     defer fonts.deinit();
@@ -172,15 +167,15 @@ pub fn main() !u8 {
 
     var zig_logo_data, const zig_logo_image = try loadImage(@embedFile("zig.png"), allocator);
     defer zig_logo_data.deinit();
-    const zig_logo_handle = try images.addImage(allocator, zig_logo_image);
+    const zig_logo_handle = try env.addImage(zig_logo_image);
 
     var tree = zss.ElementTree.init(allocator);
     defer tree.deinit();
 
-    const root_element = try createElements(allocator, &tree, &decls, file_path, file_contents.items, zig_logo_handle);
+    const root_element = try createElements(&tree, &env, file_path, file_contents.items, zig_logo_handle);
 
     var box_tree = blk: {
-        var layout = zss.Layout.init(tree.slice(), .null_element, allocator, 0, 0, images.slice(), &fonts, &decls);
+        var layout = zss.Layout.init(tree.slice(), .null_element, allocator, 0, 0, &env, &fonts);
         defer layout.deinit();
         break :blk try layout.run(allocator);
     };
@@ -203,9 +198,8 @@ pub fn main() !u8 {
         .allocator = allocator,
         .element_tree = tree.slice(),
         .root_element = root_element,
-        .images = images.slice(),
+        .env = &env,
         .fonts = &fonts,
-        .decls = &decls,
 
         .box_tree = &box_tree,
         .draw_list = &draw_list,
@@ -237,7 +231,7 @@ pub fn main() !u8 {
         };
         try zss.render.opengl.drawBoxTree(
             &renderer,
-            program_state.images,
+            program_state.env.images.view(),
             program_state.box_tree,
             program_state.draw_list,
             allocator,
@@ -317,11 +311,11 @@ fn readFile(allocator: Allocator, file_path: []const u8) !std.ArrayListUnmanaged
     return list.moveToUnmanaged();
 }
 
-fn loadImage(bytes: []const u8, allocator: Allocator) !struct { zigimg.Image, zss.Images.Image } {
+fn loadImage(bytes: []const u8, allocator: Allocator) !struct { zigimg.Image, zss.Environment.Images.Image } {
     var zigimg_image = try zigimg.Image.fromMemory(allocator, bytes);
     errdefer zigimg_image.deinit();
 
-    var zss_image: zss.Images.Image = .{
+    var zss_image: zss.Environment.Images.Image = .{
         .dimensions = .{
             .width_px = @intCast(zigimg_image.width),
             .height_px = @intCast(zigimg_image.height),
@@ -330,7 +324,7 @@ fn loadImage(bytes: []const u8, allocator: Allocator) !struct { zigimg.Image, zs
         .data = undefined,
     };
     zss_image.format, zss_image.data = switch (zigimg_image.pixelFormat()) {
-        .rgba32 => .{ .rgba, .{ .rgba = zigimg_image.rawBytes() } },
+        .rgba32 => .{ .rgba, zigimg_image.rawBytes() },
         else => return error.UnsupportedPixelFormat,
     };
 
@@ -351,12 +345,11 @@ const Elements = enum {
 
 /// Returns the root element.
 fn createElements(
-    allocator: Allocator,
     tree: *zss.ElementTree,
-    decls: *zss.property.Declarations,
+    env: *zss.Environment,
     file_name: []const u8,
     file_contents: []const u8,
-    footer_image_handle: zss.Images.Handle,
+    footer_image_handle: zss.Environment.Images.Handle,
 ) !zss.ElementTree.Element {
     const element_enum_values = comptime std.enums.values(Elements);
     const tree_elements = blk: {
@@ -384,12 +377,12 @@ fn createElements(
     slice.set(.text, tree_elements.get(.title_text), file_name);
     slice.set(.text, tree_elements.get(.body_text), file_contents);
 
-    const element_style_decls = try getElementStyleDecls(decls, allocator, footer_image_handle);
+    const element_style_decls = try getElementStyleDecls(&env.decls, env.allocator, footer_image_handle);
     for (element_enum_values) |value| {
         const block = element_style_decls.get(value) orelse continue;
         try slice.updateCascadedValues(
             tree_elements.get(value),
-            decls,
+            &env.decls,
             &.{.{ .block = block, .importance = .normal }},
         );
     }
@@ -402,7 +395,7 @@ const ElementStyleDecls = std.EnumArray(Elements, ?zss.property.Declarations.Blo
 fn getElementStyleDecls(
     decls: *zss.property.Declarations,
     allocator: Allocator,
-    footer_image_handle: zss.Images.Handle,
+    footer_image_handle: zss.Environment.Images.Handle,
 ) !ElementStyleDecls {
     var result: ElementStyleDecls = .initUndefined();
     result.set(.title_text, null);

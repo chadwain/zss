@@ -7,10 +7,10 @@ const zss = @import("zss.zig");
 const math = zss.math;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
+const Environment = zss.Environment;
 const Fonts = zss.Fonts;
-const Images = zss.Images;
+const Images = Environment.Images;
 const Stack = zss.Stack;
-const Declarations = zss.property.Declarations;
 
 const cosmetic = @import("Layout/cosmetic.zig");
 const flow = @import("Layout/flow.zig");
@@ -64,9 +64,9 @@ pub const Inputs = struct {
     root_element: Element,
     width: u32,
     height: u32,
-    images: Images.Slice,
+    env: *const Environment,
+    images: Images.View,
     fonts: *const Fonts,
-    decls: *const Declarations,
 };
 
 pub const Error = error{
@@ -83,9 +83,8 @@ pub fn init(
     width: u32,
     /// The height of the viewport in pixels.
     height: u32,
-    images: Images.Slice,
+    env: *const Environment,
     fonts: *const Fonts,
-    decls: *const Declarations,
 ) Layout {
     // TODO: Ensure the root element has no siblings
     if (!root_element.eqlNull()) {
@@ -103,9 +102,9 @@ pub fn init(
             .root_element = root_element,
             .width = width,
             .height = height,
-            .images = images,
+            .env = env,
+            .images = env.images.view(),
             .fonts = fonts,
-            .decls = decls,
         },
         .allocator = allocator,
         .flow_context = .{},

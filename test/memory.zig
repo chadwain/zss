@@ -23,9 +23,8 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
             t.root_element,
             t.width,
             t.height,
-            t.images,
+            &t.env,
             t.fonts,
-            &t.env.decls,
         });
 
         try stdout.writeAll("success");
@@ -40,11 +39,10 @@ fn testFn(
     root: Element,
     width: u32,
     height: u32,
-    images: zss.Images.Slice,
+    env: *const zss.Environment,
     fonts: *const zss.Fonts,
-    decls: *const zss.property.Declarations,
 ) !void {
-    var layout = zss.Layout.init(element_tree_slice, root, allocator, width, height, images, fonts, decls);
+    var layout = zss.Layout.init(element_tree_slice, root, allocator, width, height, env, fonts);
     defer layout.deinit();
 
     var box_tree = try layout.run(allocator);

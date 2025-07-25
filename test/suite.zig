@@ -85,10 +85,7 @@ pub fn main() !void {
     defer fonts.deinit();
     const font_handle = fonts.setFont(font);
 
-    var images = zss.Images{};
-    defer images.deinit(allocator);
-
-    const tests = try getAllTests(args, &arena, &fonts, font_handle, images.slice());
+    const tests = try getAllTests(args, &arena, &fonts, font_handle);
 
     const Category = enum { check, memory, opengl, print };
     inline for (@import("build-options").test_categories) |category| {
@@ -107,7 +104,6 @@ fn getAllTests(
     arena: *ArenaAllocator,
     fonts: *const zss.Fonts,
     font_handle: zss.Fonts.Handle,
-    images: zss.Images.Slice,
 ) ![]*Test {
     const allocator = arena.allocator();
 
@@ -135,7 +131,7 @@ fn getAllTests(
 
         const name = try allocator.dupe(u8, entry.path[0 .. entry.path.len - ".zml".len]);
 
-        const t = try createTest(allocator, name, ast, token_source, fonts, font_handle, images);
+        const t = try createTest(allocator, name, ast, token_source, fonts, font_handle);
         try list.append(t);
     }
 
@@ -149,7 +145,6 @@ fn createTest(
     token_source: TokenSource,
     fonts: *const zss.Fonts,
     font_handle: zss.Fonts.Handle,
-    images: zss.Images.Slice,
 ) !*Test {
     const t = try allocator.create(Test);
     errdefer allocator.destroy(t);
@@ -158,7 +153,6 @@ fn createTest(
         .name = name,
         .fonts = fonts,
         .font_handle = font_handle,
-        .images = images,
 
         .element_tree = undefined,
         .root_element = undefined,
