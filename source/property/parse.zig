@@ -154,7 +154,7 @@ pub fn @"background-color"(ctx: *Context) ?DeclType(.@"background-color") {
 pub fn @"background-image"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-image") {
     // TODO: Parse a list of values
     const value_ptr = try fba.allocator().create(types.BackgroundImage);
-    value_ptr.* = values.parse.background.image(ctx) orelse return null;
+    value_ptr.* = (try values.parse.background.image(ctx)) orelse return null;
     return .{ .background = .{ .image = .{ .declared = value_ptr[0..1] } } };
 }
 

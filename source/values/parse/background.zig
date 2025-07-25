@@ -11,11 +11,11 @@ const Context = values.parse.Context;
 // Syntax: <image> | none
 //         <image> = <url> | <gradient>
 //         <gradient> = <linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()> | <repeating-radial-gradient()>
-pub fn image(ctx: *Context) ?types.BackgroundImage {
+pub fn image(ctx: *Context) !?types.BackgroundImage {
     // TODO: parse gradient functions
     if (values.parse.keyword(ctx, types.BackgroundImage, &.{.{ "none", .none }})) |value| {
         return value;
-    } else if (values.parse.url(ctx)) |value| {
+    } else if (try values.parse.url(ctx)) |value| {
         return .{ .url = value };
     } else {
         return null;

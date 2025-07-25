@@ -13,6 +13,7 @@ const assert = std.debug.assert;
 const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const MultiArrayList = std.MultiArrayList;
 
 allocator: Allocator,
 stylesheets: ArrayListUnmanaged(Stylesheet) = .{},
@@ -21,6 +22,7 @@ type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value, .case 
 id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensitive },
 namespaces: Namespaces = .{},
 decls: Declarations = .{},
+urls: Urls = .{},
 
 pub fn init(allocator: Allocator) Environment {
     return Environment{ .allocator = allocator };
@@ -35,15 +37,26 @@ pub fn deinit(env: *Environment) void {
     env.stylesheets.deinit(env.allocator);
     env.namespaces.deinit(env.allocator);
     env.decls.deinit(env.allocator);
+    env.urls.deinit(env.allocator);
 }
 
 pub fn addStylesheet(env: *Environment, source: TokenSource) !void {
     var ast = try syntax.parse.parseCssStylesheet(source, env.allocator);
     defer ast.deinit(env.allocator);
 
+    env.urls.clear();
     try env.stylesheets.ensureUnusedCapacity(env.allocator, 1);
     const stylesheet = try Stylesheet.create(ast, 0, source, env, env.allocator);
     env.stylesheets.appendAssumeCapacity(stylesheet);
+}
+
+test addStylesheet {
+    var env = Environment.init(std.testing.allocator);
+    defer env.deinit();
+
+    const input = "test {}";
+    const token_source = try TokenSource.init(input);
+    try env.addStylesheet(token_source);
 }
 
 // TODO: consider making an `IdentifierMap` structure for this use case
@@ -136,4 +149,82 @@ pub fn addIdName(env: *Environment, hash_id: TokenSource.Location, source: Token
 pub fn addClassName(env: *Environment, identifier: TokenSource.Location, source: TokenSource) !ClassId {
     const index = try env.id_or_class_names.getOrPutFromSource(env.allocator, source, source.identTokenIterator(identifier));
     return @enumFromInt(@as(ClassId.Value, @intCast(index)));
+}
+
+/// Stores the source locations of URLs found within the most recently parsed `Ast`.
+// TODO: Deduplicate identical URLs.
+pub const Urls = struct {
+    start_id: ?Id.Int = 0,
+    descriptions: MultiArrayList(Description) = .empty,
+
+    /// A unique identifier for each URL.
+    pub const Id = enum(u16) {
+        _,
+
+        const Int = std.meta.Tag(@This());
+    };
+
+    pub const Description = struct {
+        type: Type,
+        src_loc: SourceLocation,
+    };
+
+    pub const Type = enum {
+        image,
+    };
+
+    pub const SourceLocation = union(enum) {
+        /// The location of a `token_url` Ast node.
+        url_token: TokenSource.Location,
+        /// The location of a `token_string` Ast node.
+        string_token: TokenSource.Location,
+    };
+
+    fn deinit(urls: *Urls, allocator: Allocator) void {
+        urls.descriptions.deinit(allocator);
+    }
+
+    fn clear(urls: *Urls) void {
+        urls.start_id = urls.nextId();
+        urls.descriptions.clearRetainingCapacity();
+    }
+
+    fn nextId(urls: *const Urls) ?Id.Int {
+        const start_id = urls.start_id orelse return null;
+        const len = std.math.cast(Id.Int, urls.descriptions.len) orelse return null;
+        const int = std.math.add(Id.Int, start_id, len) catch return null;
+        return int;
+    }
+
+    pub const Iterator = struct {
+        index: usize,
+        urls: *const Urls,
+
+        pub const Item = struct {
+            id: Id,
+            type: Type,
+            src_loc: SourceLocation,
+        };
+
+        pub fn next(it: *Iterator) ?Item {
+            const index = it.index;
+            if (index == it.urls.descriptions.len) return null;
+            it.index += 1;
+
+            const id = it.urls.start_id.? + index;
+            const desc = it.urls.descriptions.get(index);
+            return .{ .id = id, .type = desc.type, .src_loc = desc.src_loc };
+        }
+    };
+
+    /// Returns an iterator over all URLs currently stored within `urls`.
+    pub fn iterator(urls: *const Urls) Iterator {
+        return .{ .index = 0, .urls = urls };
+    }
+};
+
+pub fn addUrl(env: *Environment, desc: Urls.Description) !Urls.Id {
+    const int = env.urls.nextId() orelse return error.OutOfUrls;
+    try env.urls.descriptions.append(env.allocator, desc);
+    return @enumFromInt(int);
 }

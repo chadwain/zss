@@ -23,8 +23,6 @@ namespaces: Namespaces,
 /// Private fields.
 private: Private,
 
-const Stylesheet = @This();
-
 pub const Selector = struct {
     /// The complex selector itself.
     complex: ComplexSelector,
@@ -48,8 +46,9 @@ const Private = struct {
     arena: ArenaAllocator.State,
 };
 
+const Stylesheet = @This();
+
 const zss = @import("zss.zig");
-const CascadedValues = zss.CascadedValues;
 const ComplexSelector = zss.selectors.ComplexSelector;
 const Ast = zss.syntax.Ast;
 const AtRule = zss.syntax.Token.AtRule;
@@ -120,9 +119,8 @@ pub fn create(
                 const selector_list = try zss.selectors.parseSelectorList(env, allocator, token_source, ast, selector_sequence, &stylesheet.namespaces);
 
                 const last_declaration = ast.extra(end_of_prelude).index;
-                var value_ctx = zss.values.parse.Context.init(ast, token_source);
                 var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
-                const decl_block = try zss.property.parseDeclarationsFromAst(&env.decls, env.allocator, &value_ctx, &buffer, last_declaration);
+                const decl_block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration);
 
                 for ([_]Importance{ .important, .normal }) |importance| {
                     const destination_list = switch (importance) {

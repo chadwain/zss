@@ -159,8 +159,7 @@ fn applyStyleBlockDeclarations(
     last_declaration: Ast.Size,
     token_source: TokenSource,
 ) !void {
-    var value_ctx = zss.values.parse.Context.init(ast, token_source);
-    const block = try zss.property.parseDeclarationsFromAst(&env.decls, env.allocator, &value_ctx, &[0]u8{}, last_declaration);
+    const block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &[0]u8{}, last_declaration);
     const sources = [2]ElementTree.Slice.DeclSource{
         .{ .block = block, .importance = .important },
         .{ .block = block, .importance = .normal },

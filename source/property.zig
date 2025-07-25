@@ -1,6 +1,7 @@
 const zss = @import("zss.zig");
 const Ast = zss.syntax.Ast;
 const CascadedValues = zss.CascadedValues;
+const Environment = zss.Environment;
 const TokenSource = zss.syntax.TokenSource;
 const ValueContext = zss.values.parse.Context;
 
@@ -186,10 +187,9 @@ pub const Importance = enum {
 pub const recommended_buffer_size = Declarations.max_list_len * 10;
 
 pub fn parseDeclarationsFromAst(
-    decls: *Declarations,
-    /// The allocator for `decls`.
-    allocator: Allocator,
-    value_ctx: *ValueContext,
+    env: *Environment,
+    ast: Ast,
+    token_source: TokenSource,
     /// A byte buffer that will be used for temporary dynamic allocations.
     /// See also: `recommended_buffer_size`.
     buffer: []u8,
@@ -197,59 +197,61 @@ pub fn parseDeclarationsFromAst(
     last_declaration_index: Ast.Size,
 ) !Declarations.Block {
     var fba = std.heap.FixedBufferAllocator.init(buffer);
-    const block = try decls.openBlock(allocator);
+    const block = try env.decls.openBlock(env.allocator);
 
     // We parse declarations in the reverse order in which they appear.
     // This is because later declarations will override previous ones.
     var index = last_declaration_index;
     while (index != 0) {
-        const importance: Importance = switch (value_ctx.ast.tag(index)) {
+        const importance: Importance = switch (ast.tag(index)) {
             .declaration_important => .important,
             .declaration_normal => .normal,
             else => unreachable,
         };
-        try parseDeclaration(decls, allocator, value_ctx, &fba, index, importance);
-        index = value_ctx.ast.extra(index).index;
+        try parseDeclaration(env, ast, token_source, &fba, index, importance);
+        index = ast.extra(index).index;
     }
 
-    decls.closeBlock();
+    env.decls.closeBlock();
     return block;
 }
 
 fn parseDeclaration(
-    decls: *Declarations,
-    allocator: Allocator,
-    value_ctx: *ValueContext,
+    env: *Environment,
+    ast: Ast,
+    token_source: TokenSource,
     fba: *std.heap.FixedBufferAllocator,
     declaration_index: Ast.Size,
     importance: Importance,
 ) !void {
     // TODO: If this property has already been declared, skip parsing a value entirely.
-    const location = value_ctx.ast.location(declaration_index);
-    const property = value_ctx.token_source.matchIdentifierEnum(location, Property) orelse {
+    const location = ast.location(declaration_index);
+    const property = token_source.matchIdentifierEnum(location, Property) orelse {
         // TODO: don't heap allocate
-        const name_string = value_ctx.token_source.copyIdentifier(value_ctx.ast.location(declaration_index), allocator) catch return;
-        defer allocator.free(name_string);
+        const name_string = token_source.copyIdentifier(ast.location(declaration_index), env.allocator) catch return;
+        defer env.allocator.free(name_string);
         zss.log.warn("Ignoring declaration with unrecognized name: {s}", .{name_string});
         return;
     };
-    value_ctx.sequence = value_ctx.ast.children(declaration_index);
+
+    var value_ctx = ValueContext.init(env, ast, token_source);
+    value_ctx.sequence = ast.children(declaration_index);
 
     switch (property) {
         inline else => |comptime_property| {
             switch (comptime comptime_property.description()) {
                 .all => {
-                    const cwk = zss.values.parse.cssWideKeyword(value_ctx) orelse return;
+                    const cwk = zss.values.parse.cssWideKeyword(&value_ctx) orelse return;
                     if (!value_ctx.sequence.empty()) {
                         return;
                     }
-                    decls.addAll(importance, cwk);
+                    env.decls.addAll(importance, cwk);
                 },
                 .non_shorthand => |non_shorthand| {
                     const parseFn = @field(parse, @tagName(comptime_property));
                     const parsed_value_optional = switch (comptime non_shorthand.group.size()) {
-                        .single => parseFn(value_ctx),
-                        .multi => parseFn(value_ctx, fba) catch |err| switch (err) {
+                        .single => parseFn(&value_ctx),
+                        .multi => parseFn(&value_ctx, fba) catch |err| switch (err) {
                             error.OutOfMemory => return error.OutOfBufferSpace,
                             else => |e| return e,
                         },
@@ -257,7 +259,7 @@ fn parseDeclaration(
 
                     const parsed_value = if (parsed_value_optional) |parsed_value|
                         parsed_value
-                    else if (zss.values.parse.cssWideKeyword(value_ctx)) |cwk|
+                    else if (zss.values.parse.cssWideKeyword(&value_ctx)) |cwk|
                         comptime_property.declaredValueFromCwk(cwk)
                     else
                         return;
@@ -266,7 +268,7 @@ fn parseDeclaration(
                         return;
                     }
 
-                    try decls.addValues(allocator, importance, parsed_value);
+                    try env.decls.addValues(env.allocator, importance, parsed_value);
                 },
             }
         },
@@ -358,32 +360,31 @@ test "parsing properties from a stylesheet" {
         }
     };
 
-    var decls = Declarations{};
-    defer decls.deinit(allocator);
+    var env = zss.Environment.init(allocator);
+    defer env.deinit();
 
-    var value_ctx = ValueContext.init(ast, source);
     var buffer: [recommended_buffer_size]u8 = undefined;
-    const block = try parseDeclarationsFromAst(&decls, allocator, &value_ctx, &buffer, last_declaration);
+    const block = try parseDeclarationsFromAst(&env, ast, source, &buffer, last_declaration);
 
-    try ns.expectEqual(.box_style, &decls, block, .{
+    try ns.expectEqual(.box_style, &env.decls, block, .{
         .display = .{ .declared = .@"inline" },
         .position = .{ .declared = .relative },
         .float = .{ .declared = .none },
     });
 
-    try ns.expectEqual(.content_width, &decls, block, .{
+    try ns.expectEqual(.content_width, &env.decls, block, .{
         .width = .{ .declared = .auto },
         .min_width = .{ .declared = .{ .percentage = 7 } },
         .max_width = .{ .declared = .none },
     });
 
-    try ns.expectEqual(.content_height, &decls, block, .{
+    try ns.expectEqual(.content_height, &env.decls, block, .{
         .height = .{ .declared = .{ .percentage = 10 } },
         .min_height = .unset,
         .max_height = .{ .declared = .none },
     });
 
-    try ns.expectEqual(.horizontal_edges, &decls, block, .{
+    try ns.expectEqual(.horizontal_edges, &env.decls, block, .{
         .padding_left = .unset,
         .padding_right = .{ .declared = .{ .px = 0 } },
         .border_left = .{ .declared = .{ .px = 100 } },
@@ -392,7 +393,7 @@ test "parsing properties from a stylesheet" {
         .margin_right = .unset,
     });
 
-    try ns.expectEqual(.vertical_edges, &decls, block, .{
+    try ns.expectEqual(.vertical_edges, &env.decls, block, .{
         .padding_top = .unset,
         .padding_bottom = .{ .declared = .{ .px = -7 } },
         .border_top = .{ .declared = .medium },
@@ -401,14 +402,14 @@ test "parsing properties from a stylesheet" {
         .margin_bottom = .{ .declared = .{ .px = 0 } },
     });
 
-    try ns.expectEqual(.insets, &decls, block, .{
+    try ns.expectEqual(.insets, &env.decls, block, .{
         .left = .{ .declared = .auto },
         .right = .{ .declared = .auto },
         .top = .{ .declared = .{ .px = 100 } },
         .bottom = .unset,
     });
 
-    try ns.expectEqual(.background, &decls, block, .{
+    try ns.expectEqual(.background, &env.decls, block, .{
         .image = .{ .declared = &.{.none} },
         .repeat = .unset,
         .attachment = .unset,

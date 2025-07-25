@@ -5,17 +5,19 @@ const zss = @import("../zss.zig");
 const types = zss.values.types;
 const Ast = zss.syntax.Ast;
 const Component = zss.syntax.Component;
+const Environment = zss.Environment;
 const TokenSource = zss.syntax.TokenSource;
 const Location = TokenSource.Location;
 
 pub const Context = struct {
+    env: *Environment,
     ast: Ast,
     token_source: TokenSource,
     sequence: Ast.Sequence,
 
     /// Initializes a `Context`. You must manually set `sequence` before using this context.
-    pub fn init(ast: Ast, token_source: TokenSource) Context {
-        return .{ .ast = ast, .token_source = token_source, .sequence = undefined };
+    pub fn init(env: *Environment, ast: Ast, token_source: TokenSource) Context {
+        return .{ .env = env, .ast = ast, .token_source = token_source, .sequence = undefined };
     }
 
     const Item = struct {
@@ -201,12 +203,13 @@ pub fn color(ctx: *Context) ?types.Color {
 // <url> = <url()> | <src()>
 // <url()> = url( <string> <url-modifier>* ) | <url-token>
 // <src()> = src( <string> <url-modifier>* )
-pub fn url(ctx: *Context) ?types.Url {
+pub fn url(ctx: *Context) !?zss.Environment.Urls.Id {
     const item = ctx.next() orelse return null;
     switch (item.tag) {
-        .token_url => {
-            return .{ .url_token = ctx.ast.location(item.index) };
-        },
+        .token_url => return try ctx.env.addUrl(.{
+            .type = .image,
+            .src_loc = .{ .url_token = ctx.ast.location(item.index) },
+        }),
         .function => blk: {
             const location = ctx.ast.location(item.index);
             _ = ctx.token_source.mapIdentifier(location, void, &.{
@@ -223,7 +226,11 @@ pub fn url(ctx: *Context) ?types.Url {
                 // The URL may have contained URL modifiers, but these are not supported by zss.
                 break :blk;
             }
-            return .{ .string_token = str };
+
+            return try ctx.env.addUrl(.{
+                .type = .image,
+                .src_loc = .{ .string_token = str },
+            });
         },
         else => {},
     }
@@ -297,46 +304,69 @@ pub fn borderWidth(ctx: *Context) ?types.BorderWidth {
         });
 }
 
-fn testParser(comptime parser: anytype, input: []const u8, expected: @typeInfo(@TypeOf(parser)).@"fn".return_type.?) !void {
-    const allocator = std.testing.allocator;
-
-    const token_source = try TokenSource.init(input);
-    var ast = try zss.syntax.parse.parseListOfComponentValues(token_source, allocator);
-    defer ast.deinit(allocator);
-
-    var ctx = Context.init(ast, token_source);
-    ctx.sequence = ast.children(0);
-
-    const actual = parser(&ctx);
-    if (expected) |expected_payload| {
-        if (actual) |actual_payload| {
-            errdefer std.debug.print("Expected: {}\nActual: {}\n", .{ expected_payload, actual_payload });
-            return std.testing.expectEqual(expected_payload, actual_payload);
-        } else {
-            errdefer std.debug.print("Expected: {}, found: null\n", .{expected_payload});
-            return error.TestExpectedEqual;
+test "value parsers" {
+    const ns = struct {
+        fn expectValue(comptime parser: anytype, input: []const u8, expected: ExpectedType(parser)) !void {
+            const actual = try runParser(parser, input);
+            if (expected) |expected_payload| {
+                if (actual) |actual_payload| {
+                    errdefer std.debug.print("Expected: {}\nActual: {}\n", .{ expected_payload, actual_payload });
+                    return std.testing.expectEqual(expected_payload, actual_payload);
+                } else {
+                    errdefer std.debug.print("Expected: {}, found: null\n", .{expected_payload});
+                    return error.TestExpectedEqual;
+                }
+            } else {
+                errdefer std.debug.print("Expected: null, found: {}\n", .{actual.?});
+                return std.testing.expect(actual == null);
+            }
         }
-    } else {
-        errdefer std.debug.print("Expected: null, found: {}\n", .{actual.?});
-        return std.testing.expect(actual == null);
-    }
-}
 
-test "property parsers" {
-    try testParser(display, "block", .block);
-    try testParser(display, "inline", .@"inline");
+        fn runParser(comptime parser: anytype, input: []const u8) !ExpectedType(parser) {
+            const allocator = std.testing.allocator;
 
-    try testParser(position, "static", .static);
+            const token_source = try TokenSource.init(input);
+            var ast = try zss.syntax.parse.parseListOfComponentValues(token_source, allocator);
+            defer ast.deinit(allocator);
 
-    try testParser(float, "left", .left);
-    try testParser(float, "right", .right);
-    try testParser(float, "none", .none);
+            var env = Environment.init(allocator);
+            defer env.deinit();
 
-    try testParser(zIndex, "42", .{ .integer = 42 });
-    try testParser(zIndex, "-42", .{ .integer = -42 });
-    try testParser(zIndex, "auto", .auto);
-    try testParser(zIndex, "9999999999999999", null);
-    try testParser(zIndex, "-9999999999999999", null);
+            var ctx = Context.init(&env, ast, token_source);
+            ctx.sequence = ast.children(0);
+
+            const parsed_value = parser(&ctx);
+            switch (@typeInfo(@TypeOf(parsed_value))) {
+                .error_union => return try parsed_value,
+                .optional => return parsed_value,
+                else => comptime unreachable,
+            }
+        }
+
+        fn ExpectedType(comptime parser: anytype) type {
+            const return_type = @typeInfo(@TypeOf(parser)).@"fn".return_type.?;
+            return switch (@typeInfo(return_type)) {
+                .error_union => |eu| eu.payload,
+                .optional => return_type,
+                else => comptime unreachable,
+            };
+        }
+    };
+
+    try ns.expectValue(display, "block", .block);
+    try ns.expectValue(display, "inline", .@"inline");
+
+    try ns.expectValue(position, "static", .static);
+
+    try ns.expectValue(float, "left", .left);
+    try ns.expectValue(float, "right", .right);
+    try ns.expectValue(float, "none", .none);
+
+    try ns.expectValue(zIndex, "42", .{ .integer = 42 });
+    try ns.expectValue(zIndex, "-42", .{ .integer = -42 });
+    try ns.expectValue(zIndex, "auto", .auto);
+    try ns.expectValue(zIndex, "9999999999999999", null);
+    try ns.expectValue(zIndex, "-9999999999999999", null);
 
     // try testParser(lengthPercentage, "5px", .{ .px = 5 });
     // try testParser(lengthPercentage, "5%", .{ .percentage = 5 });
@@ -354,118 +384,118 @@ test "property parsers" {
     // try testParser(lengthPercentageNone, "auto", null);
     // try testParser(lengthPercentageNone, "none", .none);
 
-    try testParser(borderWidth, "5px", .{ .px = 5 });
-    try testParser(borderWidth, "thin", .thin);
-    try testParser(borderWidth, "medium", .medium);
-    try testParser(borderWidth, "thick", .thick);
+    try ns.expectValue(borderWidth, "5px", .{ .px = 5 });
+    try ns.expectValue(borderWidth, "thin", .thin);
+    try ns.expectValue(borderWidth, "medium", .medium);
+    try ns.expectValue(borderWidth, "thick", .thick);
 
-    try testParser(background.image, "none", .none);
-    try testParser(background.image, "url(abcd)", .{ .url = .{ .url_token = @enumFromInt(0) } });
-    try testParser(background.image, "url( \"abcd\" )", .{ .url = .{ .string_token = @enumFromInt(5) } });
-    try testParser(background.image, "src(\"wxyz\")", .{ .url = .{ .string_token = @enumFromInt(4) } });
-    try testParser(background.image, "invalid", null);
+    try ns.expectValue(background.image, "none", .none);
+    _ = try ns.runParser(background.image, "url(abcd)");
+    _ = try ns.runParser(background.image, "url( \"abcd\" )");
+    _ = try ns.runParser(background.image, "src(\"wxyz\")");
+    try ns.expectValue(background.image, "invalid", null);
 
-    try testParser(background.repeat, "repeat-x", .{ .x = .repeat, .y = .no_repeat });
-    try testParser(background.repeat, "repeat-y", .{ .x = .no_repeat, .y = .repeat });
-    try testParser(background.repeat, "repeat", .{ .x = .repeat, .y = .repeat });
-    try testParser(background.repeat, "space", .{ .x = .space, .y = .space });
-    try testParser(background.repeat, "round", .{ .x = .round, .y = .round });
-    try testParser(background.repeat, "no-repeat", .{ .x = .no_repeat, .y = .no_repeat });
-    try testParser(background.repeat, "invalid", null);
-    try testParser(background.repeat, "repeat space", .{ .x = .repeat, .y = .space });
-    try testParser(background.repeat, "round no-repeat", .{ .x = .round, .y = .no_repeat });
-    try testParser(background.repeat, "invalid space", null);
-    try testParser(background.repeat, "space invalid", .{ .x = .space, .y = .space });
-    try testParser(background.repeat, "repeat-x invalid", .{ .x = .repeat, .y = .no_repeat });
+    try ns.expectValue(background.repeat, "repeat-x", .{ .x = .repeat, .y = .no_repeat });
+    try ns.expectValue(background.repeat, "repeat-y", .{ .x = .no_repeat, .y = .repeat });
+    try ns.expectValue(background.repeat, "repeat", .{ .x = .repeat, .y = .repeat });
+    try ns.expectValue(background.repeat, "space", .{ .x = .space, .y = .space });
+    try ns.expectValue(background.repeat, "round", .{ .x = .round, .y = .round });
+    try ns.expectValue(background.repeat, "no-repeat", .{ .x = .no_repeat, .y = .no_repeat });
+    try ns.expectValue(background.repeat, "invalid", null);
+    try ns.expectValue(background.repeat, "repeat space", .{ .x = .repeat, .y = .space });
+    try ns.expectValue(background.repeat, "round no-repeat", .{ .x = .round, .y = .no_repeat });
+    try ns.expectValue(background.repeat, "invalid space", null);
+    try ns.expectValue(background.repeat, "space invalid", .{ .x = .space, .y = .space });
+    try ns.expectValue(background.repeat, "repeat-x invalid", .{ .x = .repeat, .y = .no_repeat });
 
-    try testParser(background.attachment, "scroll", .scroll);
-    try testParser(background.attachment, "fixed", .fixed);
-    try testParser(background.attachment, "local", .local);
+    try ns.expectValue(background.attachment, "scroll", .scroll);
+    try ns.expectValue(background.attachment, "fixed", .fixed);
+    try ns.expectValue(background.attachment, "local", .local);
 
-    try testParser(background.position, "center", .{
+    try ns.expectValue(background.position, "center", .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
     });
-    try testParser(background.position, "left", .{
+    try ns.expectValue(background.position, "left", .{
         .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
     });
-    try testParser(background.position, "top", .{
+    try ns.expectValue(background.position, "top", .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .start, .offset = .{ .percentage = 0 } },
     });
-    try testParser(background.position, "50%", .{
+    try ns.expectValue(background.position, "50%", .{
         .x = .{ .side = .start, .offset = .{ .percentage = 50 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
     });
-    try testParser(background.position, "50px", .{
+    try ns.expectValue(background.position, "50px", .{
         .x = .{ .side = .start, .offset = .{ .px = 50 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
     });
-    try testParser(background.position, "left top", .{
+    try ns.expectValue(background.position, "left top", .{
         .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .start, .offset = .{ .percentage = 0 } },
     });
-    try testParser(background.position, "left center", .{
+    try ns.expectValue(background.position, "left center", .{
         .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
     });
-    try testParser(background.position, "center right", .{
+    try ns.expectValue(background.position, "center right", .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
     });
-    try testParser(background.position, "50px right", .{
+    try ns.expectValue(background.position, "50px right", .{
         .x = .{ .side = .start, .offset = .{ .px = 50 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
     });
-    try testParser(background.position, "right center", .{
+    try ns.expectValue(background.position, "right center", .{
         .x = .{ .side = .end, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
     });
-    try testParser(background.position, "center center 50%", .{
+    try ns.expectValue(background.position, "center center 50%", .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
     });
-    try testParser(background.position, "left center 20px", .{
+    try ns.expectValue(background.position, "left center 20px", .{
         .x = .{ .side = .start, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
     });
-    try testParser(background.position, "left 20px bottom 50%", .{
+    try ns.expectValue(background.position, "left 20px bottom 50%", .{
         .x = .{ .side = .start, .offset = .{ .px = 20 } },
         .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
     });
-    try testParser(background.position, "center bottom 50%", .{
+    try ns.expectValue(background.position, "center bottom 50%", .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
     });
-    try testParser(background.position, "bottom 50% center", .{
+    try ns.expectValue(background.position, "bottom 50% center", .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
         .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
     });
-    try testParser(background.position, "bottom 50% left 20px", .{
+    try ns.expectValue(background.position, "bottom 50% left 20px", .{
         .x = .{ .side = .start, .offset = .{ .px = 20 } },
         .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
     });
 
-    try testParser(background.clip, "border-box", .border_box);
-    try testParser(background.clip, "padding-box", .padding_box);
-    try testParser(background.clip, "content-box", .content_box);
+    try ns.expectValue(background.clip, "border-box", .border_box);
+    try ns.expectValue(background.clip, "padding-box", .padding_box);
+    try ns.expectValue(background.clip, "content-box", .content_box);
 
-    try testParser(background.origin, "border-box", .border_box);
-    try testParser(background.origin, "padding-box", .padding_box);
-    try testParser(background.origin, "content-box", .content_box);
+    try ns.expectValue(background.origin, "border-box", .border_box);
+    try ns.expectValue(background.origin, "padding-box", .padding_box);
+    try ns.expectValue(background.origin, "content-box", .content_box);
 
-    try testParser(background.size, "contain", .contain);
-    try testParser(background.size, "cover", .cover);
-    try testParser(background.size, "auto", .{ .size = .{ .width = .auto, .height = .auto } });
-    try testParser(background.size, "auto auto", .{ .size = .{ .width = .auto, .height = .auto } });
-    try testParser(background.size, "5px", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .px = 5 } } });
-    try testParser(background.size, "5px 5%", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .percentage = 5 } } });
+    try ns.expectValue(background.size, "contain", .contain);
+    try ns.expectValue(background.size, "cover", .cover);
+    try ns.expectValue(background.size, "auto", .{ .size = .{ .width = .auto, .height = .auto } });
+    try ns.expectValue(background.size, "auto auto", .{ .size = .{ .width = .auto, .height = .auto } });
+    try ns.expectValue(background.size, "5px", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .px = 5 } } });
+    try ns.expectValue(background.size, "5px 5%", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .percentage = 5 } } });
 
-    try testParser(color, "currentColor", .current_color);
-    try testParser(color, "transparent", .transparent);
-    try testParser(color, "#abc", .{ .rgba = 0xaabbccff });
-    try testParser(color, "#abcd", .{ .rgba = 0xaabbccdd });
-    try testParser(color, "#123456", .{ .rgba = 0x123456ff });
-    try testParser(color, "#12345678", .{ .rgba = 0x12345678 });
+    try ns.expectValue(color, "currentColor", .current_color);
+    try ns.expectValue(color, "transparent", .transparent);
+    try ns.expectValue(color, "#abc", .{ .rgba = 0xaabbccff });
+    try ns.expectValue(color, "#abcd", .{ .rgba = 0xaabbccdd });
+    try ns.expectValue(color, "#123456", .{ .rgba = 0x123456ff });
+    try ns.expectValue(color, "#12345678", .{ .rgba = 0x12345678 });
 }

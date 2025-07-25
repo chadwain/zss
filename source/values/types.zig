@@ -164,7 +164,7 @@ pub const Color = union(enum) {
 
 pub const BackgroundImage = union(enum) {
     image: zss.Images.Handle,
-    url: Url,
+    url: zss.Environment.Urls.Id,
     none,
 };
 
@@ -231,10 +231,4 @@ pub const BackgroundSize = union(enum) {
 pub const Font = enum {
     default,
     none,
-};
-
-pub const Url = union(enum) {
-    // TODO: Consider not storing references to Ast nodes
-    url_token: SourceLocation,
-    string_token: SourceLocation,
 };

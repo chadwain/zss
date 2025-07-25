@@ -16,8 +16,8 @@ const SegmentedList = std.SegmentedList;
 /// Maps adapted keys to `Slice`. `Slice` represents a sub-range of `string_data`.
 map: AutoArrayHashMapUnmanaged(void, Slice) = .{},
 /// Stores identifiers as UTF-8 encoded strings.
-string_data: SegmentedList(u8, 16) = .{},
-/// The maximum number of identifiers this set can hold.
+string_data: SegmentedList(u8, 0) = .{},
+/// Choose the maximum number of identifiers this set can hold.
 max_size: usize,
 /// Choose how to compare identifiers.
 case: Case,
@@ -44,8 +44,6 @@ fn adjustCase(case: Case, codepoint: u21) u21 {
     };
 }
 
-// TODO: Unfortunately, Zig's hash maps don't allow the use of generic hash and eql functions,
-// so this adapter can't be used directly.
 const AdapterGeneric = struct {
     set: *const IdentifierSet,
 
@@ -64,7 +62,6 @@ const AdapterGeneric = struct {
     pub fn eql(adapter: AdapterGeneric, key: anytype, _: void, index: usize) bool {
         var key_it = key.iterator();
 
-        // TODO: It's unclear whether accessing the values array is UB or not.
         var slice = adapter.set.map.values()[index];
         var string_it = adapter.set.string_data.constIterator(slice.begin);
         var buffer: [4]u8 = undefined;
@@ -88,20 +85,7 @@ const AdapterGeneric = struct {
 };
 
 fn getOrPutGeneric(set: *IdentifierSet, allocator: Allocator, key: anytype) !usize {
-    const Key = @TypeOf(key);
-
-    const Adapter = struct {
-        generic: AdapterGeneric,
-
-        pub inline fn hash(self: @This(), k: Key) u32 {
-            return self.generic.hash(k);
-        }
-        pub inline fn eql(self: @This(), k: Key, _: void, index: usize) bool {
-            return self.generic.eql(k, {}, index);
-        }
-    };
-
-    const adapter = Adapter{ .generic = .{ .set = set } };
+    const adapter = AdapterGeneric{ .set = set };
     if (set.map.getIndexAdapted(key, adapter)) |index| return index;
     if (set.map.count() == set.max_size) return error.Overflow;
 
