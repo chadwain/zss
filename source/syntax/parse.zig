@@ -220,13 +220,12 @@ pub fn parseCssStylesheet(token_source: TokenSource, allocator: Allocator) !Ast 
     var parser: Parser = .{ .token_source = token_source, .allocator = allocator };
     defer parser.deinit();
 
-    var location: TokenSource.Location = @enumFromInt(0);
-    const index = try managed.addComplexComponent(.rule_list, location);
+    const index = try managed.addComplexComponent(.rule_list, parser.location);
     parser.stack.top = .{
         .index = index,
         .data = .{ .list_of_rules = .{ .top_level = true } },
     };
-    try loop(&parser, &location, &managed);
+    try loop(&parser, &managed);
 
     return .{ .components = managed.components.slice() };
 }
@@ -240,10 +239,9 @@ pub fn parseListOfComponentValues(token_source: TokenSource, allocator: Allocato
     var parser: Parser = .{ .token_source = token_source, .allocator = allocator };
     defer parser.deinit();
 
-    var location: TokenSource.Location = @enumFromInt(0);
-    const index = try managed.addComplexComponent(.component_list, location);
+    const index = try managed.addComplexComponent(.component_list, parser.location);
     parser.stack.top = .{ .index = index, .data = .list_of_component_values };
-    try loop(&parser, &location, &managed);
+    try loop(&parser, &managed);
 
     return .{ .components = managed.components.slice() };
 }
@@ -252,6 +250,7 @@ const Parser = struct {
     stack: Stack(Frame) = .{},
     token_source: TokenSource,
     allocator: Allocator,
+    location: TokenSource.Location = @enumFromInt(0),
 
     const Frame = struct {
         index: Ast.Size,
@@ -402,87 +401,94 @@ const Parser = struct {
     }
 };
 
-fn nextSimpleBlockToken(parser: *Parser, location: *TokenSource.Location, ending_tag: Component.Tag) !?Token {
-    const token = try parser.token_source.next(location);
+fn nextToken(parser: *Parser) !struct { Token, TokenSource.Location } {
+    const location = parser.location;
+    const token = try parser.token_source.next(&parser.location);
+    return .{ token, location };
+}
+
+fn nextSimpleBlockToken(parser: *Parser, ending_tag: Component.Tag) !?struct { Token, TokenSource.Location } {
+    const token, const location = try nextToken(parser);
     if (token.cast(Component.Tag) == ending_tag) {
         return null;
     } else if (token == .token_eof) {
         // NOTE: Parse error
         return null;
     } else {
-        return token;
+        return .{ token, location };
     }
 }
 
-fn loop(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged) !void {
+fn setLocation(parser: *Parser, location: TokenSource.Location) void {
+    parser.location = location;
+}
+
+fn loop(parser: *Parser, ast: *AstManaged) !void {
     while (parser.stack.top) |*frame| {
-        loopInner(parser, location, ast, frame) catch |err| switch (err) {
+        loopInner(parser, ast, frame) catch |err| switch (err) {
             error.ControlFlowSuspend => {},
             else => |e| return e,
         };
     }
 }
 
-fn loopInner(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, frame: *Parser.Frame) !void {
+fn loopInner(parser: *Parser, ast: *AstManaged, frame: *Parser.Frame) !void {
     // zig fmt: off
     switch (frame.data) {
         // NOTE: `parser` and `&frame.data` alias
-        .list_of_rules            =>     |*list_of_rules| try consumeListOfRules(parser, location, ast, list_of_rules),
-        .list_of_component_values =>                      try consumeListOfComponentValues(parser, location, ast),
-        .qualified_rule           =>    |*qualified_rule| try consumeQualifiedRule(parser, location, ast, qualified_rule),
-        .at_rule                  =>           |*at_rule| try consumeAtRule(parser, location, ast, at_rule),
-        .style_block              =>       |*style_block| try consumeStyleBlockContents(parser, location, ast, style_block),
-        .declaration_value        => |*declaration_value| try consumeDeclarationValue(parser, location, ast, declaration_value),
-        .simple_block             =>      |*simple_block| try consumeSimpleBlock(parser, location, ast, simple_block),
+        .list_of_rules            =>     |*list_of_rules| try consumeListOfRules(parser, ast, list_of_rules),
+        .list_of_component_values =>                      try consumeListOfComponentValues(parser, ast),
+        .qualified_rule           =>    |*qualified_rule| try consumeQualifiedRule(parser, ast, qualified_rule),
+        .at_rule                  =>           |*at_rule| try consumeAtRule(parser, ast, at_rule),
+        .style_block              =>       |*style_block| try consumeStyleBlockContents(parser, ast, style_block),
+        .declaration_value        => |*declaration_value| try consumeDeclarationValue(parser, ast, declaration_value),
+        .simple_block             =>      |*simple_block| try consumeSimpleBlock(parser, ast, simple_block),
     }
     // zig fmt: on
 }
 
-fn consumeListOfRules(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *const Parser.Frame.ListOfRules) !void {
+fn consumeListOfRules(parser: *Parser, ast: *AstManaged, data: *const Parser.Frame.ListOfRules) !void {
     while (true) {
-        const saved_location = location.*;
-        const token = try parser.token_source.next(location);
+        const token, const location = try nextToken(parser);
         switch (token) {
             .token_whitespace, .token_comments => {},
             .token_eof => return parser.popComponent(ast),
             .token_cdo, .token_cdc => {
                 if (!data.top_level) {
-                    location.* = saved_location;
-                    try parser.pushQualifiedRule(ast, saved_location, false);
+                    setLocation(parser, location);
+                    try parser.pushQualifiedRule(ast, location, false);
                     return;
                 }
             },
             .token_at_keyword => |at_rule| {
-                return parser.pushAtRule(ast, at_rule, saved_location);
+                return parser.pushAtRule(ast, at_rule, location);
             },
             else => {
-                location.* = saved_location;
-                return parser.pushQualifiedRule(ast, saved_location, data.top_level);
+                setLocation(parser, location);
+                return parser.pushQualifiedRule(ast, location, data.top_level);
             },
         }
     }
 }
 
-fn consumeListOfComponentValues(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged) !void {
+fn consumeListOfComponentValues(parser: *Parser, ast: *AstManaged) !void {
     while (true) {
-        const saved_location = location.*;
-        const token = try parser.token_source.next(location);
+        const token, const location = try nextToken(parser);
         switch (token) {
             .token_eof => return parser.popComponent(ast),
-            else => _ = try consumeComponentValue(parser, location, ast, token, saved_location),
+            else => _ = try consumeComponentValue(parser, ast, token, location),
         }
     }
 }
 
-fn consumeAtRule(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *Parser.Frame.AtRule) !void {
+fn consumeAtRule(parser: *Parser, ast: *AstManaged, data: *Parser.Frame.AtRule) !void {
     if (data.parsed_block) {
         parser.popAtRule(ast);
         return;
     }
 
     while (true) {
-        const saved_location = location.*;
-        const token = try parser.token_source.next(location);
+        const token, const location = try nextToken(parser);
         switch (token) {
             .token_semicolon => return parser.popAtRule(ast),
             .token_eof => {
@@ -491,22 +497,21 @@ fn consumeAtRule(parser: *Parser, location: *TokenSource.Location, ast: *AstMana
             },
             .token_left_curly => {
                 data.parsed_block = true;
-                return parser.pushSimpleBlock(ast, .token_left_curly, saved_location);
+                return parser.pushSimpleBlock(ast, .token_left_curly, location);
             },
-            else => _ = try consumeComponentValue(parser, location, ast, token, saved_location),
+            else => _ = try consumeComponentValue(parser, ast, token, location),
         }
     }
 }
 
-fn consumeQualifiedRule(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *Parser.Frame.QualifiedRule) !void {
+fn consumeQualifiedRule(parser: *Parser, ast: *AstManaged, data: *Parser.Frame.QualifiedRule) !void {
     if (data.index_of_block != null) {
         parser.popQualifiedRule(ast);
         return;
     }
 
     while (true) {
-        const saved_location = location.*;
-        const token = try parser.token_source.next(location);
+        const token, const location = try nextToken(parser);
         switch (token) {
             .token_eof => {
                 // NOTE: Parse error
@@ -515,53 +520,51 @@ fn consumeQualifiedRule(parser: *Parser, location: *TokenSource.Location, ast: *
             .token_left_curly => {
                 data.index_of_block = ast.len();
                 switch (data.is_style_rule) {
-                    false => try parser.pushSimpleBlock(ast, .token_left_curly, saved_location),
-                    true => try parser.pushStyleBlock(ast, saved_location),
+                    false => try parser.pushSimpleBlock(ast, .token_left_curly, location),
+                    true => try parser.pushStyleBlock(ast, location),
                 }
             },
-            else => _ = try consumeComponentValue(parser, location, ast, token, saved_location),
+            else => _ = try consumeComponentValue(parser, ast, token, location),
         }
     }
 }
 
-fn consumeStyleBlockContents(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *Parser.Frame.StyleBlock) !void {
+fn consumeStyleBlockContents(parser: *Parser, ast: *AstManaged, data: *Parser.Frame.StyleBlock) !void {
     while (true) {
-        const saved_location = location.*;
-        const token = (try nextSimpleBlockToken(parser, location, .token_right_curly)) orelse {
+        const token, const location = (try nextSimpleBlockToken(parser, .token_right_curly)) orelse {
             parser.popStyleBlock(ast);
             return;
         };
         switch (token) {
             .token_whitespace, .token_comments, .token_semicolon => {},
             .token_at_keyword => |at_rule| {
-                try parser.pushAtRule(ast, at_rule, saved_location);
+                try parser.pushAtRule(ast, at_rule, location);
             },
-            .token_ident => try consumeDeclarationStart(parser, location, ast, data, saved_location, data.index_of_last_declaration),
+            .token_ident => try consumeDeclarationStart(parser, ast, data, location, data.index_of_last_declaration),
             else => {
                 if (token == .token_delim and token.token_delim == '&') {
-                    location.* = saved_location;
-                    try parser.pushQualifiedRule(ast, saved_location, false);
+                    setLocation(parser, location);
+                    try parser.pushQualifiedRule(ast, location, false);
                 } else {
                     // NOTE: Parse error
-                    location.* = saved_location;
-                    try seekToEndOfDeclaration(parser, location);
+                    setLocation(parser, location);
+                    try seekToEndOfDeclaration(parser);
                 }
             },
         }
     }
 }
 
-fn seekToEndOfDeclaration(parser: *Parser, location: *TokenSource.Location) !void {
+fn seekToEndOfDeclaration(parser: *Parser) !void {
     while (true) {
-        const saved_location = location.*;
-        const token = try parser.token_source.next(location);
+        const token, const location = try nextToken(parser);
         switch (token) {
             .token_semicolon, .token_eof => break,
             .token_right_curly => {
-                location.* = saved_location;
+                setLocation(parser, location);
                 break;
             },
-            else => try ignoreComponentValue(parser, token, location),
+            else => try ignoreComponentValue(parser, token),
         }
     }
 }
@@ -569,65 +572,61 @@ fn seekToEndOfDeclaration(parser: *Parser, location: *TokenSource.Location) !voi
 /// If a declaration's start can be successfully parsed, this pushes a new frame onto the parser's stack.
 fn consumeDeclarationStart(
     parser: *Parser,
-    location: *TokenSource.Location,
     ast: *AstManaged,
     style_block: *Parser.Frame.StyleBlock,
     name_location: TokenSource.Location,
     previous_declaration: Ast.Size,
 ) !void {
     while (true) {
-        const saved_location = location.*;
-        const token = try parser.token_source.next(location);
+        const token, const location = try nextToken(parser);
         switch (token) {
             .token_whitespace, .token_comments => {},
             .token_colon => break,
             else => {
                 // NOTE: Parse error
-                location.* = saved_location;
+                setLocation(parser, location);
                 return;
             },
         }
     }
 
     while (true) {
-        const saved_location = location.*;
-        const token = try parser.token_source.next(location);
+        const token, const location = try nextToken(parser);
         switch (token) {
             .token_whitespace, .token_comments => {},
             else => {
-                location.* = saved_location;
+                setLocation(parser, location);
                 try parser.pushDeclarationValue(ast, name_location, style_block, previous_declaration);
             },
         }
     }
 }
 
-fn consumeDeclarationValue(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *Parser.Frame.DeclarationValue) !void {
+fn consumeDeclarationValue(parser: *Parser, ast: *AstManaged, data: *Parser.Frame.DeclarationValue) !void {
     while (true) {
-        const saved_location = location.*;
-        const token = try parser.token_source.next(location);
+        const token, const location = try nextToken(parser);
         switch (token) {
             .token_semicolon, .token_eof => {
                 parser.popDeclarationValue(ast);
                 return;
             },
             .token_right_curly => {
-                location.* = saved_location;
+                setLocation(parser, location);
                 parser.popDeclarationValue(ast);
                 return;
             },
             .token_whitespace, .token_comments => {
-                _ = try ast.addBasicComponent(token.cast(Component.Tag), saved_location);
+                _ = try ast.addBasicComponent(token.cast(Component.Tag), location);
             },
             else => {
-                const component_index = try consumeComponentValue(parser, location, ast, token, saved_location);
+                const component_index = try consumeComponentValue(parser, ast, token, location);
                 data.last_3.append(component_index);
             },
         }
     }
 }
 
-fn consumeComponentValue(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, main_token: Token, main_location: TokenSource.Location) !Ast.Size {
+fn consumeComponentValue(parser: *Parser, ast: *AstManaged, main_token: Token, main_location: TokenSource.Location) !Ast.Size {
     switch (main_token) {
         else => return ast.addToken(main_token, main_location),
         .token_left_curly, .token_left_square, .token_left_paren, .token_function => {
@@ -638,11 +637,8 @@ fn consumeComponentValue(parser: *Parser, location: *TokenSource.Location, ast: 
             defer block_stack.deinit(allocator);
 
             var token = main_token;
-            var saved_location = main_location;
-            while (true) : ({
-                saved_location = location.*;
-                token = try parser.token_source.next(location);
-            }) {
+            var location = main_location;
+            while (true) : (token, location = try nextToken(parser)) {
                 switch (token) {
                     .token_left_curly, .token_left_square, .token_left_paren, .token_function => {
                         // zig fmt: off
@@ -655,7 +651,7 @@ fn consumeComponentValue(parser: *Parser, location: *TokenSource.Location, ast: 
                         };
                         // zig fmt: on
 
-                        const index = try ast.addComplexComponent(component_tag, saved_location);
+                        const index = try ast.addComplexComponent(component_tag, location);
                         try block_stack.append(allocator, .{ ending_tag, index });
                     },
                     .token_right_curly, .token_right_square, .token_right_paren => {
@@ -672,7 +668,7 @@ fn consumeComponentValue(parser: *Parser, location: *TokenSource.Location, ast: 
                         }
                         break;
                     },
-                    else => _ = try ast.addToken(token, saved_location),
+                    else => _ = try ast.addToken(token, location),
                 }
             }
 
@@ -681,7 +677,7 @@ fn consumeComponentValue(parser: *Parser, location: *TokenSource.Location, ast: 
     }
 }
 
-fn ignoreComponentValue(parser: *Parser, first_token: Token, location: *TokenSource.Location) !void {
+fn ignoreComponentValue(parser: *Parser, first_token: Token) !void {
     switch (first_token) {
         .token_left_curly, .token_left_square, .token_left_paren, .token_function => {},
         else => return,
@@ -692,7 +688,7 @@ fn ignoreComponentValue(parser: *Parser, first_token: Token, location: *TokenSou
     defer block_stack.deinit(allocator);
 
     var token = first_token;
-    while (true) : (token = try parser.token_source.next(location)) {
+    while (true) : (token, _ = try nextToken(parser)) {
         switch (token) {
             .token_left_curly, .token_left_square, .token_left_paren, .token_function => {
                 try block_stack.append(allocator, mirrorTag(token.cast(Component.Tag)));
@@ -709,13 +705,12 @@ fn ignoreComponentValue(parser: *Parser, first_token: Token, location: *TokenSou
     }
 }
 
-fn consumeSimpleBlock(parser: *Parser, location: *TokenSource.Location, ast: *AstManaged, data: *const Parser.Frame.SimpleBlock) !void {
+fn consumeSimpleBlock(parser: *Parser, ast: *AstManaged, data: *const Parser.Frame.SimpleBlock) !void {
     while (true) {
-        const saved_location = location.*;
-        const token = (try nextSimpleBlockToken(parser, location, data.ending_tag)) orelse {
+        const token, const location = (try nextSimpleBlockToken(parser, data.ending_tag)) orelse {
             return parser.popComponent(ast);
         };
-        _ = try consumeComponentValue(parser, location, ast, token, saved_location);
+        _ = try consumeComponentValue(parser, ast, token, location);
     }
 }
 
