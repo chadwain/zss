@@ -262,7 +262,6 @@ const Parser = struct {
             style_block: StyleBlock,
             declaration_value: DeclarationValue,
             qualified_rule: QualifiedRule,
-            at_rule: AtRule,
             simple_block: SimpleBlock,
         };
 
@@ -273,11 +272,6 @@ const Parser = struct {
         const QualifiedRule = struct {
             index_of_block: ?Ast.Size = null,
             is_style_rule: bool,
-        };
-
-        const AtRule = struct {
-            at_rule: ?Token.AtRule,
-            parsed_block: bool = false,
         };
 
         const DeclarationValue = struct {
@@ -313,43 +307,15 @@ const Parser = struct {
         });
     }
 
-    /// `location` must be the location of a <{-token>, <[-token>, or <(-token>.
-    fn pushSimpleBlock(parser: *Parser, ast: *AstManaged, tag: Component.Tag, location: TokenSource.Location) !void {
-        const component_tag: Component.Tag = switch (tag) {
-            .token_left_curly => .simple_block_curly,
-            .token_left_square => .simple_block_square,
-            .token_left_paren => .simple_block_paren,
-            else => unreachable,
-        };
-        const index = try ast.addComplexComponent(component_tag, location);
-        try parser.pushFrame(.{
-            .index = index,
-            .data = .{ .simple_block = .{ .ending_tag = mirrorTag(tag) } },
-        });
-    }
-
     fn popComponent(parser: *Parser, ast: *AstManaged) void {
         const frame = parser.stack.pop();
         switch (frame.data) {
             .qualified_rule => unreachable, // use popQualifiedRule instead
-            .at_rule => unreachable, // use popAtRule instead
             .style_block => unreachable, // use popStyleBlock instead
             .declaration_value => unreachable, // use popDeclarationValue instead
             else => {},
         }
         ast.finishComplexComponent(frame.index);
-    }
-
-    /// `location` must be the location of the first token of the at-rule (i.e. the <at-keyword-token>).
-    /// To finish this component, use `popAtRule`.
-    fn pushAtRule(parser: *Parser, ast: *AstManaged, at_rule: ?Token.AtRule, location: TokenSource.Location) !void {
-        const index = try ast.addComplexComponent(.at_rule, location);
-        try parser.pushFrame(.{ .index = index, .data = .{ .at_rule = .{ .at_rule = at_rule } } });
-    }
-
-    fn popAtRule(parser: *Parser, ast: *AstManaged) void {
-        const frame = parser.stack.pop();
-        ast.finishComplexComponentExtra(frame.index, .{ .at_rule = frame.data.at_rule.at_rule });
     }
 
     /// `location` must be the location of the first token of the qualified rule.
@@ -439,7 +405,6 @@ fn loopInner(parser: *Parser, ast: *AstManaged, frame: *Parser.Frame) !void {
         .list_of_rules            =>     |*list_of_rules| try consumeListOfRules(parser, ast, list_of_rules),
         .list_of_component_values =>                      try consumeListOfComponentValues(parser, ast),
         .qualified_rule           =>    |*qualified_rule| try consumeQualifiedRule(parser, ast, qualified_rule),
-        .at_rule                  =>           |*at_rule| try consumeAtRule(parser, ast, at_rule),
         .style_block              =>       |*style_block| try consumeStyleBlockContents(parser, ast, style_block),
         .declaration_value        => |*declaration_value| try consumeDeclarationValue(parser, ast, declaration_value),
         .simple_block             =>      |*simple_block| try consumeSimpleBlock(parser, ast, simple_block),
@@ -460,9 +425,7 @@ fn consumeListOfRules(parser: *Parser, ast: *AstManaged, data: *const Parser.Fra
                     return;
                 }
             },
-            .token_at_keyword => |at_rule| {
-                return parser.pushAtRule(ast, at_rule, location);
-            },
+            .token_at_keyword => |at_rule| try consumeAtRule(parser, ast, location, at_rule),
             else => {
                 setLocation(parser, location);
                 return parser.pushQualifiedRule(ast, location, data.top_level);
@@ -481,27 +444,21 @@ fn consumeListOfComponentValues(parser: *Parser, ast: *AstManaged) !void {
     }
 }
 
-fn consumeAtRule(parser: *Parser, ast: *AstManaged, data: *Parser.Frame.AtRule) !void {
-    if (data.parsed_block) {
-        parser.popAtRule(ast);
-        return;
-    }
-
+fn consumeAtRule(parser: *Parser, ast: *AstManaged, main_location: TokenSource.Location, at_rule: ?Token.AtRule) !void {
+    const index = try ast.addComplexComponent(.at_rule, main_location);
     while (true) {
         const token, const location = try nextToken(parser);
         switch (token) {
-            .token_semicolon => return parser.popAtRule(ast),
-            .token_eof => {
-                // NOTE: Parse error
-                return parser.popAtRule(ast);
-            },
+            .token_semicolon => break,
+            .token_eof => break, // NOTE: Parse error
             .token_left_curly => {
-                data.parsed_block = true;
-                return parser.pushSimpleBlock(ast, .token_left_curly, location);
+                _ = try consumeComponentValue(parser, ast, .token_left_curly, location);
+                break;
             },
             else => _ = try consumeComponentValue(parser, ast, token, location),
         }
     }
+    ast.finishComplexComponentExtra(index, .{ .at_rule = at_rule });
 }
 
 fn consumeQualifiedRule(parser: *Parser, ast: *AstManaged, data: *Parser.Frame.QualifiedRule) !void {
@@ -518,10 +475,15 @@ fn consumeQualifiedRule(parser: *Parser, ast: *AstManaged, data: *Parser.Frame.Q
                 return parser.discardQualifiedRule(ast);
             },
             .token_left_curly => {
-                data.index_of_block = ast.len();
                 switch (data.is_style_rule) {
-                    false => try parser.pushSimpleBlock(ast, .token_left_curly, location),
-                    true => try parser.pushStyleBlock(ast, location),
+                    false => {
+                        data.index_of_block = try consumeComponentValue(parser, ast, .token_left_curly, location);
+                        return parser.popQualifiedRule(ast);
+                    },
+                    true => {
+                        data.index_of_block = ast.len(); // TODO: Stop using ast.len()
+                        try parser.pushStyleBlock(ast, location);
+                    },
                 }
             },
             else => _ = try consumeComponentValue(parser, ast, token, location),
@@ -537,9 +499,7 @@ fn consumeStyleBlockContents(parser: *Parser, ast: *AstManaged, data: *Parser.Fr
         };
         switch (token) {
             .token_whitespace, .token_comments, .token_semicolon => {},
-            .token_at_keyword => |at_rule| {
-                try parser.pushAtRule(ast, at_rule, location);
-            },
+            .token_at_keyword => |at_rule| try consumeAtRule(parser, ast, location, at_rule),
             .token_ident => try consumeDeclarationStart(parser, ast, data, location, data.index_of_last_declaration),
             else => {
                 if (token == .token_delim and token.token_delim == '&') {
@@ -630,7 +590,7 @@ fn consumeComponentValue(parser: *Parser, ast: *AstManaged, main_token: Token, m
     switch (main_token) {
         else => return ast.addToken(main_token, main_location),
         .token_left_curly, .token_left_square, .token_left_paren, .token_function => {
-            const main_index = ast.len();
+            const main_index = ast.len(); // TODO: Stop using ast.len()
 
             const allocator = parser.allocator;
             var block_stack = ArrayListUnmanaged(struct { Component.Tag, Ast.Size }){};
@@ -691,7 +651,13 @@ fn ignoreComponentValue(parser: *Parser, first_token: Token) !void {
     while (true) : (token, _ = try nextToken(parser)) {
         switch (token) {
             .token_left_curly, .token_left_square, .token_left_paren, .token_function => {
-                try block_stack.append(allocator, mirrorTag(token.cast(Component.Tag)));
+                const ending_tag: Component.Tag = switch (token) {
+                    .token_left_square => .token_right_square,
+                    .token_left_curly => .token_right_curly,
+                    .token_left_paren, .token_function => .token_right_paren,
+                    else => unreachable,
+                };
+                try block_stack.append(allocator, ending_tag);
             },
             .token_right_curly, .token_right_square, .token_right_paren => {
                 if (block_stack.items[block_stack.items.len - 1] == token.cast(Component.Tag)) {
@@ -714,15 +680,7 @@ fn consumeSimpleBlock(parser: *Parser, ast: *AstManaged, data: *const Parser.Fra
     }
 }
 
-/// Given a component that opens a block, return the component that would close the block.
-fn mirrorTag(tag: Component.Tag) Component.Tag {
-    return switch (tag) {
-        .token_left_square => .token_right_square,
-        .token_left_curly => .token_right_curly,
-        .token_left_paren, .token_function => .token_right_paren,
-        else => unreachable,
-    };
-}
+// TODO: write a fuzz test
 
 test "parse a stylesheet" {
     const allocator = std.testing.allocator;
