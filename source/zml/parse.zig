@@ -407,7 +407,7 @@ fn parseInlineStyleBlock(parser: *Parser, ast: *AstManaged, main_location: Locat
 
         const name, const name_location = try parser.nextToken();
         if (name != .token_ident) return parser.fail(.expected_identifier, name_location);
-        const colon, const colon_location = try parser.nextToken();
+        const colon, const colon_location = try parser.nextToken(); // TODO: spaces allowed between name and colon?
         if (colon != .token_colon) return parser.fail(.expected_colon, colon_location);
         const declaration_index = try ast.addDeclaration(name_location, previous_declaration);
 
