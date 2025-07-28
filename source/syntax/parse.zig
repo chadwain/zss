@@ -261,7 +261,6 @@ const Parser = struct {
             list_of_component_values,
             style_block: StyleBlock,
             qualified_rule: QualifiedRule,
-            simple_block: SimpleBlock,
         };
 
         const ListOfRules = struct {
@@ -275,10 +274,6 @@ const Parser = struct {
 
         const StyleBlock = struct {
             index_of_last_declaration: Ast.Size = 0,
-        };
-
-        const SimpleBlock = struct {
-            ending_tag: Component.Tag,
         };
     };
 
@@ -342,15 +337,6 @@ const Parser = struct {
         return error.ControlFlowSuspend;
     }
 
-    /// `location` must be the location of a <function-token>.
-    fn pushFunction(parser: *Parser, ast: *AstManaged, location: TokenSource.Location) !void {
-        const index = try ast.addComplexComponent(.function, location);
-        try parser.pushFrame(.{
-            .index = index,
-            .data = .{ .simple_block = .{ .ending_tag = .token_right_paren } },
-        });
-    }
-
     fn popComponent(parser: *Parser, ast: *AstManaged) void {
         const frame = parser.stack.pop();
         switch (frame.data) {
@@ -409,7 +395,6 @@ fn loopInner(parser: *Parser, ast: *AstManaged, frame: *Parser.Frame) !void {
         .list_of_component_values =>                      try consumeListOfComponentValues(parser, ast),
         .qualified_rule           =>    |*qualified_rule| try consumeQualifiedRule(parser, ast, qualified_rule),
         .style_block              =>       |*style_block| try consumeStyleBlockContents(parser, ast, style_block),
-        .simple_block             =>      |*simple_block| try consumeSimpleBlock(parser, ast, simple_block),
     }
     // zig fmt: on
 }
