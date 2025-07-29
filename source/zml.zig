@@ -1,25 +1,49 @@
+//! zml - zss markup language
+//!
+//! zml is a lightweight & minimal markup language for creating documents.
+//! Its main purpose is to be able to assign CSS properties and features to
+//! document elements with as little syntax as possible.
+//! The syntax should feel natural to anyone that has used CSS.
+//!
+//! The grammar of zml documents is presented below.
+//! It uses the value definition syntax described in CSS Values and Units Level 4.
+//!
+//! <root>               = <element>
+//! <element>            = <normal-element> | <text-element>
+//! <normal-element>     = <features> <inline-style-block>? <children>
+//! <text-element>       = <string-token>
+//!
+//! <features>           = '*' | [ <type> | <id> | <class> | <attribute> ]+
+//! <type>               = <ident-token>
+//! <id>                 = <hash-token>
+//! <class>              = '.' <ident-token>
+//! <attribute>          = '[' <ident-token> [ '=' <attribute-value> ]? ']'
+//! <attribute-value>    = <ident-token> | <string-token>
+//!
+//! <inline-style-block> = '(' <declaration-list> ')'
+//!
+//! <children>           = '{' <element>* '}'
+//!
+//! <ident-token>        = <defined in CSS Syntax Level 3>
+//! <string-token>       = <defined in CSS Syntax Level 3>
+//! <hash-token>         = <defined in CSS Syntax Level 3>
+//! <declaration-list>   = <defined in CSS Style Attributes>
+//!
+//! Whitespace or comments are required between the components of <features>.
+//! The <hash-token> component of <id> must be an "id" hash token.
+//! No whitespace or comments are allowed between the components of <class>.
+
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
 
 const zss = @import("zss.zig");
 const Ast = zss.syntax.Ast;
-const Declarations = zss.property.Declarations;
 const Environment = zss.Environment;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Stack = zss.Stack;
 const TokenSource = zss.syntax.TokenSource;
-
-const parse = @import("zml/parse.zig");
-pub const Parser = parse.Parser;
-
-comptime {
-    if (@import("builtin").is_test) {
-        _ = parse;
-    }
-}
 
 pub fn astToElement(
     element_tree: *ElementTree,
@@ -177,10 +201,11 @@ test astToElement {
     const token_source = try TokenSource.init(input);
     const allocator = std.testing.allocator;
 
-    var parser = Parser.init(token_source, allocator);
-    defer parser.deinit();
-
-    var ast = try parser.parse(allocator);
+    var ast = blk: {
+        var parser = zss.syntax.Parser.init(token_source, allocator);
+        defer parser.deinit();
+        break :blk try parser.parseZmlDocument(allocator);
+    };
     defer ast.deinit(allocator);
 
     var element_tree = ElementTree.init(allocator);

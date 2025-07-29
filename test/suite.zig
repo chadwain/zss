@@ -126,8 +126,10 @@ fn getAllTests(
 
         const source = try cases_dir.readFileAlloc(allocator, entry.path, 100_000);
         const token_source = try TokenSource.init(source);
-        var parser = zss.zml.Parser.init(token_source, allocator);
-        const ast = try parser.parse(allocator);
+        const ast = blk: {
+            var parser = zss.syntax.Parser.init(token_source, allocator);
+            break :blk try parser.parseZmlDocument(allocator);
+        };
 
         const name = try allocator.dupe(u8, entry.path[0 .. entry.path.len - ".zml".len]);
 
