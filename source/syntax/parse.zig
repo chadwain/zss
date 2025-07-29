@@ -214,18 +214,19 @@ const Last3NonWhitespaceComponents = struct {
     }
 };
 
+const DocumentType = enum { css, zml };
+
 pub const Parser = struct {
-    rule_stack: Stack(QualifiedRule) = .{},
-    element_stack: ArrayListUnmanaged(struct {
-        element_index: Ast.Size,
-        block_index: Ast.Size,
-    }),
+    rule_stack: Stack(QualifiedRule),
+    element_stack: ArrayListUnmanaged(struct { element_index: Ast.Size, block_index: Ast.Size }),
+    block_stack: Stack(struct { ending_tag: Component.Tag, index: Ast.Size }),
     token_source: TokenSource,
     allocator: Allocator,
-    location: Location = @enumFromInt(0),
+    location: Location,
+    depth: u8,
     /// If parsing fails with `error.ParseError`, this will contain a more detailed error.
     /// Otherwise, this field is undefined.
-    failure: Failure = undefined,
+    failure: Failure,
 
     const QualifiedRule = struct {
         index: Ast.Size,
@@ -240,8 +241,7 @@ pub const Parser = struct {
         location: Location,
 
         pub const Cause = enum {
-            block_depth_limit_reached,
-            element_depth_limit_reached,
+            depth_limit_reached,
             element_with_no_features,
             empty_with_other_features,
             empty_declaration_value,
@@ -259,8 +259,7 @@ pub const Parser = struct {
 
             pub fn debugErrMsg(cause: Cause) []const u8 {
                 return switch (cause) {
-                    .block_depth_limit_reached => "block depth limit reached",
-                    .element_depth_limit_reached => "element depth limit reached",
+                    .depth_limit_reached => std.fmt.comptimePrint("depth limit of {} reached", .{depth_limit}),
                     .element_with_no_features => "element must have at least one feature",
                     .empty_with_other_features => "'*' cannot appear with other features",
                     .empty_declaration_value => "empty declaration value",
@@ -280,19 +279,25 @@ pub const Parser = struct {
         };
     };
 
+    pub const depth_limit = 128;
+
     pub fn init(token_source: TokenSource, allocator: Allocator) Parser {
         return .{
             .rule_stack = .{},
             .element_stack = .empty,
+            .block_stack = .{},
             .token_source = token_source,
             .allocator = allocator,
             .location = @enumFromInt(0),
+            .depth = 0,
+            .failure = undefined,
         };
     }
 
     pub fn deinit(parser: *Parser) void {
         parser.rule_stack.deinit(parser.allocator);
         parser.element_stack.deinit(parser.allocator);
+        parser.block_stack.deinit(parser.allocator);
     }
 
     pub const Error = error{ParseError} || AstManaged.AddComponentError || TokenSource.Error || Allocator.Error;
@@ -319,6 +324,7 @@ pub const Parser = struct {
         return .{ .components = managed.components.slice() };
     }
 
+    /// Creates an Ast with a root node with tag `zml_document`
     pub fn parseZmlDocument(parser: *Parser, allocator: Allocator) Error!Ast {
         var managed = AstManaged{ .allocator = allocator };
         errdefer managed.deinit();
@@ -334,9 +340,22 @@ pub const Parser = struct {
         return .{ .components = managed.components.slice() };
     }
 
+    fn setLocation(parser: *Parser, location: Location) void {
+        parser.location = location;
+    }
+
     fn fail(parser: *Parser, cause: Failure.Cause, location: Location) error{ParseError} {
         parser.failure = .{ .cause = cause, .location = location };
         return error.ParseError;
+    }
+
+    fn increaseDepth(parser: *Parser, location: Location) !void {
+        if (parser.depth == depth_limit) return parser.fail(.depth_limit_reached, location);
+        parser.depth += 1;
+    }
+
+    fn decreaseDepth(parser: *Parser, amount: u8) void {
+        parser.depth -= amount;
     }
 
     fn nextTokenAllowEof(parser: *Parser) !struct { Token, Location } {
@@ -409,50 +428,6 @@ pub const Parser = struct {
             }
         }
     }
-
-    fn nextSimpleBlockToken(parser: *Parser, ending_tag: Component.Tag) !?struct { Token, Location } {
-        const token, const location = try parser.nextTokenAllowEof();
-        if (token.cast(Component.Tag) == ending_tag) {
-            return null;
-        } else if (token == .token_eof) {
-            // NOTE: Parse error
-            // TODO: Mark the block as containing parse errors
-            return null;
-        } else {
-            return .{ token, location };
-        }
-    }
-
-    fn setLocation(parser: *Parser, location: Location) void {
-        parser.location = location;
-    }
-
-    fn loop(parser: *Parser, ast: *AstManaged) !void {
-        while (parser.rule_stack.top) |*qualified_rule| {
-            loopInner(parser, ast, qualified_rule) catch |err| switch (err) {
-                error.ControlFlowSuspend => {},
-                else => |e| return e,
-            };
-        }
-    }
-
-    fn loopInner(parser: *Parser, ast: *AstManaged, qualified_rule: *Parser.QualifiedRule) !void {
-        try consumeQualifiedRule(parser, ast, qualified_rule);
-        _ = parser.rule_stack.pop();
-    }
-
-    fn pushQualifiedRule(parser: *Parser, qualified_rule: Parser.QualifiedRule) !void {
-        try parser.rule_stack.push(parser.allocator, qualified_rule);
-        // This error forces the current rule stack frame being evaluated to stop executing.
-        // This error will then be caught in the `loop` function.
-        return error.ControlFlowSuspend;
-    }
-
-    fn pushElement(parser: *Parser, element_index: Ast.Size, block_index: Ast.Size, block_location: Location) !void {
-        const max_element_depth = 100;
-        if (parser.element_stack.items.len == max_element_depth) return parser.fail(.element_depth_limit_reached, block_location);
-        try parser.element_stack.append(parser.allocator, .{ .element_index = element_index, .block_index = block_index });
-    }
 };
 
 fn consumeListOfRules(parser: *Parser, ast: *AstManaged, top_level: bool) !Ast.Size {
@@ -460,23 +435,21 @@ fn consumeListOfRules(parser: *Parser, ast: *AstManaged, top_level: bool) !Ast.S
 
     while (true) {
         const token, const location = try parser.nextTokenAllowEof();
-        switch (token) {
+        sw: switch (token) {
             .token_whitespace, .token_comments => {},
             .token_eof => break,
             .token_cdo, .token_cdc => {
                 if (!top_level) {
-                    parser.setLocation(location);
-                    const rule_index = try ast.addComplexComponent(.qualified_rule, location);
-                    parser.rule_stack.top = .{ .index = rule_index, .is_style_rule = top_level };
-                    try parser.loop(ast);
+                    continue :sw .token_ident;
                 } // TODO: Handle else case
             },
             .token_at_keyword => |at_rule| try consumeAtRule(parser, ast, location, at_rule),
             else => {
                 parser.setLocation(location);
                 const rule_index = try ast.addComplexComponent(.qualified_rule, location);
+                try parser.increaseDepth(location);
                 parser.rule_stack.top = .{ .index = rule_index, .is_style_rule = top_level };
-                try parser.loop(ast);
+                try consumeQualifiedRule(parser, ast);
             },
         }
     }
@@ -492,7 +465,7 @@ fn consumeListOfComponentValues(parser: *Parser, ast: *AstManaged) !Ast.Size {
         const token, const location = try parser.nextTokenAllowEof();
         switch (token) {
             .token_eof => break,
-            else => _ = try consumeComponentValue(parser, ast, token, location),
+            else => _ = try consumeComponentValue(parser, ast, token, location, .css),
         }
     }
 
@@ -512,27 +485,36 @@ fn consumeAtRule(parser: *Parser, ast: *AstManaged, main_location: Location, at_
                 break;
             },
             .token_left_curly => {
-                _ = try consumeComponentValue(parser, ast, .token_left_curly, location);
+                _ = try consumeComponentValue(parser, ast, .token_left_curly, location, .css);
                 break;
             },
-            else => _ = try consumeComponentValue(parser, ast, token, location),
+            else => _ = try consumeComponentValue(parser, ast, token, location, .css),
         }
     }
     ast.finishComplexComponentExtra(index, .{ .at_rule = at_rule });
 }
 
-fn consumeQualifiedRule(parser: *Parser, ast: *AstManaged, qualified_rule: *Parser.QualifiedRule) !void {
-    if (qualified_rule.index_of_block == null) {
-        try consumeQualifiedRulePrelude(parser, ast, qualified_rule);
-        if (qualified_rule.discarded) return;
-    }
+fn consumeQualifiedRule(parser: *Parser, ast: *AstManaged) !void {
+    while (parser.rule_stack.top) |*qualified_rule| {
+        if (qualified_rule.index_of_block == null) {
+            try consumeQualifiedRulePrelude(parser, ast, qualified_rule);
+            if (qualified_rule.discarded) return;
+        }
 
-    if (qualified_rule.index_of_block != null and qualified_rule.is_style_rule) {
-        try consumeStyleBlockContents(parser, ast, qualified_rule);
-        ast.finishComplexComponentExtra(qualified_rule.index_of_block.?, .{ .index = qualified_rule.index_of_last_declaration orelse 0 });
-    }
+        if (qualified_rule.index_of_block != null and qualified_rule.is_style_rule) {
+            if (try consumeStyleBlockContents(parser, ast, qualified_rule)) |nested_rule_index| {
+                try parser.increaseDepth(parser.location);
+                try parser.rule_stack.push(parser.allocator, .{ .index = nested_rule_index, .is_style_rule = false });
+                continue;
+            }
+            ast.finishComplexComponentExtra(qualified_rule.index_of_block.?, .{ .index = qualified_rule.index_of_last_declaration orelse 0 });
+        }
 
-    ast.finishComplexComponentExtra(qualified_rule.index, .{ .index = qualified_rule.index_of_block.? });
+        ast.finishComplexComponentExtra(qualified_rule.index, .{ .index = qualified_rule.index_of_block.? });
+
+        parser.decreaseDepth(1);
+        _ = parser.rule_stack.pop();
+    }
 }
 
 fn consumeQualifiedRulePrelude(parser: *Parser, ast: *AstManaged, qualified_rule: *Parser.QualifiedRule) !void {
@@ -548,20 +530,28 @@ fn consumeQualifiedRulePrelude(parser: *Parser, ast: *AstManaged, qualified_rule
             },
             .token_left_curly => {
                 qualified_rule.index_of_block = switch (qualified_rule.is_style_rule) {
-                    false => try consumeComponentValue(parser, ast, .token_left_curly, location),
+                    false => try consumeComponentValue(parser, ast, .token_left_curly, location, .css),
                     true => try ast.addComplexComponent(.style_block, location),
                 };
                 return;
             },
-            else => _ = try consumeComponentValue(parser, ast, token, location),
+            else => _ = try consumeComponentValue(parser, ast, token, location, .css),
         }
     }
 }
 
-fn consumeStyleBlockContents(parser: *Parser, ast: *AstManaged, qualified_rule: *Parser.QualifiedRule) !void {
+/// A `null` return value means the style block is finished parsing.
+/// A non-`null` return value is the index of a nested qualified rule.
+fn consumeStyleBlockContents(parser: *Parser, ast: *AstManaged, qualified_rule: *Parser.QualifiedRule) !?Ast.Size {
     while (true) {
-        const token, const location = (try parser.nextSimpleBlockToken(.token_right_curly)) orelse break;
+        const token, const location = try parser.nextTokenAllowEof();
         switch (token) {
+            .token_right_curly => return null,
+            .token_eof => {
+                // NOTE: Parse error
+                // TODO: Mark the block as containing parse errors
+                return null;
+            },
             .token_whitespace, .token_comments, .token_semicolon => {},
             .token_at_keyword => |at_rule| try consumeAtRule(parser, ast, location, at_rule),
             .token_ident => {
@@ -574,8 +564,7 @@ fn consumeStyleBlockContents(parser: *Parser, ast: *AstManaged, qualified_rule: 
             else => {
                 if (token == .token_delim and token.token_delim == '&') {
                     parser.setLocation(location);
-                    const rule_index = try ast.addComplexComponent(.qualified_rule, location);
-                    try parser.pushQualifiedRule(.{ .index = rule_index, .is_style_rule = false });
+                    return try ast.addComplexComponent(.qualified_rule, location);
                 } else {
                     // NOTE: Parse error
                     parser.setLocation(location);
@@ -585,8 +574,6 @@ fn consumeStyleBlockContents(parser: *Parser, ast: *AstManaged, qualified_rule: 
         }
     }
 }
-
-const DocumentType = enum { css, zml };
 
 fn seekToEndOfDeclaration(parser: *Parser, document_type: DocumentType) !void {
     while (true) {
@@ -652,13 +639,13 @@ fn consumeDeclaration(
                 if (token.cast(Component.Tag) == ending_tag) {
                     break parser.setLocation(location);
                 } else {
-                    const component_index = try consumeComponentValue(parser, ast, token, location);
+                    const component_index = try consumeComponentValue(parser, ast, token, location, document_type);
                     last_3.append(component_index);
                 }
             },
             .token_whitespace, .token_comments => _ = try ast.addBasicComponent(token.cast(Component.Tag), location),
             else => {
-                const component_index = try consumeComponentValue(parser, ast, token, location);
+                const component_index = try consumeComponentValue(parser, ast, token, location, document_type);
                 last_3.append(component_index);
             },
         }
@@ -668,58 +655,65 @@ fn consumeDeclaration(
     return index;
 }
 
-fn consumeComponentValue(parser: *Parser, ast: *AstManaged, main_token: Token, main_location: Location) !Ast.Size {
+fn consumeComponentValue(
+    parser: *Parser,
+    ast: *AstManaged,
+    main_token: Token,
+    main_location: Location,
+    document_type: DocumentType,
+) !Ast.Size {
     switch (main_token) {
         else => return ast.addToken(main_token, main_location),
-        .token_left_curly, .token_left_square, .token_left_paren, .token_function => {
-            const main_index = ast.len(); // TODO: Stop using ast.len()
+        .token_left_curly, .token_left_square, .token_left_paren, .token_function => {},
+    }
 
-            const allocator = parser.allocator;
-            var block_stack = ArrayListUnmanaged(struct { ending_tag: Component.Tag, index: Ast.Size }){};
-            defer block_stack.deinit(allocator);
+    const main_component_tag, const main_ending_tag = blockTokenToComponents(main_token);
+    const main_index = try ast.addComplexComponent(main_component_tag, main_location);
+    try parser.increaseDepth(main_location);
+    parser.block_stack.top = .{ .ending_tag = main_ending_tag, .index = main_index };
 
-            var token = main_token;
-            var location = main_location;
-            while (true) : (token, location = try parser.nextTokenAllowEof()) {
-                switch (token) {
-                    .token_left_curly, .token_left_square, .token_left_paren, .token_function => {
-                        // zig fmt: off
-                        const component_tag: Component.Tag, const ending_tag: Component.Tag = switch (token) {
-                            .token_left_curly =>  .{ .simple_block_curly,  .token_right_curly  },
-                            .token_left_square => .{ .simple_block_square, .token_right_square },
-                            .token_left_paren =>  .{ .simple_block_paren,  .token_right_paren  },
-                            .token_function =>    .{ .function,            .token_right_paren  },
-                            else => unreachable,
-                        };
-                        // zig fmt: on
-
-                        const index = try ast.addComplexComponent(component_tag, location);
-                        try block_stack.append(allocator, .{ .ending_tag = ending_tag, .index = index });
-                    },
-                    .token_right_curly, .token_right_square, .token_right_paren => {
-                        const tag = token.cast(Component.Tag);
-                        if (block_stack.items[block_stack.items.len - 1].ending_tag == tag) {
-                            const index = block_stack.pop().?.index;
-                            ast.finishComplexComponent(index);
-                            if (block_stack.items.len == 0) break;
-                        } else {
-                            _ = try ast.addBasicComponent(tag, location);
-                        }
-                    },
-                    .token_eof => {
-                        for (0..block_stack.items.len) |i| {
-                            const index = block_stack.items[block_stack.items.len - 1 - i].index;
+    while (parser.block_stack.top) |top| {
+        const token, const location = try parser.nextTokenAllowEof();
+        switch (token) {
+            .token_left_curly, .token_left_square, .token_left_paren, .token_function => {
+                const component_tag, const ending_tag = blockTokenToComponents(token);
+                const index = try ast.addComplexComponent(component_tag, location);
+                try parser.increaseDepth(location);
+                try parser.block_stack.push(parser.allocator, .{ .ending_tag = ending_tag, .index = index });
+            },
+            .token_right_curly, .token_right_square, .token_right_paren => {
+                const tag = token.cast(Component.Tag);
+                if (tag == top.ending_tag) {
+                    parser.decreaseDepth(1);
+                    const index = parser.block_stack.pop().index;
+                    ast.finishComplexComponent(index);
+                    continue;
+                } else {
+                    _ = try ast.addBasicComponent(tag, location);
+                }
+            },
+            .token_eof => {
+                switch (document_type) {
+                    .css => {
+                        ast.finishComplexComponent(top.index);
+                        const len = parser.block_stack.rest.items.len;
+                        for (0..len) |i| {
+                            const index = parser.block_stack.rest.items[len - 1 - i].index;
                             ast.finishComplexComponent(index);
                         }
+
+                        parser.decreaseDepth(@intCast(len + 1));
+                        parser.block_stack.clear();
                         break;
                     },
-                    else => _ = try ast.addToken(token, location),
+                    .zml => return parser.fail(.unexpected_eof, location),
                 }
-            }
-
-            return main_index;
-        },
+            },
+            else => _ = try ast.addToken(token, location),
+        }
     }
+
+    return main_index;
 }
 
 // TODO: Component values should not be ignored
@@ -737,12 +731,7 @@ fn ignoreComponentValue(parser: *Parser, first_token: Token) !void {
     while (true) : (token, _ = try parser.nextTokenAllowEof()) {
         switch (token) {
             .token_left_curly, .token_left_square, .token_left_paren, .token_function => {
-                const ending_tag: Component.Tag = switch (token) {
-                    .token_left_square => .token_right_square,
-                    .token_left_curly => .token_right_curly,
-                    .token_left_paren, .token_function => .token_right_paren,
-                    else => unreachable,
-                };
+                _, const ending_tag = blockTokenToComponents(token);
                 try block_stack.append(allocator, ending_tag);
             },
             .token_right_curly, .token_right_square, .token_right_paren => {
@@ -755,6 +744,19 @@ fn ignoreComponentValue(parser: *Parser, first_token: Token) !void {
             else => {},
         }
     }
+}
+
+fn blockTokenToComponents(token: Token) struct { Component.Tag, Component.Tag } {
+    // zig fmt: off
+    const component_tag: Component.Tag, const ending_tag: Component.Tag = switch (token) {
+        .token_left_curly =>  .{ .simple_block_curly,  .token_right_curly  },
+        .token_left_square => .{ .simple_block_square, .token_right_square },
+        .token_left_paren =>  .{ .simple_block_paren,  .token_right_paren  },
+        .token_function =>    .{ .function,            .token_right_paren  },
+        else => unreachable,
+    };
+    // zig fmt: on
+    return .{ component_tag, ending_tag };
 }
 
 fn parseElement(parser: *Parser, ast: *AstManaged) !void {
@@ -770,6 +772,7 @@ fn parseElement(parser: *Parser, ast: *AstManaged) !void {
         .token_right_curly => {
             const no_open_elements = (parser.element_stack.items.len == 0);
             if (no_open_elements) return parser.fail(.invalid_token, main_location);
+            parser.decreaseDepth(1);
             const item = parser.element_stack.pop().?;
             ast.finishElement(item.element_index, item.block_index);
             return;
@@ -801,7 +804,8 @@ fn parseElement(parser: *Parser, ast: *AstManaged) !void {
                 ast.finishElement(element_index, block_index);
             } else {
                 parser.location = after_left_curly_location;
-                try parser.pushElement(element_index, block_index, location);
+                try parser.increaseDepth(location);
+                try parser.element_stack.append(parser.allocator, .{ .element_index = element_index, .block_index = block_index });
             }
             return;
         }

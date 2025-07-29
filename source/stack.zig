@@ -39,5 +39,10 @@ pub fn Stack(comptime T: type) type {
             defer stack.top = stack.rest.pop();
             return stack.top.?;
         }
+
+        pub fn clear(stack: *Stack(T)) void {
+            stack.rest.clearRetainingCapacity();
+            stack.top = null;
+        }
     };
 }
