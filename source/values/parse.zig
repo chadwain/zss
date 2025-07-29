@@ -14,10 +14,17 @@ pub const Context = struct {
     ast: Ast,
     token_source: TokenSource,
     sequence: Ast.Sequence,
+    mode: enum { normal, list },
 
     /// Initializes a `Context`. You must manually set `sequence` before using this context.
     pub fn init(env: *Environment, ast: Ast, token_source: TokenSource) Context {
-        return .{ .env = env, .ast = ast, .token_source = token_source, .sequence = undefined };
+        return .{
+            .env = env,
+            .ast = ast,
+            .token_source = token_source,
+            .sequence = undefined,
+            .mode = .normal,
+        };
     }
 
     const Item = struct {
@@ -25,14 +32,55 @@ pub const Context = struct {
         tag: Component.Tag,
     };
 
-    fn next(ctx: *Context) ?Item {
+    fn rawNext(ctx: *Context) ?Item {
         const index = ctx.sequence.nextSkipSpaces(ctx.ast) orelse return null;
         const tag = ctx.ast.tag(index);
         return .{ .index = index, .tag = tag };
     }
 
+    fn next(ctx: *Context) ?Item {
+        const item = ctx.rawNext() orelse return null;
+        switch (ctx.mode) {
+            .normal => return item,
+            .list => {
+                if (item.tag == .token_comma) {
+                    ctx.sequence.reset(item.index);
+                    return null;
+                } else {
+                    return item;
+                }
+            },
+        }
+    }
+
+    pub fn beginList(ctx: *Context) !void {
+        const item = ctx.rawNext() orelse return;
+        if (item.tag == .token_comma) return error.ParseError; // Leading comma
+        ctx.sequence.reset(item.index);
+    }
+
+    pub fn endListItem(ctx: *Context) !void {
+        const comma = ctx.rawNext() orelse return;
+        if (comma.tag != .token_comma) return error.ParseError; // List item not fully consumed
+        const item = ctx.rawNext() orelse return error.ParseError; // Trailing comma
+        if (item.tag == .token_comma) return error.ParseError; // Two commas in a row
+        ctx.sequence.reset(item.index);
+    }
+
+    pub fn nextListItem(ctx: *Context) ?void {
+        const item = ctx.rawNext() orelse return null;
+        ctx.sequence.reset(item.index);
+    }
+
     fn empty(ctx: *Context) bool {
-        return ctx.sequence.empty();
+        switch (ctx.mode) {
+            .normal => return ctx.sequence.empty(),
+            .list => {
+                const item = ctx.next() orelse return true;
+                ctx.sequence.reset(item.index);
+                return item.tag == .token_comma;
+            },
+        }
     }
 };
 

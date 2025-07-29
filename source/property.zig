@@ -233,6 +233,7 @@ fn parseDeclaration(
         zss.log.warn("Ignoring declaration with unrecognized name: {s}", .{name_string});
         return;
     };
+    // zss.log.debug("Parsing declaration '{s}'", .{@tagName(property)});
 
     var value_ctx = ValueContext.init(env, ast, token_source);
     value_ctx.sequence = ast.children(declaration_index);
@@ -248,16 +249,21 @@ fn parseDeclaration(
                     env.decls.addAll(importance, cwk);
                 },
                 .non_shorthand => |non_shorthand| {
-                    const parseFn = @field(parse, @tagName(comptime_property));
-                    const parsed_value_optional = switch (comptime non_shorthand.group.size()) {
-                        .single => parseFn(&value_ctx),
-                        .multi => parseFn(&value_ctx, fba) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfBufferSpace,
-                            else => |e| return e,
-                        },
+                    const parse_fn = @field(parse, @tagName(comptime_property));
+                    const value_or_null = blk: {
+                        switch (comptime non_shorthand.group.size()) {
+                            .single => break :blk parse_fn(&value_ctx),
+                            .multi => {
+                                fba.reset();
+                                break :blk parse_fn(&value_ctx, fba) catch |err| switch (err) {
+                                    error.OutOfMemory => return error.OutOfBufferSpace,
+                                    else => |e| return e,
+                                };
+                            },
+                        }
                     };
 
-                    const parsed_value = if (parsed_value_optional) |parsed_value|
+                    const value = if (value_or_null) |parsed_value|
                         parsed_value
                     else if (zss.values.parse.cssWideKeyword(&value_ctx)) |cwk|
                         comptime_property.declaredValueFromCwk(cwk)
@@ -268,7 +274,7 @@ fn parseDeclaration(
                         return;
                     }
 
-                    try env.decls.addValues(env.allocator, importance, parsed_value);
+                    try env.decls.addValues(env.allocator, importance, value);
                 },
             }
         },

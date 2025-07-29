@@ -330,9 +330,9 @@ pub const Parser = struct {
         errdefer managed.deinit();
 
         const document_index = try managed.addComplexComponent(.zml_document, parser.location);
-        try parseElement(parser, &managed);
+        try consumeElement(parser, &managed);
         while (parser.element_stack.items.len > 0) {
-            try parseElement(parser, &managed);
+            try consumeElement(parser, &managed);
         }
         try parser.skipUntilEof();
         managed.finishComplexComponent(document_index);
@@ -498,7 +498,11 @@ fn consumeQualifiedRule(parser: *Parser, ast: *AstManaged) !void {
     while (parser.rule_stack.top) |*qualified_rule| {
         if (qualified_rule.index_of_block == null) {
             try consumeQualifiedRulePrelude(parser, ast, qualified_rule);
-            if (qualified_rule.discarded) return;
+            if (qualified_rule.discarded) {
+                parser.decreaseDepth(1);
+                _ = parser.rule_stack.pop();
+                continue;
+            }
         }
 
         if (qualified_rule.index_of_block != null and qualified_rule.is_style_rule) {
@@ -759,7 +763,7 @@ fn blockTokenToComponents(token: Token) struct { Component.Tag, Component.Tag } 
     return .{ component_tag, ending_tag };
 }
 
-fn parseElement(parser: *Parser, ast: *AstManaged) !void {
+fn consumeElement(parser: *Parser, ast: *AstManaged) !void {
     try parser.skipSpacesAllowEof();
     const main_token, const main_location = try parser.nextTokenAllowEof();
 
@@ -812,7 +816,7 @@ fn parseElement(parser: *Parser, ast: *AstManaged) !void {
 
         if (token == .token_left_paren) {
             ast.finishComplexComponent(features_index);
-            try parseInlineStyleBlock(parser, ast, location);
+            try consumeInlineStyleBlock(parser, ast, location);
             if (!parsed_any_features) return parser.fail(.inline_style_block_before_features, location);
             if (parsed_inline_styles) |loc| return parser.fail(.multiple_inline_style_blocks, loc);
             parsed_inline_styles = location;
@@ -826,7 +830,7 @@ fn parseElement(parser: *Parser, ast: *AstManaged) !void {
             if (parsed_any_features) return parser.fail(.empty_with_other_features, location);
             parsed_star = true;
         } else {
-            try parseFeature(parser, ast, token, location, &parsed_type);
+            try consumeFeature(parser, ast, token, location, &parsed_type);
             if (parsed_star) return parser.fail(.empty_with_other_features, location);
         }
 
@@ -835,7 +839,7 @@ fn parseElement(parser: *Parser, ast: *AstManaged) !void {
     }
 }
 
-fn parseFeature(parser: *Parser, ast: *AstManaged, main_token: Token, main_location: Location, parsed_type: *bool) !void {
+fn consumeFeature(parser: *Parser, ast: *AstManaged, main_token: Token, main_location: Location, parsed_type: *bool) !void {
     switch (main_token) {
         .token_delim => |codepoint| blk: {
             if (codepoint == '.') {
@@ -881,7 +885,7 @@ fn parseFeature(parser: *Parser, ast: *AstManaged, main_token: Token, main_locat
     return parser.fail(.invalid_feature, main_location);
 }
 
-fn parseInlineStyleBlock(parser: *Parser, ast: *AstManaged, main_location: Location) !void {
+fn consumeInlineStyleBlock(parser: *Parser, ast: *AstManaged, main_location: Location) !void {
     const style_block_index = try ast.addComplexComponent(.zml_styles, main_location);
 
     var previous_declaration: ?Ast.Size = null;
@@ -904,8 +908,6 @@ fn parseInlineStyleBlock(parser: *Parser, ast: *AstManaged, main_location: Locat
 
     ast.finishInlineStyleBlock(style_block_index, previous_declaration.?);
 }
-
-// TODO: write a fuzz test
 
 test "parse a stylesheet" {
     const allocator = std.testing.allocator;
