@@ -1,5 +1,5 @@
 const zss = @import("zss");
-const parse = zss.syntax.parse;
+const Parser = zss.syntax.Parser;
 const TokenSource = zss.syntax.TokenSource;
 
 const std = @import("std");
@@ -19,13 +19,16 @@ pub fn main() !u8 {
     const string = try std.io.getStdIn().reader().readAllAlloc(allocator, 1_000_000);
     defer allocator.free(string);
 
+    const source = try TokenSource.init(string);
     if (args.len == 1 or std.mem.eql(u8, args[1], "stylesheet")) {
-        const source = try TokenSource.init(string);
-        var tree = try parse.parseCssStylesheet(source, allocator);
-        defer tree.deinit(allocator);
-        try tree.debug.print(allocator, stdout);
+        var ast = blk: {
+            var parser = Parser.init(source, allocator);
+            defer parser.deinit();
+            break :blk try parser.parseCssStylesheet(allocator);
+        };
+        defer ast.deinit(allocator);
+        try ast.debug.print(allocator, stdout);
     } else if (std.mem.eql(u8, args[1], "zml")) {
-        const source = try TokenSource.init(string);
         var parser = zss.zml.Parser.init(source, allocator);
         defer parser.deinit();
 
@@ -42,13 +45,14 @@ pub fn main() !u8 {
         defer ast.deinit(allocator);
         try ast.debug.print(allocator, stdout);
     } else if (std.mem.eql(u8, args[1], "components")) {
-        const source = try TokenSource.init(string);
-        var tree = try parse.parseListOfComponentValues(source, allocator);
-        defer tree.deinit(allocator);
-        try tree.debug.print(allocator, stdout);
+        var ast = blk: {
+            var parser = Parser.init(source, allocator);
+            defer parser.deinit();
+            break :blk try parser.parseListOfComponentValues(allocator);
+        };
+        defer ast.deinit(allocator);
+        try ast.debug.print(allocator, stdout);
     } else if (std.mem.eql(u8, args[1], "tokens")) {
-        const source = try TokenSource.init(string);
-
         var location: TokenSource.Location = @enumFromInt(0);
         var i: usize = 0;
         while (true) {

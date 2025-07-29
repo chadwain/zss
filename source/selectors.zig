@@ -417,7 +417,11 @@ fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, actu
 
 fn stringToSelectorList(input: []const u8, env: *Environment, arena: *ArenaAllocator) !ComplexSelectorList {
     const source = try TokenSource.init(input);
-    var ast = try zss.syntax.parse.parseListOfComponentValues(source, env.allocator);
+    var ast = blk: {
+        var parser = zss.syntax.Parser.init(source, env.allocator);
+        defer parser.deinit();
+        break :blk try parser.parseListOfComponentValues(env.allocator);
+    };
     defer ast.deinit(env.allocator);
 
     const component_list: Ast.Size = 0;

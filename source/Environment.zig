@@ -43,7 +43,11 @@ pub fn deinit(env: *Environment) void {
 }
 
 pub fn addStylesheet(env: *Environment, source: TokenSource) !void {
-    var ast = try syntax.parse.parseCssStylesheet(source, env.allocator);
+    var ast = blk: {
+        var parser = syntax.Parser.init(source, env.allocator);
+        defer parser.deinit();
+        break :blk try parser.parseCssStylesheet(env.allocator);
+    };
     defer ast.deinit(env.allocator);
 
     env.urls.clear();

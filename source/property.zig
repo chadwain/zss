@@ -328,7 +328,11 @@ test "parsing properties from a stylesheet" {
         \\}
     ;
     const source = try TokenSource.init(input);
-    var ast = try zss.syntax.parse.parseCssStylesheet(source, allocator);
+    var ast = blk: {
+        var parser = zss.syntax.Parser.init(source, allocator);
+        defer parser.deinit();
+        break :blk try parser.parseCssStylesheet(allocator);
+    };
     defer ast.deinit(allocator);
 
     const rule_list: Ast.Size = 0;

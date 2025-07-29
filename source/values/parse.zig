@@ -326,7 +326,11 @@ test "value parsers" {
             const allocator = std.testing.allocator;
 
             const token_source = try TokenSource.init(input);
-            var ast = try zss.syntax.parse.parseListOfComponentValues(token_source, allocator);
+            var ast = blk: {
+                var syntax_parser = zss.syntax.Parser.init(token_source, allocator);
+                defer syntax_parser.deinit();
+                break :blk try syntax_parser.parseListOfComponentValues(allocator);
+            };
             defer ast.deinit(allocator);
 
             var env = Environment.init(allocator);

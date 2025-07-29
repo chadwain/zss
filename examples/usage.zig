@@ -27,13 +27,10 @@ pub fn main() !void {
     slice.initElement(root, .normal, .orphan);
     try slice.runCascade(root, allocator, &env);
 
-    var images = zss.Images{};
-    defer images.deinit(allocator);
-
     var fonts = zss.Fonts.init();
     defer fonts.deinit();
 
-    var layout = zss.Layout.init(slice, root, allocator, 100, 100, images.slice(), &fonts, &env.decls);
+    var layout = zss.Layout.init(slice, root, allocator, 100, 100, &env, &fonts);
     defer layout.deinit();
 
     var box_tree = try layout.run(allocator);

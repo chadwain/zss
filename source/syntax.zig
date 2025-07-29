@@ -5,7 +5,11 @@ const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("zss.zig");
 const tokenize = @import("syntax/tokenize.zig");
-pub const parse = @import("syntax/parse.zig");
+const parse = @import("syntax/parse.zig");
+
+pub const AstManaged = parse.AstManaged;
+pub const Last3NonWhitespaceComponents = parse.Last3NonWhitespaceComponents;
+pub const Parser = parse.Parser;
 pub const IdentifierSet = @import("syntax/IdentifierSet.zig");
 
 comptime {

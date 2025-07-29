@@ -14,6 +14,7 @@ const Stack = zss.Stack;
 const Token = syntax.Token;
 const TokenSource = syntax.TokenSource;
 
+// TODO: Make this non-public
 pub const AstManaged = struct {
     components: MultiArrayList(Component) = .{},
     allocator: Allocator,
@@ -197,6 +198,7 @@ pub const AstManaged = struct {
 
 /// Helps to keep track of the last 3 non-whitespace components in a declaration's value.
 /// This is used to trim whitespace and to detect "!important" at the end of a value.
+// TODO: Make this non-public
 pub const Last3NonWhitespaceComponents = struct {
     /// A queue of the indeces of the last 3 non-whitespace components.
     /// Note that this queue grows starting from the end (the newest component index will be at index 2).
@@ -211,39 +213,11 @@ pub const Last3NonWhitespaceComponents = struct {
     }
 };
 
-/// Creates an Ast with a root node with tag `rule_list`
-/// Implements CSS Syntax Level 3 Section 9 "Parse a CSS stylesheet"
-pub fn parseCssStylesheet(token_source: TokenSource, allocator: Allocator) !Ast {
-    var managed = AstManaged{ .allocator = allocator };
-    errdefer managed.deinit();
-
-    var parser: Parser = .{ .token_source = token_source, .allocator = allocator };
-    defer parser.deinit();
-
-    const index = try consumeListOfRules(&parser, &managed, true);
-    _ = index; // TODO: Return the index
-    return .{ .components = managed.components.slice() };
-}
-
-/// Creates an Ast with a root node with tag `component_list`
-/// Implements CSS Syntax Level 3 Section 5.3.10 "Parse a list of component values"
-pub fn parseListOfComponentValues(token_source: TokenSource, allocator: Allocator) !Ast {
-    var managed = AstManaged{ .allocator = allocator };
-    errdefer managed.deinit();
-
-    var parser: Parser = .{ .token_source = token_source, .allocator = allocator };
-    defer parser.deinit();
-
-    const index = try consumeListOfComponentValues(&parser, &managed);
-    _ = index; // TODO: Return the index
-    return .{ .components = managed.components.slice() };
-}
-
-const Parser = struct {
-    rule_stack: Stack(Frame) = .{},
+pub const Parser = struct {
+    rule_stack: Stack(Frame),
     token_source: TokenSource,
     allocator: Allocator,
-    location: TokenSource.Location = @enumFromInt(0),
+    location: TokenSource.Location,
 
     const Frame = struct {
         index: Ast.Size,
@@ -253,8 +227,39 @@ const Parser = struct {
         discarded: bool = false,
     };
 
-    fn deinit(parser: *Parser) void {
+    pub fn init(token_source: TokenSource, allocator: Allocator) Parser {
+        return .{
+            .rule_stack = .{},
+            .token_source = token_source,
+            .allocator = allocator,
+            .location = @enumFromInt(0),
+        };
+    }
+
+    pub fn deinit(parser: *Parser) void {
         parser.rule_stack.deinit(parser.allocator);
+    }
+
+    /// Creates an Ast with a root node with tag `rule_list`
+    /// Implements CSS Syntax Level 3 Section 9 "Parse a CSS stylesheet"
+    pub fn parseCssStylesheet(parser: *Parser, allocator: Allocator) !Ast {
+        var managed = AstManaged{ .allocator = allocator };
+        errdefer managed.deinit();
+
+        const index = try consumeListOfRules(parser, &managed, true);
+        _ = index; // TODO: Return the index
+        return .{ .components = managed.components.slice() };
+    }
+
+    /// Creates an Ast with a root node with tag `component_list`
+    /// Implements CSS Syntax Level 3 Section 5.3.10 "Parse a list of component values"
+    pub fn parseListOfComponentValues(parser: *Parser, allocator: Allocator) !Ast {
+        var managed = AstManaged{ .allocator = allocator };
+        errdefer managed.deinit();
+
+        const index = try consumeListOfComponentValues(parser, &managed);
+        _ = index; // TODO: Return the index
+        return .{ .components = managed.components.slice() };
     }
 
     fn nextToken(parser: *Parser) !struct { Token, TokenSource.Location } {
@@ -607,7 +612,10 @@ test "parse a stylesheet" {
     ;
     const token_source = try TokenSource.init(input);
 
-    var ast = try parseCssStylesheet(token_source, allocator);
+    var parser = Parser.init(token_source, allocator);
+    defer parser.deinit();
+
+    var ast = try parser.parseCssStylesheet(allocator);
     defer ast.deinit(allocator);
 
     const TestComponent = struct {
