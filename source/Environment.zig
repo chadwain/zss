@@ -124,6 +124,7 @@ pub fn addTypeOrAttributeName(env: *Environment, identifier: TokenSource.Locatio
     return @enumFromInt(@as(NameId.Value, @intCast(index)));
 }
 
+// TODO: This is only used in tests
 pub fn addTypeOrAttributeNameString(env: *Environment, string: []const u8) !NameId {
     const index = try env.type_or_attribute_names.getOrPutFromString(env.allocator, string);
     return @enumFromInt(@as(NameId.Value, @intCast(index)));
@@ -149,6 +150,12 @@ comptime {
 
 pub fn addIdName(env: *Environment, hash_id: TokenSource.Location, source: TokenSource) !IdId {
     const index = try env.id_or_class_names.getOrPutFromSource(env.allocator, source, source.hashTokenIterator(hash_id));
+    return @enumFromInt(@as(IdId.Value, @intCast(index)));
+}
+
+// TODO: This is only used in tests
+pub fn addIdNameString(env: *Environment, string: []const u8) !IdId {
+    const index = try env.id_or_class_names.getOrPutFromString(env.allocator, string);
     return @enumFromInt(@as(IdId.Value, @intCast(index)));
 }
 

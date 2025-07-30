@@ -17,11 +17,11 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 const ElementTree = @This();
-pub const Text = ?[]const u8;
 
 nodes: MultiArrayList(Node).Slice,
 free_list_head: Size,
 free_list_len: Size,
+ids: std.AutoHashMapUnmanaged(Environment.IdId, Element),
 arena: ArenaAllocator.State,
 
 /// If a Node is in the free list, then node.next_sibling.index stores the next item in the free list, and
@@ -39,6 +39,8 @@ const Node = struct {
     fq_type: FqType,
     text: Text,
     cascaded_values: CascadedValues,
+
+    const fields = std.enums.values(std.meta.FieldEnum(Node));
 };
 
 const Generation = u16;
@@ -75,17 +77,21 @@ pub const FqType = struct {
     name: NameId,
 };
 
+pub const Text = ?[]const u8;
+
 pub fn init() ElementTree {
     return ElementTree{
         .nodes = .empty,
         .free_list_head = max_size,
         .free_list_len = 0,
+        .ids = .empty,
         .arena = .{},
     };
 }
 
 pub fn deinit(tree: *ElementTree, allocator: Allocator) void {
     tree.nodes.deinit(allocator);
+    tree.ids.deinit(allocator);
 
     var arena = tree.arena.promote(allocator);
     defer tree.arena = arena.state;
@@ -93,7 +99,7 @@ pub fn deinit(tree: *ElementTree, allocator: Allocator) void {
 }
 
 /// Creates a new element.
-/// The element has undefined data and must be initialized.
+/// The element has undefined data and must be initialized by calling `initElement`.
 pub fn allocateElement(tree: *ElementTree, allocator: Allocator) !Element {
     var result: [1]Element = undefined;
     try tree.allocateElements(allocator, &result);
@@ -101,7 +107,7 @@ pub fn allocateElement(tree: *ElementTree, allocator: Allocator) !Element {
 }
 
 /// Populates `buffer` with `buffer.len` newly-created elements.
-/// The elements have undefined data and must be initialized.
+/// The elements have undefined data and must be initialized by calling `initElement`.
 pub fn allocateElements(tree: *ElementTree, allocator: Allocator, buffer: []Element) !void {
     const num_extra_nodes = buffer.len -| tree.free_list_len;
     const old_nodes_len = tree.nodes.len;
@@ -135,10 +141,11 @@ pub fn allocateElements(tree: *ElementTree, allocator: Allocator, buffer: []Elem
     }
 }
 
-pub fn destroyElement(tree: *ElementTree, element: Element) void {
+pub fn destroyElement(tree: *const ElementTree, element: Element) void {
+    tree.assertGeneration(element);
+
     var node = @as(Node, undefined);
-    node.generation = tree.nodes.items(.generation)[element.index];
-    assert(element.generation == node.generation);
+    node.generation = element.generation;
 
     if (node.generation != max_generation) {
         // This node can be used again: add it to the free list.
@@ -161,52 +168,9 @@ pub fn destroyElement(tree: *ElementTree, element: Element) void {
     if (!previous_sibling.eqlNull()) tree.nodes.items(.next_sibling)[previous_sibling.index] = next_sibling;
     if (!next_sibling.eqlNull()) tree.nodes.items(.previous_sibling)[next_sibling.index] = previous_sibling;
 
-    tree.nodes.set(element.index, node);
-}
-
-fn assertGeneration(tree: *const ElementTree, element: Element) void {
-    assert(element.generation == tree.nodes.items(.generation)[element.index]);
-}
-
-fn getField(tree: *const ElementTree, comptime field: std.meta.FieldEnum(Node), element: Element) @FieldType(Node, @tagName(field)) {
-    tree.assertGeneration(element);
-    return tree.nodes.items(field)[element.index];
-}
-
-pub fn category(tree: *const ElementTree, element: Element) Category {
-    return tree.getField(.category, element);
-}
-
-pub fn parent(tree: *const ElementTree, element: Element) Element {
-    return tree.getField(.parent, element);
-}
-
-pub fn firstChild(tree: *const ElementTree, element: Element) Element {
-    return tree.getField(.first_child, element);
-}
-
-pub fn lastChild(tree: *const ElementTree, element: Element) Element {
-    return tree.getField(.last_child, element);
-}
-
-pub fn nextSibling(tree: *const ElementTree, element: Element) Element {
-    return tree.getField(.next_sibling, element);
-}
-
-pub fn previousSibling(tree: *const ElementTree, element: Element) Element {
-    return tree.getField(.previous_sibling, element);
-}
-
-pub fn fqType(tree: *const ElementTree, element: Element) FqType {
-    return tree.getField(.fq_type, element);
-}
-
-pub fn text(tree: *const ElementTree, element: Element) Text {
-    return tree.getField(.text, element);
-}
-
-pub fn cascadedValues(tree: *const ElementTree, element: Element) CascadedValues {
-    return tree.getField(.cascaded_values, element);
+    inline for (Node.fields) |field| {
+        tree.nodes.items(field)[element.index] = @field(node, @tagName(field));
+    }
 }
 
 pub const NodePlacement = union(enum) {
@@ -274,21 +238,96 @@ pub fn initElement(tree: *const ElementTree, element: Element, initial_category:
     node.text = null;
     node.cascaded_values = .{};
 
-    inline for (comptime std.enums.values(std.meta.FieldEnum(Node))) |field| {
+    inline for (Node.fields) |field| {
         if (field != .generation) {
             tree.nodes.items(field)[element.index] = @field(node, @tagName(field));
         }
     }
 }
 
-pub fn setFqType(tree: *const ElementTree, element: Element, fq_type: FqType) void {
+fn assertGeneration(tree: *const ElementTree, element: Element) void {
+    assert(element.generation == tree.nodes.items(.generation)[element.index]);
+}
+
+fn assertIsNormal(tree: *const ElementTree, element: Element) void {
     tree.assertGeneration(element);
+    assert(tree.nodes.items(.category)[element.index] == .normal);
+}
+
+fn assertIsText(tree: *const ElementTree, element: Element) void {
+    tree.assertGeneration(element);
+    assert(tree.nodes.items(.category)[element.index] == .text);
+}
+
+fn getField(tree: *const ElementTree, comptime field: std.meta.FieldEnum(Node), element: Element) @FieldType(Node, @tagName(field)) {
+    return tree.nodes.items(field)[element.index];
+}
+
+pub fn category(tree: *const ElementTree, element: Element) Category {
+    tree.assertGeneration(element);
+    return tree.getField(.category, element);
+}
+
+pub fn parent(tree: *const ElementTree, element: Element) Element {
+    tree.assertGeneration(element);
+    return tree.getField(.parent, element);
+}
+
+pub fn firstChild(tree: *const ElementTree, element: Element) Element {
+    tree.assertIsNormal(element);
+    return tree.getField(.first_child, element);
+}
+
+pub fn lastChild(tree: *const ElementTree, element: Element) Element {
+    tree.assertIsNormal(element);
+    return tree.getField(.last_child, element);
+}
+
+pub fn nextSibling(tree: *const ElementTree, element: Element) Element {
+    tree.assertGeneration(element);
+    return tree.getField(.next_sibling, element);
+}
+
+pub fn previousSibling(tree: *const ElementTree, element: Element) Element {
+    tree.assertGeneration(element);
+    return tree.getField(.previous_sibling, element);
+}
+
+pub fn fqType(tree: *const ElementTree, element: Element) FqType {
+    tree.assertIsNormal(element);
+    return tree.getField(.fq_type, element);
+}
+
+pub fn text(tree: *const ElementTree, element: Element) Text {
+    tree.assertIsText(element);
+    return tree.getField(.text, element);
+}
+
+pub fn cascadedValues(tree: *const ElementTree, element: Element) CascadedValues {
+    tree.assertIsNormal(element);
+    return tree.getField(.cascaded_values, element);
+}
+
+pub fn setFqType(tree: *const ElementTree, element: Element, fq_type: FqType) void {
+    tree.assertIsNormal(element);
     tree.nodes.items(.fq_type)[element.index] = fq_type;
 }
 
 pub fn setText(tree: *const ElementTree, element: Element, text_: Text) void {
-    tree.assertGeneration(element);
+    tree.assertIsText(element);
     tree.nodes.items(.text)[element.index] = text_;
+}
+
+/// Returns `error.IdAlreadyExists` if `id` was already registered.
+pub fn registerId(tree: *ElementTree, allocator: Allocator, id: Environment.IdId, element: Element) !void {
+    tree.assertIsNormal(element);
+    const gop = try tree.ids.getOrPut(allocator, id);
+    if (gop.found_existing and gop.value_ptr.* != element) return error.IdAlreadyExists;
+    gop.value_ptr.* = element;
+}
+
+pub fn getElementById(tree: *const ElementTree, id: Environment.IdId) ?Element {
+    return tree.ids.get(id);
 }
 
 pub fn runCascade(
@@ -297,7 +336,7 @@ pub fn runCascade(
     allocator: Allocator,
     env: *const Environment,
 ) !void {
-    tree.assertGeneration(element);
+    tree.assertIsNormal(element);
 
     if (env.stylesheets.items.len == 0) return;
     if (env.stylesheets.items.len > 1) panic("TODO: runCascade: Can only handle one stylesheet", .{});
@@ -336,7 +375,7 @@ pub fn updateCascadedValues(
     /// This slice should be such that sources with a higher cascade order appear earlier.
     sources: []const DeclSource,
 ) !void {
-    tree.assertGeneration(element);
+    tree.assertIsNormal(element);
     var arena = tree.arena.promote(allocator);
     defer tree.arena = arena.state;
     const cascaded_values = &tree.nodes.items(.cascaded_values)[element.index];

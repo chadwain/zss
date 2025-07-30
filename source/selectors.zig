@@ -222,7 +222,12 @@ pub const ComplexSelector = struct {
                     const element_type = tree.fqType(element);
                     if (!ty.matchElement(element_type)) return false;
                 },
-                .id,
+                .id => {
+                    index += 1;
+                    const id = compound[index].id_selector;
+                    const element_with_id = tree.getElementById(id) orelse return false;
+                    if (element != element_with_id) return false;
+                },
                 .class,
                 .attribute,
                 .pseudo_class,
@@ -536,12 +541,18 @@ test "complex selector matching" {
 
     var env = Environment.init(allocator);
     defer env.deinit();
+
     const type_names = [5]Environment.NameId{
         try env.addTypeOrAttributeNameString("root"),
         try env.addTypeOrAttributeNameString("first"),
         try env.addTypeOrAttributeNameString("second"),
         try env.addTypeOrAttributeNameString("grandchild"),
         try env.addTypeOrAttributeNameString("third"),
+    };
+
+    const ids = [2]Environment.IdId{
+        try env.addIdNameString("alice"),
+        try env.addIdNameString("jeff"),
     };
 
     var tree = ElementTree.init();
@@ -562,6 +573,9 @@ test "complex selector matching" {
     tree.setFqType(elements[2], .{ .namespace = .none, .name = type_names[2] });
     tree.setFqType(elements[3], .{ .namespace = .none, .name = type_names[3] });
     tree.setFqType(elements[5], .{ .namespace = .none, .name = type_names[4] });
+
+    try tree.registerId(allocator, ids[0], elements[0]);
+    try tree.registerId(allocator, ids[1], elements[5]);
 
     const doTest = struct {
         fn f(selector_string: []const u8, en: *Environment, ar: *ArenaAllocator, t: *const ElementTree, e: ElementTree.Element) !bool {
@@ -596,4 +610,7 @@ test "complex selector matching" {
     try expect(try doTest("root grandchild", &env, &arena, &tree, elements[3]));
     try expect(try doTest("root second grandchild", &env, &arena, &tree, elements[3]));
     try expect(!try doTest("root > grandchild", &env, &arena, &tree, elements[3]));
+    try expect(try doTest("#alice", &env, &arena, &tree, elements[0]));
+    try expect(!try doTest("#alice", &env, &arena, &tree, elements[5]));
+    try expect(try doTest("#alice > #jeff", &env, &arena, &tree, elements[5]));
 }

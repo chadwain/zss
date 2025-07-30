@@ -136,7 +136,10 @@ fn parseElement(
                     const type_name = try env.addTypeOrAttributeName(ast.location(index), token_source);
                     element_tree.setFqType(element, .{ .namespace = .none, .name = type_name });
                 },
-                .zml_id => std.debug.panic("TODO: parse zml element: id feature", .{}),
+                .zml_id => {
+                    const id = try env.addIdName(ast.location(index), token_source);
+                    try element_tree.registerId(allocator, id, element);
+                },
                 .zml_class => std.debug.panic("TODO: parse zml element: class feature", .{}),
                 .zml_attribute => std.debug.panic("TODO: parse zml element: attribute feature", .{}),
                 else => break,
