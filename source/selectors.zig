@@ -52,7 +52,7 @@ pub const ComplexSelectorList = struct {
     /// Note that the specificity of a selector list depends on the object that it's being matched on:
     /// it is that of the most specific selector in the list that matches the element.
     /// See CSS Selectors Level 4 section 17 "Calculating a selector's specificity".
-    pub fn matchElement(complex_selector_list: ComplexSelectorList, tree: ElementTree.Slice, element: Element) ?Specificity {
+    pub fn matchElement(complex_selector_list: ComplexSelectorList, tree: *const ElementTree, element: Element) ?Specificity {
         // TODO: This function may have no callers within zss, and can be deleted
         // TODO: If selectors in the list were already sorted by specificity (highest to lowest), we could return on the first match.
         var result: ?Specificity = null;
@@ -147,7 +147,7 @@ pub const ComplexSelector = struct {
         allocator.free(complex.data);
     }
 
-    pub fn matchElement(complex: ComplexSelector, tree: ElementTree.Slice, match_candidate: Element) bool {
+    pub fn matchElement(complex: ComplexSelector, tree: *const ElementTree, match_candidate: Element) bool {
         switch (tree.category(match_candidate)) {
             .normal => {},
             .text => unreachable,
@@ -212,14 +212,14 @@ pub const ComplexSelector = struct {
         return true;
     }
 
-    fn matchCompoundSelector(compound: []const Data, tree: ElementTree.Slice, element: Element) bool {
+    fn matchCompoundSelector(compound: []const Data, tree: *const ElementTree, element: Element) bool {
         var index: Index = 0;
         while (index < compound.len) : (index += 1) {
             switch (compound[index].simple_selector_tag) {
                 .type => {
                     index += 1;
                     const ty = compound[index].type_selector;
-                    const element_type = tree.get(.fq_type, element);
+                    const element_type = tree.fqType(element);
                     if (!ty.matchElement(element_type)) return false;
                 },
                 .id,
@@ -544,33 +544,33 @@ test "complex selector matching" {
         try env.addTypeOrAttributeNameString("third"),
     };
 
-    var tree = ElementTree.init(allocator);
-    defer tree.deinit();
+    var tree = ElementTree.init();
+    defer tree.deinit(allocator);
+
     var elements: [6]ElementTree.Element = undefined;
-    try tree.allocateElements(&elements);
-    const slice = tree.slice();
+    try tree.allocateElements(allocator, &elements);
 
-    slice.initElement(elements[0], .normal, .orphan);
-    slice.initElement(elements[1], .normal, .{ .last_child_of = elements[0] });
-    slice.initElement(elements[2], .normal, .{ .last_child_of = elements[0] });
-    slice.initElement(elements[3], .normal, .{ .first_child_of = elements[2] });
-    slice.initElement(elements[4], .text, .{ .last_child_of = elements[0] });
-    slice.initElement(elements[5], .normal, .{ .last_child_of = elements[0] });
+    tree.initElement(elements[0], .normal, .orphan);
+    tree.initElement(elements[1], .normal, .{ .last_child_of = elements[0] });
+    tree.initElement(elements[2], .normal, .{ .last_child_of = elements[0] });
+    tree.initElement(elements[3], .normal, .{ .first_child_of = elements[2] });
+    tree.initElement(elements[4], .text, .{ .last_child_of = elements[0] });
+    tree.initElement(elements[5], .normal, .{ .last_child_of = elements[0] });
 
-    slice.set(.fq_type, elements[0], .{ .namespace = .none, .name = type_names[0] });
-    slice.set(.fq_type, elements[1], .{ .namespace = .none, .name = type_names[1] });
-    slice.set(.fq_type, elements[2], .{ .namespace = .none, .name = type_names[2] });
-    slice.set(.fq_type, elements[3], .{ .namespace = .none, .name = type_names[3] });
-    slice.set(.fq_type, elements[5], .{ .namespace = .none, .name = type_names[4] });
+    tree.setFqType(elements[0], .{ .namespace = .none, .name = type_names[0] });
+    tree.setFqType(elements[1], .{ .namespace = .none, .name = type_names[1] });
+    tree.setFqType(elements[2], .{ .namespace = .none, .name = type_names[2] });
+    tree.setFqType(elements[3], .{ .namespace = .none, .name = type_names[3] });
+    tree.setFqType(elements[5], .{ .namespace = .none, .name = type_names[4] });
 
     const doTest = struct {
-        fn f(selector_string: []const u8, en: *Environment, ar: *ArenaAllocator, s: ElementTree.Slice, e: ElementTree.Element) !bool {
+        fn f(selector_string: []const u8, en: *Environment, ar: *ArenaAllocator, t: *const ElementTree, e: ElementTree.Element) !bool {
             var selector = stringToSelectorList(selector_string, en, ar) catch |err| switch (err) {
                 error.ParseError => return false,
                 else => |er| return er,
             };
             // defer selector.deinit(allocator);
-            return (selector.matchElement(s, e) != null);
+            return (selector.matchElement(t, e) != null);
         }
     }.f;
     const expect = std.testing.expect;
@@ -578,22 +578,22 @@ test "complex selector matching" {
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    try expect(try doTest("root", &env, &arena, slice, elements[0]));
-    try expect(try doTest("first", &env, &arena, slice, elements[1]));
-    try expect(try doTest("root > first", &env, &arena, slice, elements[1]));
-    try expect(try doTest("root first", &env, &arena, slice, elements[1]));
-    try expect(try doTest("second", &env, &arena, slice, elements[2]));
-    try expect(try doTest("first + second", &env, &arena, slice, elements[2]));
-    try expect(try doTest("first ~ second", &env, &arena, slice, elements[2]));
-    try expect(try doTest("third", &env, &arena, slice, elements[5]));
-    try expect(try doTest("second + third", &env, &arena, slice, elements[5]));
-    try expect(try doTest("second ~ third", &env, &arena, slice, elements[5]));
-    try expect(!try doTest("first + third", &env, &arena, slice, elements[5]));
-    try expect(try doTest("first ~ third", &env, &arena, slice, elements[5]));
-    try expect(try doTest("grandchild", &env, &arena, slice, elements[3]));
-    try expect(try doTest("second > grandchild", &env, &arena, slice, elements[3]));
-    try expect(try doTest("second grandchild", &env, &arena, slice, elements[3]));
-    try expect(try doTest("root grandchild", &env, &arena, slice, elements[3]));
-    try expect(try doTest("root second grandchild", &env, &arena, slice, elements[3]));
-    try expect(!try doTest("root > grandchild", &env, &arena, slice, elements[3]));
+    try expect(try doTest("root", &env, &arena, &tree, elements[0]));
+    try expect(try doTest("first", &env, &arena, &tree, elements[1]));
+    try expect(try doTest("root > first", &env, &arena, &tree, elements[1]));
+    try expect(try doTest("root first", &env, &arena, &tree, elements[1]));
+    try expect(try doTest("second", &env, &arena, &tree, elements[2]));
+    try expect(try doTest("first + second", &env, &arena, &tree, elements[2]));
+    try expect(try doTest("first ~ second", &env, &arena, &tree, elements[2]));
+    try expect(try doTest("third", &env, &arena, &tree, elements[5]));
+    try expect(try doTest("second + third", &env, &arena, &tree, elements[5]));
+    try expect(try doTest("second ~ third", &env, &arena, &tree, elements[5]));
+    try expect(!try doTest("first + third", &env, &arena, &tree, elements[5]));
+    try expect(try doTest("first ~ third", &env, &arena, &tree, elements[5]));
+    try expect(try doTest("grandchild", &env, &arena, &tree, elements[3]));
+    try expect(try doTest("second > grandchild", &env, &arena, &tree, elements[3]));
+    try expect(try doTest("second grandchild", &env, &arena, &tree, elements[3]));
+    try expect(try doTest("root grandchild", &env, &arena, &tree, elements[3]));
+    try expect(try doTest("root second grandchild", &env, &arena, &tree, elements[3]));
+    try expect(!try doTest("root > grandchild", &env, &arena, &tree, elements[3]));
 }

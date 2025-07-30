@@ -15,8 +15,3 @@ font_handle: Fonts.Handle,
 
 width: u32 = 400,
 height: u32 = 400,
-
-pub fn deinit(t: *Test) void {
-    t.element_tree.deinit();
-    t.env.deinit();
-}

@@ -47,11 +47,11 @@ const TokenSource = zss.syntax.TokenSource;
 
 pub fn astToElement(
     element_tree: *ElementTree,
+    allocator: Allocator,
     env: *Environment,
     ast: Ast,
     root_ast_index: Ast.Size,
     token_source: TokenSource,
-    allocator: Allocator,
 ) !Element {
     var stack = Stack(struct {
         sequence: Ast.Sequence,
@@ -59,9 +59,9 @@ pub fn astToElement(
     }){};
     defer stack.deinit(allocator);
 
-    const root_placement: ElementTree.Slice.NodePlacement = .orphan;
+    const root_placement: ElementTree.NodePlacement = .orphan;
     const root_element, const root_children =
-        try astToElementOneIter(element_tree, root_placement, env, ast, root_ast_index, token_source);
+        try astToElementOneIter(element_tree, allocator, root_placement, env, ast, root_ast_index, token_source);
     if (root_children) |index| {
         stack.top = .{
             .sequence = ast.children(index),
@@ -73,9 +73,9 @@ pub fn astToElement(
             _ = stack.pop();
             continue;
         };
-        const placement: ElementTree.Slice.NodePlacement = .{ .last_child_of = top.parent };
+        const placement: ElementTree.NodePlacement = .{ .last_child_of = top.parent };
         const element, const children =
-            try astToElementOneIter(element_tree, placement, env, ast, ast_index, token_source);
+            try astToElementOneIter(element_tree, allocator, placement, env, ast, ast_index, token_source);
         if (children) |index| {
             try stack.push(allocator, .{
                 .sequence = ast.children(index),
@@ -89,21 +89,21 @@ pub fn astToElement(
 
 fn astToElementOneIter(
     element_tree: *ElementTree,
-    placement: ElementTree.Slice.NodePlacement,
+    allocator: Allocator,
+    placement: ElementTree.NodePlacement,
     env: *Environment,
     ast: Ast,
     ast_index: Ast.Size,
     token_source: TokenSource,
 ) !struct { Element, ?Ast.Size } {
-    const element = try element_tree.allocateElement();
-    const slice = element_tree.slice();
+    const element = try element_tree.allocateElement(allocator);
     switch (ast.tag(ast_index)) {
         .zml_element => {
-            const children_index = try parseElement(slice, element, placement, env, ast, ast_index, token_source);
+            const children_index = try parseElement(element_tree, element, allocator, placement, env, ast, ast_index, token_source);
             return .{ element, children_index };
         },
         .zml_text_element => {
-            try parseTextElement(slice, element, placement, ast, ast_index, token_source);
+            try parseTextElement(element_tree, element, allocator, placement, ast, ast_index, token_source);
             return .{ element, null };
         },
         else => unreachable,
@@ -111,9 +111,10 @@ fn astToElementOneIter(
 }
 
 fn parseElement(
-    element_tree: ElementTree.Slice,
+    element_tree: *ElementTree,
     element: Element,
-    placement: ElementTree.Slice.NodePlacement,
+    allocator: Allocator,
+    placement: ElementTree.NodePlacement,
     env: *Environment,
     ast: Ast,
     zml_element: Ast.Size,
@@ -133,7 +134,7 @@ fn parseElement(
             switch (ast.tag(index)) {
                 .zml_type => {
                     const type_name = try env.addTypeOrAttributeName(ast.location(index), token_source);
-                    element_tree.set(.fq_type, element, .{ .namespace = .none, .name = type_name });
+                    element_tree.setFqType(element, .{ .namespace = .none, .name = type_name });
                 },
                 .zml_id => std.debug.panic("TODO: parse zml element: id feature", .{}),
                 .zml_class => std.debug.panic("TODO: parse zml element: class feature", .{}),
@@ -147,7 +148,7 @@ fn parseElement(
     const has_style_block = (ast.tag(style_block) == .zml_styles);
     if (has_style_block) {
         const last_declaration = ast.extra(style_block).index;
-        try applyStyleBlockDeclarations(element_tree, element, env, ast, last_declaration, token_source);
+        try applyStyleBlockDeclarations(element_tree, element, allocator, env, ast, last_declaration, token_source);
     }
 
     const children = if (has_style_block)
@@ -160,9 +161,10 @@ fn parseElement(
 }
 
 fn parseTextElement(
-    element_tree: ElementTree.Slice,
+    element_tree: *ElementTree,
     element: Element,
-    placement: ElementTree.Slice.NodePlacement,
+    allocator: Allocator,
+    placement: ElementTree.NodePlacement,
     ast: Ast,
     zml_text_element: Ast.Size,
     token_source: TokenSource,
@@ -170,25 +172,30 @@ fn parseTextElement(
     assert(ast.tag(zml_text_element) == .zml_text_element);
     element_tree.initElement(element, .text, placement);
 
+    // TODO: Don't use the element tree's arena
+    var arena = element_tree.arena.promote(allocator);
+    defer element_tree.arena = arena.state;
     const location = ast.location(zml_text_element);
-    const string = try token_source.copyString(location, element_tree.arena.allocator());
-    element_tree.set(.text, element, string);
+    const string = try token_source.copyString(location, arena.allocator());
+    element_tree.setText(element, string);
 }
 
 fn applyStyleBlockDeclarations(
-    element_tree: ElementTree.Slice,
+    element_tree: *ElementTree,
     element: Element,
+    allocator: Allocator,
     env: *Environment,
     ast: Ast,
     last_declaration: Ast.Size,
     token_source: TokenSource,
 ) !void {
-    const block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &[0]u8{}, last_declaration);
-    const sources = [2]ElementTree.Slice.DeclSource{
+    var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
+    const block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration);
+    const sources = [2]ElementTree.DeclSource{
         .{ .block = block, .importance = .important },
         .{ .block = block, .importance = .normal },
     };
-    try element_tree.updateCascadedValues(element, &env.decls, &sources);
+    try element_tree.updateCascadedValues(element, allocator, &env.decls, &sources);
 }
 
 test astToElement {
@@ -208,40 +215,40 @@ test astToElement {
     };
     defer ast.deinit(allocator);
 
-    var element_tree = ElementTree.init(allocator);
-    defer element_tree.deinit();
-
     var env = Environment.init(allocator);
     defer env.deinit();
+
+    var element_tree = ElementTree.init();
+    defer element_tree.deinit(allocator);
+
     const type1 = try env.addTypeOrAttributeNameString("type1");
     const type2 = try env.addTypeOrAttributeNameString("type2");
 
-    const root_element = try astToElement(&element_tree, &env, ast, 1, token_source, allocator);
-    const slice = element_tree.slice();
+    const root_element = try astToElement(&element_tree, allocator, &env, ast, 1, token_source);
     const types = zss.values.types;
 
     {
         const element = root_element;
         if (element.eqlNull()) return error.TestFailure;
-        const cascaded_values = slice.get(.cascaded_values, element);
+        const cascaded_values = element_tree.cascadedValues(element);
         const box_style = cascaded_values.getPtr(.box_style) orelse return error.TestFailure;
         try box_style.display.expectEqual(.{ .declared = .block });
     }
 
     {
-        const element = slice.firstChild(root_element);
+        const element = element_tree.firstChild(root_element);
         if (element.eqlNull()) return error.TestFailure;
-        try std.testing.expectEqual(type1, slice.get(.fq_type, element).name);
-        const cascaded_values = slice.get(.cascaded_values, element);
+        try std.testing.expectEqual(type1, element_tree.fqType(element).name);
+        const cascaded_values = element_tree.cascadedValues(element);
         const all = cascaded_values.all orelse return error.TestFailure;
         try std.testing.expectEqual(types.CssWideKeyword.unset, all);
     }
 
     {
-        const element = slice.lastChild(root_element);
+        const element = element_tree.lastChild(root_element);
         if (element.eqlNull()) return error.TestFailure;
-        try std.testing.expectEqual(type2, slice.get(.fq_type, element).name);
-        const cascaded_values = slice.get(.cascaded_values, element);
+        try std.testing.expectEqual(type2, element_tree.fqType(element).name);
+        const cascaded_values = element_tree.cascadedValues(element);
         const all = cascaded_values.all orelse return error.TestFailure;
         try std.testing.expect(cascaded_values.getPtr(.box_style) == null);
         try std.testing.expectEqual(types.CssWideKeyword.inherit, all);

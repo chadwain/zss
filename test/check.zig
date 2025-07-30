@@ -20,7 +20,7 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
         defer stdout.print("\n", .{}) catch {};
 
         var layout = zss.Layout.init(
-            t.element_tree.slice(),
+            &t.element_tree,
             t.root_element,
             allocator,
             t.width,

@@ -19,18 +19,17 @@ pub fn main() !void {
 
     try env.addStylesheet(stylesheet_source);
 
-    var tree = zss.ElementTree.init(allocator);
-    defer tree.deinit();
+    var tree = zss.ElementTree.init();
+    defer tree.deinit(allocator);
 
-    const root = try tree.allocateElement();
-    const slice = tree.slice();
-    slice.initElement(root, .normal, .orphan);
-    try slice.runCascade(root, allocator, &env);
+    const root = try tree.allocateElement(allocator);
+    tree.initElement(root, .normal, .orphan);
+    try tree.runCascade(root, allocator, &env);
 
     var fonts = zss.Fonts.init();
     defer fonts.deinit();
 
-    var layout = zss.Layout.init(slice, root, allocator, 100, 100, &env, &fonts);
+    var layout = zss.Layout.init(&tree, root, allocator, 100, 100, &env, &fonts);
     defer layout.deinit();
 
     var box_tree = try layout.run(allocator);

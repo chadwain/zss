@@ -76,7 +76,7 @@ pub const Error = error{
 };
 
 pub fn init(
-    element_tree_slice: ElementTree.Slice,
+    element_tree: *const ElementTree,
     root_element: Element,
     allocator: Allocator,
     /// The width of the viewport in pixels.
@@ -88,13 +88,13 @@ pub fn init(
 ) Layout {
     // TODO: Ensure the root element has no siblings
     if (!root_element.eqlNull()) {
-        const parent = element_tree_slice.parent(root_element);
+        const parent = element_tree.parent(root_element);
         assert(parent.eqlNull());
     }
 
     return .{
         .box_tree = undefined,
-        .computer = StyleComputer.init(element_tree_slice, allocator),
+        .computer = StyleComputer.init(element_tree, allocator),
         .sct_builder = .{},
         .absolute = .{},
         .viewport = undefined,
@@ -351,8 +351,8 @@ pub fn currentElement(layout: Layout) Element {
 
 pub fn pushElement(layout: *Layout) !void {
     const element = &layout.stacks.element.top.?;
-    const child = layout.computer.element_tree_slice.firstChild(element.*);
-    element.* = layout.computer.element_tree_slice.nextSibling(element.*);
+    const child = layout.computer.element_tree.firstChild(element.*);
+    element.* = layout.computer.element_tree.nextSibling(element.*);
     try layout.stacks.element.push(layout.allocator, child);
 }
 
@@ -362,7 +362,7 @@ pub fn popElement(layout: *Layout) void {
 
 pub fn advanceElement(layout: *Layout) void {
     const element = &layout.stacks.element.top.?;
-    element.* = layout.computer.element_tree_slice.nextSibling(element.*);
+    element.* = layout.computer.element_tree.nextSibling(element.*);
 }
 
 pub fn currentSubtree(layout: *Layout) Subtree.Id {

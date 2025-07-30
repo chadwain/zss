@@ -161,8 +161,8 @@ fn createTest(
         .env = undefined,
     };
 
-    t.element_tree = ElementTree.init(allocator);
-    errdefer t.element_tree.deinit();
+    t.element_tree = ElementTree.init();
+    errdefer t.element_tree.deinit(allocator);
 
     t.env = zss.Environment.init(allocator);
     errdefer t.env.deinit();
@@ -171,22 +171,21 @@ fn createTest(
         assert(ast.tag(0) == .zml_document);
         var seq = ast.children(0);
         if (seq.nextSkipSpaces(ast)) |zml_element| {
-            break :blk try zss.zml.astToElement(&t.element_tree, &t.env, ast, zml_element, token_source, allocator);
+            break :blk try zss.zml.astToElement(&t.element_tree, allocator, &t.env, ast, zml_element, token_source);
         } else {
             break :blk Element.null_element;
         }
     };
 
     if (!t.root_element.eqlNull()) {
-        const slice = t.element_tree.slice();
-        if (slice.category(t.root_element) == .normal) {
+        if (t.element_tree.category(t.root_element) == .normal) {
             const block = try t.env.decls.openBlock(t.env.allocator);
             const DeclaredValues = zss.property.groups.Tag.DeclaredValues;
             try t.env.decls.addValues(t.env.allocator, .normal, .{ .color = DeclaredValues(.color){
                 .color = .{ .declared = .{ .rgba = 0xffffffff } },
             } });
             t.env.decls.closeBlock();
-            try slice.updateCascadedValues(t.root_element, &t.env.decls, &.{.{ .block = block, .importance = .normal }});
+            try t.element_tree.updateCascadedValues(t.root_element, allocator, &t.env.decls, &.{.{ .block = block, .importance = .normal }});
         }
     }
 

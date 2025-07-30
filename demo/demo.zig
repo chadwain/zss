@@ -23,7 +23,7 @@ const ProgramState = struct {
     max_scroll: ZssUnit,
 
     allocator: Allocator,
-    element_tree: zss.ElementTree.Slice,
+    element_tree: *const zss.ElementTree,
     root_element: zss.ElementTree.Element,
     env: *zss.Environment,
     fonts: *const zss.Fonts,
@@ -169,13 +169,13 @@ pub fn main() !u8 {
     defer zig_logo_data.deinit();
     const zig_logo_handle = try env.addImage(zig_logo_image);
 
-    var tree = zss.ElementTree.init(allocator);
-    defer tree.deinit();
+    var tree = zss.ElementTree.init();
+    defer tree.deinit(allocator);
 
-    const root_element = try createElements(&tree, &env, file_path, file_contents.items, zig_logo_handle);
+    const root_element = try createElements(&tree, allocator, &env, file_path, file_contents.items, zig_logo_handle);
 
     var box_tree = blk: {
-        var layout = zss.Layout.init(tree.slice(), .null_element, allocator, 0, 0, &env, &fonts);
+        var layout = zss.Layout.init(&tree, .null_element, allocator, 0, 0, &env, &fonts);
         defer layout.deinit();
         break :blk try layout.run(allocator);
     };
@@ -196,7 +196,7 @@ pub fn main() !u8 {
         .max_scroll = undefined,
 
         .allocator = allocator,
-        .element_tree = tree.slice(),
+        .element_tree = &tree,
         .root_element = root_element,
         .env = &env,
         .fonts = &fonts,
@@ -346,6 +346,7 @@ const Elements = enum {
 /// Returns the root element.
 fn createElements(
     tree: *zss.ElementTree,
+    allocator: Allocator,
     env: *zss.Environment,
     file_name: []const u8,
     file_contents: []const u8,
@@ -354,34 +355,33 @@ fn createElements(
     const element_enum_values = comptime std.enums.values(Elements);
     const tree_elements = blk: {
         var tree_elements: [element_enum_values.len]zss.ElementTree.Element = undefined;
-        try tree.allocateElements(&tree_elements);
+        try tree.allocateElements(allocator, &tree_elements);
         var array: std.EnumArray(Elements, zss.ElementTree.Element) = .initUndefined();
         for (element_enum_values, 0..) |value, index| array.set(value, tree_elements[index]);
         break :blk array;
     };
 
-    const slice = tree.slice();
-
     // zig fmt: off
-    slice.initElement(tree_elements.get(.root),             .normal, .orphan);
-    slice.initElement(tree_elements.get(.removed_block),    .normal, .{ .first_child_of = tree_elements.get(.root) });
-    slice.initElement(tree_elements.get(.title_block),      .normal, .{ .last_child_of  = tree_elements.get(.root) });
-    slice.initElement(tree_elements.get(.title_inline_box), .normal, .{ .first_child_of = tree_elements.get(.title_block) });
-    slice.initElement(tree_elements.get(.title_text),       .text,   .{ .first_child_of = tree_elements.get(.title_inline_box) });
-    slice.initElement(tree_elements.get(.body_block),       .normal, .{ .last_child_of  = tree_elements.get(.root) });
-    slice.initElement(tree_elements.get(.body_inline_box),  .normal, .{ .last_child_of  = tree_elements.get(.body_block) });
-    slice.initElement(tree_elements.get(.body_text),        .text,   .{ .first_child_of = tree_elements.get(.body_inline_box) });
-    slice.initElement(tree_elements.get(.footer),           .normal, .{ .last_child_of  = tree_elements.get(.root) });
+    tree.initElement(tree_elements.get(.root),             .normal, .orphan);
+    tree.initElement(tree_elements.get(.removed_block),    .normal, .{ .first_child_of = tree_elements.get(.root) });
+    tree.initElement(tree_elements.get(.title_block),      .normal, .{ .last_child_of  = tree_elements.get(.root) });
+    tree.initElement(tree_elements.get(.title_inline_box), .normal, .{ .first_child_of = tree_elements.get(.title_block) });
+    tree.initElement(tree_elements.get(.title_text),       .text,   .{ .first_child_of = tree_elements.get(.title_inline_box) });
+    tree.initElement(tree_elements.get(.body_block),       .normal, .{ .last_child_of  = tree_elements.get(.root) });
+    tree.initElement(tree_elements.get(.body_inline_box),  .normal, .{ .last_child_of  = tree_elements.get(.body_block) });
+    tree.initElement(tree_elements.get(.body_text),        .text,   .{ .first_child_of = tree_elements.get(.body_inline_box) });
+    tree.initElement(tree_elements.get(.footer),           .normal, .{ .last_child_of  = tree_elements.get(.root) });
     // zig fmt: on
 
-    slice.set(.text, tree_elements.get(.title_text), file_name);
-    slice.set(.text, tree_elements.get(.body_text), file_contents);
+    tree.setText(tree_elements.get(.title_text), file_name);
+    tree.setText(tree_elements.get(.body_text), file_contents);
 
     const element_style_decls = try getElementStyleDecls(&env.decls, env.allocator, footer_image_handle);
     for (element_enum_values) |value| {
         const block = element_style_decls.get(value) orelse continue;
-        try slice.updateCascadedValues(
+        try tree.updateCascadedValues(
             tree_elements.get(value),
+            allocator,
             &env.decls,
             &.{.{ .block = block, .importance = .normal }},
         );
@@ -440,16 +440,6 @@ fn getElementStyleDecls(
             },
             .background_color = DeclaredValues(.background_color){
                 .color = .{ .declared = .{ .rgba = bg_color } },
-            },
-            .background = DeclaredValues(.background){
-                .position = .{ .declared = &.{.{
-                    .x = .{ .side = .end, .offset = .{ .percentage = 0 } },
-                    .y = .{ .side = .start, .offset = .{ .px = 10 } },
-                }} },
-                .repeat = .{ .declared = &.{.{
-                    .x = .no_repeat,
-                    .y = .no_repeat,
-                }} },
             },
             .color = DeclaredValues(.color){
                 .color = .{ .declared = .{ .rgba = text_color } },

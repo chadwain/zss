@@ -69,7 +69,7 @@ pub fn run(layout: *Layout) !void {
                 try blockBoxCosmeticLayout(layout, context, ref, .Root);
                 layout.computer.commitElement(.cosmetic);
 
-                if (!layout.computer.element_tree_slice.firstChild(root_element).eqlNull()) {
+                if (!layout.computer.element_tree.firstChild(root_element).eqlNull()) {
                     const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
                     const box_offsets = subtree.items(.box_offsets)[ref.index];
                     try context.mode.append(context.allocator, .Flow);
@@ -92,7 +92,7 @@ pub fn run(layout: *Layout) !void {
                 layout.advanceElement();
                 continue;
             };
-            const has_children = !layout.computer.element_tree_slice.firstChild(element).eqlNull();
+            const has_children = !layout.computer.element_tree.firstChild(element).eqlNull();
             switch (box_type) {
                 .text => layout.advanceElement(),
                 .block_ref => |ref| {
