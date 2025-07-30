@@ -315,17 +315,16 @@ fn loadImage(bytes: []const u8, allocator: Allocator) !struct { zigimg.Image, zs
     var zigimg_image = try zigimg.Image.fromMemory(allocator, bytes);
     errdefer zigimg_image.deinit();
 
-    var zss_image: zss.Environment.Images.Image = .{
+    const zss_image: zss.Environment.Images.Image = .{
         .dimensions = .{
             .width_px = @intCast(zigimg_image.width),
             .height_px = @intCast(zigimg_image.height),
         },
-        .format = undefined,
-        .data = undefined,
-    };
-    zss_image.format, zss_image.data = switch (zigimg_image.pixelFormat()) {
-        .rgba32 => .{ .rgba, zigimg_image.rawBytes() },
-        else => return error.UnsupportedPixelFormat,
+        .format = switch (zigimg_image.pixelFormat()) {
+            .rgba32 => .rgba,
+            else => return error.UnsupportedPixelFormat,
+        },
+        .data = zigimg_image.rawBytes(),
     };
 
     return .{ zigimg_image, zss_image };

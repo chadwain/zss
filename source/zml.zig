@@ -45,7 +45,7 @@ const Element = ElementTree.Element;
 const Stack = zss.Stack;
 const TokenSource = zss.syntax.TokenSource;
 
-pub fn astToElement(
+pub fn createDocument(
     element_tree: *ElementTree,
     allocator: Allocator,
     env: *Environment,
@@ -53,6 +53,8 @@ pub fn astToElement(
     root_ast_index: Ast.Size,
     token_source: TokenSource,
 ) !Element {
+    env.clearUrls();
+
     var stack = Stack(struct {
         sequence: Ast.Sequence,
         parent: Element,
@@ -61,7 +63,7 @@ pub fn astToElement(
 
     const root_placement: ElementTree.NodePlacement = .orphan;
     const root_element, const root_children =
-        try astToElementOneIter(element_tree, allocator, root_placement, env, ast, root_ast_index, token_source);
+        try createElement(element_tree, allocator, root_placement, env, ast, root_ast_index, token_source);
     if (root_children) |index| {
         stack.top = .{
             .sequence = ast.children(index),
@@ -75,7 +77,7 @@ pub fn astToElement(
         };
         const placement: ElementTree.NodePlacement = .{ .last_child_of = top.parent };
         const element, const children =
-            try astToElementOneIter(element_tree, allocator, placement, env, ast, ast_index, token_source);
+            try createElement(element_tree, allocator, placement, env, ast, ast_index, token_source);
         if (children) |index| {
             try stack.push(allocator, .{
                 .sequence = ast.children(index),
@@ -87,7 +89,7 @@ pub fn astToElement(
     return root_element;
 }
 
-fn astToElementOneIter(
+fn createElement(
     element_tree: *ElementTree,
     allocator: Allocator,
     placement: ElementTree.NodePlacement,
@@ -201,7 +203,7 @@ fn applyStyleBlockDeclarations(
     try element_tree.updateCascadedValues(element, allocator, &env.decls, &sources);
 }
 
-test astToElement {
+test createDocument {
     const input =
         \\* (display: block) { /*comment*/
         \\  type1 (all: unset) {}
@@ -227,7 +229,7 @@ test astToElement {
     const type1 = try env.addTypeOrAttributeNameString("type1");
     const type2 = try env.addTypeOrAttributeNameString("type2");
 
-    const root_element = try astToElement(&element_tree, allocator, &env, ast, 1, token_source);
+    const root_element = try createDocument(&element_tree, allocator, &env, ast, 1, token_source);
     const types = zss.values.types;
 
     {

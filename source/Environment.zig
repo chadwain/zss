@@ -23,6 +23,7 @@ id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensi
 namespaces: Namespaces = .{},
 decls: Declarations = .{},
 urls: Urls = .{},
+urls_to_images: std.AutoArrayHashMapUnmanaged(Urls.Id, Images.Handle) = .empty,
 images: Images = .{},
 
 pub fn init(allocator: Allocator) Environment {
@@ -39,6 +40,7 @@ pub fn deinit(env: *Environment) void {
     env.namespaces.deinit(env.allocator);
     env.decls.deinit(env.allocator);
     env.urls.deinit(env.allocator);
+    env.urls_to_images.deinit(env.allocator);
     env.images.deinit(env.allocator);
 }
 
@@ -50,7 +52,7 @@ pub fn addStylesheet(env: *Environment, source: TokenSource) !void {
     };
     defer ast.deinit(env.allocator);
 
-    env.urls.clear();
+    env.clearUrls();
     try env.stylesheets.ensureUnusedCapacity(env.allocator, 1);
     const stylesheet = try Stylesheet.create(ast, 0, source, env, env.allocator);
     env.stylesheets.appendAssumeCapacity(stylesheet);
@@ -197,11 +199,6 @@ pub const Urls = struct {
         urls.descriptions.deinit(allocator);
     }
 
-    fn clear(urls: *Urls) void {
-        urls.start_id = urls.nextId();
-        urls.descriptions.clearRetainingCapacity();
-    }
-
     fn nextId(urls: *const Urls) ?Id.Int {
         const start_id = urls.start_id orelse return null;
         const len = std.math.cast(Id.Int, urls.descriptions.len) orelse return null;
@@ -224,7 +221,7 @@ pub const Urls = struct {
             if (index == it.urls.descriptions.len) return null;
             it.index += 1;
 
-            const id = it.urls.start_id.? + index;
+            const id: Id = @enumFromInt(it.urls.start_id.? + index);
             const desc = it.urls.descriptions.get(index);
             return .{ .id = id, .type = desc.type, .src_loc = desc.src_loc };
         }
@@ -240,6 +237,15 @@ pub fn addUrl(env: *Environment, desc: Urls.Description) !Urls.Id {
     const int = env.urls.nextId() orelse return error.OutOfUrls;
     try env.urls.descriptions.append(env.allocator, desc);
     return @enumFromInt(int);
+}
+
+pub fn clearUrls(env: *Environment) void {
+    env.urls.start_id = env.urls.nextId();
+    env.urls.descriptions.clearRetainingCapacity();
+}
+
+pub fn linkUrlToImage(env: *Environment, url: Urls.Id, image: Images.Handle) !void {
+    try env.urls_to_images.put(env.allocator, url, image);
 }
 
 pub const Images = struct {

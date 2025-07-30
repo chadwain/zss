@@ -110,6 +110,7 @@ fn addTestSuite(b: *Build, config: Config, zss: *Module) *Step.Run {
     test_suite.root_module.addImport("zss", zss);
     deps.addHarfbuzz(b, config, test_suite.root_module);
     deps.addZgl(b, config, test_suite.root_module);
+    deps.addZigimg(b, config, test_suite.root_module);
 
     {
         const TestSuiteCategory = enum {
@@ -132,7 +133,6 @@ fn addTestSuite(b: *Build, config: Config, zss: *Module) *Step.Run {
                     .check, .memory, .print => {},
                     .opengl => {
                         deps.addMachGlfw(b, config, test_suite.root_module);
-                        deps.addZigimg(b, config, test_suite.root_module);
                     },
                 }
             }

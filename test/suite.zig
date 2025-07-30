@@ -10,6 +10,7 @@ const Element = ElementTree.Element;
 const TokenSource = zss.syntax.TokenSource;
 
 const hb = @import("harfbuzz").c;
+const zigimg = @import("zigimg");
 
 const Test = @import("Test.zig");
 
@@ -108,8 +109,12 @@ fn getAllTests(
     const allocator = arena.allocator();
 
     const cwd = std.fs.cwd();
+
     var cases_dir = try cwd.openDir(args.test_cases_path, .{ .iterate = true });
     defer cases_dir.close();
+
+    var loader = try ResourceLoader.init(args, allocator);
+    defer loader.deinit();
 
     var walker = try cases_dir.walk(allocator);
     defer walker.deinit();
@@ -133,7 +138,7 @@ fn getAllTests(
 
         const name = try allocator.dupe(u8, entry.path[0 .. entry.path.len - ".zml".len]);
 
-        const t = try createTest(allocator, name, ast, token_source, fonts, font_handle);
+        const t = try createTest(arena, name, ast, token_source, fonts, font_handle, &loader);
         try list.append(t);
     }
 
@@ -141,41 +146,38 @@ fn getAllTests(
 }
 
 fn createTest(
-    allocator: Allocator,
+    arena: *ArenaAllocator,
     name: []const u8,
     ast: Ast,
     token_source: TokenSource,
     fonts: *const zss.Fonts,
     font_handle: zss.Fonts.Handle,
+    loader: *ResourceLoader,
 ) !*Test {
-    const t = try allocator.create(Test);
-    errdefer allocator.destroy(t);
+    const allocator = arena.allocator();
 
+    const t = try allocator.create(Test);
     t.* = .{
         .name = name,
         .fonts = fonts,
         .font_handle = font_handle,
 
-        .element_tree = undefined,
+        .element_tree = .init(),
         .root_element = undefined,
-        .env = undefined,
+        .env = .init(allocator),
     };
-
-    t.element_tree = ElementTree.init();
-    errdefer t.element_tree.deinit(allocator);
-
-    t.env = zss.Environment.init(allocator);
-    errdefer t.env.deinit();
 
     t.root_element = blk: {
         assert(ast.tag(0) == .zml_document);
         var seq = ast.children(0);
         if (seq.nextSkipSpaces(ast)) |zml_element| {
-            break :blk try zss.zml.astToElement(&t.element_tree, allocator, &t.env, ast, zml_element, token_source);
+            break :blk try zss.zml.createDocument(&t.element_tree, allocator, &t.env, ast, zml_element, token_source);
         } else {
             break :blk Element.null_element;
         }
     };
+
+    try loader.loadResourcesFromUrls(arena, &t.env, token_source);
 
     if (!t.root_element.eqlNull()) {
         if (t.element_tree.category(t.root_element) == .normal) {
@@ -191,3 +193,64 @@ fn createTest(
 
     return t;
 }
+
+const ResourceLoader = struct {
+    res_dir: std.fs.Dir,
+    /// maps image URLs to image handles
+    seen_images: std.StringHashMapUnmanaged(zss.Environment.Images.Handle),
+    allocator: Allocator,
+
+    fn init(args: Args, allocator: Allocator) !ResourceLoader {
+        const res_dir = try std.fs.cwd().openDir(args.resources_path, .{});
+        return .{
+            .res_dir = res_dir,
+            .seen_images = .empty,
+            .allocator = allocator,
+        };
+    }
+
+    fn deinit(loader: *ResourceLoader) void {
+        loader.res_dir.close();
+        loader.seen_images.deinit(loader.allocator);
+    }
+
+    fn loadResourcesFromUrls(loader: *ResourceLoader, arena: *ArenaAllocator, env: *zss.Environment, token_source: TokenSource) !void {
+        var url_iterator = env.urls.iterator();
+        while (url_iterator.next()) |url| {
+            const string = switch (url.src_loc) {
+                .url_token => |location| try token_source.copyUrl(location, loader.allocator),
+                .string_token => |location| try token_source.copyString(location, loader.allocator),
+            };
+            defer loader.allocator.free(string);
+
+            switch (url.type) {
+                .image => {
+                    const gop = try loader.seen_images.getOrPut(loader.allocator, string);
+                    if (gop.found_existing) {
+                        try env.linkUrlToImage(url.id, gop.value_ptr.*);
+                        continue;
+                    }
+
+                    var file = try loader.res_dir.openFile(string, .{ .mode = .read_only });
+                    defer file.close();
+
+                    const zigimg_image = try zigimg.Image.fromFile(arena.allocator(), &file);
+                    const zss_image = try env.addImage(.{
+                        .dimensions = .{
+                            .width_px = @intCast(zigimg_image.width),
+                            .height_px = @intCast(zigimg_image.height),
+                        },
+                        .format = switch (zigimg_image.pixelFormat()) {
+                            .rgba32 => .rgba,
+                            else => return error.UnsupportedPixelFormat,
+                        },
+                        .data = zigimg_image.rawBytes(),
+                    });
+
+                    gop.value_ptr.* = zss_image;
+                    try env.linkUrlToImage(url.id, zss_image);
+                },
+            }
+        }
+    }
+};

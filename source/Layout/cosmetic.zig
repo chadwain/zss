@@ -92,13 +92,13 @@ pub fn run(layout: *Layout) !void {
                 layout.advanceElement();
                 continue;
             };
-            const has_children = !layout.computer.element_tree.firstChild(element).eqlNull();
             switch (box_type) {
                 .text => layout.advanceElement(),
                 .block_ref => |ref| {
                     try blockBoxCosmeticLayout(layout, context, ref, .NonRoot);
                     layout.computer.commitElement(.cosmetic);
 
+                    const has_children = !layout.computer.element_tree.firstChild(element).eqlNull();
                     if (has_children) {
                         const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
                         const box_offsets = subtree.items(.box_offsets)[ref.index];
@@ -114,6 +114,7 @@ pub fn run(layout: *Layout) !void {
                     inlineBoxCosmeticLayout(layout, context, ifc, inline_box.index);
                     layout.computer.commitElement(.cosmetic);
 
+                    const has_children = !layout.computer.element_tree.firstChild(element).eqlNull();
                     if (has_children) {
                         try context.mode.append(context.allocator, .InlineBox);
                         try layout.pushElement();
@@ -361,12 +362,18 @@ fn blockBoxBackgrounds(
     const handle, const buffer = try box_tree.allocBackgroundImages(@intCast(num_images));
     var buffer_index: usize = 0;
     for (images, 0..) |image, index| {
+        if (image == .none) continue;
+        defer buffer_index += 1;
+
         const image_handle = switch (image) {
             .image => |image_handle| image_handle,
-            .url => std.debug.panic("TODO: background-image URLs", .{}),
-            .none => continue,
+            .url => |url| inputs.env.urls_to_images.get(url) orelse {
+                buffer[buffer_index] = .{};
+                continue;
+            },
+            .none => unreachable,
         };
-        defer buffer_index += 1;
+
         const dimensions = inputs.images.dimensions(image_handle);
         buffer[buffer_index] = solve.backgroundImage(
             image_handle,

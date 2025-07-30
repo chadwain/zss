@@ -184,7 +184,7 @@ pub const Importance = enum {
 
 // TODO: Pick a "smarter" number
 // TODO: Consider just creating a buffer outselves instead of requiring the user to provide one
-pub const recommended_buffer_size = Declarations.max_list_len * 10;
+pub const recommended_buffer_size = Declarations.max_list_len * 32;
 
 pub fn parseDeclarationsFromAst(
     env: *Environment,
