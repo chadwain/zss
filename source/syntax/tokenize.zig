@@ -107,6 +107,12 @@ pub const Source = struct {
         return copyTokenGeneric(source, &iterator, allocator);
     }
 
+    /// Given that `location` is the location of a <at-keyword-token>, copy that keyword
+    pub fn copyAtKeyword(source: Source, location: Location, allocator: Allocator) ![]const u8 {
+        var iterator = atKeywordTokenIterator(source, location);
+        return copyTokenGeneric(source, &iterator, allocator);
+    }
+
     /// Given that `location` is the location of a <hash-token>, copy that hash's identifier
     pub fn copyHash(source: Source, location: Location, allocator: Allocator) ![]const u8 {
         var iterator = hashTokenIterator(source, location);

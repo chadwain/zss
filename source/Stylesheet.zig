@@ -97,9 +97,7 @@ pub fn create(
         switch (ast.tag(index)) {
             .at_rule => {
                 const at_rule = ast.extra(index).at_rule orelse {
-                    const iterator = token_source.atKeywordTokenIterator(ast.location(index));
-                    // TODO: Access of `iterator.location` is an implementation detail leak
-                    const copy = try token_source.copyIdentifier(iterator.location, allocator);
+                    const copy = try token_source.copyAtKeyword(ast.location(index), allocator);
                     defer allocator.free(copy);
                     zss.log.warn("Ignoring unknown at-rule: @{s}", .{copy});
                     continue;
