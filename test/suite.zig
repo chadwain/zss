@@ -113,7 +113,7 @@ fn getAllTests(
     var cases_dir = try cwd.openDir(args.test_cases_path, .{ .iterate = true });
     defer cases_dir.close();
 
-    var loader = try ResourceLoader.init(args, allocator);
+    var loader = try ResourceLoader.init(args);
     defer loader.deinit();
 
     var walker = try cases_dir.walk(allocator);
@@ -198,34 +198,31 @@ const ResourceLoader = struct {
     res_dir: std.fs.Dir,
     /// maps image URLs to image handles
     seen_images: std.StringHashMapUnmanaged(zss.Environment.Images.Handle),
-    allocator: Allocator,
 
-    fn init(args: Args, allocator: Allocator) !ResourceLoader {
+    fn init(args: Args) !ResourceLoader {
         const res_dir = try std.fs.cwd().openDir(args.resources_path, .{});
         return .{
             .res_dir = res_dir,
             .seen_images = .empty,
-            .allocator = allocator,
         };
     }
 
     fn deinit(loader: *ResourceLoader) void {
         loader.res_dir.close();
-        loader.seen_images.deinit(loader.allocator);
     }
 
     fn loadResourcesFromUrls(loader: *ResourceLoader, arena: *ArenaAllocator, env: *zss.Environment, token_source: TokenSource) !void {
+        const allocator = arena.allocator();
         var url_iterator = env.urls.iterator();
         while (url_iterator.next()) |url| {
             const string = switch (url.src_loc) {
-                .url_token => |location| try token_source.copyUrl(location, loader.allocator),
-                .string_token => |location| try token_source.copyString(location, loader.allocator),
+                .url_token => |location| try token_source.copyUrl(location, allocator),
+                .string_token => |location| try token_source.copyString(location, allocator),
             };
-            defer loader.allocator.free(string);
 
             switch (url.type) {
                 .image => {
-                    const gop = try loader.seen_images.getOrPut(loader.allocator, string);
+                    const gop = try loader.seen_images.getOrPut(allocator, string);
                     if (gop.found_existing) {
                         try env.linkUrlToImage(url.id, gop.value_ptr.*);
                         continue;
@@ -234,7 +231,7 @@ const ResourceLoader = struct {
                     var file = try loader.res_dir.openFile(string, .{ .mode = .read_only });
                     defer file.close();
 
-                    const zigimg_image = try zigimg.Image.fromFile(arena.allocator(), &file);
+                    const zigimg_image = try zigimg.Image.fromFile(allocator, &file);
                     const zss_image = try env.addImage(.{
                         .dimensions = .{
                             .width_px = @intCast(zigimg_image.width),
