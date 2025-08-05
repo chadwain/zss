@@ -164,7 +164,7 @@ pub const Color = union(enum) {
 
 pub const BackgroundImage = union(enum) {
     image: zss.Environment.Images.Handle,
-    url: zss.Environment.Urls.Id,
+    url: zss.Environment.UrlId,
     none,
 };
 

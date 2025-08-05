@@ -236,14 +236,14 @@ fn parseDeclaration(
     // zss.log.debug("Parsing declaration '{s}'", .{@tagName(property)});
 
     var value_ctx = ValueContext.init(env, ast, token_source);
-    value_ctx.sequence = ast.children(declaration_index);
+    _ = value_ctx.enterSequence(declaration_index);
 
     switch (property) {
         inline else => |comptime_property| {
             switch (comptime comptime_property.description()) {
                 .all => {
                     const cwk = zss.values.parse.cssWideKeyword(&value_ctx) orelse return;
-                    if (!value_ctx.sequence.empty()) {
+                    if (!value_ctx.empty()) {
                         return;
                     }
                     env.decls.addAll(importance, cwk);
@@ -255,10 +255,7 @@ fn parseDeclaration(
                             .single => break :blk parse_fn(&value_ctx),
                             .multi => {
                                 fba.reset();
-                                break :blk parse_fn(&value_ctx, fba) catch |err| switch (err) {
-                                    error.OutOfMemory => return error.OutOfBufferSpace,
-                                    else => |e| return e,
-                                };
+                                break :blk try parse_fn(&value_ctx, fba);
                             },
                         }
                     };
@@ -270,7 +267,7 @@ fn parseDeclaration(
                     else
                         return;
 
-                    if (!value_ctx.sequence.empty()) {
+                    if (!value_ctx.empty()) {
                         return;
                     }
 

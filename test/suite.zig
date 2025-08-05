@@ -213,14 +213,14 @@ const ResourceLoader = struct {
 
     fn loadResourcesFromUrls(loader: *ResourceLoader, arena: *ArenaAllocator, env: *zss.Environment, token_source: TokenSource) !void {
         const allocator = arena.allocator();
-        var url_iterator = env.urls.iterator();
+        var url_iterator = env.recent_urls.iterator();
         while (url_iterator.next()) |url| {
-            const string = switch (url.src_loc) {
+            const string = switch (url.desc.src_loc) {
                 .url_token => |location| try token_source.copyUrl(location, allocator),
                 .string_token => |location| try token_source.copyString(location, allocator),
             };
 
-            switch (url.type) {
+            switch (url.desc.type) {
                 .image => {
                     const gop = try loader.seen_images.getOrPut(allocator, string);
                     if (gop.found_existing) {

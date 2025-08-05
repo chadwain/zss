@@ -13,38 +13,44 @@ pub const Context = struct {
     env: *Environment,
     ast: Ast,
     token_source: TokenSource,
-    sequence: Ast.Sequence,
-    mode: enum { normal, list },
+    state: State,
 
-    /// Initializes a `Context`. You must manually set `sequence` before using this context.
+    pub const State = struct {
+        sequence: Ast.Sequence,
+        mode: enum { normal, list },
+    };
+
+    /// Initializes a `Context`. You must manually call `setSequence` before using this context.
     pub fn init(env: *Environment, ast: Ast, token_source: TokenSource) Context {
         return .{
             .env = env,
             .ast = ast,
             .token_source = token_source,
-            .sequence = undefined,
-            .mode = .normal,
+            .state = .{
+                .sequence = undefined,
+                .mode = .normal,
+            },
         };
     }
 
-    const Item = struct {
+    pub const Item = struct {
         index: Ast.Size,
         tag: Component.Tag,
     };
 
     fn rawNext(ctx: *Context) ?Item {
-        const index = ctx.sequence.nextSkipSpaces(ctx.ast) orelse return null;
+        const index = ctx.state.sequence.nextSkipSpaces(ctx.ast) orelse return null;
         const tag = ctx.ast.tag(index);
         return .{ .index = index, .tag = tag };
     }
 
-    fn next(ctx: *Context) ?Item {
-        const item = ctx.rawNext() orelse return null;
-        switch (ctx.mode) {
-            .normal => return item,
+    pub fn next(ctx: *Context) ?Item {
+        switch (ctx.state.mode) {
+            .normal => return ctx.rawNext(),
             .list => {
+                const item = ctx.rawNext() orelse return null;
                 if (item.tag == .token_comma) {
-                    ctx.sequence.reset(item.index);
+                    ctx.state.sequence.reset(item.index);
                     return null;
                 } else {
                     return item;
@@ -54,9 +60,11 @@ pub const Context = struct {
     }
 
     pub fn beginList(ctx: *Context) !void {
+        std.debug.assert(ctx.state.mode == .normal);
+        ctx.state.mode = .list;
         const item = ctx.rawNext() orelse return;
         if (item.tag == .token_comma) return error.ParseError; // Leading comma
-        ctx.sequence.reset(item.index);
+        ctx.state.sequence.reset(item.index);
     }
 
     pub fn endListItem(ctx: *Context) !void {
@@ -64,23 +72,51 @@ pub const Context = struct {
         if (comma.tag != .token_comma) return error.ParseError; // List item not fully consumed
         const item = ctx.rawNext() orelse return error.ParseError; // Trailing comma
         if (item.tag == .token_comma) return error.ParseError; // Two commas in a row
-        ctx.sequence.reset(item.index);
+        ctx.state.sequence.reset(item.index);
     }
 
     pub fn nextListItem(ctx: *Context) ?void {
         const item = ctx.rawNext() orelse return null;
-        ctx.sequence.reset(item.index);
+        ctx.state.sequence.reset(item.index);
     }
 
-    fn empty(ctx: *Context) bool {
-        switch (ctx.mode) {
-            .normal => return ctx.sequence.empty(),
+    pub fn save(ctx: *Context) Ast.Size {
+        return ctx.state.sequence.start;
+    }
+
+    pub fn reset(ctx: *Context, save_point: Ast.Size) void {
+        ctx.state.sequence.reset(save_point);
+    }
+
+    pub fn enterSequence(ctx: *Context, index: Ast.Size) State {
+        defer ctx.state = .{
+            .sequence = ctx.ast.children(index),
+            .mode = .normal,
+        };
+        return ctx.state;
+    }
+
+    pub fn exitSequence(ctx: *Context, previous_state: State) void {
+        ctx.state = previous_state;
+    }
+
+    pub fn empty(ctx: *Context) bool {
+        switch (ctx.state.mode) {
+            .normal => return ctx.state.sequence.empty(),
             .list => {
-                const item = ctx.next() orelse return true;
-                ctx.sequence.reset(item.index);
+                const item = ctx.rawNext() orelse return true;
+                ctx.state.sequence.reset(item.index);
                 return item.tag == .token_comma;
             },
         }
+    }
+
+    pub fn saveUrlState(ctx: *Context) usize {
+        return ctx.env.recent_urls.descriptions.len;
+    }
+
+    pub fn resetUrlState(ctx: *Context, previous_state: usize) void {
+        ctx.env.recent_urls.descriptions.shrinkRetainingCapacity(previous_state);
     }
 };
 
@@ -117,7 +153,7 @@ pub fn keyword(ctx: *Context, comptime Type: type, kvs: []const TokenSource.KV(T
         if (ctx.token_source.mapIdentifier(location, Type, kvs)) |result| return result;
     }
 
-    ctx.sequence.reset(item.index);
+    ctx.reset(item.index);
     return null;
 }
 
@@ -127,7 +163,7 @@ pub fn integer(ctx: *Context) ?i32 {
         if (ctx.ast.extra(item.index).integer) |value| return value;
     }
 
-    ctx.sequence.reset(item.index);
+    ctx.reset(item.index);
     return null;
 }
 
@@ -139,7 +175,7 @@ pub fn length(ctx: *Context, comptime Type: type) ?Type {
         if (genericLength(ctx, Type, item.index)) |result| return result;
     }
 
-    ctx.sequence.reset(item.index);
+    ctx.reset(item.index);
     return null;
 }
 
@@ -151,7 +187,7 @@ pub fn percentage(ctx: *Context, comptime Type: type) ?Type {
         if (genericPercentage(ctx, Type, item.index)) |value| return value;
     }
 
-    ctx.sequence.reset(item.index);
+    ctx.reset(item.index);
     return null;
 }
 
@@ -179,7 +215,7 @@ pub fn string(ctx: *Context) ?Location {
         return ctx.ast.location(item.index);
     }
 
-    ctx.sequence.reset(item.index);
+    ctx.reset(item.index);
     return null;
 }
 
@@ -189,7 +225,7 @@ pub fn hash(ctx: *Context) ?Location {
         .token_hash_id, .token_hash_unrestricted => return ctx.ast.location(item.index),
         else => {},
     }
-    ctx.sequence.reset(item.index);
+    ctx.reset(item.index);
     return null;
 }
 
@@ -198,7 +234,7 @@ pub fn hash(ctx: *Context) ?Location {
 ///         <color-base> = <hex-color> | <color-function> | <named-color> | transparent
 pub fn color(ctx: *Context) ?types.Color {
     // TODO: Named colors, system colors, color functions
-    const reset_point = ctx.sequence.start;
+    const save_point = ctx.save();
     if (keyword(ctx, types.Color, &.{
         .{ "currentColor", .current_color },
         .{ "transparent", .transparent },
@@ -243,7 +279,7 @@ pub fn color(ctx: *Context) ?types.Color {
         return .{ .rgba = rgba };
     }
 
-    ctx.sequence.reset(reset_point);
+    ctx.reset(save_point);
     return null;
 }
 
@@ -251,7 +287,7 @@ pub fn color(ctx: *Context) ?types.Color {
 // <url> = <url()> | <src()>
 // <url()> = url( <string> <url-modifier>* ) | <url-token>
 // <src()> = src( <string> <url-modifier>* )
-pub fn url(ctx: *Context) !?zss.Environment.Urls.Id {
+pub fn url(ctx: *Context) !?zss.Environment.UrlId {
     const item = ctx.next() orelse return null;
     switch (item.tag) {
         .token_url => return try ctx.env.addUrl(.{
@@ -265,9 +301,8 @@ pub fn url(ctx: *Context) !?zss.Environment.Urls.Id {
                 .{ "src", {} },
             }) orelse break :blk;
 
-            const sequence = ctx.sequence;
-            defer ctx.sequence = sequence;
-            ctx.sequence = ctx.ast.children(item.index);
+            const state = ctx.enterSequence(item.index);
+            defer ctx.exitSequence(state);
 
             const str = string(ctx) orelse break :blk;
             if (!ctx.empty()) {
@@ -283,7 +318,7 @@ pub fn url(ctx: *Context) !?zss.Environment.Urls.Id {
         else => {},
     }
 
-    ctx.sequence.reset(item.index);
+    ctx.reset(item.index);
     return null;
 }
 
@@ -385,7 +420,7 @@ test "value parsers" {
             defer env.deinit();
 
             var ctx = Context.init(&env, ast, token_source);
-            ctx.sequence = ast.children(0);
+            _ = ctx.enterSequence(0);
 
             const parsed_value = parser(&ctx);
             switch (@typeInfo(@TypeOf(parsed_value))) {

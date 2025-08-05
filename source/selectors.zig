@@ -123,7 +123,7 @@ pub const ComplexSelector = struct {
             /// The next Data is a `class_selector`
             class,
             /// The next Data is a `attribute_selector`
-            /// If non-null, then there is also a `attribute_selector_value` following the `attribute_selector`
+            /// If non-null, then there is also an `attribute_selector_value` following the `attribute_selector`
             attribute: ?struct {
                 operator: AttributeOperator,
                 case: AttributeCase,

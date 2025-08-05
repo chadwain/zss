@@ -22,8 +22,8 @@ type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value, .case 
 id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensitive },
 namespaces: Namespaces = .{},
 decls: Declarations = .{},
-urls: Urls = .{},
-urls_to_images: std.AutoArrayHashMapUnmanaged(Urls.Id, Images.Handle) = .empty,
+recent_urls: RecentUrls = .{},
+urls_to_images: std.AutoArrayHashMapUnmanaged(UrlId, Images.Handle) = .empty,
 images: Images = .{},
 
 pub fn init(allocator: Allocator) Environment {
@@ -39,7 +39,7 @@ pub fn deinit(env: *Environment) void {
     env.stylesheets.deinit(env.allocator);
     env.namespaces.deinit(env.allocator);
     env.decls.deinit(env.allocator);
-    env.urls.deinit(env.allocator);
+    env.recent_urls.deinit(env.allocator);
     env.urls_to_images.deinit(env.allocator);
     env.images.deinit(env.allocator);
 }
@@ -166,18 +166,18 @@ pub fn addClassName(env: *Environment, identifier: TokenSource.Location, source:
     return @enumFromInt(@as(ClassId.Value, @intCast(index)));
 }
 
+/// A unique identifier for each URL.
+pub const UrlId = enum(u16) {
+    _,
+
+    const Int = std.meta.Tag(@This());
+};
+
 /// Stores the source locations of URLs found within the most recently parsed `Ast`.
 // TODO: Deduplicate identical URLs.
-pub const Urls = struct {
-    start_id: ?Id.Int = 0,
+pub const RecentUrls = struct {
+    start_id: ?UrlId.Int = 0,
     descriptions: MultiArrayList(Description) = .empty,
-
-    /// A unique identifier for each URL.
-    pub const Id = enum(u16) {
-        _,
-
-        const Int = std.meta.Tag(@This());
-    };
 
     pub const Description = struct {
         type: Type,
@@ -195,56 +195,54 @@ pub const Urls = struct {
         string_token: TokenSource.Location,
     };
 
-    fn deinit(urls: *Urls, allocator: Allocator) void {
+    fn deinit(urls: *RecentUrls, allocator: Allocator) void {
         urls.descriptions.deinit(allocator);
     }
 
-    fn nextId(urls: *const Urls) ?Id.Int {
+    fn nextId(urls: *const RecentUrls) ?UrlId.Int {
         const start_id = urls.start_id orelse return null;
-        const len = std.math.cast(Id.Int, urls.descriptions.len) orelse return null;
-        const int = std.math.add(Id.Int, start_id, len) catch return null;
+        const len = std.math.cast(UrlId.Int, urls.descriptions.len) orelse return null;
+        const int = std.math.add(UrlId.Int, start_id, len) catch return null;
         return int;
     }
 
     pub const Iterator = struct {
         index: usize,
-        urls: *const Urls,
+        recent_urls: *const RecentUrls,
 
         pub const Item = struct {
-            id: Id,
-            type: Type,
-            src_loc: SourceLocation,
+            id: UrlId,
+            desc: Description,
         };
 
         pub fn next(it: *Iterator) ?Item {
-            const index = it.index;
-            if (index == it.urls.descriptions.len) return null;
-            it.index += 1;
+            if (it.index == it.recent_urls.descriptions.len) return null;
+            defer it.index += 1;
 
-            const id: Id = @enumFromInt(it.urls.start_id.? + index);
-            const desc = it.urls.descriptions.get(index);
-            return .{ .id = id, .type = desc.type, .src_loc = desc.src_loc };
+            const id: UrlId = @enumFromInt(it.recent_urls.start_id.? + it.index);
+            const desc = it.recent_urls.descriptions.get(it.index);
+            return .{ .id = id, .desc = desc };
         }
     };
 
-    /// Returns an iterator over all URLs currently stored within `urls`.
-    pub fn iterator(urls: *const Urls) Iterator {
-        return .{ .index = 0, .urls = urls };
+    /// Returns an iterator over all URLs currently stored within `recent_urls`.
+    pub fn iterator(recent_urls: *const RecentUrls) Iterator {
+        return .{ .index = 0, .recent_urls = recent_urls };
     }
 };
 
-pub fn addUrl(env: *Environment, desc: Urls.Description) !Urls.Id {
-    const int = env.urls.nextId() orelse return error.OutOfUrls;
-    try env.urls.descriptions.append(env.allocator, desc);
+pub fn addUrl(env: *Environment, desc: RecentUrls.Description) !UrlId {
+    const int = env.recent_urls.nextId() orelse return error.OutOfUrls;
+    try env.recent_urls.descriptions.append(env.allocator, desc);
     return @enumFromInt(int);
 }
 
 pub fn clearUrls(env: *Environment) void {
-    env.urls.start_id = env.urls.nextId();
-    env.urls.descriptions.clearRetainingCapacity();
+    env.recent_urls.start_id = env.recent_urls.nextId();
+    env.recent_urls.descriptions.clearRetainingCapacity();
 }
 
-pub fn linkUrlToImage(env: *Environment, url: Urls.Id, image: Images.Handle) !void {
+pub fn linkUrlToImage(env: *Environment, url: UrlId, image: Images.Handle) !void {
     try env.urls_to_images.put(env.allocator, url, image);
 }
 
@@ -255,7 +253,7 @@ pub const Images = struct {
         dimensions: Dimensions,
         format: Format,
         /// Externally managed image data.
-        /// `null` means the data is not available.
+        /// Use `null` to signal that the data is not available.
         data: ?[]const u8,
     };
 

@@ -31,33 +31,29 @@ fn ParseFnValueType(comptime function: anytype) type {
 }
 
 fn parseList(ctx: *Context, fba: *Fba, parse_fn: anytype) !?[]const ParseFnValueType(parse_fn) {
-    std.debug.assert(ctx.mode == .normal);
-    const reset_point = ctx.sequence.start;
+    const save_point = ctx.save();
 
-    blk: {
-        const Value = ParseFnValueType(parse_fn);
-        const list = try fba.allocator().create(std.BoundedArray(Value, max_list_len));
-        list.* = .{};
+    const Value = ParseFnValueType(parse_fn);
+    const list = try fba.allocator().create(std.BoundedArray(Value, max_list_len));
+    list.* = .{};
 
-        ctx.mode = .list;
-        defer ctx.mode = .normal;
-        ctx.beginList() catch break :blk;
-        while (ctx.nextListItem()) |_| {
-            const value_or_error = parse_fn(ctx);
-            ctx.endListItem() catch break :blk;
+    try ctx.beginList();
+    while (ctx.nextListItem()) |_| {
+        const value_or_error = parse_fn(ctx);
+        const value_or_null = switch (@typeInfo(@TypeOf(value_or_error))) {
+            .error_union => try value_or_error,
+            .optional => value_or_error,
+            else => comptime unreachable,
+        };
+        const value = value_or_null orelse break;
 
-            const value_or_null = switch (@typeInfo(@TypeOf(value_or_error))) {
-                .error_union => try value_or_error,
-                .optional => value_or_error,
-                else => comptime unreachable,
-            };
-            const value = value_or_null orelse break :blk;
-            try list.append(value);
-        }
+        ctx.endListItem() catch break;
+        list.append(value) catch break;
+    } else {
         return list.constSlice();
     }
 
-    ctx.sequence.reset(reset_point);
+    ctx.reset(save_point);
     return null;
 }
 
@@ -197,8 +193,26 @@ pub fn @"background-color"(ctx: *Context) ?DeclType(.@"background-color") {
 }
 
 pub fn @"background-image"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-image") {
-    const list = (try parseList(ctx, fba, values.parse.background.image)) orelse return null;
-    return .{ .background = .{ .image = .{ .declared = list } } };
+    const save_point = ctx.save();
+    const url_save_point = ctx.saveUrlState();
+
+    const list = try fba.allocator().create([max_list_len]types.BackgroundImage);
+    var list_len: usize = 0;
+
+    try ctx.beginList();
+    while (ctx.nextListItem()) |_| {
+        const value = (try values.parse.background.image(ctx)) orelse break;
+        ctx.endListItem() catch break;
+        if (list_len == max_list_len) break;
+        list[list_len] = value;
+        list_len += 1;
+    } else {
+        return .{ .background = .{ .image = .{ .declared = list[0..list_len] } } };
+    }
+
+    ctx.reset(save_point);
+    ctx.resetUrlState(url_save_point);
+    return null;
 }
 
 pub fn @"background-repeat"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-repeat") {
