@@ -37,7 +37,7 @@ fn parseList(ctx: *Context, fba: *Fba, parse_fn: anytype) !?[]const ParseFnValue
     const list = try fba.allocator().create(std.BoundedArray(Value, max_list_len));
     list.* = .{};
 
-    try ctx.beginList();
+    ctx.beginList() catch return null;
     while (ctx.nextListItem()) |_| {
         const value_or_error = parse_fn(ctx);
         const value_or_null = switch (@typeInfo(@TypeOf(value_or_error))) {
@@ -199,7 +199,7 @@ pub fn @"background-image"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-im
     const list = try fba.allocator().create([max_list_len]types.BackgroundImage);
     var list_len: usize = 0;
 
-    try ctx.beginList();
+    ctx.beginList() catch return null;
     while (ctx.nextListItem()) |_| {
         const value = (try values.parse.background.image(ctx)) orelse break;
         ctx.endListItem() catch break;

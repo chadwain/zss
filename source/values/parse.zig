@@ -63,16 +63,16 @@ pub const Context = struct {
         std.debug.assert(ctx.state.mode == .normal);
         ctx.state.mode = .list;
         const item = ctx.rawNext() orelse return;
-        if (item.tag == .token_comma) return error.ParseError; // Leading comma
         ctx.state.sequence.reset(item.index);
+        if (item.tag == .token_comma) return error.ParseError; // Leading comma
     }
 
     pub fn endListItem(ctx: *Context) !void {
         const comma = ctx.rawNext() orelse return;
         if (comma.tag != .token_comma) return error.ParseError; // List item not fully consumed
         const item = ctx.rawNext() orelse return error.ParseError; // Trailing comma
-        if (item.tag == .token_comma) return error.ParseError; // Two commas in a row
         ctx.state.sequence.reset(item.index);
+        if (item.tag == .token_comma) return error.ParseError; // Two commas in a row
     }
 
     pub fn nextListItem(ctx: *Context) ?void {

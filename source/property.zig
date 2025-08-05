@@ -239,41 +239,36 @@ fn parseDeclaration(
     _ = value_ctx.enterSequence(declaration_index);
 
     switch (property) {
-        inline else => |comptime_property| {
-            switch (comptime comptime_property.description()) {
-                .all => {
-                    const cwk = zss.values.parse.cssWideKeyword(&value_ctx) orelse return;
-                    if (!value_ctx.empty()) {
-                        return;
-                    }
-                    env.decls.addAll(importance, cwk);
-                },
-                .non_shorthand => |non_shorthand| {
-                    const parse_fn = @field(parse, @tagName(comptime_property));
-                    const value_or_null = blk: {
-                        switch (comptime non_shorthand.group.size()) {
-                            .single => break :blk parse_fn(&value_ctx),
-                            .multi => {
-                                fba.reset();
-                                break :blk try parse_fn(&value_ctx, fba);
-                            },
-                        }
-                    };
-
-                    const value = if (value_or_null) |parsed_value|
-                        parsed_value
-                    else if (zss.values.parse.cssWideKeyword(&value_ctx)) |cwk|
-                        comptime_property.declaredValueFromCwk(cwk)
-                    else
-                        return;
-
-                    if (!value_ctx.empty()) {
-                        return;
-                    }
-
-                    try env.decls.addValues(env.allocator, importance, value);
-                },
+        .all => {
+            const cwk = zss.values.parse.cssWideKeyword(&value_ctx) orelse return;
+            if (!value_ctx.empty()) {
+                return;
             }
+            env.decls.addAll(importance, cwk);
+        },
+        inline else => |comptime_property| {
+            const parse_fn = @field(parse, @tagName(comptime_property));
+            const value_or_null = switch (comptime std.meta.ArgsTuple(@TypeOf(parse_fn))) {
+                struct { *ValueContext } => parse_fn(&value_ctx),
+                struct { *ValueContext, *std.heap.FixedBufferAllocator } => blk: {
+                    fba.reset();
+                    break :blk try parse_fn(&value_ctx, fba);
+                },
+                else => |T| @compileError(@typeName(T) ++ " is not a supported argument list for a property parser"),
+            };
+
+            const value = if (value_or_null) |parsed_value|
+                parsed_value
+            else if (zss.values.parse.cssWideKeyword(&value_ctx)) |cwk|
+                comptime_property.declaredValueFromCwk(cwk)
+            else
+                return;
+
+            if (!value_ctx.empty()) {
+                return;
+            }
+
+            try env.decls.addValues(env.allocator, importance, value);
         },
     }
 }
