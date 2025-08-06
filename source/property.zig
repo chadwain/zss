@@ -196,7 +196,9 @@ pub fn parseDeclarationsFromAst(
     /// The last declaration in a list of declarations, or 0 if the list is empty.
     last_declaration_index: Ast.Size,
 ) !Declarations.Block {
+    var ctx = ValueContext.init(ast, token_source);
     var fba = std.heap.FixedBufferAllocator.init(buffer);
+    const urls = env.recentUrlsManaged();
     const block = try env.decls.openBlock(env.allocator);
 
     // We parse declarations in the reverse order in which they appear.
@@ -208,7 +210,7 @@ pub fn parseDeclarationsFromAst(
             .declaration_normal => .normal,
             else => unreachable,
         };
-        try parseDeclaration(env, ast, token_source, &fba, index, importance);
+        try parseDeclaration(env, &ctx, &fba, urls, index, importance);
         index = ast.extra(index).index;
     }
 
@@ -218,30 +220,29 @@ pub fn parseDeclarationsFromAst(
 
 fn parseDeclaration(
     env: *Environment,
-    ast: Ast,
-    token_source: TokenSource,
+    ctx: *ValueContext,
     fba: *std.heap.FixedBufferAllocator,
+    urls: Environment.RecentUrls.Managed,
     declaration_index: Ast.Size,
     importance: Importance,
 ) !void {
     // TODO: If this property has already been declared, skip parsing a value entirely.
-    const location = ast.location(declaration_index);
-    const property = token_source.matchIdentifierEnum(location, Property) orelse {
+    const location = ctx.ast.location(declaration_index);
+    const property = ctx.token_source.matchIdentifierEnum(location, Property) orelse {
         // TODO: don't heap allocate
-        const name_string = token_source.copyIdentifier(ast.location(declaration_index), env.allocator) catch return;
+        const name_string = ctx.token_source.copyIdentifier(ctx.ast.location(declaration_index), env.allocator) catch return;
         defer env.allocator.free(name_string);
         zss.log.warn("Ignoring declaration with unrecognized name: {s}", .{name_string});
         return;
     };
     // zss.log.debug("Parsing declaration '{s}'", .{@tagName(property)});
 
-    var value_ctx = ValueContext.init(env, ast, token_source);
-    _ = value_ctx.enterSequence(declaration_index);
+    _ = ctx.enterSequence(declaration_index);
 
     switch (property) {
         .all => {
-            const cwk = zss.values.parse.cssWideKeyword(&value_ctx) orelse return;
-            if (!value_ctx.empty()) {
+            const cwk = zss.values.parse.cssWideKeyword(ctx) orelse return;
+            if (!ctx.empty()) {
                 return;
             }
             env.decls.addAll(importance, cwk);
@@ -249,22 +250,26 @@ fn parseDeclaration(
         inline else => |comptime_property| {
             const parse_fn = @field(parse, @tagName(comptime_property));
             const value_or_null = switch (comptime std.meta.ArgsTuple(@TypeOf(parse_fn))) {
-                struct { *ValueContext } => parse_fn(&value_ctx),
+                struct { *ValueContext } => parse_fn(ctx),
                 struct { *ValueContext, *std.heap.FixedBufferAllocator } => blk: {
                     fba.reset();
-                    break :blk try parse_fn(&value_ctx, fba);
+                    break :blk try parse_fn(ctx, fba);
+                },
+                struct { *ValueContext, *std.heap.FixedBufferAllocator, Environment.RecentUrls.Managed } => blk: {
+                    fba.reset();
+                    break :blk try parse_fn(ctx, fba, urls);
                 },
                 else => |T| @compileError(@typeName(T) ++ " is not a supported argument list for a property parser"),
             };
 
             const value = if (value_or_null) |parsed_value|
                 parsed_value
-            else if (zss.values.parse.cssWideKeyword(&value_ctx)) |cwk|
+            else if (zss.values.parse.cssWideKeyword(ctx)) |cwk|
                 comptime_property.declaredValueFromCwk(cwk)
             else
                 return;
 
-            if (!value_ctx.empty()) {
+            if (!ctx.empty()) {
                 return;
             }
 

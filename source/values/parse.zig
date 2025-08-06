@@ -10,7 +10,6 @@ const TokenSource = zss.syntax.TokenSource;
 const Location = TokenSource.Location;
 
 pub const Context = struct {
-    env: *Environment,
     ast: Ast,
     token_source: TokenSource,
     state: State,
@@ -20,16 +19,11 @@ pub const Context = struct {
         mode: enum { normal, list },
     };
 
-    /// Initializes a `Context`. You must manually call `setSequence` before using this context.
-    pub fn init(env: *Environment, ast: Ast, token_source: TokenSource) Context {
+    pub fn init(ast: Ast, token_source: TokenSource) Context {
         return .{
-            .env = env,
             .ast = ast,
             .token_source = token_source,
-            .state = .{
-                .sequence = undefined,
-                .mode = .normal,
-            },
+            .state = undefined,
         };
     }
 
@@ -59,27 +53,6 @@ pub const Context = struct {
         }
     }
 
-    pub fn beginList(ctx: *Context) !void {
-        std.debug.assert(ctx.state.mode == .normal);
-        ctx.state.mode = .list;
-        const item = ctx.rawNext() orelse return;
-        ctx.state.sequence.reset(item.index);
-        if (item.tag == .token_comma) return error.ParseError; // Leading comma
-    }
-
-    pub fn endListItem(ctx: *Context) !void {
-        const comma = ctx.rawNext() orelse return;
-        if (comma.tag != .token_comma) return error.ParseError; // List item not fully consumed
-        const item = ctx.rawNext() orelse return error.ParseError; // Trailing comma
-        ctx.state.sequence.reset(item.index);
-        if (item.tag == .token_comma) return error.ParseError; // Two commas in a row
-    }
-
-    pub fn nextListItem(ctx: *Context) ?void {
-        const item = ctx.rawNext() orelse return null;
-        ctx.state.sequence.reset(item.index);
-    }
-
     pub fn save(ctx: *Context) Ast.Size {
         return ctx.state.sequence.start;
     }
@@ -88,6 +61,7 @@ pub const Context = struct {
         ctx.state.sequence.reset(save_point);
     }
 
+    /// Sets the children of the Ast node `index` as the current node sequence to iterate over.
     pub fn enterSequence(ctx: *Context, index: Ast.Size) State {
         defer ctx.state = .{
             .sequence = ctx.ast.children(index),
@@ -96,7 +70,53 @@ pub const Context = struct {
         return ctx.state;
     }
 
-    pub fn exitSequence(ctx: *Context, previous_state: State) void {
+    /// Sets the children of the Ast node `index` as the current node sequence to iterate over.
+    /// In addition, it treats the new sequence as a comma-separated list.
+    /// A return value of `null` represents a parse error.
+    pub fn enterList(ctx: *Context, index: Ast.Size) ?State {
+        return ctx.beginList(ctx.ast.children(index));
+    }
+
+    /// Treat the current Ast node sequence as a comma-separated list.
+    /// A return value of `null` represents a parse error.
+    pub fn enterTopLevelList(ctx: *Context) ?State {
+        return ctx.beginList(ctx.state.sequence);
+    }
+
+    fn beginList(ctx: *Context, new_sequence: Ast.Sequence) ?State {
+        const previous_state = ctx.state;
+        ctx.state = .{
+            .sequence = new_sequence,
+            .mode = .list,
+        };
+        const item = ctx.rawNext() orelse return previous_state;
+        ctx.state.sequence.reset(item.index);
+        if (item.tag == .token_comma) {
+            ctx.state = previous_state;
+            return null; // Leading comma
+        }
+        return previous_state;
+    }
+
+    /// Checks that a list item in a comma-separated list has been fully consumed, and
+    /// advances to the next list item.
+    /// A return value of `null` represents a parse error.
+    pub fn endListItem(ctx: *Context) ?void {
+        const comma = ctx.rawNext() orelse return;
+        if (comma.tag != .token_comma) return null; // List item not fully consumed
+        const item = ctx.rawNext() orelse return null; // Trailing comma
+        ctx.state.sequence.reset(item.index);
+        if (item.tag == .token_comma) return null; // Two commas in a row
+    }
+
+    /// Checks for the presence of a next list item in a comma-separated list.
+    /// A return value of `null` represents the end of the list.
+    pub fn nextListItem(ctx: *Context) ?void {
+        const item = ctx.rawNext() orelse return null;
+        ctx.state.sequence.reset(item.index);
+    }
+
+    pub fn resetState(ctx: *Context, previous_state: State) void {
         ctx.state = previous_state;
     }
 
@@ -109,14 +129,6 @@ pub const Context = struct {
                 return item.tag == .token_comma;
             },
         }
-    }
-
-    pub fn saveUrlState(ctx: *Context) usize {
-        return ctx.env.recent_urls.descriptions.len;
-    }
-
-    pub fn resetUrlState(ctx: *Context, previous_state: usize) void {
-        ctx.env.recent_urls.descriptions.shrinkRetainingCapacity(previous_state);
     }
 };
 
@@ -287,10 +299,10 @@ pub fn color(ctx: *Context) ?types.Color {
 // <url> = <url()> | <src()>
 // <url()> = url( <string> <url-modifier>* ) | <url-token>
 // <src()> = src( <string> <url-modifier>* )
-pub fn url(ctx: *Context) !?zss.Environment.UrlId {
+pub fn url(ctx: *Context, recent_urls: zss.Environment.RecentUrls.Managed) !?zss.Environment.UrlId {
     const item = ctx.next() orelse return null;
     switch (item.tag) {
-        .token_url => return try ctx.env.addUrl(.{
+        .token_url => return try recent_urls.addUrl(.{
             .type = .image,
             .src_loc = .{ .url_token = ctx.ast.location(item.index) },
         }),
@@ -302,7 +314,7 @@ pub fn url(ctx: *Context) !?zss.Environment.UrlId {
             }) orelse break :blk;
 
             const state = ctx.enterSequence(item.index);
-            defer ctx.exitSequence(state);
+            defer ctx.resetState(state);
 
             const str = string(ctx) orelse break :blk;
             if (!ctx.empty()) {
@@ -310,7 +322,7 @@ pub fn url(ctx: *Context) !?zss.Environment.UrlId {
                 break :blk;
             }
 
-            return try ctx.env.addUrl(.{
+            return try recent_urls.addUrl(.{
                 .type = .image,
                 .src_loc = .{ .string_token = str },
             });
@@ -416,17 +428,17 @@ test "value parsers" {
             };
             defer ast.deinit(allocator);
 
-            var env = Environment.init(allocator);
-            defer env.deinit();
-
-            var ctx = Context.init(&env, ast, token_source);
+            var ctx = Context.init(ast, token_source);
             _ = ctx.enterSequence(0);
 
-            const parsed_value = parser(&ctx);
-            switch (@typeInfo(@TypeOf(parsed_value))) {
-                .error_union => return try parsed_value,
-                .optional => return parsed_value,
-                else => comptime unreachable,
+            switch (std.meta.ArgsTuple(@TypeOf(parser))) {
+                struct { *Context } => return parser(&ctx),
+                struct { *Context, zss.Environment.RecentUrls.Managed } => {
+                    var env = Environment.init(allocator);
+                    defer env.deinit();
+                    return try parser(&ctx, env.recentUrlsManaged());
+                },
+                else => |T| @compileError(@typeName(T) ++ " is not a supported argument list for a value parser"),
             }
         }
 

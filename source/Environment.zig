@@ -52,7 +52,7 @@ pub fn addStylesheet(env: *Environment, source: TokenSource) !void {
     };
     defer ast.deinit(env.allocator);
 
-    env.clearUrls();
+    env.recentUrlsManaged().clearUrls();
     try env.stylesheets.ensureUnusedCapacity(env.allocator, 1);
     const stylesheet = try Stylesheet.create(ast, 0, source, env, env.allocator);
     env.stylesheets.appendAssumeCapacity(stylesheet);
@@ -199,13 +199,6 @@ pub const RecentUrls = struct {
         urls.descriptions.deinit(allocator);
     }
 
-    fn nextId(urls: *const RecentUrls) ?UrlId.Int {
-        const start_id = urls.start_id orelse return null;
-        const len = std.math.cast(UrlId.Int, urls.descriptions.len) orelse return null;
-        const int = std.math.add(UrlId.Int, start_id, len) catch return null;
-        return int;
-    }
-
     pub const Iterator = struct {
         index: usize,
         recent_urls: *const RecentUrls,
@@ -229,17 +222,41 @@ pub const RecentUrls = struct {
     pub fn iterator(recent_urls: *const RecentUrls) Iterator {
         return .{ .index = 0, .recent_urls = recent_urls };
     }
+
+    pub const Managed = struct {
+        unmanaged: *RecentUrls,
+        allocator: Allocator,
+
+        fn nextId(recent_urls: Managed) ?UrlId.Int {
+            const start_id = recent_urls.unmanaged.start_id orelse return null;
+            const len = std.math.cast(UrlId.Int, recent_urls.unmanaged.descriptions.len) orelse return null;
+            const int = std.math.add(UrlId.Int, start_id, len) catch return null;
+            return int;
+        }
+
+        pub fn addUrl(recent_urls: Managed, desc: Description) !UrlId {
+            const int = recent_urls.nextId() orelse return error.OutOfUrls;
+            try recent_urls.unmanaged.descriptions.append(recent_urls.allocator, desc);
+            return @enumFromInt(int);
+        }
+
+        pub fn save(recent_urls: Managed) usize {
+            return recent_urls.unmanaged.descriptions.len;
+        }
+
+        pub fn reset(recent_urls: Managed, previous_state: usize) void {
+            recent_urls.unmanaged.descriptions.shrinkRetainingCapacity(previous_state);
+        }
+
+        pub fn clearUrls(recent_urls: Managed) void {
+            recent_urls.unmanaged.start_id = recent_urls.nextId();
+            recent_urls.unmanaged.descriptions.clearRetainingCapacity();
+        }
+    };
 };
 
-pub fn addUrl(env: *Environment, desc: RecentUrls.Description) !UrlId {
-    const int = env.recent_urls.nextId() orelse return error.OutOfUrls;
-    try env.recent_urls.descriptions.append(env.allocator, desc);
-    return @enumFromInt(int);
-}
-
-pub fn clearUrls(env: *Environment) void {
-    env.recent_urls.start_id = env.recent_urls.nextId();
-    env.recent_urls.descriptions.clearRetainingCapacity();
+pub fn recentUrlsManaged(env: *Environment) RecentUrls.Managed {
+    return .{ .unmanaged = &env.recent_urls, .allocator = env.allocator };
 }
 
 pub fn linkUrlToImage(env: *Environment, url: UrlId, image: Images.Handle) !void {

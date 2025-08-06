@@ -31,13 +31,12 @@ fn ParseFnValueType(comptime function: anytype) type {
 }
 
 fn parseList(ctx: *Context, fba: *Fba, parse_fn: anytype) !?[]const ParseFnValueType(parse_fn) {
-    const save_point = ctx.save();
+    const save_point = ctx.enterTopLevelList() orelse return null;
 
     const Value = ParseFnValueType(parse_fn);
     const list = try fba.allocator().create(std.BoundedArray(Value, max_list_len));
     list.* = .{};
 
-    ctx.beginList() catch return null;
     while (ctx.nextListItem()) |_| {
         const value_or_error = parse_fn(ctx);
         const value_or_null = switch (@typeInfo(@TypeOf(value_or_error))) {
@@ -47,13 +46,13 @@ fn parseList(ctx: *Context, fba: *Fba, parse_fn: anytype) !?[]const ParseFnValue
         };
         const value = value_or_null orelse break;
 
-        ctx.endListItem() catch break;
+        ctx.endListItem() orelse break;
         list.append(value) catch break;
     } else {
         return list.constSlice();
     }
 
-    ctx.reset(save_point);
+    ctx.resetState(save_point);
     return null;
 }
 
@@ -192,17 +191,16 @@ pub fn @"background-color"(ctx: *Context) ?DeclType(.@"background-color") {
     return .{ .background_color = .{ .color = .{ .declared = value } } };
 }
 
-pub fn @"background-image"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-image") {
-    const save_point = ctx.save();
-    const url_save_point = ctx.saveUrlState();
+pub fn @"background-image"(ctx: *Context, fba: *Fba, recent_urls: zss.Environment.RecentUrls.Managed) !?DeclType(.@"background-image") {
+    const save_point = ctx.enterTopLevelList() orelse return null;
+    const url_save_point = recent_urls.save();
 
     const list = try fba.allocator().create([max_list_len]types.BackgroundImage);
     var list_len: usize = 0;
 
-    ctx.beginList() catch return null;
     while (ctx.nextListItem()) |_| {
-        const value = (try values.parse.background.image(ctx)) orelse break;
-        ctx.endListItem() catch break;
+        const value = (try values.parse.background.image(ctx, recent_urls)) orelse break;
+        ctx.endListItem() orelse break;
         if (list_len == max_list_len) break;
         list[list_len] = value;
         list_len += 1;
@@ -210,8 +208,8 @@ pub fn @"background-image"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-im
         return .{ .background = .{ .image = .{ .declared = list[0..list_len] } } };
     }
 
-    ctx.reset(save_point);
-    ctx.resetUrlState(url_save_point);
+    ctx.resetState(save_point);
+    recent_urls.reset(url_save_point);
     return null;
 }
 

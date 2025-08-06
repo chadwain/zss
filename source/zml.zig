@@ -53,7 +53,7 @@ pub fn createDocument(
     root_ast_index: Ast.Size,
     token_source: TokenSource,
 ) !Element {
-    env.clearUrls();
+    env.recentUrlsManaged().clearUrls();
 
     var stack = Stack(struct {
         sequence: Ast.Sequence,
