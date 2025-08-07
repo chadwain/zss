@@ -300,6 +300,8 @@ pub const Parser = struct {
         parser.block_stack.deinit(parser.allocator);
     }
 
+    // TODO: Allow the Parser to be re-usable?
+
     pub const Error = error{ParseError} || AstManaged.AddComponentError || TokenSource.Error || Allocator.Error;
 
     /// Creates an Ast with a root node with tag `rule_list`
@@ -599,10 +601,10 @@ fn seekToEndOfDeclaration(parser: *Parser, document_type: DocumentType) !void {
                     parser.setLocation(location);
                     break;
                 } else {
-                    try ignoreComponentValue(parser, token);
+                    try ignoreComponentValue(parser, token, location);
                 }
             },
-            else => try ignoreComponentValue(parser, token),
+            else => try ignoreComponentValue(parser, token, location),
         }
     }
 }
@@ -671,6 +673,7 @@ fn consumeComponentValue(
         .token_left_curly, .token_left_square, .token_left_paren, .token_function => {},
     }
 
+    assert(parser.block_stack.top == null);
     const main_component_tag, const main_ending_tag = blockTokenToComponents(main_token);
     const main_index = try ast.addComplexComponent(main_component_tag, main_location);
     try parser.increaseDepth(main_location);
@@ -700,7 +703,7 @@ fn consumeComponentValue(
                 switch (document_type) {
                     .css => {
                         ast.finishComplexComponent(top.index);
-                        const len = parser.block_stack.rest.items.len;
+                        const len = parser.block_stack.lenExcludingTop();
                         for (0..len) |i| {
                             const index = parser.block_stack.rest.items[len - 1 - i].index;
                             ast.finishComplexComponent(index);
@@ -717,37 +720,46 @@ fn consumeComponentValue(
         }
     }
 
+    assert(parser.block_stack.top == null);
     return main_index;
 }
 
 // TODO: Component values should not be ignored
-fn ignoreComponentValue(parser: *Parser, first_token: Token) !void {
-    switch (first_token) {
+fn ignoreComponentValue(parser: *Parser, main_token: Token, main_location: Location) !void {
+    switch (main_token) {
         .token_left_curly, .token_left_square, .token_left_paren, .token_function => {},
         else => return,
     }
 
-    const allocator = parser.allocator;
-    var block_stack = ArrayListUnmanaged(Component.Tag){};
-    defer block_stack.deinit(allocator);
+    _, const main_ending_tag = blockTokenToComponents(main_token);
+    try parser.increaseDepth(main_location);
+    parser.block_stack.top = .{ .ending_tag = main_ending_tag, .index = undefined };
 
-    var token = first_token;
-    while (true) : (token, _ = try parser.nextTokenAllowEof()) {
+    while (parser.block_stack.top) |top| {
+        const token, const location = try parser.nextTokenAllowEof();
         switch (token) {
             .token_left_curly, .token_left_square, .token_left_paren, .token_function => {
                 _, const ending_tag = blockTokenToComponents(token);
-                try block_stack.append(allocator, ending_tag);
+                try parser.increaseDepth(location);
+                try parser.block_stack.push(parser.allocator, .{ .ending_tag = ending_tag, .index = undefined });
             },
             .token_right_curly, .token_right_square, .token_right_paren => {
-                if (block_stack.items[block_stack.items.len - 1] == token.cast(Component.Tag)) {
-                    _ = block_stack.pop();
-                    if (block_stack.items.len == 0) return;
+                const tag = token.cast(Component.Tag);
+                if (tag == top.ending_tag) {
+                    parser.decreaseDepth(1);
+                    _ = parser.block_stack.pop();
                 }
             },
-            .token_eof => return,
+            .token_eof => {
+                parser.decreaseDepth(@intCast(parser.block_stack.lenExcludingTop() + 1));
+                parser.block_stack.clear();
+                break;
+            },
             else => {},
         }
     }
+
+    assert(parser.block_stack.top == null);
 }
 
 fn blockTokenToComponents(token: Token) struct { Component.Tag, Component.Tag } {
