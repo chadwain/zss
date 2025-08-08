@@ -39,7 +39,6 @@ pub fn coerceEnum(comptime To: type, from: anytype) To {
         }
     }
 
-    @setRuntimeSafety(false);
     return @enumFromInt(@intFromEnum(from));
 }
 
