@@ -9,7 +9,6 @@ pub const unicode = @import("unicode.zig");
 pub const values = @import("values.zig");
 pub const zml = @import("zml.zig");
 
-pub const ArrayListWithIndex = @import("array_list_with_index.zig").ArrayListWithIndex;
 pub const BoxTree = @import("BoxTree.zig");
 pub const CascadedValues = @import("CascadedValues.zig");
 pub const ElementTree = @import("ElementTree.zig");
