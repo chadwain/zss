@@ -82,11 +82,13 @@ pub fn build(b: *Build) void {
 }
 
 fn addUnitTests(b: *Build, config: Config) *Step.Run {
+    const test_filters = b.option([]const []const u8, "test-filter", "A unit test filter (can be used multiple times)") orelse &.{};
     const unit_tests = b.addTest(.{
         .name = "zss-unit-tests",
         .root_source_file = b.path("source/zss.zig"),
         .target = config.target,
         .optimize = config.optimize,
+        .filters = test_filters,
     });
     deps.addHarfbuzz(b, config, unit_tests.root_module);
 
@@ -120,7 +122,7 @@ fn addTestSuite(b: *Build, config: Config, zss: *Module) *Step.Run {
             print,
         };
 
-        const category_strings = b.option([]const []const u8, "test", "A test category to run (can be used multiple times)") orelse &.{};
+        const category_strings = b.option([]const []const u8, "test", "A test suite category to run (can be used multiple times)") orelse &.{};
         var category_set = std.enums.EnumSet(TestSuiteCategory).initEmpty();
         var final_categories = std.BoundedArray([]const u8, std.meta.fields(TestSuiteCategory).len){};
         for (category_strings) |in| {

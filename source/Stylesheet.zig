@@ -19,13 +19,14 @@ selectors_important: std.MultiArrayList(Selector),
 /// Selectors that apply to blocks of normal declarations.
 /// This list is sorted such that selectors with a higher cascade order appear earlier.
 selectors_normal: std.MultiArrayList(Selector),
+selector_data: []const selectors.Data,
 namespaces: Namespaces,
 /// Private fields.
 private: Private,
 
 pub const Selector = struct {
     /// The complex selector itself.
-    complex: ComplexSelector,
+    complex: selectors.Size,
     /// The specificity of the selector.
     specificity: Specificity,
     /// The index of the declaration block this selector is associated with.
@@ -49,15 +50,16 @@ const Private = struct {
 const Stylesheet = @This();
 
 const zss = @import("zss.zig");
-const ComplexSelector = zss.selectors.ComplexSelector;
 const Ast = zss.syntax.Ast;
 const AtRule = zss.syntax.Token.AtRule;
 const Declarations = zss.property.Declarations;
 const Environment = zss.Environment;
 const Importance = zss.property.Importance;
 const NamespaceId = Environment.Namespaces.Id;
-const Specificity = zss.selectors.Specificity;
 const TokenSource = zss.syntax.TokenSource;
+
+const selectors = zss.selectors;
+const Specificity = selectors.Specificity;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -87,9 +89,16 @@ pub fn create(
     var stylesheet = Stylesheet{
         .selectors_important = .empty,
         .selectors_normal = .empty,
+        .selector_data = undefined,
         .namespaces = .{},
         .private = .{ .arena = undefined },
     };
+
+    var selector_data = selectors.DataList.init(allocator);
+    defer selector_data.deinit();
+
+    var selector_parser = selectors.Parser.init(env, allocator, token_source, ast, &stylesheet.namespaces);
+    defer selector_parser.deinit();
 
     std.debug.assert(ast.tag(rule_list) == .rule_list);
     var rule_sequence = ast.children(rule_list);
@@ -114,7 +123,11 @@ pub fn create(
 
                 const end_of_prelude = ast.extra(index).index;
                 const selector_sequence: Ast.Sequence = .{ .start = index + 1, .end = end_of_prelude };
-                const selector_list = try zss.selectors.parseSelectorList(env, allocator, token_source, ast, selector_sequence, &stylesheet.namespaces);
+                const first_complex_selector = selector_data.len();
+                selector_parser.parseComplexSelectorList(&selector_data, selector_sequence) catch |err| switch (err) {
+                    error.ParseError => continue,
+                    else => |e| return e,
+                };
 
                 const last_declaration = ast.extra(end_of_prelude).index;
                 var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
@@ -127,12 +140,14 @@ pub fn create(
                     };
                     if (!env.decls.hasValues(decl_block, importance)) continue;
 
-                    for (selector_list.list.items(.specificity), selector_list.list.items(.complex)) |specificity, complex| {
+                    var index_of_complex_selector = first_complex_selector;
+                    for (selector_parser.specificities.items) |specificity| {
                         try destination_list.append(allocator, .{
                             .specificity = specificity,
-                            .complex = complex,
+                            .complex = index_of_complex_selector,
                             .decl_block = decl_block,
                         });
+                        index_of_complex_selector = selector_data.list.items[index_of_complex_selector].next_complex_start;
                     }
                 }
             },
@@ -140,9 +155,11 @@ pub fn create(
         }
     }
 
+    stylesheet.selector_data = try selector_data.toOwnedSlice();
+
     // Sort the selectors such that items with a higher cascade order appear earlier in each list.
     for ([_]Importance{ .important, .normal }) |importance| {
-        const selectors = switch (importance) {
+        const selectors_list = switch (importance) {
             .important => &stylesheet.selectors_important,
             .normal => &stylesheet.selectors_normal,
         };
@@ -164,9 +181,9 @@ pub fn create(
                 return !a_decl_block.earlierThan(b_decl_block);
             }
         };
-        selectors.sortUnstable(SortContext{
-            .specificities = selectors.items(.specificity),
-            .decl_blocks = selectors.items(.decl_block),
+        selectors_list.sortUnstable(SortContext{
+            .specificities = selectors_list.items(.specificity),
+            .decl_blocks = selectors_list.items(.decl_block),
         });
     }
 

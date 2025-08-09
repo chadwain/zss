@@ -10,8 +10,6 @@ const NameId = Environment.NameId;
 const Stylesheet = zss.Stylesheet;
 const TokenSource = zss.syntax.TokenSource;
 
-const Parser = @import("selectors/parse.zig").Parser;
-
 const std = @import("std");
 const assert = std.debug.assert;
 const panic = std.debug.panic;
@@ -19,51 +17,92 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const MultiArrayList = std.MultiArrayList;
 
-pub fn parseSelectorList(
-    env: *Environment,
-    allocator: Allocator,
-    source: TokenSource,
-    ast: Ast,
-    sequence: Ast.Sequence,
-    namespaces: *const Stylesheet.Namespaces,
-) !ComplexSelectorList {
-    var parser = Parser.init(env, allocator, source, ast, sequence, namespaces);
-    return try parser.parseComplexSelectorList();
-}
+pub const Parser = @import("selectors/parse.zig").Parser;
 
-pub const ComplexSelectorList = struct {
-    list: List,
+pub const Size = u24;
 
-    pub const Item = struct {
-        complex: ComplexSelector,
-        specificity: Specificity,
-    };
+// TODO: Size goal: 4 bytes (in unsafe builds)
+pub const Data = union {
+    /// The index of the next complex selector
+    next_complex_start: Size,
+    trailing: struct {
+        combinator: Combinator,
+        compound_selector_start: Size,
+    },
+    simple_selector_tag: union(enum) {
+        /// The next Data is a `type_selector`
+        type,
+        /// The next Data is a `id_selector`
+        id,
+        /// The next Data is a `class_selector`
+        class,
+        /// The next Data is a `attribute_selector`
+        /// If non-null, then there is also an `attribute_selector_value` following the `attribute_selector`
+        attribute: ?struct {
+            operator: AttributeOperator,
+            case: AttributeCase,
+        },
+        /// The next Data is a `pseudo_class_selector`
+        pseudo_class,
+        /// The next Data is a `pseudo_element_selector`
+        pseudo_element,
+    },
+    type_selector: QualifiedName,
+    id_selector: IdId,
+    class_selector: ClassId,
+    attribute_selector: QualifiedName,
+    // TODO: Store attribute values parsed from selectors in the Environment
+    attribute_selector_value: Ast.Size,
+    pseudo_class_selector: PseudoClass,
+    pseudo_element_selector: PseudoElement,
+};
 
-    pub const List = MultiArrayList(Item).Slice;
+/// Data layout:
+/// <complex-selector> = <next-complex-start> [ <compound-selector>+ <trailing> ]+
+/// <compound-selector> = <simple-selector-tag> <simple-selector>
+/// <simple-selector> = <variable data, depends on simple-selector-tag>
+pub const DataList = struct {
+    list: std.ArrayList(Data),
 
-    pub fn deinit(complex_selector_list: *ComplexSelectorList, allocator: Allocator) void {
-        for (complex_selector_list.list.items(.complex)) |*complex| {
-            complex.deinit(allocator);
-        }
-        complex_selector_list.list.deinit(allocator);
+    pub fn init(allocator: Allocator) DataList {
+        return .{ .list = .init(allocator) };
     }
 
-    /// Determines if the element matches the complex selector list, and if so, returns the specificity of the list.
-    /// Note that the specificity of a selector list depends on the object that it's being matched on:
-    /// it is that of the most specific selector in the list that matches the element.
-    /// See CSS Selectors Level 4 section 17 "Calculating a selector's specificity".
-    pub fn matchElement(complex_selector_list: ComplexSelectorList, tree: *const ElementTree, element: Element) ?Specificity {
-        // TODO: This function may have no callers within zss, and can be deleted
-        // TODO: If selectors in the list were already sorted by specificity (highest to lowest), we could return on the first match.
-        var result: ?Specificity = null;
-        for (complex_selector_list.list.items(.complex), 0..) |complex, i| {
-            if (!ComplexSelector.matchElement(complex.data, 0, tree, element)) continue;
-            const specificity = complex_selector_list.list.items(.specificity)[i];
-            if (result == null or result.?.order(specificity) == .lt) {
-                result = specificity;
-            }
-        }
-        return result;
+    pub fn deinit(data: *DataList) void {
+        data.list.deinit();
+    }
+
+    pub fn len(data: *const DataList) Size {
+        return @intCast(data.list.items.len);
+    }
+
+    pub fn toOwnedSlice(data: *DataList) ![]Data {
+        return data.list.toOwnedSlice();
+    }
+
+    pub fn append(data: *DataList, item: Data) !void {
+        if (data.list.items.len == std.math.maxInt(Size)) return error.OutOfMemory;
+        try data.list.append(item);
+    }
+
+    pub fn appendSlice(data: *DataList, items: []const Data) !void {
+        if (items.len > std.math.maxInt(Size) - data.list.items.len) return error.OutOfMemory;
+        try data.list.appendSlice(items);
+    }
+
+    pub fn beginComplexSelector(data: *DataList) !Size {
+        const index = data.len();
+        try data.append(undefined);
+        return index;
+    }
+
+    pub fn finishComplexSelector(data: *DataList, start: Size) void {
+        data.list.items[start] = .{ .next_complex_start = data.len() };
+        data.list.items[data.len() - 1].trailing.combinator = undefined;
+    }
+
+    pub fn reset(data: *DataList, complex_selector_start: Size) void {
+        data.list.shrinkRetainingCapacity(complex_selector_start);
     }
 };
 
@@ -100,149 +139,110 @@ test "Specificity.order" {
     try ex(Order.lt, order(.{}, .{ .a = 255, .b = 255, .c = 255 }));
 }
 
-/// Data layout:
-/// <complex-selector> = <next-complex-start> [ <compound-selector>+ <trailing> ]+
-/// <compound-selector> = <simple-selector-tag> <simple-selector>
-/// <simple-selector> = <variable data, depends on simple-selector-tag>
-pub const ComplexSelector = struct {
+pub fn matchElement(
     data: []const Data,
-
-    pub const Index = u24;
-
-    // TODO: Size goal: 4 bytes (in unsafe builds)
-    pub const Data = union {
-        /// The index of the next complex selector
-        next_complex_start: Index,
-        trailing: struct {
-            combinator: Combinator,
-            compound_selector_start: Index,
-        },
-        simple_selector_tag: union(enum) {
-            /// The next Data is a `type_selector`
-            type,
-            /// The next Data is a `id_selector`
-            id,
-            /// The next Data is a `class_selector`
-            class,
-            /// The next Data is a `attribute_selector`
-            /// If non-null, then there is also an `attribute_selector_value` following the `attribute_selector`
-            attribute: ?struct {
-                operator: AttributeOperator,
-                case: AttributeCase,
-            },
-            /// The next Data is a `pseudo_class_selector`
-            pseudo_class,
-            /// The next Data is a `pseudo_element_selector`
-            pseudo_element,
-        },
-        type_selector: QualifiedName,
-        id_selector: IdId,
-        class_selector: ClassId,
-        attribute_selector: QualifiedName,
-        // TODO: Store attribute values parsed from selectors in the Environment
-        attribute_selector_value: Ast.Size,
-        pseudo_class_selector: PseudoClass,
-        pseudo_element_selector: PseudoElement,
-    };
-
-    fn deinit(complex: *ComplexSelector, allocator: Allocator) void {
-        allocator.free(complex.data);
+    complex_selector_index: Size,
+    tree: *const ElementTree,
+    match_candidate: Element,
+) bool {
+    switch (tree.category(match_candidate)) {
+        .normal => {},
+        .text => unreachable,
     }
 
-    pub fn matchElement(data: []const Data, complex_selector_index: Index, tree: *const ElementTree, match_candidate: Element) bool {
-        switch (tree.category(match_candidate)) {
-            .normal => {},
-            .text => unreachable,
-        }
+    const last_trailing = data[complex_selector_index].next_complex_start - 1;
+    return matchComplexSelector(data, complex_selector_index + 1, last_trailing, tree, match_candidate);
+}
 
-        const last_trailing = data[complex_selector_index].next_complex_start - 1;
-        return matchComplexSelector(data, complex_selector_index + 1, last_trailing, tree, match_candidate);
-    }
-
-    fn matchComplexSelector(data: []const Data, first_compound: Index, last_trailing: Index, tree: *const ElementTree, match_candidate: Element) bool {
-        var trailing_index = last_trailing;
-        var trailing = data[trailing_index].trailing;
-        var element = match_candidate;
-        if (!matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) return false;
-        compound_loop: while (trailing.compound_selector_start != first_compound) {
-            trailing_index = trailing.compound_selector_start - 1;
-            trailing = data[trailing_index].trailing;
-            switch (trailing.combinator) {
-                .descendant => {
-                    element = tree.parent(element);
-                    while (!element.eqlNull()) : (element = tree.parent(element)) {
-                        switch (tree.category(element)) {
-                            .normal => {},
-                            .text => unreachable,
-                        }
-                        if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
-                    } else return false;
-                },
-                .child => {
-                    element = tree.parent(element);
-                    while (!element.eqlNull()) : (element = tree.parent(element)) {
-                        switch (tree.category(element)) {
-                            .normal => break,
-                            .text => unreachable,
-                        }
-                    } else return false;
-                    if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
-                    return false;
-                },
-                .subsequent_sibling => {
-                    element = tree.previousSibling(element);
-                    while (!element.eqlNull()) : (element = tree.previousSibling(element)) {
-                        switch (tree.category(element)) {
-                            .normal => {
-                                if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
-                            },
-                            .text => {},
-                        }
+fn matchComplexSelector(
+    data: []const Data,
+    first_compound: Size,
+    last_trailing: Size,
+    tree: *const ElementTree,
+    match_candidate: Element,
+) bool {
+    var trailing_index = last_trailing;
+    var trailing = data[trailing_index].trailing;
+    var element = match_candidate;
+    if (!matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) return false;
+    compound_loop: while (trailing.compound_selector_start != first_compound) {
+        trailing_index = trailing.compound_selector_start - 1;
+        trailing = data[trailing_index].trailing;
+        switch (trailing.combinator) {
+            .descendant => {
+                element = tree.parent(element);
+                while (!element.eqlNull()) : (element = tree.parent(element)) {
+                    switch (tree.category(element)) {
+                        .normal => {},
+                        .text => unreachable,
                     }
-                },
-                .next_sibling => {
-                    element = tree.previousSibling(element);
-                    while (!element.eqlNull()) : (element = tree.previousSibling(element)) {
-                        switch (tree.category(element)) {
-                            .normal => break,
-                            .text => {},
-                        }
-                    } else return false;
                     if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
-                    return false;
-                },
-                else => panic("TODO: Unsupported combinator: {s}\n", .{@tagName(trailing.combinator)}),
-            }
+                } else return false;
+            },
+            .child => {
+                element = tree.parent(element);
+                while (!element.eqlNull()) : (element = tree.parent(element)) {
+                    switch (tree.category(element)) {
+                        .normal => break,
+                        .text => unreachable,
+                    }
+                } else return false;
+                if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
+                return false;
+            },
+            .subsequent_sibling => {
+                element = tree.previousSibling(element);
+                while (!element.eqlNull()) : (element = tree.previousSibling(element)) {
+                    switch (tree.category(element)) {
+                        .normal => {
+                            if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
+                        },
+                        .text => {},
+                    }
+                }
+            },
+            .next_sibling => {
+                element = tree.previousSibling(element);
+                while (!element.eqlNull()) : (element = tree.previousSibling(element)) {
+                    switch (tree.category(element)) {
+                        .normal => break,
+                        .text => {},
+                    }
+                } else return false;
+                if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
+                return false;
+            },
+            else => panic("TODO: Unsupported combinator: {s}\n", .{@tagName(trailing.combinator)}),
         }
-        return true;
     }
+    return true;
+}
 
-    fn matchCompoundSelector(data: []const Data, start: Index, end: Index, tree: *const ElementTree, element: Element) bool {
-        var index = start;
-        while (index < end) : (index += 1) {
-            switch (data[index].simple_selector_tag) {
-                .type => {
-                    index += 1;
-                    const ty = data[index].type_selector;
-                    const element_type = tree.fqType(element);
-                    if (!ty.matchElement(element_type)) return false;
-                },
-                .id => {
-                    index += 1;
-                    const id = data[index].id_selector;
-                    const element_with_id = tree.getElementById(id) orelse return false;
-                    if (element != element_with_id) return false;
-                },
-                .class,
-                .attribute,
-                .pseudo_class,
-                .pseudo_element,
-                => panic("TODO: Handle '{s}' selector in compound selector matching", .{@tagName(data[index].simple_selector_tag)}),
-            }
+fn matchCompoundSelector(data: []const Data, start: Size, end: Size, tree: *const ElementTree, element: Element) bool {
+    var index = start;
+    while (index < end) : (index += 1) {
+        switch (data[index].simple_selector_tag) {
+            .type => {
+                index += 1;
+                const ty = data[index].type_selector;
+                const element_type = tree.fqType(element);
+                if (!ty.matchElement(element_type)) return false;
+            },
+            .id => {
+                index += 1;
+                const id = data[index].id_selector;
+                const element_with_id = tree.getElementById(id) orelse return false;
+                if (element != element_with_id) return false;
+            },
+            .class,
+            .attribute,
+            .pseudo_class,
+            .pseudo_element,
+            => panic("TODO: Handle '{s}' selector in compound selector matching", .{@tagName(data[index].simple_selector_tag)}),
         }
-        return true;
     }
-};
+    return true;
+}
 
 pub const QualifiedName = struct {
     namespace: NamespaceId,
@@ -349,13 +349,15 @@ const TestParseSelectorListExpected = []const struct {
     },
 };
 
-fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, actual: ComplexSelectorList.List) !void {
+fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, data: []const Data, num_actual: Size) !void {
     const expectEqual = std.testing.expectEqual;
 
-    try expectEqual(expected.len, actual.len);
-    for (expected, actual.items(.complex)) |expected_complex, actual_complex| {
-        const data = actual_complex.data;
-        var index: ComplexSelector.Index = 1;
+    try expectEqual(expected.len, num_actual);
+    var index_of_complex: Size = 0;
+    for (expected) |expected_complex| {
+        var index = index_of_complex + 1;
+        index_of_complex = data[index_of_complex].next_complex_start;
+
         for (expected_complex.complex, 0..) |expected_item, compound_index| {
             const expected_compound = expected_item.compound;
 
@@ -423,10 +425,13 @@ fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, actu
             }
         }
     }
+
+    try expectEqual(data.len, index_of_complex);
 }
 
-fn stringToSelectorList(input: []const u8, env: *Environment, arena: *ArenaAllocator) !ComplexSelectorList {
+fn stringToSelectorList(input: []const u8, env: *Environment, allocator: Allocator, data: *DataList) !Size {
     const source = try TokenSource.init(input);
+
     var ast = blk: {
         var parser = zss.syntax.Parser.init(source, env.allocator);
         defer parser.deinit();
@@ -436,21 +441,25 @@ fn stringToSelectorList(input: []const u8, env: *Environment, arena: *ArenaAlloc
 
     const component_list: Ast.Size = 0;
     assert(ast.tag(component_list) == .component_list);
-    const start = component_list + 1;
-    const end = ast.nextSibling(component_list);
 
-    return try parseSelectorList(env, arena.allocator(), source, ast, Ast.Sequence{ .start = start, .end = end }, &.{});
+    var parser = Parser.init(env, allocator, source, ast, &.{});
+    defer parser.deinit();
+
+    try parser.parseComplexSelectorList(data, ast.children(component_list));
+    return @intCast(parser.specificities.items.len);
 }
 
 fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpected) !void {
     const allocator = std.testing.allocator;
+
     var env = Environment.init(allocator);
     defer env.deinit();
-    var arena = ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const selector_list = try stringToSelectorList(input, &env, &arena);
-    // defer selector_list.deinit(allocator);
-    try expectEqualComplexSelectorLists(expected, selector_list.list);
+
+    var data = DataList.init(allocator);
+    defer data.deinit();
+
+    const num_selectors = try stringToSelectorList(input, &env, allocator, &data);
+    try expectEqualComplexSelectorLists(expected, data.list.items, num_selectors);
 }
 
 test "parsing selector lists" {
@@ -547,6 +556,9 @@ test "complex selector matching" {
     var env = Environment.init(allocator);
     defer env.deinit();
 
+    var data = DataList.init(allocator);
+    defer data.deinit();
+
     const type_names = [5]Environment.NameId{
         try env.addTypeOrAttributeNameString("root"),
         try env.addTypeOrAttributeNameString("first"),
@@ -583,13 +595,14 @@ test "complex selector matching" {
     try tree.registerId(allocator, ids[1], elements[5]);
 
     const doTest = struct {
-        fn f(selector_string: []const u8, en: *Environment, ar: *ArenaAllocator, t: *const ElementTree, e: ElementTree.Element) !bool {
-            var selector = stringToSelectorList(selector_string, en, ar) catch |err| switch (err) {
+        fn f(selector_string: []const u8, en: *Environment, d: *DataList, ar: *ArenaAllocator, t: *const ElementTree, e: ElementTree.Element) !bool {
+            const complex_start = d.len();
+            const num_selectors = stringToSelectorList(selector_string, en, ar.allocator(), d) catch |err| switch (err) {
                 error.ParseError => return false,
                 else => |er| return er,
             };
-            // defer selector.deinit(allocator);
-            return (selector.matchElement(t, e) != null);
+            assert(num_selectors == 1);
+            return matchElement(d.list.items, complex_start, t, e);
         }
     }.f;
     const expect = std.testing.expect;
@@ -597,25 +610,25 @@ test "complex selector matching" {
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    try expect(try doTest("root", &env, &arena, &tree, elements[0]));
-    try expect(try doTest("first", &env, &arena, &tree, elements[1]));
-    try expect(try doTest("root > first", &env, &arena, &tree, elements[1]));
-    try expect(try doTest("root first", &env, &arena, &tree, elements[1]));
-    try expect(try doTest("second", &env, &arena, &tree, elements[2]));
-    try expect(try doTest("first + second", &env, &arena, &tree, elements[2]));
-    try expect(try doTest("first ~ second", &env, &arena, &tree, elements[2]));
-    try expect(try doTest("third", &env, &arena, &tree, elements[5]));
-    try expect(try doTest("second + third", &env, &arena, &tree, elements[5]));
-    try expect(try doTest("second ~ third", &env, &arena, &tree, elements[5]));
-    try expect(!try doTest("first + third", &env, &arena, &tree, elements[5]));
-    try expect(try doTest("first ~ third", &env, &arena, &tree, elements[5]));
-    try expect(try doTest("grandchild", &env, &arena, &tree, elements[3]));
-    try expect(try doTest("second > grandchild", &env, &arena, &tree, elements[3]));
-    try expect(try doTest("second grandchild", &env, &arena, &tree, elements[3]));
-    try expect(try doTest("root grandchild", &env, &arena, &tree, elements[3]));
-    try expect(try doTest("root second grandchild", &env, &arena, &tree, elements[3]));
-    try expect(!try doTest("root > grandchild", &env, &arena, &tree, elements[3]));
-    try expect(try doTest("#alice", &env, &arena, &tree, elements[0]));
-    try expect(!try doTest("#alice", &env, &arena, &tree, elements[5]));
-    try expect(try doTest("#alice > #jeff", &env, &arena, &tree, elements[5]));
+    try expect(try doTest("root", &env, &data, &arena, &tree, elements[0]));
+    try expect(try doTest("first", &env, &data, &arena, &tree, elements[1]));
+    try expect(try doTest("root > first", &env, &data, &arena, &tree, elements[1]));
+    try expect(try doTest("root first", &env, &data, &arena, &tree, elements[1]));
+    try expect(try doTest("second", &env, &data, &arena, &tree, elements[2]));
+    try expect(try doTest("first + second", &env, &data, &arena, &tree, elements[2]));
+    try expect(try doTest("first ~ second", &env, &data, &arena, &tree, elements[2]));
+    try expect(try doTest("third", &env, &data, &arena, &tree, elements[5]));
+    try expect(try doTest("second + third", &env, &data, &arena, &tree, elements[5]));
+    try expect(try doTest("second ~ third", &env, &data, &arena, &tree, elements[5]));
+    try expect(!try doTest("first + third", &env, &data, &arena, &tree, elements[5]));
+    try expect(try doTest("first ~ third", &env, &data, &arena, &tree, elements[5]));
+    try expect(try doTest("grandchild", &env, &data, &arena, &tree, elements[3]));
+    try expect(try doTest("second > grandchild", &env, &data, &arena, &tree, elements[3]));
+    try expect(try doTest("second grandchild", &env, &data, &arena, &tree, elements[3]));
+    try expect(try doTest("root grandchild", &env, &data, &arena, &tree, elements[3]));
+    try expect(try doTest("root second grandchild", &env, &data, &arena, &tree, elements[3]));
+    try expect(!try doTest("root > grandchild", &env, &data, &arena, &tree, elements[3]));
+    try expect(try doTest("#alice", &env, &data, &arena, &tree, elements[0]));
+    try expect(!try doTest("#alice", &env, &data, &arena, &tree, elements[5]));
+    try expect(try doTest("#alice > #jeff", &env, &data, &arena, &tree, elements[5]));
 }

@@ -353,7 +353,7 @@ pub fn runCascade(
         for (selectors.items(.complex), selectors.items(.decl_block)) |complex_selector, decl_block| {
             const source: DeclSource = .{ .block = decl_block, .importance = importance };
             if (decl_sources.contains(source)) continue;
-            if (complex_selector.matchElement(0, tree, element)) {
+            if (zss.selectors.matchElement(stylesheet.selector_data, complex_selector, tree, element)) {
                 try decl_sources.putNoClobber(allocator, source, {});
             }
         }

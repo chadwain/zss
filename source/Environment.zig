@@ -62,7 +62,10 @@ test addStylesheet {
     var env = Environment.init(std.testing.allocator);
     defer env.deinit();
 
-    const input = "test {}";
+    const input =
+        \\test, test2 {}
+        \\test3 {}
+    ;
     const token_source = try TokenSource.init(input);
     try env.addStylesheet(token_source);
 }
