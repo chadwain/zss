@@ -138,28 +138,33 @@ pub const Parser = struct {
 };
 
 fn parseComplexSelector(parser: *Parser) !void {
-    var start: ComplexSelector.Index = parser.data.len();
+    const start: ComplexSelector.Index = parser.data.len();
+    _ = try parser.data.append(parser.allocator, undefined);
+
+    var compound_start = start + 1;
     _ = parser.skipSpaces();
     (try parseCompoundSelector(parser)) orelse return parser.fail();
 
     while (true) {
         const combinator = parseCombinator(parser) orelse {
-            try parser.data.append(parser.allocator, .{ .trailing = .{ .combinator = undefined, .compound_selector_start = start } });
+            try parser.data.append(parser.allocator, .{ .trailing = .{ .combinator = undefined, .compound_selector_start = compound_start } });
             break;
         };
-        try parser.data.append(parser.allocator, .{ .trailing = .{ .combinator = combinator, .compound_selector_start = start } });
+        try parser.data.append(parser.allocator, .{ .trailing = .{ .combinator = combinator, .compound_selector_start = compound_start } });
 
-        start = parser.data.len();
+        compound_start = parser.data.len();
         _ = parser.skipSpaces();
         (try parseCompoundSelector(parser)) orelse {
             if (combinator == .descendant) {
-                parser.data.items()[start - 1].trailing.combinator = undefined;
+                parser.data.items()[compound_start - 1].trailing.combinator = undefined;
                 break;
             } else {
                 return parser.fail();
             }
         };
     }
+
+    parser.data.items()[start] = .{ .next_complex_start = parser.data.len() };
 }
 
 /// Syntax: <combinator> = '>' | '+' | '~' | [ '|' '|' ]

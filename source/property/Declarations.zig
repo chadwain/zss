@@ -258,7 +258,7 @@ pub fn apply(
     inline for (group.fields()) |field| {
         const dest_field = &@field(dest, field.name);
         if (dest_field.* == .undeclared) {
-            dest_field.* = zss.meta.unionTagToVoidPayload(@TypeOf(dest_field.*), default_value);
+            dest_field.* = zss.meta.unionInitVoid(@TypeOf(dest_field.*), default_value);
         }
     }
 }
@@ -277,14 +277,14 @@ const ValueCount = packed struct(u8) {
         inherit,
         unset,
 
-        comptime {
-            const kw_values = @typeInfo(Keyword).@"enum".fields;
-            const tag_values = @typeInfo(DeclaredValueTag).@"enum".fields[0..kw_values.len];
-            for (kw_values, tag_values) |kw, tag| assert(kw.value == tag.value);
-        }
-
         fn fromTag(tag: DeclaredValueTag) Keyword {
-            return @enumFromInt(@intFromEnum(tag));
+            return switch (tag) {
+                .undeclared => .none,
+                .initial => .initial,
+                .inherit => .inherit,
+                .unset => .unset,
+                .declared => unreachable,
+            };
         }
     };
 
@@ -351,7 +351,7 @@ fn SingleValueHeader(comptime group: groups.Tag) type {
                     dest_field.* = switch (count.keyword) {
                         .none => blk: {
                             if (count.num == 0) {
-                                break :blk zss.meta.unionTagToVoidPayload(SingleValue(field.type), default_value);
+                                break :blk zss.meta.unionInitVoid(SingleValue(field.type), default_value);
                             } else {
                                 assert(count.num == 1);
                                 break :blk .{ .declared = @field(values, field.name) };
@@ -430,7 +430,7 @@ fn MultiValueHeader(comptime group: groups.Tag) type {
                     dest_field.* = switch (count.keyword) {
                         .none => blk: {
                             if (count.num == 0) {
-                                break :blk zss.meta.unionTagToVoidPayload(MultiValue(field.type), default_value);
+                                break :blk zss.meta.unionInitVoid(MultiValue(field.type), default_value);
                             } else {
                                 const bytes: []align(max_alignment) const u8 = @alignCast(header.data.items[current_index..end_index]);
                                 break :blk .{ .declared = std.mem.bytesAsSlice(field.type, bytes) };

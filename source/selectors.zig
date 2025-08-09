@@ -57,7 +57,7 @@ pub const ComplexSelectorList = struct {
         // TODO: If selectors in the list were already sorted by specificity (highest to lowest), we could return on the first match.
         var result: ?Specificity = null;
         for (complex_selector_list.list.items(.complex), 0..) |complex, i| {
-            if (!complex.matchElement(tree, element)) continue;
+            if (!ComplexSelector.matchElement(complex.data, 0, tree, element)) continue;
             const specificity = complex_selector_list.list.items(.specificity)[i];
             if (result == null or result.?.order(specificity) == .lt) {
                 result = specificity;
@@ -101,7 +101,7 @@ test "Specificity.order" {
 }
 
 /// Data layout:
-/// <complex-selector> = [ <compound-selector>+ <trailing> ]+
+/// <complex-selector> = <next-complex-start> [ <compound-selector>+ <trailing> ]+
 /// <compound-selector> = <simple-selector-tag> <simple-selector>
 /// <simple-selector> = <variable data, depends on simple-selector-tag>
 pub const ComplexSelector = struct {
@@ -111,6 +111,8 @@ pub const ComplexSelector = struct {
 
     // TODO: Size goal: 4 bytes (in unsafe builds)
     pub const Data = union {
+        /// The index of the next complex selector
+        next_complex_start: Index,
         trailing: struct {
             combinator: Combinator,
             compound_selector_start: Index,
@@ -147,21 +149,24 @@ pub const ComplexSelector = struct {
         allocator.free(complex.data);
     }
 
-    pub fn matchElement(complex: ComplexSelector, tree: *const ElementTree, match_candidate: Element) bool {
+    pub fn matchElement(data: []const Data, complex_selector_index: Index, tree: *const ElementTree, match_candidate: Element) bool {
         switch (tree.category(match_candidate)) {
             .normal => {},
             .text => unreachable,
         }
 
-        var trailing_index: Index = @intCast(complex.data.len - 1);
-        var trailing = complex.data[trailing_index].trailing;
-        var compound = complex.data[trailing.compound_selector_start..trailing_index];
+        const last_trailing = data[complex_selector_index].next_complex_start - 1;
+        return matchComplexSelector(data, complex_selector_index + 1, last_trailing, tree, match_candidate);
+    }
+
+    fn matchComplexSelector(data: []const Data, first_compound: Index, last_trailing: Index, tree: *const ElementTree, match_candidate: Element) bool {
+        var trailing_index = last_trailing;
+        var trailing = data[trailing_index].trailing;
         var element = match_candidate;
-        if (!matchCompoundSelector(compound, tree, element)) return false;
-        compound_loop: while (trailing.compound_selector_start != 0) {
+        if (!matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) return false;
+        compound_loop: while (trailing.compound_selector_start != first_compound) {
             trailing_index = trailing.compound_selector_start - 1;
-            trailing = complex.data[trailing_index].trailing;
-            compound = complex.data[trailing.compound_selector_start..trailing_index];
+            trailing = data[trailing_index].trailing;
             switch (trailing.combinator) {
                 .descendant => {
                     element = tree.parent(element);
@@ -170,7 +175,7 @@ pub const ComplexSelector = struct {
                             .normal => {},
                             .text => unreachable,
                         }
-                        if (matchCompoundSelector(compound, tree, element)) continue :compound_loop;
+                        if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
                     } else return false;
                 },
                 .child => {
@@ -181,7 +186,7 @@ pub const ComplexSelector = struct {
                             .text => unreachable,
                         }
                     } else return false;
-                    if (matchCompoundSelector(compound, tree, element)) continue :compound_loop;
+                    if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
                     return false;
                 },
                 .subsequent_sibling => {
@@ -189,7 +194,7 @@ pub const ComplexSelector = struct {
                     while (!element.eqlNull()) : (element = tree.previousSibling(element)) {
                         switch (tree.category(element)) {
                             .normal => {
-                                if (matchCompoundSelector(compound, tree, element)) continue :compound_loop;
+                                if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
                             },
                             .text => {},
                         }
@@ -203,7 +208,7 @@ pub const ComplexSelector = struct {
                             .text => {},
                         }
                     } else return false;
-                    if (matchCompoundSelector(compound, tree, element)) continue :compound_loop;
+                    if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
                     return false;
                 },
                 else => panic("TODO: Unsupported combinator: {s}\n", .{@tagName(trailing.combinator)}),
@@ -212,19 +217,19 @@ pub const ComplexSelector = struct {
         return true;
     }
 
-    fn matchCompoundSelector(compound: []const Data, tree: *const ElementTree, element: Element) bool {
-        var index: Index = 0;
-        while (index < compound.len) : (index += 1) {
-            switch (compound[index].simple_selector_tag) {
+    fn matchCompoundSelector(data: []const Data, start: Index, end: Index, tree: *const ElementTree, element: Element) bool {
+        var index = start;
+        while (index < end) : (index += 1) {
+            switch (data[index].simple_selector_tag) {
                 .type => {
                     index += 1;
-                    const ty = compound[index].type_selector;
+                    const ty = data[index].type_selector;
                     const element_type = tree.fqType(element);
                     if (!ty.matchElement(element_type)) return false;
                 },
                 .id => {
                     index += 1;
-                    const id = compound[index].id_selector;
+                    const id = data[index].id_selector;
                     const element_with_id = tree.getElementById(id) orelse return false;
                     if (element != element_with_id) return false;
                 },
@@ -232,7 +237,7 @@ pub const ComplexSelector = struct {
                 .attribute,
                 .pseudo_class,
                 .pseudo_element,
-                => panic("TODO: Handle '{s}' selector in compound selector matching", .{@tagName(compound[index].simple_selector_tag)}),
+                => panic("TODO: Handle '{s}' selector in compound selector matching", .{@tagName(data[index].simple_selector_tag)}),
             }
         }
         return true;
@@ -350,7 +355,7 @@ fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, actu
     try expectEqual(expected.len, actual.len);
     for (expected, actual.items(.complex)) |expected_complex, actual_complex| {
         const data = actual_complex.data;
-        var index: ComplexSelector.Index = 0;
+        var index: ComplexSelector.Index = 1;
         for (expected_complex.complex, 0..) |expected_item, compound_index| {
             const expected_compound = expected_item.compound;
 

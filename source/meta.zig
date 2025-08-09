@@ -72,7 +72,7 @@ pub fn EnumFieldMapStruct(
 }
 
 /// Casts a union tag to a union value, asserting that the payload has type `void`.
-pub fn unionTagToVoidPayload(comptime Union: type, tag: std.meta.Tag(Union)) Union {
+pub fn unionInitVoid(comptime Union: type, tag: std.meta.Tag(Union)) Union {
     switch (tag) {
         inline else => |comptime_tag| {
             const Payload = @FieldType(Union, @tagName(comptime_tag));
