@@ -21,88 +21,141 @@ pub const Parser = @import("selectors/parse.zig").Parser;
 
 pub const Size = u24;
 
-// TODO: Size goal: 4 bytes (in unsafe builds)
-pub const Data = union {
-    /// The index of the next complex selector
-    next_complex_start: Size,
-    trailing: struct {
-        combinator: Combinator,
-        compound_selector_start: Size,
-    },
-    simple_selector_tag: union(enum) {
-        /// The next Data is a `type_selector`
-        type,
-        /// The next Data is a `id_selector`
-        id,
-        /// The next Data is a `class_selector`
-        class,
-        /// The next Data is a `attribute_selector`
-        /// If non-null, then there is also an `attribute_selector_value` following the `attribute_selector`
-        attribute: ?struct {
-            operator: AttributeOperator,
-            case: AttributeCase,
-        },
-        /// The next Data is a `pseudo_class_selector`
-        pseudo_class,
-        /// The next Data is a `pseudo_element_selector`
-        pseudo_element,
-    },
+pub const Code = union {
+    /// The index of the start of the next complex selector.
+    /// If this is the last complex selector within the code list, then this just points to the end of the code list.
+    next_complex_selector: Size,
+    /// Found after every compound selector.
+    trailing: Trailing,
+    simple_selector_tag: SimpleSelectorTag,
     type_selector: QualifiedName,
     id_selector: IdId,
     class_selector: ClassId,
     attribute_selector: QualifiedName,
-    // TODO: Store attribute values parsed from selectors in the Environment
+    // TODO: Intern attribute values parsed from selectors
     attribute_selector_value: Ast.Size,
     pseudo_class_selector: PseudoClass,
     pseudo_element_selector: PseudoElement,
+
+    pub const Trailing = packed struct {
+        /// The combinator applied to this compound selector (the left-hand side) and the compound selector after it (the right-hand side).
+        /// If this is the last compound selector in a complex selector, this field is undefined and should not be used.
+        combinator: Combinator,
+        /// The index of the start of this compound selector (i.e. the first `simple_selector_tag` within this compound).
+        compound_selector_start: Size,
+    };
+
+    // TODO: Put payloads into this union, fit it all into 4 bytes
+    pub const SimpleSelectorTag = union(enum) {
+        /// The next Code is a `type_selector`
+        type,
+        /// The next Code is a `id_selector`
+        id,
+        /// The next Code is a `class_selector`
+        class,
+        /// The next Code is a `attribute_selector`
+        /// If non-null, then there is also an `attribute_selector_value` following the `attribute_selector`
+        attribute: ?AttributeOperatorCase,
+        /// The next Code is a `pseudo_class_selector`
+        pseudo_class,
+        /// The next Code is a `pseudo_element_selector`
+        pseudo_element,
+    };
+
+    pub const AttributeOperatorCase = struct {
+        operator: AttributeOperator,
+        case: AttributeCase,
+    };
 };
 
-/// Data layout:
-/// <complex-selector> = <next-complex-start> [ <compound-selector>+ <trailing> ]+
-/// <compound-selector> = <simple-selector-tag> <simple-selector>
-/// <simple-selector> = <variable data, depends on simple-selector-tag>
-pub const DataList = struct {
-    list: std.ArrayList(Data),
+comptime {
+    if (!zss.debug.runtime_safety) assert(@sizeOf(Code) == 4);
+}
 
-    pub fn init(allocator: Allocator) DataList {
+pub const QualifiedName = packed struct {
+    namespace: NamespaceId,
+    name: NameId,
+
+    fn matchElement(qualified: QualifiedName, element_type: ElementTree.FqType) bool {
+        assert(element_type.namespace != .any);
+        assert(element_type.name != .any);
+
+        switch (qualified.namespace) {
+            .any => {},
+            else => if (qualified.namespace != element_type.namespace) return false,
+        }
+
+        switch (qualified.name) {
+            .any => {},
+            .anonymous => return false,
+            _ => if (qualified.name != element_type.name) return false,
+        }
+
+        return true;
+    }
+};
+
+pub const Combinator = enum(u8) { descendant, child, next_sibling, subsequent_sibling, column };
+
+pub const PseudoElement = enum { unrecognized };
+
+pub const PseudoClass = enum { unrecognized };
+
+pub const AttributeOperator = enum { equals, list_contains, equals_or_prefix_dash, starts_with, ends_with, contains };
+
+pub const AttributeCase = enum { default, same_case, ignore_case };
+
+/// A list of complex selectors.
+/// Each complex selector is represented as an array of `Code`.
+///
+/// Data layout (items in backticks represent fields of `Code`):
+/// <list> = [ `next_complex_selector` <complex-selector> ]*
+/// <complex-selector> = [ <compound-selector> `trailing` ]+
+/// <compound-selector> = [ `simple_selector_tag` <simple-selector> ]+
+/// <simple-selector> = <variable data, depending on the previous `simple_selector_tag`>
+pub const CodeList = struct {
+    list: std.ArrayList(Code),
+
+    pub fn init(allocator: Allocator) CodeList {
         return .{ .list = .init(allocator) };
     }
 
-    pub fn deinit(data: *DataList) void {
-        data.list.deinit();
+    pub fn deinit(code_list: *CodeList) void {
+        code_list.list.deinit();
     }
 
-    pub fn len(data: *const DataList) Size {
-        return @intCast(data.list.items.len);
+    pub fn len(code_list: *const CodeList) Size {
+        return @intCast(code_list.list.items.len);
     }
 
-    pub fn toOwnedSlice(data: *DataList) ![]Data {
-        return data.list.toOwnedSlice();
+    pub fn toOwnedSlice(code_list: *CodeList) ![]Code {
+        return code_list.list.toOwnedSlice();
     }
 
-    pub fn append(data: *DataList, item: Data) !void {
-        if (data.list.items.len == std.math.maxInt(Size)) return error.OutOfMemory;
-        try data.list.append(item);
+    pub fn append(code_list: *CodeList, code: Code) !void {
+        if (code_list.list.items.len == std.math.maxInt(Size)) return error.OutOfMemory;
+        try code_list.list.append(code);
     }
 
-    pub fn appendSlice(data: *DataList, items: []const Data) !void {
-        if (items.len > std.math.maxInt(Size) - data.list.items.len) return error.OutOfMemory;
-        try data.list.appendSlice(items);
+    pub fn appendSlice(code_list: *CodeList, codes: []const Code) !void {
+        if (codes.len > std.math.maxInt(Size) - code_list.list.items.len) return error.OutOfMemory;
+        try code_list.list.appendSlice(codes);
     }
 
-    pub fn beginComplexSelector(data: *DataList) !Size {
-        const index = data.len();
-        try data.append(undefined);
+    pub fn beginComplexSelector(code_list: *CodeList) !Size {
+        const index = code_list.len();
+        try code_list.append(undefined);
         return index;
     }
 
-    pub fn finishComplexSelector(data: *DataList, start: Size) void {
-        data.list.items[start] = .{ .next_complex_start = data.len() };
-        data.list.items[data.len() - 1].trailing.combinator = undefined;
+    /// `start` is the value previously returned by `beginComplexSelector`
+    pub fn endComplexSelector(code_list: *CodeList, start: Size) void {
+        code_list.list.items[start] = .{ .next_complex_selector = code_list.len() };
+        code_list.list.items[code_list.len() - 1].trailing.combinator = undefined;
     }
 
-    pub fn reset(data: *DataList, complex_selector_start: Size) void {
-        data.list.shrinkRetainingCapacity(complex_selector_start);
+    pub fn reset(code_list: *CodeList, complex_selector_start: Size) void {
+        code_list.list.shrinkRetainingCapacity(complex_selector_start);
     }
 };
 
@@ -140,7 +193,7 @@ test "Specificity.order" {
 }
 
 pub fn matchElement(
-    data: []const Data,
+    code: []const Code,
     complex_selector_index: Size,
     tree: *const ElementTree,
     match_candidate: Element,
@@ -150,24 +203,24 @@ pub fn matchElement(
         .text => unreachable,
     }
 
-    const last_trailing = data[complex_selector_index].next_complex_start - 1;
-    return matchComplexSelector(data, complex_selector_index + 1, last_trailing, tree, match_candidate);
+    const last_trailing = code[complex_selector_index].next_complex_selector - 1;
+    return matchComplexSelector(code, complex_selector_index + 1, last_trailing, tree, match_candidate);
 }
 
 fn matchComplexSelector(
-    data: []const Data,
+    codes: []const Code,
     first_compound: Size,
     last_trailing: Size,
     tree: *const ElementTree,
     match_candidate: Element,
 ) bool {
     var trailing_index = last_trailing;
-    var trailing = data[trailing_index].trailing;
+    var trailing = codes[trailing_index].trailing;
     var element = match_candidate;
-    if (!matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) return false;
+    if (!matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, tree, element)) return false;
     compound_loop: while (trailing.compound_selector_start != first_compound) {
         trailing_index = trailing.compound_selector_start - 1;
-        trailing = data[trailing_index].trailing;
+        trailing = codes[trailing_index].trailing;
         switch (trailing.combinator) {
             .descendant => {
                 element = tree.parent(element);
@@ -176,7 +229,7 @@ fn matchComplexSelector(
                         .normal => {},
                         .text => unreachable,
                     }
-                    if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
+                    if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
                 } else return false;
             },
             .child => {
@@ -187,7 +240,7 @@ fn matchComplexSelector(
                         .text => unreachable,
                     }
                 } else return false;
-                if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
+                if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
                 return false;
             },
             .subsequent_sibling => {
@@ -195,7 +248,7 @@ fn matchComplexSelector(
                 while (!element.eqlNull()) : (element = tree.previousSibling(element)) {
                     switch (tree.category(element)) {
                         .normal => {
-                            if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
+                            if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
                         },
                         .text => {},
                     }
@@ -209,7 +262,7 @@ fn matchComplexSelector(
                         .text => {},
                     }
                 } else return false;
-                if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
+                if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
                 return false;
             },
             else => panic("TODO: Unsupported combinator: {s}\n", .{@tagName(trailing.combinator)}),
@@ -218,19 +271,19 @@ fn matchComplexSelector(
     return true;
 }
 
-fn matchCompoundSelector(data: []const Data, start: Size, end: Size, tree: *const ElementTree, element: Element) bool {
+fn matchCompoundSelector(codes: []const Code, start: Size, end: Size, tree: *const ElementTree, element: Element) bool {
     var index = start;
     while (index < end) : (index += 1) {
-        switch (data[index].simple_selector_tag) {
+        switch (codes[index].simple_selector_tag) {
             .type => {
                 index += 1;
-                const ty = data[index].type_selector;
+                const ty = codes[index].type_selector;
                 const element_type = tree.fqType(element);
                 if (!ty.matchElement(element_type)) return false;
             },
             .id => {
                 index += 1;
-                const id = data[index].id_selector;
+                const id = codes[index].id_selector;
                 const element_with_id = tree.getElementById(id) orelse return false;
                 if (element != element_with_id) return false;
             },
@@ -238,44 +291,11 @@ fn matchCompoundSelector(data: []const Data, start: Size, end: Size, tree: *cons
             .attribute,
             .pseudo_class,
             .pseudo_element,
-            => panic("TODO: Handle '{s}' selector in compound selector matching", .{@tagName(data[index].simple_selector_tag)}),
+            => panic("TODO: Handle '{s}' selector in compound selector matching", .{@tagName(codes[index].simple_selector_tag)}),
         }
     }
     return true;
 }
-
-pub const QualifiedName = struct {
-    namespace: NamespaceId,
-    name: NameId,
-
-    fn matchElement(qualified: QualifiedName, element_type: ElementTree.FqType) bool {
-        assert(element_type.namespace != .any);
-        assert(element_type.name != .any);
-
-        switch (qualified.namespace) {
-            .any => {},
-            else => if (qualified.namespace != element_type.namespace) return false,
-        }
-
-        switch (qualified.name) {
-            .any => {},
-            .anonymous => return false,
-            _ => if (qualified.name != element_type.name) return false,
-        }
-
-        return true;
-    }
-};
-
-pub const Combinator = enum { descendant, child, next_sibling, subsequent_sibling, column };
-
-pub const PseudoElement = enum { unrecognized };
-
-pub const PseudoClass = enum { unrecognized };
-
-pub const AttributeOperator = enum { equals, list_contains, equals_or_prefix_dash, starts_with, ends_with, contains };
-
-pub const AttributeCase = enum { default, same_case, ignore_case };
 
 test "matching type selectors" {
     const some_namespace = @as(NamespaceId, @enumFromInt(24));
@@ -349,53 +369,53 @@ const TestParseSelectorListExpected = []const struct {
     },
 };
 
-fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, data: []const Data, num_actual: Size) !void {
+fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, codes: []const Code, num_actual: Size) !void {
     const expectEqual = std.testing.expectEqual;
 
     try expectEqual(expected.len, num_actual);
     var index_of_complex: Size = 0;
     for (expected) |expected_complex| {
         var index = index_of_complex + 1;
-        index_of_complex = data[index_of_complex].next_complex_start;
+        index_of_complex = codes[index_of_complex].next_complex_selector;
 
         for (expected_complex.complex, 0..) |expected_item, compound_index| {
             const expected_compound = expected_item.compound;
 
             if (expected_compound.type) |expected_type| {
-                _ = data[index].simple_selector_tag;
+                _ = codes[index].simple_selector_tag;
                 index += 1;
-                const actual_type = data[index].type_selector;
+                const actual_type = codes[index].type_selector;
                 index += 1;
                 try expectEqual(expected_type.namespace, actual_type.namespace);
                 try expectEqual(expected_type.name, actual_type.name);
             }
 
             for (expected_compound.subclasses) |expected_subclass| {
-                const actual_tag = data[index].simple_selector_tag;
+                const actual_tag = codes[index].simple_selector_tag;
                 index += 1;
                 switch (expected_subclass) {
                     .id => |expected_id| {
-                        const actual_id = data[index].id_selector;
+                        const actual_id = codes[index].id_selector;
                         index += 1;
                         try expectEqual(expected_id, actual_id);
                     },
                     .class => |expected_class| {
-                        const actual_class = data[index].class_selector;
+                        const actual_class = codes[index].class_selector;
                         index += 1;
                         try expectEqual(expected_class, actual_class);
                     },
                     .pseudo_class => |expected_pseudo| {
-                        const actual_pseudo = data[index].pseudo_class_selector;
+                        const actual_pseudo = codes[index].pseudo_class_selector;
                         index += 1;
                         try expectEqual(expected_pseudo, actual_pseudo);
                     },
                     .attribute => |expected_attribute| {
-                        const actual_attribute = data[index].attribute_selector;
+                        const actual_attribute = codes[index].attribute_selector;
                         index += 1;
                         try expectEqual(expected_attribute.namespace, actual_attribute.namespace);
                         try expectEqual(expected_attribute.name, actual_attribute.name);
                         if (expected_attribute.value) |expected_value| {
-                            _ = data[index].attribute_selector_value;
+                            _ = codes[index].attribute_selector_value;
                             index += 1;
                             try expectEqual(expected_value.operator, actual_tag.attribute.?.operator);
                             try expectEqual(expected_value.case, actual_tag.attribute.?.case);
@@ -405,13 +425,13 @@ fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, data
             }
 
             for (expected_compound.pseudo_elements) |expected_element| {
-                _ = data[index].simple_selector_tag;
+                _ = codes[index].simple_selector_tag;
                 index += 1;
-                const actual_element = data[index].pseudo_element_selector;
+                const actual_element = codes[index].pseudo_element_selector;
                 index += 1;
                 try expectEqual(expected_element.element, actual_element);
                 for (expected_element.pseudo_classes) |expected_class| {
-                    const actual_class = data[index].pseudo_class_selector;
+                    const actual_class = codes[index].pseudo_class_selector;
                     index += 1;
                     try expectEqual(expected_class, actual_class);
                 }
@@ -419,17 +439,17 @@ fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, data
 
             if (compound_index != expected_complex.complex.len - 1) {
                 const expected_combinator = expected_item.combinator.?;
-                const actual_combinator = data[index].trailing.combinator;
+                const actual_combinator = codes[index].trailing.combinator;
                 index += 1;
                 try expectEqual(expected_combinator, actual_combinator);
             }
         }
     }
 
-    try expectEqual(data.len, index_of_complex);
+    try expectEqual(codes.len, index_of_complex);
 }
 
-fn stringToSelectorList(input: []const u8, env: *Environment, allocator: Allocator, data: *DataList) !Size {
+fn stringToSelectorList(input: []const u8, env: *Environment, allocator: Allocator, code_list: *CodeList) !Size {
     const source = try TokenSource.init(input);
 
     var ast = blk: {
@@ -445,7 +465,7 @@ fn stringToSelectorList(input: []const u8, env: *Environment, allocator: Allocat
     var parser = Parser.init(env, allocator, source, ast, &.{});
     defer parser.deinit();
 
-    try parser.parseComplexSelectorList(data, ast.children(component_list));
+    try parser.parseComplexSelectorList(code_list, ast.children(component_list));
     return @intCast(parser.specificities.items.len);
 }
 
@@ -455,11 +475,11 @@ fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpec
     var env = Environment.init(allocator);
     defer env.deinit();
 
-    var data = DataList.init(allocator);
-    defer data.deinit();
+    var code_list = CodeList.init(allocator);
+    defer code_list.deinit();
 
-    const num_selectors = try stringToSelectorList(input, &env, allocator, &data);
-    try expectEqualComplexSelectorLists(expected, data.list.items, num_selectors);
+    const num_selectors = try stringToSelectorList(input, &env, allocator, &code_list);
+    try expectEqualComplexSelectorLists(expected, code_list.list.items, num_selectors);
 }
 
 test "parsing selector lists" {
@@ -556,8 +576,8 @@ test "complex selector matching" {
     var env = Environment.init(allocator);
     defer env.deinit();
 
-    var data = DataList.init(allocator);
-    defer data.deinit();
+    var code_list = CodeList.init(allocator);
+    defer code_list.deinit();
 
     const type_names = [5]Environment.NameId{
         try env.addTypeOrAttributeNameString("root"),
@@ -595,7 +615,7 @@ test "complex selector matching" {
     try tree.registerId(allocator, ids[1], elements[5]);
 
     const doTest = struct {
-        fn f(selector_string: []const u8, en: *Environment, d: *DataList, ar: *ArenaAllocator, t: *const ElementTree, e: ElementTree.Element) !bool {
+        fn f(selector_string: []const u8, en: *Environment, d: *CodeList, ar: *ArenaAllocator, t: *const ElementTree, e: ElementTree.Element) !bool {
             const complex_start = d.len();
             const num_selectors = stringToSelectorList(selector_string, en, ar.allocator(), d) catch |err| switch (err) {
                 error.ParseError => return false,
@@ -610,25 +630,25 @@ test "complex selector matching" {
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    try expect(try doTest("root", &env, &data, &arena, &tree, elements[0]));
-    try expect(try doTest("first", &env, &data, &arena, &tree, elements[1]));
-    try expect(try doTest("root > first", &env, &data, &arena, &tree, elements[1]));
-    try expect(try doTest("root first", &env, &data, &arena, &tree, elements[1]));
-    try expect(try doTest("second", &env, &data, &arena, &tree, elements[2]));
-    try expect(try doTest("first + second", &env, &data, &arena, &tree, elements[2]));
-    try expect(try doTest("first ~ second", &env, &data, &arena, &tree, elements[2]));
-    try expect(try doTest("third", &env, &data, &arena, &tree, elements[5]));
-    try expect(try doTest("second + third", &env, &data, &arena, &tree, elements[5]));
-    try expect(try doTest("second ~ third", &env, &data, &arena, &tree, elements[5]));
-    try expect(!try doTest("first + third", &env, &data, &arena, &tree, elements[5]));
-    try expect(try doTest("first ~ third", &env, &data, &arena, &tree, elements[5]));
-    try expect(try doTest("grandchild", &env, &data, &arena, &tree, elements[3]));
-    try expect(try doTest("second > grandchild", &env, &data, &arena, &tree, elements[3]));
-    try expect(try doTest("second grandchild", &env, &data, &arena, &tree, elements[3]));
-    try expect(try doTest("root grandchild", &env, &data, &arena, &tree, elements[3]));
-    try expect(try doTest("root second grandchild", &env, &data, &arena, &tree, elements[3]));
-    try expect(!try doTest("root > grandchild", &env, &data, &arena, &tree, elements[3]));
-    try expect(try doTest("#alice", &env, &data, &arena, &tree, elements[0]));
-    try expect(!try doTest("#alice", &env, &data, &arena, &tree, elements[5]));
-    try expect(try doTest("#alice > #jeff", &env, &data, &arena, &tree, elements[5]));
+    try expect(try doTest("root", &env, &code_list, &arena, &tree, elements[0]));
+    try expect(try doTest("first", &env, &code_list, &arena, &tree, elements[1]));
+    try expect(try doTest("root > first", &env, &code_list, &arena, &tree, elements[1]));
+    try expect(try doTest("root first", &env, &code_list, &arena, &tree, elements[1]));
+    try expect(try doTest("second", &env, &code_list, &arena, &tree, elements[2]));
+    try expect(try doTest("first + second", &env, &code_list, &arena, &tree, elements[2]));
+    try expect(try doTest("first ~ second", &env, &code_list, &arena, &tree, elements[2]));
+    try expect(try doTest("third", &env, &code_list, &arena, &tree, elements[5]));
+    try expect(try doTest("second + third", &env, &code_list, &arena, &tree, elements[5]));
+    try expect(try doTest("second ~ third", &env, &code_list, &arena, &tree, elements[5]));
+    try expect(!try doTest("first + third", &env, &code_list, &arena, &tree, elements[5]));
+    try expect(try doTest("first ~ third", &env, &code_list, &arena, &tree, elements[5]));
+    try expect(try doTest("grandchild", &env, &code_list, &arena, &tree, elements[3]));
+    try expect(try doTest("second > grandchild", &env, &code_list, &arena, &tree, elements[3]));
+    try expect(try doTest("second grandchild", &env, &code_list, &arena, &tree, elements[3]));
+    try expect(try doTest("root grandchild", &env, &code_list, &arena, &tree, elements[3]));
+    try expect(try doTest("root second grandchild", &env, &code_list, &arena, &tree, elements[3]));
+    try expect(!try doTest("root > grandchild", &env, &code_list, &arena, &tree, elements[3]));
+    try expect(try doTest("#alice", &env, &code_list, &arena, &tree, elements[0]));
+    try expect(!try doTest("#alice", &env, &code_list, &arena, &tree, elements[5]));
+    try expect(try doTest("#alice > #jeff", &env, &code_list, &arena, &tree, elements[5]));
 }

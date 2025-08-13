@@ -19,7 +19,7 @@ selectors_important: std.MultiArrayList(Selector),
 /// Selectors that apply to blocks of normal declarations.
 /// This list is sorted such that selectors with a higher cascade order appear earlier.
 selectors_normal: std.MultiArrayList(Selector),
-selector_data: []const selectors.Data,
+selector_data: []const selectors.Code,
 namespaces: Namespaces,
 /// Private fields.
 private: Private,
@@ -94,7 +94,7 @@ pub fn create(
         .private = .{ .arena = undefined },
     };
 
-    var selector_data = selectors.DataList.init(allocator);
+    var selector_data = selectors.CodeList.init(allocator);
     defer selector_data.deinit();
 
     var selector_parser = selectors.Parser.init(env, allocator, token_source, ast, &stylesheet.namespaces);
@@ -147,7 +147,7 @@ pub fn create(
                             .complex = index_of_complex_selector,
                             .decl_block = decl_block,
                         });
-                        index_of_complex_selector = selector_data.list.items[index_of_complex_selector].next_complex_start;
+                        index_of_complex_selector = selector_data.list.items[index_of_complex_selector].next_complex_selector;
                     }
                 }
             },
@@ -156,6 +156,7 @@ pub fn create(
     }
 
     stylesheet.selector_data = try selector_data.toOwnedSlice();
+    errdefer allocator.free(stylesheet.selector_data);
 
     // Sort the selectors such that items with a higher cascade order appear earlier in each list.
     for ([_]Importance{ .important, .normal }) |importance| {

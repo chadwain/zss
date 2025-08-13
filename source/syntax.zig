@@ -141,6 +141,7 @@ pub const Component = struct {
     /// Additional info about the Component. The meaning of this value depends on `tag`.
     extra: Extra,
 
+    // TODO: size goal: 4 bytes (in unsafe builds)
     pub const Extra = union {
         index: Ast.Size,
         codepoint: u21,

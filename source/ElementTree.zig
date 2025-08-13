@@ -72,9 +72,15 @@ pub const Category = enum {
 };
 
 /// A fully-qualified type.
+// TODO: This is identical to `zss.selectors.QualifiedName`
 pub const FqType = struct {
     namespace: NamespaceId,
     name: NameId,
+
+    fn assertValidElementType(fq_type: FqType) void {
+        assert(fq_type.namespace != .any);
+        assert(fq_type.name != .any);
+    }
 };
 
 pub const Text = ?[]const u8;
@@ -141,7 +147,7 @@ pub fn allocateElements(tree: *ElementTree, allocator: Allocator, buffer: []Elem
     }
 }
 
-pub fn destroyElement(tree: *const ElementTree, element: Element) void {
+pub fn destroyElement(tree: *ElementTree, element: Element) void {
     tree.assertGeneration(element);
 
     var node = @as(Node, undefined);
@@ -157,8 +163,8 @@ pub fn destroyElement(tree: *const ElementTree, element: Element) void {
 
     const parent_node = tree.nodes.items(.parent)[element.index];
     if (!parent_node.eqlNull()) {
-        const parent_first_child = &tree.nodes.items(.parent_first_child)[parent_node.index];
-        const parent_last_child = &tree.nodes.items(.parent_last_child)[parent_node.index];
+        const parent_first_child = &tree.nodes.items(.first_child)[parent_node.index];
+        const parent_last_child = &tree.nodes.items(.last_child)[parent_node.index];
         if (parent_first_child.eql(element)) parent_first_child.* = Element.null_element;
         if (parent_last_child.eql(element)) parent_last_child.* = Element.null_element;
     }
@@ -168,9 +174,7 @@ pub fn destroyElement(tree: *const ElementTree, element: Element) void {
     if (!previous_sibling.eqlNull()) tree.nodes.items(.next_sibling)[previous_sibling.index] = next_sibling;
     if (!next_sibling.eqlNull()) tree.nodes.items(.previous_sibling)[next_sibling.index] = previous_sibling;
 
-    inline for (Node.fields) |field| {
-        tree.nodes.items(field)[element.index] = @field(node, @tagName(field));
-    }
+    tree.nodes.set(element.index, node);
 }
 
 pub const NodePlacement = union(enum) {
@@ -310,6 +314,7 @@ pub fn cascadedValues(tree: *const ElementTree, element: Element) CascadedValues
 
 pub fn setFqType(tree: *const ElementTree, element: Element, fq_type: FqType) void {
     tree.assertIsNormal(element);
+    fq_type.assertValidElementType();
     tree.nodes.items(.fq_type)[element.index] = fq_type;
 }
 
@@ -322,11 +327,13 @@ pub fn setText(tree: *const ElementTree, element: Element, text_: Text) void {
 pub fn registerId(tree: *ElementTree, allocator: Allocator, id: Environment.IdId, element: Element) !void {
     tree.assertIsNormal(element);
     const gop = try tree.ids.getOrPut(allocator, id);
+    // TODO: If `gop.found_existing == true`, the existing element may have been destroyed, so consider allowing the Id to be reused.
     if (gop.found_existing and gop.value_ptr.* != element) return error.IdAlreadyExists;
     gop.value_ptr.* = element;
 }
 
 pub fn getElementById(tree: *const ElementTree, id: Environment.IdId) ?Element {
+    // TODO: Even if an element was returned, it could have been destroyed.
     return tree.ids.get(id);
 }
 
@@ -380,4 +387,15 @@ pub fn updateCascadedValues(
     defer tree.arena = arena.state;
     const cascaded_values = &tree.nodes.items(.cascaded_values)[element.index];
     for (sources) |source| try cascaded_values.applyDeclBlock(&arena, decls, source.block, source.importance);
+}
+
+test "element tree" {
+    const allocator = std.testing.allocator;
+
+    var tree = init();
+    defer tree.deinit(allocator);
+
+    const root = try tree.allocateElement(allocator);
+    tree.initElement(root, .normal, .orphan);
+    tree.destroyElement(root);
 }

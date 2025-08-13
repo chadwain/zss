@@ -136,6 +136,7 @@ pub fn getOrPutFromSource(
     return set.getOrPutGeneric(allocator, key);
 }
 
+// TODO: This is only used in tests
 pub fn getOrPutFromString(
     set: *IdentifierSet,
     allocator: Allocator,
