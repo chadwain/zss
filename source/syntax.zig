@@ -337,6 +337,7 @@ pub const Component = struct {
     };
 };
 
+// TODO: Rename to "Tree"
 pub const Ast = struct {
     components: MultiArrayList(Component).Slice,
     debug: Debug = .{},

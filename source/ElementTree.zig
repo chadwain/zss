@@ -61,6 +61,7 @@ pub const Element = packed struct {
             self.generation == other.generation;
     }
 
+    // TODO: Stop using "in-band" nullability
     pub fn eqlNull(self: Element) bool {
         return self.eql(null_element);
     }
@@ -263,53 +264,49 @@ fn assertIsText(tree: *const ElementTree, element: Element) void {
     assert(tree.nodes.items(.category)[element.index] == .text);
 }
 
-fn getField(tree: *const ElementTree, comptime field: std.meta.FieldEnum(Node), element: Element) @FieldType(Node, @tagName(field)) {
-    return tree.nodes.items(field)[element.index];
-}
-
 pub fn category(tree: *const ElementTree, element: Element) Category {
     tree.assertGeneration(element);
-    return tree.getField(.category, element);
+    return tree.nodes.items(.category)[element.index];
 }
 
 pub fn parent(tree: *const ElementTree, element: Element) Element {
     tree.assertGeneration(element);
-    return tree.getField(.parent, element);
+    return tree.nodes.items(.parent)[element.index];
 }
 
 pub fn firstChild(tree: *const ElementTree, element: Element) Element {
     tree.assertIsNormal(element);
-    return tree.getField(.first_child, element);
+    return tree.nodes.items(.first_child)[element.index];
 }
 
 pub fn lastChild(tree: *const ElementTree, element: Element) Element {
     tree.assertIsNormal(element);
-    return tree.getField(.last_child, element);
+    return tree.nodes.items(.last_child)[element.index];
 }
 
 pub fn nextSibling(tree: *const ElementTree, element: Element) Element {
     tree.assertGeneration(element);
-    return tree.getField(.next_sibling, element);
+    return tree.nodes.items(.next_sibling)[element.index];
 }
 
 pub fn previousSibling(tree: *const ElementTree, element: Element) Element {
     tree.assertGeneration(element);
-    return tree.getField(.previous_sibling, element);
+    return tree.nodes.items(.previous_sibling)[element.index];
 }
 
 pub fn fqType(tree: *const ElementTree, element: Element) FqType {
     tree.assertIsNormal(element);
-    return tree.getField(.fq_type, element);
+    return tree.nodes.items(.fq_type)[element.index];
 }
 
 pub fn text(tree: *const ElementTree, element: Element) Text {
     tree.assertIsText(element);
-    return tree.getField(.text, element);
+    return tree.nodes.items(.text)[element.index];
 }
 
 pub fn cascadedValues(tree: *const ElementTree, element: Element) CascadedValues {
     tree.assertIsNormal(element);
-    return tree.getField(.cascaded_values, element);
+    return tree.nodes.items(.cascaded_values)[element.index];
 }
 
 pub fn setFqType(tree: *const ElementTree, element: Element, fq_type: FqType) void {

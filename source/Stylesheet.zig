@@ -21,8 +21,6 @@ selectors_important: std.MultiArrayList(Selector),
 selectors_normal: std.MultiArrayList(Selector),
 selector_data: []const selectors.Code,
 namespaces: Namespaces,
-/// Private fields.
-private: Private,
 
 pub const Selector = struct {
     /// The complex selector itself.
@@ -41,10 +39,11 @@ pub const Namespaces = struct {
     prefixes: std.StringArrayHashMapUnmanaged(NamespaceId) = .empty,
     /// The default namespace, or `null` if there is no default namespace.
     default: ?NamespaceId = null,
-};
 
-const Private = struct {
-    arena: ArenaAllocator.State,
+    pub fn deinit(namespaces: *Namespaces, allocator: Allocator) void {
+        for (namespaces.prefixes.keys()) |string| allocator.free(string);
+        namespaces.prefixes.deinit(allocator);
+    }
 };
 
 const Stylesheet = @This();
@@ -63,13 +62,13 @@ const Specificity = selectors.Specificity;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
 
 /// Releases all resources associated with the stylesheet.
 pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
-    var arena = stylesheet.private.arena.promote(allocator);
-    defer stylesheet.private.arena = arena.state;
-    arena.deinit();
+    stylesheet.selectors_important.deinit(allocator);
+    stylesheet.selectors_normal.deinit(allocator);
+    stylesheet.namespaces.deinit(allocator);
+    allocator.free(stylesheet.selector_data);
 }
 
 /// Create a `Stylesheet` from an Ast `rule_list` node.
@@ -79,25 +78,21 @@ pub fn create(
     rule_list: Ast.Size,
     token_source: TokenSource,
     env: *Environment,
-    child_allocator: Allocator,
+    allocator: Allocator,
 ) !Stylesheet {
-    // TODO: Pick a different allocator
-    var arena = ArenaAllocator.init(child_allocator);
-    errdefer arena.deinit();
-    const allocator = arena.allocator();
+    var selectors_important: std.MultiArrayList(Selector) = .empty;
+    errdefer selectors_important.deinit(allocator);
 
-    var stylesheet = Stylesheet{
-        .selectors_important = .empty,
-        .selectors_normal = .empty,
-        .selector_data = undefined,
-        .namespaces = .{},
-        .private = .{ .arena = undefined },
-    };
+    var selectors_normal: std.MultiArrayList(Selector) = .empty;
+    errdefer selectors_normal.deinit(allocator);
+
+    var namespaces = Namespaces{};
+    errdefer namespaces.deinit(allocator);
 
     var selector_data = selectors.CodeList.init(allocator);
     defer selector_data.deinit();
 
-    var selector_parser = selectors.Parser.init(env, allocator, token_source, ast, &stylesheet.namespaces);
+    var selector_parser = selectors.Parser.init(env, allocator, token_source, ast, &namespaces);
     defer selector_parser.deinit();
 
     std.debug.assert(ast.tag(rule_list) == .rule_list);
@@ -111,7 +106,7 @@ pub fn create(
                     zss.log.warn("Ignoring unknown at-rule: @{s}", .{copy});
                     continue;
                 };
-                atRule(&stylesheet, &arena, ast, token_source, env, at_rule, index) catch |err| switch (err) {
+                atRule(&namespaces, allocator, ast, token_source, env, at_rule, index) catch |err| switch (err) {
                     error.InvalidAtRule => {
                         zss.log.warn("Ignoring invalid @{s} at-rule", .{@tagName(at_rule)});
                     },
@@ -135,8 +130,8 @@ pub fn create(
 
                 for ([_]Importance{ .important, .normal }) |importance| {
                     const destination_list = switch (importance) {
-                        .important => &stylesheet.selectors_important,
-                        .normal => &stylesheet.selectors_normal,
+                        .important => &selectors_important,
+                        .normal => &selectors_normal,
                     };
                     if (!env.decls.hasValues(decl_block, importance)) continue;
 
@@ -155,14 +150,11 @@ pub fn create(
         }
     }
 
-    stylesheet.selector_data = try selector_data.toOwnedSlice();
-    errdefer allocator.free(stylesheet.selector_data);
-
     // Sort the selectors such that items with a higher cascade order appear earlier in each list.
     for ([_]Importance{ .important, .normal }) |importance| {
         const selectors_list = switch (importance) {
-            .important => &stylesheet.selectors_important,
-            .normal => &stylesheet.selectors_normal,
+            .important => &selectors_important,
+            .normal => &selectors_normal,
         };
         const SortContext = struct {
             specificities: []const Specificity,
@@ -188,20 +180,23 @@ pub fn create(
         });
     }
 
-    stylesheet.private.arena = arena.state;
-    return stylesheet;
+    return .{
+        .selectors_important = selectors_important,
+        .selectors_normal = selectors_normal,
+        .namespaces = namespaces,
+        .selector_data = try selector_data.toOwnedSlice(),
+    };
 }
 
 fn atRule(
-    stylesheet: *Stylesheet,
-    arena: *ArenaAllocator,
+    namespaces: *Namespaces,
+    allocator: Allocator,
     ast: Ast,
     token_source: TokenSource,
     env: *Environment,
     at_rule: AtRule,
     at_rule_index: Ast.Size,
 ) !void {
-    const allocator = arena.allocator();
 
     // TODO: There are rules involving how some at-rules must be ordered
     //       Example 1: @namespace rules must come after @charset and @import
@@ -230,15 +225,16 @@ fn atRule(
 
             const id = try env.addNamespace(ast, token_source, namespace);
             if (prefix_opt) |prefix| {
-                try stylesheet.namespaces.prefixes.ensureUnusedCapacity(allocator, 1);
+                try namespaces.prefixes.ensureUnusedCapacity(allocator, 1);
                 const prefix_str = try token_source.copyIdentifier(ast.location(prefix), allocator);
-                const gop_result = stylesheet.namespaces.prefixes.getOrPutAssumeCapacity(prefix_str);
+                const gop_result = namespaces.prefixes.getOrPutAssumeCapacity(prefix_str);
                 if (gop_result.found_existing) {
                     allocator.free(prefix_str);
                 }
                 gop_result.value_ptr.* = id;
             } else {
-                stylesheet.namespaces.default = id;
+                // TODO: Need to check if there is already a default?
+                namespaces.default = id;
             }
         },
     }
