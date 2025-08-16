@@ -16,7 +16,7 @@ pub const Context = struct {
 
     pub const State = struct {
         sequence: Ast.Sequence,
-        mode: enum { normal, list },
+        mode: enum { normal, list }, // TODO: Introduce a new mode for parsing declarations
     };
 
     pub fn init(ast: Ast, token_source: TokenSource) Context {

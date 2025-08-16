@@ -114,47 +114,36 @@ pub const AttributeCase = enum { default, same_case, ignore_case };
 /// <compound-selector> = [ `simple_selector_tag` <simple-selector> ]+
 /// <simple-selector> = <variable data, depending on the previous `simple_selector_tag`>
 pub const CodeList = struct {
-    list: std.ArrayList(Code),
+    list: *std.ArrayListUnmanaged(Code),
+    allocator: Allocator,
 
-    pub fn init(allocator: Allocator) CodeList {
-        return .{ .list = .init(allocator) };
-    }
-
-    pub fn deinit(code_list: *CodeList) void {
-        code_list.list.deinit();
-    }
-
-    pub fn len(code_list: *const CodeList) Size {
+    pub fn len(code_list: CodeList) Size {
         return @intCast(code_list.list.items.len);
     }
 
-    pub fn toOwnedSlice(code_list: *CodeList) ![]Code {
-        return code_list.list.toOwnedSlice();
-    }
-
-    pub fn append(code_list: *CodeList, code: Code) !void {
+    pub fn append(code_list: CodeList, code: Code) !void {
         if (code_list.list.items.len == std.math.maxInt(Size)) return error.OutOfMemory;
-        try code_list.list.append(code);
+        try code_list.list.append(code_list.allocator, code);
     }
 
-    pub fn appendSlice(code_list: *CodeList, codes: []const Code) !void {
+    pub fn appendSlice(code_list: CodeList, codes: []const Code) !void {
         if (codes.len > std.math.maxInt(Size) - code_list.list.items.len) return error.OutOfMemory;
-        try code_list.list.appendSlice(codes);
+        try code_list.list.appendSlice(code_list.allocator, codes);
     }
 
-    pub fn beginComplexSelector(code_list: *CodeList) !Size {
+    pub fn beginComplexSelector(code_list: CodeList) !Size {
         const index = code_list.len();
         try code_list.append(undefined);
         return index;
     }
 
     /// `start` is the value previously returned by `beginComplexSelector`
-    pub fn endComplexSelector(code_list: *CodeList, start: Size) void {
+    pub fn endComplexSelector(code_list: CodeList, start: Size) void {
         code_list.list.items[start] = .{ .next_complex_selector = code_list.len() };
         code_list.list.items[code_list.len() - 1].trailing.combinator = undefined;
     }
 
-    pub fn reset(code_list: *CodeList, complex_selector_start: Size) void {
+    pub fn reset(code_list: CodeList, complex_selector_start: Size) void {
         code_list.list.shrinkRetainingCapacity(complex_selector_start);
     }
 };
@@ -449,7 +438,7 @@ fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, code
     try expectEqual(codes.len, index_of_complex);
 }
 
-fn stringToSelectorList(input: []const u8, env: *Environment, allocator: Allocator, code_list: *CodeList) !Size {
+fn stringToSelectorList(input: []const u8, env: *Environment, allocator: Allocator, code_list: CodeList) !Size {
     const source = try TokenSource.init(input);
 
     var ast = blk: {
@@ -475,11 +464,11 @@ fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpec
     var env = Environment.init(allocator);
     defer env.deinit();
 
-    var code_list = CodeList.init(allocator);
-    defer code_list.deinit();
+    var codes = std.ArrayListUnmanaged(Code){};
+    defer codes.deinit(allocator);
 
-    const num_selectors = try stringToSelectorList(input, &env, allocator, &code_list);
-    try expectEqualComplexSelectorLists(expected, code_list.list.items, num_selectors);
+    const num_selectors = try stringToSelectorList(input, &env, allocator, .{ .list = &codes, .allocator = allocator });
+    try expectEqualComplexSelectorLists(expected, codes.items, num_selectors);
 }
 
 test "parsing selector lists" {
@@ -576,8 +565,9 @@ test "complex selector matching" {
     var env = Environment.init(allocator);
     defer env.deinit();
 
-    var code_list = CodeList.init(allocator);
-    defer code_list.deinit();
+    var codes: std.ArrayListUnmanaged(Code) = .empty;
+    defer codes.deinit(allocator);
+    const code_list: CodeList = .{ .list = &codes, .allocator = allocator };
 
     const type_names = [5]Environment.NameId{
         try env.addTypeOrAttributeNameString("root"),
@@ -615,7 +605,7 @@ test "complex selector matching" {
     try tree.registerId(allocator, ids[1], elements[5]);
 
     const doTest = struct {
-        fn f(selector_string: []const u8, en: *Environment, d: *CodeList, ar: *ArenaAllocator, t: *const ElementTree, e: ElementTree.Element) !bool {
+        fn f(selector_string: []const u8, en: *Environment, d: CodeList, ar: *ArenaAllocator, t: *const ElementTree, e: ElementTree.Element) !bool {
             const complex_start = d.len();
             const num_selectors = stringToSelectorList(selector_string, en, ar.allocator(), d) catch |err| switch (err) {
                 error.ParseError => return false,
@@ -630,25 +620,25 @@ test "complex selector matching" {
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    try expect(try doTest("root", &env, &code_list, &arena, &tree, elements[0]));
-    try expect(try doTest("first", &env, &code_list, &arena, &tree, elements[1]));
-    try expect(try doTest("root > first", &env, &code_list, &arena, &tree, elements[1]));
-    try expect(try doTest("root first", &env, &code_list, &arena, &tree, elements[1]));
-    try expect(try doTest("second", &env, &code_list, &arena, &tree, elements[2]));
-    try expect(try doTest("first + second", &env, &code_list, &arena, &tree, elements[2]));
-    try expect(try doTest("first ~ second", &env, &code_list, &arena, &tree, elements[2]));
-    try expect(try doTest("third", &env, &code_list, &arena, &tree, elements[5]));
-    try expect(try doTest("second + third", &env, &code_list, &arena, &tree, elements[5]));
-    try expect(try doTest("second ~ third", &env, &code_list, &arena, &tree, elements[5]));
-    try expect(!try doTest("first + third", &env, &code_list, &arena, &tree, elements[5]));
-    try expect(try doTest("first ~ third", &env, &code_list, &arena, &tree, elements[5]));
-    try expect(try doTest("grandchild", &env, &code_list, &arena, &tree, elements[3]));
-    try expect(try doTest("second > grandchild", &env, &code_list, &arena, &tree, elements[3]));
-    try expect(try doTest("second grandchild", &env, &code_list, &arena, &tree, elements[3]));
-    try expect(try doTest("root grandchild", &env, &code_list, &arena, &tree, elements[3]));
-    try expect(try doTest("root second grandchild", &env, &code_list, &arena, &tree, elements[3]));
-    try expect(!try doTest("root > grandchild", &env, &code_list, &arena, &tree, elements[3]));
-    try expect(try doTest("#alice", &env, &code_list, &arena, &tree, elements[0]));
-    try expect(!try doTest("#alice", &env, &code_list, &arena, &tree, elements[5]));
-    try expect(try doTest("#alice > #jeff", &env, &code_list, &arena, &tree, elements[5]));
+    try expect(try doTest("root", &env, code_list, &arena, &tree, elements[0]));
+    try expect(try doTest("first", &env, code_list, &arena, &tree, elements[1]));
+    try expect(try doTest("root > first", &env, code_list, &arena, &tree, elements[1]));
+    try expect(try doTest("root first", &env, code_list, &arena, &tree, elements[1]));
+    try expect(try doTest("second", &env, code_list, &arena, &tree, elements[2]));
+    try expect(try doTest("first + second", &env, code_list, &arena, &tree, elements[2]));
+    try expect(try doTest("first ~ second", &env, code_list, &arena, &tree, elements[2]));
+    try expect(try doTest("third", &env, code_list, &arena, &tree, elements[5]));
+    try expect(try doTest("second + third", &env, code_list, &arena, &tree, elements[5]));
+    try expect(try doTest("second ~ third", &env, code_list, &arena, &tree, elements[5]));
+    try expect(!try doTest("first + third", &env, code_list, &arena, &tree, elements[5]));
+    try expect(try doTest("first ~ third", &env, code_list, &arena, &tree, elements[5]));
+    try expect(try doTest("grandchild", &env, code_list, &arena, &tree, elements[3]));
+    try expect(try doTest("second > grandchild", &env, code_list, &arena, &tree, elements[3]));
+    try expect(try doTest("second grandchild", &env, code_list, &arena, &tree, elements[3]));
+    try expect(try doTest("root grandchild", &env, code_list, &arena, &tree, elements[3]));
+    try expect(try doTest("root second grandchild", &env, code_list, &arena, &tree, elements[3]));
+    try expect(!try doTest("root > grandchild", &env, code_list, &arena, &tree, elements[3]));
+    try expect(try doTest("#alice", &env, code_list, &arena, &tree, elements[0]));
+    try expect(!try doTest("#alice", &env, code_list, &arena, &tree, elements[5]));
+    try expect(try doTest("#alice > #jeff", &env, code_list, &arena, &tree, elements[5]));
 }

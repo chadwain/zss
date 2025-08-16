@@ -53,7 +53,7 @@ pub const Parser = struct {
         parser.specificities.deinit();
     }
 
-    pub fn parseComplexSelectorList(parser: *Parser, code_list: *CodeList, sequence: Ast.Sequence) !void {
+    pub fn parseComplexSelectorList(parser: *Parser, code_list: CodeList, sequence: Ast.Sequence) !void {
         parser.sequence = sequence;
         parser.specificities.clearRetainingCapacity();
         const old_len = code_list.len();
@@ -130,7 +130,7 @@ pub const Parser = struct {
     }
 };
 
-fn parseComplexSelector(parser: *Parser, code_list: *CodeList) !?void {
+fn parseComplexSelector(parser: *Parser, code_list: CodeList) !?void {
     const complex_start = try code_list.beginComplexSelector();
     try parser.specificities.ensureUnusedCapacity(1);
     parser.specificity = .{};
@@ -186,7 +186,7 @@ fn parseCombinator(parser: *Parser) ?selectors.Combinator {
     return if (has_space) .descendant else null;
 }
 
-fn parseCompoundSelector(parser: *Parser, code_list: *CodeList) !?void {
+fn parseCompoundSelector(parser: *Parser, code_list: CodeList) !?void {
     var parsed_any_selectors = false;
 
     if (try parseTypeSelector(parser, code_list)) |_| {
@@ -204,7 +204,7 @@ fn parseCompoundSelector(parser: *Parser, code_list: *CodeList) !?void {
     if (!parsed_any_selectors) return null;
 }
 
-fn parseTypeSelector(parser: *Parser, code_list: *CodeList) !?void {
+fn parseTypeSelector(parser: *Parser, code_list: CodeList) !?void {
     const qn = parseQualifiedName(parser) orelse return null;
     const type_selector: selectors.QualifiedName = .{
         .namespace = switch (qn.namespace) {
@@ -321,7 +321,7 @@ fn resolveNamespace(parser: *Parser, location: TokenSource.Location) !NamespaceI
     return id;
 }
 
-fn parseSubclassSelector(parser: *Parser, code_list: *CodeList) !?void {
+fn parseSubclassSelector(parser: *Parser, code_list: CodeList) !?void {
     const first_component_tag, const first_component_index = parser.next() orelse return null;
     switch (first_component_tag) {
         .token_hash_id => {
@@ -367,7 +367,7 @@ fn parseSubclassSelector(parser: *Parser, code_list: *CodeList) !?void {
     return null;
 }
 
-fn parseAttributeSelector(parser: *Parser, code_list: *CodeList, block_index: Ast.Size) !void {
+fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast.Size) !void {
     const sequence = parser.sequence;
     defer parser.sequence = sequence;
     parser.sequence = parser.ast.children(block_index);
@@ -449,7 +449,7 @@ fn parseAttributeSelector(parser: *Parser, code_list: *CodeList, block_index: As
     });
 }
 
-fn parsePseudoElementSelector(parser: *Parser, code_list: *CodeList) !?void {
+fn parsePseudoElementSelector(parser: *Parser, code_list: CodeList) !?void {
     const element_index = parser.accept(.token_colon) orelse return null;
     const pseudo_element: selectors.PseudoElement = blk: {
         if (parser.accept(.token_colon)) |_| {

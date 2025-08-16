@@ -1,35 +1,5 @@
-//! A CSS stylesheet, in text form, contains a sequence of style rules.
-//! Each style rule consists of:
-//!     a sequence of "complex selectors", and
-//!     a declaration block containing both important and normal declarations
-//!
-//! When a declaration block is parsed, we split it into two blocks of important and normal declarations,
-//! and handle each of them separately. They end up in `decl_blocks`.
-//!
-//! Every complex selector in the stylesheet is added to either `selectors_important` or `selectors_normal` (or both),
-//! and given a reference to its associated declaration block. These lists are sorted such that selectors with a
-//! higher cascade order appear earlier.
-//!
-//! To iterate over all declaration blocks in cascade order: iterate over all selectors in `selectors_important`,
-//! followed by all selectors in `selectors_normal`, taking care not to include a declaration block more than once.
-
-/// Selectors that apply to blocks of important declarations.
-/// This list is sorted such that selectors with a higher cascade order appear earlier.
-selectors_important: std.MultiArrayList(Selector),
-/// Selectors that apply to blocks of normal declarations.
-/// This list is sorted such that selectors with a higher cascade order appear earlier.
-selectors_normal: std.MultiArrayList(Selector),
-selector_data: []const selectors.Code,
 namespaces: Namespaces,
-
-pub const Selector = struct {
-    /// The complex selector itself.
-    complex: selectors.Size,
-    /// The specificity of the selector.
-    specificity: Specificity,
-    /// The index of the declaration block this selector is associated with.
-    decl_block: Declarations.Block,
-};
+cascade_source: cascade.Source,
 
 pub const Namespaces = struct {
     // TODO: consider making an `IdentifierMap` structure for this use case
@@ -49,6 +19,7 @@ pub const Namespaces = struct {
 const Stylesheet = @This();
 
 const zss = @import("zss.zig");
+const cascade = zss.cascade;
 const Ast = zss.syntax.Ast;
 const AtRule = zss.syntax.Token.AtRule;
 const Declarations = zss.property.Declarations;
@@ -61,14 +32,13 @@ const selectors = zss.selectors;
 const Specificity = selectors.Specificity;
 
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 /// Releases all resources associated with the stylesheet.
 pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
-    stylesheet.selectors_important.deinit(allocator);
-    stylesheet.selectors_normal.deinit(allocator);
     stylesheet.namespaces.deinit(allocator);
-    allocator.free(stylesheet.selector_data);
+    stylesheet.cascade_source.deinit(allocator);
 }
 
 /// Create a `Stylesheet` from an Ast `rule_list` node.
@@ -80,20 +50,19 @@ pub fn create(
     env: *Environment,
     allocator: Allocator,
 ) !Stylesheet {
-    var selectors_important: std.MultiArrayList(Selector) = .empty;
-    errdefer selectors_important.deinit(allocator);
-
-    var selectors_normal: std.MultiArrayList(Selector) = .empty;
-    errdefer selectors_normal.deinit(allocator);
+    env.recentUrlsManaged().clearUrls();
 
     var namespaces = Namespaces{};
     errdefer namespaces.deinit(allocator);
 
-    var selector_data = selectors.CodeList.init(allocator);
-    defer selector_data.deinit();
+    var cascade_source: cascade.Source = .{};
+    errdefer cascade_source.deinit(allocator);
 
     var selector_parser = selectors.Parser.init(env, allocator, token_source, ast, &namespaces);
     defer selector_parser.deinit();
+
+    var unsorted_selectors = std.MultiArrayList(struct { index: selectors.Size, specificity: Specificity }){};
+    defer unsorted_selectors.deinit(allocator);
 
     std.debug.assert(ast.tag(rule_list) == .rule_list);
     var rule_sequence = ast.children(rule_list);
@@ -118,8 +87,9 @@ pub fn create(
 
                 const end_of_prelude = ast.extra(index).index;
                 const selector_sequence: Ast.Sequence = .{ .start = index + 1, .end = end_of_prelude };
-                const first_complex_selector = selector_data.len();
-                selector_parser.parseComplexSelectorList(&selector_data, selector_sequence) catch |err| switch (err) {
+                const selector_code_list = selectors.CodeList{ .list = &cascade_source.selector_data, .allocator = allocator };
+                const first_complex_selector = selector_code_list.len();
+                selector_parser.parseComplexSelectorList(selector_code_list, selector_sequence) catch |err| switch (err) {
                     error.ParseError => continue,
                     else => |e| return e,
                 };
@@ -128,63 +98,73 @@ pub fn create(
                 var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
                 const decl_block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration);
 
-                for ([_]Importance{ .important, .normal }) |importance| {
-                    const destination_list = switch (importance) {
-                        .important => &selectors_important,
-                        .normal => &selectors_normal,
-                    };
-                    if (!env.decls.hasValues(decl_block, importance)) continue;
+                var index_of_complex_selector = first_complex_selector;
+                for (selector_parser.specificities.items) |specificity| {
+                    const selector_number: selectors.Size = @intCast(unsorted_selectors.len);
+                    try unsorted_selectors.append(allocator, .{ .index = index_of_complex_selector, .specificity = specificity });
 
-                    var index_of_complex_selector = first_complex_selector;
-                    for (selector_parser.specificities.items) |specificity| {
+                    for ([_]Importance{ .important, .normal }) |importance| {
+                        const destination_list = switch (importance) {
+                            .important => &cascade_source.selectors_important,
+                            .normal => &cascade_source.selectors_normal,
+                        };
+                        if (!env.decls.hasValues(decl_block, importance)) continue;
+
                         try destination_list.append(allocator, .{
-                            .specificity = specificity,
-                            .complex = index_of_complex_selector,
-                            .decl_block = decl_block,
+                            .selector = selector_number,
+                            .block = decl_block,
                         });
-                        index_of_complex_selector = selector_data.list.items[index_of_complex_selector].next_complex_selector;
                     }
+
+                    index_of_complex_selector = selector_code_list.list.items[index_of_complex_selector].next_complex_selector;
                 }
+                assert(index_of_complex_selector == selector_code_list.len());
             },
             else => unreachable,
         }
     }
 
+    const unsorted_selectors_slice = unsorted_selectors.slice();
+
     // Sort the selectors such that items with a higher cascade order appear earlier in each list.
     for ([_]Importance{ .important, .normal }) |importance| {
-        const selectors_list = switch (importance) {
-            .important => &selectors_important,
-            .normal => &selectors_normal,
+        const list = switch (importance) {
+            .important => &cascade_source.selectors_important,
+            .normal => &cascade_source.selectors_normal,
         };
         const SortContext = struct {
+            selector_number: []const selectors.Size,
+            blocks: []const Declarations.Block,
             specificities: []const Specificity,
-            decl_blocks: []const Declarations.Block,
 
             pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
-                const a_spec = ctx.specificities[a_index];
-                const b_spec = ctx.specificities[b_index];
+                const a_spec = ctx.specificities[ctx.selector_number[a_index]];
+                const b_spec = ctx.specificities[ctx.selector_number[b_index]];
                 switch (a_spec.order(b_spec)) {
                     .lt => return false,
                     .gt => return true,
                     .eq => {},
                 }
 
-                const a_decl_block = ctx.decl_blocks[a_index];
-                const b_decl_block = ctx.decl_blocks[b_index];
-                return !a_decl_block.earlierThan(b_decl_block);
+                const a_block = ctx.blocks[a_index];
+                const b_block = ctx.blocks[b_index];
+                return !a_block.earlierThan(b_block);
             }
         };
-        selectors_list.sortUnstable(SortContext{
-            .specificities = selectors_list.items(.specificity),
-            .decl_blocks = selectors_list.items(.decl_block),
+        list.sortUnstable(SortContext{
+            .selector_number = list.items(.selector),
+            .blocks = list.items(.block),
+            .specificities = unsorted_selectors_slice.items(.specificity),
         });
+
+        for (list.items(.selector)) |*selector_index| {
+            selector_index.* = unsorted_selectors_slice.items(.index)[selector_index.*];
+        }
     }
 
     return .{
-        .selectors_important = selectors_important,
-        .selectors_normal = selectors_normal,
         .namespaces = namespaces,
-        .selector_data = try selector_data.toOwnedSlice(),
+        .cascade_source = cascade_source,
     };
 }
 
@@ -238,4 +218,24 @@ fn atRule(
             }
         },
     }
+}
+
+test "create stylesheet" {
+    const allocator = std.testing.allocator;
+
+    const input = "test {display: block}";
+    const token_source = try zss.syntax.TokenSource.init(input);
+
+    var ast = blk: {
+        var parser = zss.syntax.Parser.init(token_source, allocator);
+        defer parser.deinit();
+        break :blk try parser.parseCssStylesheet(allocator);
+    };
+    defer ast.deinit(allocator);
+
+    var env = Environment.init(allocator);
+    defer env.deinit();
+
+    var stylesheet = try create(ast, 0, token_source, &env, allocator);
+    defer stylesheet.deinit(allocator);
 }

@@ -1,6 +1,7 @@
 const Environment = @This();
 
 const zss = @import("zss.zig");
+const cascade = zss.cascade;
 const syntax = zss.syntax;
 const Ast = syntax.Ast;
 const Declarations = zss.property.Declarations;
@@ -16,12 +17,12 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 allocator: Allocator,
-stylesheets: ArrayListUnmanaged(Stylesheet) = .{},
 type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value, .case = .insensitive },
 // TODO: Case sensitivity depends on whether quirks mode is on
 id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensitive },
 namespaces: Namespaces = .{},
 decls: Declarations = .{},
+cascade_tree: cascade.Tree = .{},
 recent_urls: RecentUrls = .{},
 urls_to_images: std.AutoArrayHashMapUnmanaged(UrlId, Images.Handle) = .empty,
 images: Images = .{},
@@ -33,41 +34,12 @@ pub fn init(allocator: Allocator) Environment {
 pub fn deinit(env: *Environment) void {
     env.type_or_attribute_names.deinit(env.allocator);
     env.id_or_class_names.deinit(env.allocator);
-    for (env.stylesheets.items) |*stylesheet| {
-        stylesheet.deinit(env.allocator);
-    }
-    env.stylesheets.deinit(env.allocator);
     env.namespaces.deinit(env.allocator);
     env.decls.deinit(env.allocator);
+    env.cascade_tree.deinit(env.allocator);
     env.recent_urls.deinit(env.allocator);
     env.urls_to_images.deinit(env.allocator);
     env.images.deinit(env.allocator);
-}
-
-pub fn addStylesheet(env: *Environment, source: TokenSource) !void {
-    var ast = blk: {
-        var parser = syntax.Parser.init(source, env.allocator);
-        defer parser.deinit();
-        break :blk try parser.parseCssStylesheet(env.allocator);
-    };
-    defer ast.deinit(env.allocator);
-
-    env.recentUrlsManaged().clearUrls();
-    try env.stylesheets.ensureUnusedCapacity(env.allocator, 1);
-    const stylesheet = try Stylesheet.create(ast, 0, source, env, env.allocator);
-    env.stylesheets.appendAssumeCapacity(stylesheet);
-}
-
-test addStylesheet {
-    var env = Environment.init(std.testing.allocator);
-    defer env.deinit();
-
-    const input =
-        \\test, test2 {}
-        \\test3 {}
-    ;
-    const token_source = try TokenSource.init(input);
-    try env.addStylesheet(token_source);
 }
 
 // TODO: consider making an `IdentifierMap` structure for this use case
@@ -178,6 +150,7 @@ pub const UrlId = enum(u16) {
 
 /// Stores the source locations of URLs found within the most recently parsed `Ast`.
 // TODO: Deduplicate identical URLs.
+// TODO: Move this out of Environment?
 pub const RecentUrls = struct {
     start_id: ?UrlId.Int = 0,
     descriptions: MultiArrayList(Description) = .empty,
