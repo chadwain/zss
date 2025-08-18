@@ -334,58 +334,6 @@ pub fn getElementById(tree: *const ElementTree, id: Environment.IdId) ?Element {
     return tree.ids.get(id);
 }
 
-pub fn runCascade(
-    tree: *ElementTree,
-    element: Element,
-    allocator: Allocator,
-    env: *const Environment,
-) !void {
-    tree.assertIsNormal(element);
-
-    if (env.stylesheets.items.len == 0) return;
-    if (env.stylesheets.items.len > 1) panic("TODO: runCascade: Can only handle one stylesheet", .{});
-
-    var decl_sources: std.AutoArrayHashMapUnmanaged(DeclSource, void) = .empty;
-    defer decl_sources.deinit(allocator);
-
-    const stylesheet = env.stylesheets.items[0];
-    for ([_]Importance{ .important, .normal }) |importance| {
-        const selectors = switch (importance) {
-            .important => &stylesheet.selectors_important,
-            .normal => &stylesheet.selectors_normal,
-        };
-        for (selectors.items(.complex), selectors.items(.decl_block)) |complex_selector, decl_block| {
-            const source: DeclSource = .{ .block = decl_block, .importance = importance };
-            if (decl_sources.contains(source)) continue;
-            if (zss.selectors.matchElement(stylesheet.selector_data, complex_selector, tree, element)) {
-                try decl_sources.putNoClobber(allocator, source, {});
-            }
-        }
-    }
-
-    try updateCascadedValues(tree, element, allocator, &env.decls, decl_sources.keys());
-}
-
-pub const DeclSource = struct {
-    block: Declarations.Block,
-    importance: Importance,
-};
-
-pub fn updateCascadedValues(
-    tree: *ElementTree,
-    element: Element,
-    allocator: Allocator,
-    decls: *const Declarations,
-    /// This slice should be such that sources with a higher cascade order appear earlier.
-    sources: []const DeclSource,
-) !void {
-    tree.assertIsNormal(element);
-    var arena = tree.arena.promote(allocator);
-    defer tree.arena = arena.state;
-    const cascaded_values = &tree.nodes.items(.cascaded_values)[element.index];
-    for (sources) |source| try cascaded_values.applyDeclBlock(&arena, decls, source.block, source.importance);
-}
-
 test "element tree" {
     const allocator = std.testing.allocator;
 

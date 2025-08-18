@@ -38,6 +38,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const zss = @import("zss.zig");
+const cascade = zss.cascade;
 const Ast = zss.syntax.Ast;
 const Environment = zss.Environment;
 const ElementTree = zss.ElementTree;
@@ -52,6 +53,7 @@ pub fn createDocument(
     ast: Ast,
     root_ast_index: Ast.Size,
     token_source: TokenSource,
+    cascade_source: *cascade.Source,
 ) !Element {
     env.recentUrlsManaged().clearUrls();
 
@@ -63,7 +65,7 @@ pub fn createDocument(
 
     const root_placement: ElementTree.NodePlacement = .orphan;
     const root_element, const root_children =
-        try createElement(element_tree, allocator, root_placement, env, ast, root_ast_index, token_source);
+        try createElement(element_tree, allocator, root_placement, env, ast, root_ast_index, token_source, cascade_source);
     if (root_children) |index| {
         stack.top = .{
             .sequence = ast.children(index),
@@ -77,7 +79,7 @@ pub fn createDocument(
         };
         const placement: ElementTree.NodePlacement = .{ .last_child_of = top.parent };
         const element, const children =
-            try createElement(element_tree, allocator, placement, env, ast, ast_index, token_source);
+            try createElement(element_tree, allocator, placement, env, ast, ast_index, token_source, cascade_source);
         if (children) |index| {
             try stack.push(allocator, .{
                 .sequence = ast.children(index),
@@ -97,11 +99,12 @@ fn createElement(
     ast: Ast,
     ast_index: Ast.Size,
     token_source: TokenSource,
+    cascade_source: *cascade.Source,
 ) !struct { Element, ?Ast.Size } {
     const element = try element_tree.allocateElement(allocator);
     switch (ast.tag(ast_index)) {
         .zml_element => {
-            const children_index = try parseElement(element_tree, element, allocator, placement, env, ast, ast_index, token_source);
+            const children_index = try parseElement(element_tree, element, allocator, placement, env, ast, ast_index, token_source, cascade_source);
             return .{ element, children_index };
         },
         .zml_text_element => {
@@ -121,6 +124,7 @@ fn parseElement(
     ast: Ast,
     zml_element: Ast.Size,
     token_source: TokenSource,
+    cascade_source: *cascade.Source,
 ) !Ast.Size {
     assert(ast.tag(zml_element) == .zml_element);
     element_tree.initElement(element, .normal, placement);
@@ -153,7 +157,7 @@ fn parseElement(
     const has_style_block = (ast.tag(style_block) == .zml_styles);
     if (has_style_block) {
         const last_declaration = ast.extra(style_block).index;
-        try applyStyleBlockDeclarations(element_tree, element, allocator, env, ast, last_declaration, token_source);
+        try applyStyleBlockDeclarations(element, env, ast, last_declaration, token_source, cascade_source);
     }
 
     const children = if (has_style_block)
@@ -186,21 +190,17 @@ fn parseTextElement(
 }
 
 fn applyStyleBlockDeclarations(
-    element_tree: *ElementTree,
     element: Element,
-    allocator: Allocator,
     env: *Environment,
     ast: Ast,
     last_declaration: Ast.Size,
     token_source: TokenSource,
+    cascade_source: *cascade.Source,
 ) !void {
     var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
     const block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration);
-    const sources = [2]ElementTree.DeclSource{
-        .{ .block = block, .importance = .important },
-        .{ .block = block, .importance = .normal },
-    };
-    try element_tree.updateCascadedValues(element, allocator, &env.decls, &sources);
+    if (env.decls.hasValues(block, .important)) try cascade_source.style_attrs_important.putNoClobber(env.allocator, element, block);
+    if (env.decls.hasValues(block, .normal)) try cascade_source.style_attrs_normal.putNoClobber(env.allocator, element, block);
 }
 
 test createDocument {
@@ -229,7 +229,13 @@ test createDocument {
     const type1 = try env.addTypeOrAttributeNameString("type1");
     const type2 = try env.addTypeOrAttributeNameString("type2");
 
-    const root_element = try createDocument(&element_tree, allocator, &env, ast, 1, token_source);
+    const cascade_source = try env.cascade_tree.createSource(env.allocator);
+    const root_element = try createDocument(&element_tree, allocator, &env, ast, 1, token_source, cascade_source);
+
+    const cascade_node = try env.cascade_tree.createNode(env.allocator, .{ .leaf = cascade_source });
+    try env.cascade_tree.author.append(env.allocator, cascade_node);
+    try cascade.run(&env, &element_tree, root_element, allocator);
+
     const types = zss.values.types;
 
     {

@@ -1,5 +1,4 @@
 namespaces: Namespaces,
-cascade_source: cascade.Source,
 
 pub const Namespaces = struct {
     // TODO: consider making an `IdentifierMap` structure for this use case
@@ -38,25 +37,22 @@ const Allocator = std.mem.Allocator;
 /// Releases all resources associated with the stylesheet.
 pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
     stylesheet.namespaces.deinit(allocator);
-    stylesheet.cascade_source.deinit(allocator);
 }
 
 /// Create a `Stylesheet` from an Ast `rule_list` node.
 /// Free using `deinit`.
 pub fn create(
+    allocator: Allocator,
     ast: Ast,
     rule_list: Ast.Size,
     token_source: TokenSource,
     env: *Environment,
-    allocator: Allocator,
+    cascade_source: *cascade.Source,
 ) !Stylesheet {
     env.recentUrlsManaged().clearUrls();
 
     var namespaces = Namespaces{};
     errdefer namespaces.deinit(allocator);
-
-    var cascade_source: cascade.Source = .{};
-    errdefer cascade_source.deinit(allocator);
 
     var selector_parser = selectors.Parser.init(env, allocator, token_source, ast, &namespaces);
     defer selector_parser.deinit();
@@ -87,7 +83,7 @@ pub fn create(
 
                 const end_of_prelude = ast.extra(index).index;
                 const selector_sequence: Ast.Sequence = .{ .start = index + 1, .end = end_of_prelude };
-                const selector_code_list = selectors.CodeList{ .list = &cascade_source.selector_data, .allocator = allocator };
+                const selector_code_list = selectors.CodeList{ .list = &cascade_source.selector_data, .allocator = env.allocator };
                 const first_complex_selector = selector_code_list.len();
                 selector_parser.parseComplexSelectorList(selector_code_list, selector_sequence) catch |err| switch (err) {
                     error.ParseError => continue,
@@ -110,7 +106,7 @@ pub fn create(
                         };
                         if (!env.decls.hasValues(decl_block, importance)) continue;
 
-                        try destination_list.append(allocator, .{
+                        try destination_list.append(env.allocator, .{
                             .selector = selector_number,
                             .block = decl_block,
                         });
@@ -164,7 +160,6 @@ pub fn create(
 
     return .{
         .namespaces = namespaces,
-        .cascade_source = cascade_source,
     };
 }
 
@@ -236,6 +231,8 @@ test "create stylesheet" {
     var env = Environment.init(allocator);
     defer env.deinit();
 
-    var stylesheet = try create(ast, 0, token_source, &env, allocator);
+    const cascade_source = try env.cascade_tree.createSource(env.allocator);
+
+    var stylesheet = try create(allocator, ast, 0, token_source, &env, cascade_source);
     defer stylesheet.deinit(allocator);
 }
