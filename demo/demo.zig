@@ -23,7 +23,6 @@ const ProgramState = struct {
     max_scroll: ZssUnit,
 
     allocator: Allocator,
-    element_tree: *const zss.ElementTree,
     root_element: zss.ElementTree.Element,
     env: *zss.Environment,
     fonts: *const zss.Fonts,
@@ -76,12 +75,11 @@ const ProgramState = struct {
 
     fn relayout(self: *ProgramState) !void {
         var layout = zss.Layout.init(
-            self.element_tree,
+            self.env,
             self.root_element,
             self.allocator,
             self.main_window_width,
             self.main_window_height,
-            self.env,
             self.fonts,
         );
         defer layout.deinit();
@@ -169,13 +167,10 @@ pub fn main() !u8 {
     defer zig_logo_data.deinit();
     const zig_logo_handle = try env.addImage(zig_logo_image);
 
-    var tree = zss.ElementTree.init();
-    defer tree.deinit(allocator);
-
-    const root_element = try createElements(&tree, allocator, &env, file_path, file_contents.items, zig_logo_handle);
+    const root_element = try createElements(&env, file_path, file_contents.items, zig_logo_handle);
 
     var box_tree = blk: {
-        var layout = zss.Layout.init(&tree, .null_element, allocator, 0, 0, &env, &fonts);
+        var layout = zss.Layout.init(&env, .null_element, allocator, 0, 0, &fonts);
         defer layout.deinit();
         break :blk try layout.run(allocator);
     };
@@ -196,7 +191,6 @@ pub fn main() !u8 {
         .max_scroll = undefined,
 
         .allocator = allocator,
-        .element_tree = &tree,
         .root_element = root_element,
         .env = &env,
         .fonts = &fonts,
@@ -344,8 +338,6 @@ const Elements = enum {
 
 /// Returns the root element.
 fn createElements(
-    tree: *zss.ElementTree,
-    allocator: Allocator,
     env: *zss.Environment,
     file_name: []const u8,
     file_contents: []const u8,
@@ -354,31 +346,31 @@ fn createElements(
     const element_enum_values = comptime std.enums.values(Elements);
     const tree_elements = blk: {
         var tree_elements: [element_enum_values.len]zss.ElementTree.Element = undefined;
-        try tree.allocateElements(allocator, &tree_elements);
+        try env.element_tree.allocateElements(env.allocator, &tree_elements);
         var array: std.EnumArray(Elements, zss.ElementTree.Element) = .initUndefined();
         for (element_enum_values, 0..) |value, index| array.set(value, tree_elements[index]);
         break :blk array;
     };
 
     // zig fmt: off
-    tree.initElement(tree_elements.get(.root),             .normal, .orphan);
-    tree.initElement(tree_elements.get(.removed_block),    .normal, .{ .first_child_of = tree_elements.get(.root) });
-    tree.initElement(tree_elements.get(.title_block),      .normal, .{ .last_child_of  = tree_elements.get(.root) });
-    tree.initElement(tree_elements.get(.title_inline_box), .normal, .{ .first_child_of = tree_elements.get(.title_block) });
-    tree.initElement(tree_elements.get(.title_text),       .text,   .{ .first_child_of = tree_elements.get(.title_inline_box) });
-    tree.initElement(tree_elements.get(.body_block),       .normal, .{ .last_child_of  = tree_elements.get(.root) });
-    tree.initElement(tree_elements.get(.body_inline_box),  .normal, .{ .last_child_of  = tree_elements.get(.body_block) });
-    tree.initElement(tree_elements.get(.body_text),        .text,   .{ .first_child_of = tree_elements.get(.body_inline_box) });
-    tree.initElement(tree_elements.get(.footer),           .normal, .{ .last_child_of  = tree_elements.get(.root) });
+    env.element_tree.initElement(tree_elements.get(.root),             .normal, .orphan);
+    env.element_tree.initElement(tree_elements.get(.removed_block),    .normal, .{ .first_child_of = tree_elements.get(.root) });
+    env.element_tree.initElement(tree_elements.get(.title_block),      .normal, .{ .last_child_of  = tree_elements.get(.root) });
+    env.element_tree.initElement(tree_elements.get(.title_inline_box), .normal, .{ .first_child_of = tree_elements.get(.title_block) });
+    env.element_tree.initElement(tree_elements.get(.title_text),       .text,   .{ .first_child_of = tree_elements.get(.title_inline_box) });
+    env.element_tree.initElement(tree_elements.get(.body_block),       .normal, .{ .last_child_of  = tree_elements.get(.root) });
+    env.element_tree.initElement(tree_elements.get(.body_inline_box),  .normal, .{ .last_child_of  = tree_elements.get(.body_block) });
+    env.element_tree.initElement(tree_elements.get(.body_text),        .text,   .{ .first_child_of = tree_elements.get(.body_inline_box) });
+    env.element_tree.initElement(tree_elements.get(.footer),           .normal, .{ .last_child_of  = tree_elements.get(.root) });
     // zig fmt: on
 
-    tree.setText(tree_elements.get(.title_text), file_name);
-    tree.setText(tree_elements.get(.body_text), file_contents);
+    env.element_tree.setText(tree_elements.get(.title_text), file_name);
+    env.element_tree.setText(tree_elements.get(.body_text), file_contents);
 
     const cascade_source = try createCascadeSource(env, tree_elements, footer_image_handle);
     const cascade_node = try env.cascade_tree.createNode(env.allocator, .{ .leaf = cascade_source });
     try env.cascade_tree.author.append(env.allocator, cascade_node);
-    try zss.cascade.run(env, tree, tree_elements.get(.root), allocator);
+    try zss.cascade.run(env, tree_elements.get(.root));
 
     return tree_elements.get(.root);
 }

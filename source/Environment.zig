@@ -23,6 +23,7 @@ id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensi
 namespaces: Namespaces = .{},
 decls: Declarations = .{},
 cascade_tree: cascade.Tree = .{},
+element_tree: zss.ElementTree = .init,
 next_url_id: ?UrlId.Int = 0,
 urls_to_images: std.AutoArrayHashMapUnmanaged(UrlId, Images.Handle) = .empty,
 images: Images = .{},
@@ -37,6 +38,7 @@ pub fn deinit(env: *Environment) void {
     env.namespaces.deinit(env.allocator);
     env.decls.deinit(env.allocator);
     env.cascade_tree.deinit(env.allocator);
+    env.element_tree.deinit(env.allocator);
     env.urls_to_images.deinit(env.allocator);
     env.images.deinit(env.allocator);
 }

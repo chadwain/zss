@@ -76,25 +76,24 @@ pub const Error = error{
 };
 
 pub fn init(
-    element_tree: *const ElementTree,
+    env: *const Environment,
     root_element: Element,
     allocator: Allocator,
     /// The width of the viewport in pixels.
     width: u32,
     /// The height of the viewport in pixels.
     height: u32,
-    env: *const Environment,
     fonts: *const Fonts,
 ) Layout {
     // TODO: Ensure the root element has no siblings
     if (!root_element.eqlNull()) {
-        const parent = element_tree.parent(root_element);
+        const parent = env.element_tree.parent(root_element);
         assert(parent.eqlNull());
     }
 
     return .{
         .box_tree = undefined,
-        .computer = StyleComputer.init(element_tree, allocator),
+        .computer = StyleComputer.init(&env.element_tree, allocator),
         .sct_builder = .{},
         .absolute = .{},
         .viewport = undefined,

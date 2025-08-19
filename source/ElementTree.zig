@@ -86,15 +86,13 @@ pub const FqType = struct {
 
 pub const Text = ?[]const u8;
 
-pub fn init() ElementTree {
-    return ElementTree{
-        .nodes = .empty,
-        .free_list_head = max_size,
-        .free_list_len = 0,
-        .ids = .empty,
-        .arena = .{},
-    };
-}
+pub const init = ElementTree{
+    .nodes = .empty,
+    .free_list_head = max_size,
+    .free_list_len = 0,
+    .ids = .empty,
+    .arena = .{},
+};
 
 pub fn deinit(tree: *ElementTree, allocator: Allocator) void {
     tree.nodes.deinit(allocator);
@@ -315,6 +313,11 @@ pub fn setFqType(tree: *const ElementTree, element: Element, fq_type: FqType) vo
     tree.nodes.items(.fq_type)[element.index] = fq_type;
 }
 
+pub fn cascadedValuesPtr(tree: *const ElementTree, element: Element) *CascadedValues {
+    tree.assertIsNormal(element);
+    return &tree.nodes.items(.cascaded_values)[element.index];
+}
+
 pub fn setText(tree: *const ElementTree, element: Element, text_: Text) void {
     tree.assertIsText(element);
     tree.nodes.items(.text)[element.index] = text_;
@@ -337,7 +340,7 @@ pub fn getElementById(tree: *const ElementTree, id: Environment.IdId) ?Element {
 test "element tree" {
     const allocator = std.testing.allocator;
 
-    var tree = init();
+    var tree = init;
     defer tree.deinit(allocator);
 
     const root = try tree.allocateElement(allocator);

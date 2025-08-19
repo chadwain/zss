@@ -582,37 +582,34 @@ test "complex selector matching" {
         try env.addIdNameString("jeff"),
     };
 
-    var tree = ElementTree.init();
-    defer tree.deinit(allocator);
-
     var elements: [6]ElementTree.Element = undefined;
-    try tree.allocateElements(allocator, &elements);
+    try env.element_tree.allocateElements(env.allocator, &elements);
 
-    tree.initElement(elements[0], .normal, .orphan);
-    tree.initElement(elements[1], .normal, .{ .last_child_of = elements[0] });
-    tree.initElement(elements[2], .normal, .{ .last_child_of = elements[0] });
-    tree.initElement(elements[3], .normal, .{ .first_child_of = elements[2] });
-    tree.initElement(elements[4], .text, .{ .last_child_of = elements[0] });
-    tree.initElement(elements[5], .normal, .{ .last_child_of = elements[0] });
+    env.element_tree.initElement(elements[0], .normal, .orphan);
+    env.element_tree.initElement(elements[1], .normal, .{ .last_child_of = elements[0] });
+    env.element_tree.initElement(elements[2], .normal, .{ .last_child_of = elements[0] });
+    env.element_tree.initElement(elements[3], .normal, .{ .first_child_of = elements[2] });
+    env.element_tree.initElement(elements[4], .text, .{ .last_child_of = elements[0] });
+    env.element_tree.initElement(elements[5], .normal, .{ .last_child_of = elements[0] });
 
-    tree.setFqType(elements[0], .{ .namespace = .none, .name = type_names[0] });
-    tree.setFqType(elements[1], .{ .namespace = .none, .name = type_names[1] });
-    tree.setFqType(elements[2], .{ .namespace = .none, .name = type_names[2] });
-    tree.setFqType(elements[3], .{ .namespace = .none, .name = type_names[3] });
-    tree.setFqType(elements[5], .{ .namespace = .none, .name = type_names[4] });
+    env.element_tree.setFqType(elements[0], .{ .namespace = .none, .name = type_names[0] });
+    env.element_tree.setFqType(elements[1], .{ .namespace = .none, .name = type_names[1] });
+    env.element_tree.setFqType(elements[2], .{ .namespace = .none, .name = type_names[2] });
+    env.element_tree.setFqType(elements[3], .{ .namespace = .none, .name = type_names[3] });
+    env.element_tree.setFqType(elements[5], .{ .namespace = .none, .name = type_names[4] });
 
-    try tree.registerId(allocator, ids[0], elements[0]);
-    try tree.registerId(allocator, ids[1], elements[5]);
+    try env.element_tree.registerId(env.allocator, ids[0], elements[0]);
+    try env.element_tree.registerId(env.allocator, ids[1], elements[5]);
 
     const doTest = struct {
-        fn f(selector_string: []const u8, en: *Environment, d: CodeList, ar: *ArenaAllocator, t: *const ElementTree, e: ElementTree.Element) !bool {
+        fn f(selector_string: []const u8, en: *Environment, d: CodeList, ar: *ArenaAllocator, e: ElementTree.Element) !bool {
             const complex_start = d.len();
             const num_selectors = stringToSelectorList(selector_string, en, ar.allocator(), d) catch |err| switch (err) {
                 error.ParseError => return false,
                 else => |er| return er,
             };
             assert(num_selectors == 1);
-            return matchElement(d.list.items, complex_start, t, e);
+            return matchElement(d.list.items, complex_start, &en.element_tree, e);
         }
     }.f;
     const expect = std.testing.expect;
@@ -620,25 +617,27 @@ test "complex selector matching" {
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    try expect(try doTest("root", &env, code_list, &arena, &tree, elements[0]));
-    try expect(try doTest("first", &env, code_list, &arena, &tree, elements[1]));
-    try expect(try doTest("root > first", &env, code_list, &arena, &tree, elements[1]));
-    try expect(try doTest("root first", &env, code_list, &arena, &tree, elements[1]));
-    try expect(try doTest("second", &env, code_list, &arena, &tree, elements[2]));
-    try expect(try doTest("first + second", &env, code_list, &arena, &tree, elements[2]));
-    try expect(try doTest("first ~ second", &env, code_list, &arena, &tree, elements[2]));
-    try expect(try doTest("third", &env, code_list, &arena, &tree, elements[5]));
-    try expect(try doTest("second + third", &env, code_list, &arena, &tree, elements[5]));
-    try expect(try doTest("second ~ third", &env, code_list, &arena, &tree, elements[5]));
-    try expect(!try doTest("first + third", &env, code_list, &arena, &tree, elements[5]));
-    try expect(try doTest("first ~ third", &env, code_list, &arena, &tree, elements[5]));
-    try expect(try doTest("grandchild", &env, code_list, &arena, &tree, elements[3]));
-    try expect(try doTest("second > grandchild", &env, code_list, &arena, &tree, elements[3]));
-    try expect(try doTest("second grandchild", &env, code_list, &arena, &tree, elements[3]));
-    try expect(try doTest("root grandchild", &env, code_list, &arena, &tree, elements[3]));
-    try expect(try doTest("root second grandchild", &env, code_list, &arena, &tree, elements[3]));
-    try expect(!try doTest("root > grandchild", &env, code_list, &arena, &tree, elements[3]));
-    try expect(try doTest("#alice", &env, code_list, &arena, &tree, elements[0]));
-    try expect(!try doTest("#alice", &env, code_list, &arena, &tree, elements[5]));
-    try expect(try doTest("#alice > #jeff", &env, code_list, &arena, &tree, elements[5]));
+    // zig fmt: off
+    try expect(try doTest("root"                  , &env, code_list, &arena, elements[0]));
+    try expect(try doTest("first"                 , &env, code_list, &arena, elements[1]));
+    try expect(try doTest("root > first"          , &env, code_list, &arena, elements[1]));
+    try expect(try doTest("root first"            , &env, code_list, &arena, elements[1]));
+    try expect(try doTest("second"                , &env, code_list, &arena, elements[2]));
+    try expect(try doTest("first + second"        , &env, code_list, &arena, elements[2]));
+    try expect(try doTest("first ~ second"        , &env, code_list, &arena, elements[2]));
+    try expect(try doTest("third"                 , &env, code_list, &arena, elements[5]));
+    try expect(try doTest("second + third"        , &env, code_list, &arena, elements[5]));
+    try expect(try doTest("second ~ third"        , &env, code_list, &arena, elements[5]));
+    try expect(!try doTest("first + third"        , &env, code_list, &arena, elements[5]));
+    try expect(try doTest("first ~ third"         , &env, code_list, &arena, elements[5]));
+    try expect(try doTest("grandchild"            , &env, code_list, &arena, elements[3]));
+    try expect(try doTest("second > grandchild"   , &env, code_list, &arena, elements[3]));
+    try expect(try doTest("second grandchild"     , &env, code_list, &arena, elements[3]));
+    try expect(try doTest("root grandchild"       , &env, code_list, &arena, elements[3]));
+    try expect(try doTest("root second grandchild", &env, code_list, &arena, elements[3]));
+    try expect(!try doTest("root > grandchild"    , &env, code_list, &arena, elements[3]));
+    try expect(try doTest("#alice"                , &env, code_list, &arena, elements[0]));
+    try expect(!try doTest("#alice"               , &env, code_list, &arena, elements[5]));
+    try expect(try doTest("#alice > #jeff"        , &env, code_list, &arena, elements[5]));
+    // zig fmt: on
 }

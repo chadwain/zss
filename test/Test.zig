@@ -1,13 +1,11 @@
 const Test = @This();
 
 const zss = @import("zss");
-const ElementTree = zss.ElementTree;
-const Element = ElementTree.Element;
+const Element = zss.ElementTree.Element;
 const Environment = zss.Environment;
 const Fonts = zss.Fonts;
 
 name: []const u8,
-element_tree: ElementTree,
 root_element: Element,
 env: Environment,
 fonts: *const Fonts,

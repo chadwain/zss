@@ -77,12 +77,7 @@ pub const SelectorBlock = struct {
     block: Block,
 };
 
-pub fn run(
-    env: *const Environment,
-    element_tree: *ElementTree,
-    root_element: Element,
-    allocator: Allocator,
-) !void {
+pub fn run(env: *Environment, root_element: Element) !void {
     var temp_arena = std.heap.ArenaAllocator.init(env.allocator);
     defer temp_arena.deinit();
 
@@ -97,15 +92,15 @@ pub fn run(
     };
     for (order) |item| {
         const origin, const importance = item;
-        try iterateSources(&env.cascade_tree, element_tree, root_element, &lists, &temp_arena, origin, importance);
+        try iterateSources(&env.cascade_tree, &env.element_tree, root_element, &lists, &temp_arena, origin, importance);
     }
 
-    var element_tree_arena = element_tree.arena.promote(allocator);
-    defer element_tree.arena = element_tree_arena.state;
+    var element_tree_arena = env.element_tree.arena.promote(env.allocator);
+    defer env.element_tree.arena = element_tree_arena.state;
     var element_iterator = lists.map.iterator();
     while (element_iterator.next()) |entry| {
         const element = entry.key_ptr.*;
-        const cascaded_values = &element_tree.nodes.items(.cascaded_values)[element.index];
+        const cascaded_values = env.element_tree.cascadedValuesPtr(element);
         for (entry.value_ptr.*.items) |item| {
             try cascaded_values.applyDeclBlock(&element_tree_arena, &env.decls, item.block, item.importance);
         }

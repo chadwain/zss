@@ -16,12 +16,11 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
         try stdout.print("print: ({}/{}) \"{s}\" ... \n", .{ i + 1, tests.len, t.name });
 
         var layout = zss.Layout.init(
-            &t.element_tree,
+            &t.env,
             t.root_element,
             allocator,
             t.width,
             t.height,
-            &t.env,
             t.fonts,
         );
         defer layout.deinit();

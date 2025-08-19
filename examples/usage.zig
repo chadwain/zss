@@ -29,18 +29,15 @@ pub fn main() !void {
     var stylesheet = try zss.Stylesheet.create(allocator, ast, 0, stylesheet_source, &env, cascade_source);
     defer stylesheet.deinit(allocator);
 
-    var tree = zss.ElementTree.init();
-    defer tree.deinit(allocator);
-
-    const root = try tree.allocateElement(allocator);
-    tree.initElement(root, .normal, .orphan);
+    const root = try env.element_tree.allocateElement(env.allocator);
+    env.element_tree.initElement(root, .normal, .orphan);
     try env.cascade_tree.author.append(env.allocator, try env.cascade_tree.createNode(env.allocator, .{ .leaf = cascade_source }));
-    try zss.cascade.run(&env, &tree, root, allocator);
+    try zss.cascade.run(&env, root);
 
     var fonts = zss.Fonts.init();
     defer fonts.deinit();
 
-    var layout = zss.Layout.init(&tree, root, allocator, 100, 100, &env, &fonts);
+    var layout = zss.Layout.init(&env, root, allocator, 100, 100, &fonts);
     defer layout.deinit();
 
     var box_tree = try layout.run(allocator);

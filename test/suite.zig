@@ -162,7 +162,6 @@ fn createTest(
         .fonts = fonts,
         .font_handle = font_handle,
 
-        .element_tree = .init(),
         .root_element = undefined,
         .env = .init(allocator),
     };
@@ -172,7 +171,7 @@ fn createTest(
         var seq = ast.children(0);
         if (seq.nextSkipSpaces(ast)) |zml_element| {
             const cascade_source = try t.env.cascade_tree.createSource(t.env.allocator);
-            const document = try zss.zml.createDocument(allocator, &t.element_tree, allocator, &t.env, ast, zml_element, token_source, cascade_source);
+            const document = try zss.zml.createDocument(allocator, &t.env, ast, zml_element, token_source, cascade_source);
             try loader.loadResourcesFromUrls(arena, &t.env, &document, token_source);
 
             const cascade_node = try t.env.cascade_tree.createNode(t.env.allocator, .{ .leaf = cascade_source });
@@ -184,7 +183,7 @@ fn createTest(
         }
     };
 
-    if (!t.root_element.eqlNull() and t.element_tree.category(t.root_element) == .normal) {
+    if (!t.root_element.eqlNull() and t.env.element_tree.category(t.root_element) == .normal) {
         const block = try t.env.decls.openBlock(t.env.allocator);
         const DeclaredValues = zss.property.groups.Tag.DeclaredValues;
         try t.env.decls.addValues(t.env.allocator, .normal, .{ .color = DeclaredValues(.color){
@@ -199,7 +198,7 @@ fn createTest(
         try t.env.cascade_tree.user_agent.append(t.env.allocator, cascade_node);
     }
 
-    try zss.cascade.run(&t.env, &t.element_tree, t.root_element, allocator);
+    try zss.cascade.run(&t.env, t.root_element);
 
     return t;
 }
