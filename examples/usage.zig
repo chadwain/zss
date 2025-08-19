@@ -17,14 +17,25 @@ pub fn main() !void {
     ;
     const stylesheet_source = try zss.syntax.TokenSource.init(stylesheet_text);
 
-    try env.addStylesheet(stylesheet_source);
+    var ast = blk: {
+        var parser = zss.syntax.Parser.init(stylesheet_source, allocator);
+        defer parser.deinit();
+        break :blk try parser.parseCssStylesheet(allocator);
+    };
+    defer ast.deinit(allocator);
+
+    const cascade_source = try env.cascade_tree.createSource(env.allocator);
+
+    var stylesheet = try zss.Stylesheet.create(allocator, ast, 0, stylesheet_source, &env, cascade_source);
+    defer stylesheet.deinit(allocator);
 
     var tree = zss.ElementTree.init();
     defer tree.deinit(allocator);
 
     const root = try tree.allocateElement(allocator);
     tree.initElement(root, .normal, .orphan);
-    try tree.runCascade(root, allocator, &env);
+    try env.cascade_tree.author.append(env.allocator, try env.cascade_tree.createNode(env.allocator, .{ .leaf = cascade_source }));
+    try zss.cascade.run(&env, &tree, root, allocator);
 
     var fonts = zss.Fonts.init();
     defer fonts.deinit();

@@ -171,7 +171,13 @@ fn createTest(
         assert(ast.tag(0) == .zml_document);
         var seq = ast.children(0);
         if (seq.nextSkipSpaces(ast)) |zml_element| {
-            break :blk try zss.zml.createDocument(&t.element_tree, allocator, &t.env, ast, zml_element, token_source);
+            const cascade_source = try t.env.cascade_tree.createSource(t.env.allocator);
+            const root_element = try zss.zml.createDocument(&t.element_tree, allocator, &t.env, ast, zml_element, token_source, cascade_source);
+
+            const cascade_node = try t.env.cascade_tree.createNode(t.env.allocator, .{ .leaf = cascade_source });
+            try t.env.cascade_tree.author.append(t.env.allocator, cascade_node);
+
+            break :blk root_element;
         } else {
             break :blk Element.null_element;
         }
@@ -179,17 +185,22 @@ fn createTest(
 
     try loader.loadResourcesFromUrls(arena, &t.env, token_source);
 
-    if (!t.root_element.eqlNull()) {
-        if (t.element_tree.category(t.root_element) == .normal) {
-            const block = try t.env.decls.openBlock(t.env.allocator);
-            const DeclaredValues = zss.property.groups.Tag.DeclaredValues;
-            try t.env.decls.addValues(t.env.allocator, .normal, .{ .color = DeclaredValues(.color){
-                .color = .{ .declared = .{ .rgba = 0xffffffff } },
-            } });
-            t.env.decls.closeBlock();
-            try t.element_tree.updateCascadedValues(t.root_element, allocator, &t.env.decls, &.{.{ .block = block, .importance = .normal }});
-        }
+    if (!t.root_element.eqlNull() and t.element_tree.category(t.root_element) == .normal) {
+        const block = try t.env.decls.openBlock(t.env.allocator);
+        const DeclaredValues = zss.property.groups.Tag.DeclaredValues;
+        try t.env.decls.addValues(t.env.allocator, .normal, .{ .color = DeclaredValues(.color){
+            .color = .{ .declared = .{ .rgba = 0xffffffff } },
+        } });
+        t.env.decls.closeBlock();
+
+        const cascade_source = try t.env.cascade_tree.createSource(t.env.allocator);
+        try cascade_source.style_attrs_normal.putNoClobber(t.env.allocator, t.root_element, block);
+
+        const cascade_node = try t.env.cascade_tree.createNode(t.env.allocator, .{ .leaf = cascade_source });
+        try t.env.cascade_tree.user_agent.append(t.env.allocator, cascade_node);
     }
+
+    try zss.cascade.run(&t.env, &t.element_tree, t.root_element, allocator);
 
     return t;
 }

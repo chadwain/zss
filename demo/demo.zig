@@ -375,30 +375,24 @@ fn createElements(
     tree.setText(tree_elements.get(.title_text), file_name);
     tree.setText(tree_elements.get(.body_text), file_contents);
 
-    const element_style_decls = try getElementStyleDecls(&env.decls, env.allocator, footer_image_handle);
-    for (element_enum_values) |value| {
-        const block = element_style_decls.get(value) orelse continue;
-        try tree.updateCascadedValues(
-            tree_elements.get(value),
-            allocator,
-            &env.decls,
-            &.{.{ .block = block, .importance = .normal }},
-        );
-    }
+    const cascade_source = try createCascadeSource(env, tree_elements, footer_image_handle);
+    const cascade_node = try env.cascade_tree.createNode(env.allocator, .{ .leaf = cascade_source });
+    try env.cascade_tree.author.append(env.allocator, cascade_node);
+    try zss.cascade.run(env, tree, tree_elements.get(.root), allocator);
 
     return tree_elements.get(.root);
 }
 
 const ElementStyleDecls = std.EnumArray(Elements, ?zss.property.Declarations.Block);
 
-fn getElementStyleDecls(
-    decls: *zss.property.Declarations,
-    allocator: Allocator,
+fn createCascadeSource(
+    env: *zss.Environment,
+    elements: std.EnumArray(Elements, zss.ElementTree.Element),
     footer_image_handle: zss.Environment.Images.Handle,
-) !ElementStyleDecls {
-    var result: ElementStyleDecls = .initUndefined();
-    result.set(.title_text, null);
-    result.set(.body_text, null);
+) !*const zss.cascade.Source {
+    const decls = &env.decls;
+    const allocator = env.allocator;
+    const cascade_source = try env.cascade_tree.createSource(env.allocator);
 
     const bg_color = 0xefefefff;
     const text_color = 0x101010ff;
@@ -409,8 +403,8 @@ fn getElementStyleDecls(
         const root_padding = zss.values.types.Padding{ .px = 30 };
         const root_border_color = zss.values.types.Color{ .rgba = 0xaf2233ff };
 
-        result.set(.root, try decls.openBlock(allocator));
-        try decls.addValues(allocator, .normal, .{
+        const block = try decls.openBlock(allocator);
+        try env.decls.addValues(env.allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .block } },
             .content_width = DeclaredValues(.content_width){ .min_width = .{ .declared = .{ .px = 200 } } },
             .horizontal_edges = DeclaredValues(.horizontal_edges){
@@ -445,10 +439,11 @@ fn getElementStyleDecls(
             },
         });
         decls.closeBlock();
+        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.root), block);
     }
 
     { // Large element with display: none
-        result.set(.removed_block, try decls.openBlock(allocator));
+        const block = try decls.openBlock(allocator);
         try decls.addValues(allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .none } },
             .content_width = DeclaredValues(.content_width){ .width = .{ .declared = .{ .px = 500 } } },
@@ -456,10 +451,11 @@ fn getElementStyleDecls(
             .background_color = DeclaredValues(.background_color){ .color = .{ .declared = .{ .rgba = 0xff00ffff } } },
         });
         decls.closeBlock();
+        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.removed_block), block);
     }
 
     { // Title block box
-        result.set(.title_block, try decls.openBlock(allocator));
+        const block = try decls.openBlock(allocator);
         try decls.addValues(allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){
                 .display = .{ .declared = .block },
@@ -480,10 +476,11 @@ fn getElementStyleDecls(
             },
         });
         decls.closeBlock();
+        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.title_block), block);
     }
 
     { // Title inline box
-        result.set(.title_inline_box, try decls.openBlock(allocator));
+        const block = try decls.openBlock(allocator);
         try decls.addValues(allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .@"inline" } },
             .horizontal_edges = DeclaredValues(.horizontal_edges){
@@ -514,10 +511,11 @@ fn getElementStyleDecls(
             },
         });
         decls.closeBlock();
+        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.title_inline_box), block);
     }
 
     { // Body block box
-        result.set(.body_block, try decls.openBlock(allocator));
+        const block = try decls.openBlock(allocator);
         try decls.addValues(allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){
                 .display = .{ .declared = .block },
@@ -525,19 +523,21 @@ fn getElementStyleDecls(
             },
         });
         decls.closeBlock();
+        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.body_block), block);
     }
 
     { // Body inline box
-        result.set(.body_inline_box, try decls.openBlock(allocator));
+        const block = try decls.openBlock(allocator);
         try decls.addValues(allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .@"inline" } },
             .color = DeclaredValues(.color){ .color = .{ .declared = .{ .rgba = 0x1010507f } } },
         });
         decls.closeBlock();
+        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.body_inline_box), block);
     }
 
     { // Footer block
-        result.set(.footer, try decls.openBlock(allocator));
+        const block = try decls.openBlock(allocator);
         try decls.addValues(allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){
                 .display = .{ .declared = .block },
@@ -580,9 +580,10 @@ fn getElementStyleDecls(
             },
         });
         decls.closeBlock();
+        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.footer), block);
     }
 
-    return result;
+    return cascade_source;
 }
 
 fn keyCallback(window: glfw.Window, key: glfw.Key, scancode: i32, action: glfw.Action, mods: glfw.Mods) void {

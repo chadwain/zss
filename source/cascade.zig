@@ -65,7 +65,6 @@ pub const Tree = struct {
 pub const Origin = enum { user, author, user_agent };
 
 pub const Source = struct {
-    // TODO: Style attrs can only appear in sources with author origin
     style_attrs_important: std.AutoHashMapUnmanaged(Element, Block) = .empty,
     style_attrs_normal: std.AutoHashMapUnmanaged(Element, Block) = .empty,
     selectors_important: std.MultiArrayList(SelectorBlock) = .empty,
@@ -150,7 +149,9 @@ fn iterateSources(
             .leaf => |source| source,
             .inner => std.debug.panic("TODO: Cascade tree inner nodes", .{}),
         };
-        if (origin == .author) {
+
+        {
+            // TODO: Style attrs can only appear in sources with author origin
             const style_attrs = switch (importance) {
                 .important => source.style_attrs_important,
                 .normal => source.style_attrs_normal,
@@ -160,6 +161,7 @@ fn iterateSources(
                 try lists.insert(arena, entry.key_ptr.*, entry.value_ptr.*, importance);
             }
         }
+
         const selector_list = switch (importance) {
             .important => source.selectors_important,
             .normal => source.selectors_normal,
