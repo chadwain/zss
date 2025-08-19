@@ -3,6 +3,7 @@ const Ast = zss.syntax.Ast;
 const CascadedValues = zss.CascadedValues;
 const Environment = zss.Environment;
 const TokenSource = zss.syntax.TokenSource;
+const Urls = zss.values.parse.Urls;
 const ValueContext = zss.values.parse.Context;
 
 const std = @import("std");
@@ -195,10 +196,10 @@ pub fn parseDeclarationsFromAst(
     buffer: []u8,
     /// The last declaration in a list of declarations, or 0 if the list is empty.
     last_declaration_index: Ast.Size,
+    urls: Urls.Managed,
 ) !Declarations.Block {
     var ctx = ValueContext.init(ast, token_source);
     var fba = std.heap.FixedBufferAllocator.init(buffer);
-    const urls = env.recentUrlsManaged();
     const block = try env.decls.openBlock(env.allocator);
 
     // We parse declarations in the reverse order in which they appear.
@@ -222,7 +223,7 @@ fn parseDeclaration(
     env: *Environment,
     ctx: *ValueContext,
     fba: *std.heap.FixedBufferAllocator,
-    urls: Environment.RecentUrls.Managed,
+    urls: Urls.Managed,
     declaration_index: Ast.Size,
     importance: Importance,
 ) !void {
@@ -255,7 +256,7 @@ fn parseDeclaration(
                     fba.reset();
                     break :blk try parse_fn(ctx, fba);
                 },
-                struct { *ValueContext, *std.heap.FixedBufferAllocator, Environment.RecentUrls.Managed } => blk: {
+                struct { *ValueContext, *std.heap.FixedBufferAllocator, Urls.Managed } => blk: {
                     fba.reset();
                     break :blk try parse_fn(ctx, fba, urls);
                 },
@@ -370,8 +371,12 @@ test "parsing properties from a stylesheet" {
     var env = zss.Environment.init(allocator);
     defer env.deinit();
 
+    var urls = Urls.init(&env);
+    defer urls.deinit(allocator);
+
     var buffer: [recommended_buffer_size]u8 = undefined;
-    const block = try parseDeclarationsFromAst(&env, ast, source, &buffer, last_declaration);
+    const block = try parseDeclarationsFromAst(&env, ast, source, &buffer, last_declaration, urls.toManaged(allocator));
+    urls.commit(&env);
 
     try ns.expectEqual(.box_style, &env.decls, block, .{
         .display = .{ .declared = .@"inline" },

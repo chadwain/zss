@@ -1,4 +1,5 @@
 namespaces: Namespaces,
+decl_urls: Urls,
 
 pub const Namespaces = struct {
     // TODO: consider making an `IdentifierMap` structure for this use case
@@ -26,6 +27,7 @@ const Environment = zss.Environment;
 const Importance = zss.property.Importance;
 const NamespaceId = Environment.Namespaces.Id;
 const TokenSource = zss.syntax.TokenSource;
+const Urls = zss.values.parse.Urls;
 
 const selectors = zss.selectors;
 const Specificity = selectors.Specificity;
@@ -37,6 +39,7 @@ const Allocator = std.mem.Allocator;
 /// Releases all resources associated with the stylesheet.
 pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
     stylesheet.namespaces.deinit(allocator);
+    stylesheet.decl_urls.deinit(allocator);
 }
 
 /// Create a `Stylesheet` from an Ast `rule_list` node.
@@ -49,10 +52,11 @@ pub fn create(
     env: *Environment,
     cascade_source: *cascade.Source,
 ) !Stylesheet {
-    env.recentUrlsManaged().clearUrls();
-
     var namespaces = Namespaces{};
     errdefer namespaces.deinit(allocator);
+
+    var decl_urls = Urls.init(env);
+    errdefer decl_urls.deinit(allocator);
 
     var selector_parser = selectors.Parser.init(env, allocator, token_source, ast, &namespaces);
     defer selector_parser.deinit();
@@ -92,7 +96,7 @@ pub fn create(
 
                 const last_declaration = ast.extra(end_of_prelude).index;
                 var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
-                const decl_block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration);
+                const decl_block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration, decl_urls.toManaged(allocator));
 
                 var index_of_complex_selector = first_complex_selector;
                 for (selector_parser.specificities.items) |specificity| {
@@ -119,6 +123,8 @@ pub fn create(
             else => unreachable,
         }
     }
+
+    decl_urls.commit(env);
 
     const unsorted_selectors_slice = unsorted_selectors.slice();
 
@@ -160,6 +166,7 @@ pub fn create(
 
     return .{
         .namespaces = namespaces,
+        .decl_urls = decl_urls,
     };
 }
 

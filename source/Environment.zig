@@ -23,7 +23,7 @@ id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensi
 namespaces: Namespaces = .{},
 decls: Declarations = .{},
 cascade_tree: cascade.Tree = .{},
-recent_urls: RecentUrls = .{},
+next_url_id: ?UrlId.Int = 0,
 urls_to_images: std.AutoArrayHashMapUnmanaged(UrlId, Images.Handle) = .empty,
 images: Images = .{},
 
@@ -37,7 +37,6 @@ pub fn deinit(env: *Environment) void {
     env.namespaces.deinit(env.allocator);
     env.decls.deinit(env.allocator);
     env.cascade_tree.deinit(env.allocator);
-    env.recent_urls.deinit(env.allocator);
     env.urls_to_images.deinit(env.allocator);
     env.images.deinit(env.allocator);
 }
@@ -145,95 +144,8 @@ pub fn addClassName(env: *Environment, identifier: TokenSource.Location, source:
 pub const UrlId = enum(u16) {
     _,
 
-    const Int = std.meta.Tag(@This());
+    pub const Int = std.meta.Tag(@This());
 };
-
-/// Stores the source locations of URLs found within the most recently parsed `Ast`.
-// TODO: Deduplicate identical URLs.
-// TODO: Move this out of Environment?
-pub const RecentUrls = struct {
-    start_id: ?UrlId.Int = 0,
-    descriptions: MultiArrayList(Description) = .empty,
-
-    pub const Description = struct {
-        type: Type,
-        src_loc: SourceLocation,
-    };
-
-    pub const Type = enum {
-        image,
-    };
-
-    pub const SourceLocation = union(enum) {
-        /// The location of a `token_url` Ast node.
-        url_token: TokenSource.Location,
-        /// The location of a `token_string` Ast node.
-        string_token: TokenSource.Location,
-    };
-
-    fn deinit(urls: *RecentUrls, allocator: Allocator) void {
-        urls.descriptions.deinit(allocator);
-    }
-
-    pub const Iterator = struct {
-        index: usize,
-        recent_urls: *const RecentUrls,
-
-        pub const Item = struct {
-            id: UrlId,
-            desc: Description,
-        };
-
-        pub fn next(it: *Iterator) ?Item {
-            if (it.index == it.recent_urls.descriptions.len) return null;
-            defer it.index += 1;
-
-            const id: UrlId = @enumFromInt(it.recent_urls.start_id.? + it.index);
-            const desc = it.recent_urls.descriptions.get(it.index);
-            return .{ .id = id, .desc = desc };
-        }
-    };
-
-    /// Returns an iterator over all URLs currently stored within `recent_urls`.
-    pub fn iterator(recent_urls: *const RecentUrls) Iterator {
-        return .{ .index = 0, .recent_urls = recent_urls };
-    }
-
-    pub const Managed = struct {
-        unmanaged: *RecentUrls,
-        allocator: Allocator,
-
-        fn nextId(recent_urls: Managed) ?UrlId.Int {
-            const start_id = recent_urls.unmanaged.start_id orelse return null;
-            const len = std.math.cast(UrlId.Int, recent_urls.unmanaged.descriptions.len) orelse return null;
-            const int = std.math.add(UrlId.Int, start_id, len) catch return null;
-            return int;
-        }
-
-        pub fn addUrl(recent_urls: Managed, desc: Description) !UrlId {
-            const int = recent_urls.nextId() orelse return error.OutOfUrls;
-            try recent_urls.unmanaged.descriptions.append(recent_urls.allocator, desc);
-            return @enumFromInt(int);
-        }
-
-        pub fn save(recent_urls: Managed) usize {
-            return recent_urls.unmanaged.descriptions.len;
-        }
-
-        pub fn reset(recent_urls: Managed, previous_state: usize) void {
-            recent_urls.unmanaged.descriptions.shrinkRetainingCapacity(previous_state);
-        }
-
-        pub fn clearUrls(recent_urls: Managed) void {
-            recent_urls.unmanaged.start_id = recent_urls.nextId();
-            recent_urls.unmanaged.descriptions.clearRetainingCapacity();
-        }
-    };
-};
-
-pub fn recentUrlsManaged(env: *Environment) RecentUrls.Managed {
-    return .{ .unmanaged = &env.recent_urls, .allocator = env.allocator };
-}
 
 pub fn linkUrlToImage(env: *Environment, url: UrlId, image: Images.Handle) !void {
     try env.urls_to_images.put(env.allocator, url, image);

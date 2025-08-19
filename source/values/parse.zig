@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
@@ -129,6 +130,106 @@ pub const Context = struct {
                 return item.tag == .token_comma;
             },
         }
+    }
+};
+
+/// Stores the source locations of URLs found within the most recently parsed `Ast`.
+// TODO: Deduplicate identical URLs.
+pub const Urls = struct {
+    start_id: ?UrlId.Int,
+    descriptions: std.MultiArrayList(Description),
+
+    const UrlId = Environment.UrlId;
+
+    pub const Description = struct {
+        type: Type,
+        src_loc: SourceLocation,
+    };
+
+    pub const Type = enum {
+        background_image,
+    };
+
+    pub const SourceLocation = union(enum) {
+        /// The location of a `token_url` Ast node.
+        url_token: TokenSource.Location,
+        /// The location of a `token_string` Ast node.
+        string_token: TokenSource.Location,
+    };
+
+    pub fn init(env: *const Environment) Urls {
+        return .{
+            .start_id = env.next_url_id,
+            .descriptions = .empty,
+        };
+    }
+
+    pub fn deinit(urls: *Urls, allocator: Allocator) void {
+        urls.descriptions.deinit(allocator);
+    }
+
+    fn nextId(urls: *const Urls) ?UrlId.Int {
+        const start_id = urls.start_id orelse return null;
+        const len = std.math.cast(UrlId.Int, urls.descriptions.len) orelse return null;
+        const int = std.math.add(UrlId.Int, start_id, len) catch return null;
+        return int;
+    }
+
+    pub fn commit(urls: *const Urls, env: *Environment) void {
+        assert(urls.start_id == env.next_url_id);
+        env.next_url_id = urls.nextId();
+    }
+
+    pub fn clear(urls: *Urls, env: *const Environment) void {
+        urls.start_id = env.next_url_id;
+        urls.descriptions.clearRetainingCapacity();
+    }
+
+    pub const Iterator = struct {
+        index: usize,
+        urls: *const Urls,
+
+        pub const Item = struct {
+            id: UrlId,
+            desc: Description,
+        };
+
+        pub fn next(it: *Iterator) ?Item {
+            if (it.index == it.urls.descriptions.len) return null;
+            defer it.index += 1;
+
+            const id: UrlId = @enumFromInt(it.urls.start_id.? + it.index);
+            const desc = it.urls.descriptions.get(it.index);
+            return .{ .id = id, .desc = desc };
+        }
+    };
+
+    /// Returns an iterator over all URLs currently stored within `urls`.
+    pub fn iterator(urls: *const Urls) Iterator {
+        return .{ .index = 0, .urls = urls };
+    }
+
+    pub const Managed = struct {
+        unmanaged: *Urls,
+        allocator: Allocator,
+
+        pub fn addUrl(urls: Managed, desc: Description) !UrlId {
+            const int = urls.unmanaged.nextId() orelse return error.OutOfUrls;
+            try urls.unmanaged.descriptions.append(urls.allocator, desc);
+            return @enumFromInt(int);
+        }
+
+        pub fn save(urls: Managed) usize {
+            return urls.unmanaged.descriptions.len;
+        }
+
+        pub fn reset(urls: Managed, previous_state: usize) void {
+            urls.unmanaged.descriptions.shrinkRetainingCapacity(previous_state);
+        }
+    };
+
+    pub fn toManaged(urls: *Urls, allocator: Allocator) Managed {
+        return .{ .unmanaged = urls, .allocator = allocator };
     }
 };
 
@@ -299,13 +400,10 @@ pub fn color(ctx: *Context) ?types.Color {
 // <url> = <url()> | <src()>
 // <url()> = url( <string> <url-modifier>* ) | <url-token>
 // <src()> = src( <string> <url-modifier>* )
-pub fn url(ctx: *Context, recent_urls: zss.Environment.RecentUrls.Managed) !?zss.Environment.UrlId {
+pub fn url(ctx: *Context) ?Urls.SourceLocation {
     const item = ctx.next() orelse return null;
     switch (item.tag) {
-        .token_url => return try recent_urls.addUrl(.{
-            .type = .image,
-            .src_loc = .{ .url_token = ctx.ast.location(item.index) },
-        }),
+        .token_url => return .{ .url_token = ctx.ast.location(item.index) },
         .function => blk: {
             const location = ctx.ast.location(item.index);
             _ = ctx.token_source.mapIdentifier(location, void, &.{
@@ -322,16 +420,19 @@ pub fn url(ctx: *Context, recent_urls: zss.Environment.RecentUrls.Managed) !?zss
                 break :blk;
             }
 
-            return try recent_urls.addUrl(.{
-                .type = .image,
-                .src_loc = .{ .string_token = str },
-            });
+            return .{ .string_token = str };
         },
         else => {},
     }
 
     ctx.reset(item.index);
     return null;
+}
+
+pub fn urlManaged(ctx: *Context, urls: Urls.Managed, @"type": Urls.Type) !?Environment.UrlId {
+    const src_loc = url(ctx) orelse return null;
+    const id = try urls.addUrl(.{ .type = @"type", .src_loc = src_loc });
+    return id;
 }
 
 // Spec: CSS 2.2
@@ -433,10 +534,14 @@ test "value parsers" {
 
             switch (std.meta.ArgsTuple(@TypeOf(parser))) {
                 struct { *Context } => return parser(&ctx),
-                struct { *Context, zss.Environment.RecentUrls.Managed } => {
+                struct { *Context, Urls.Managed } => {
                     var env = Environment.init(allocator);
                     defer env.deinit();
-                    return try parser(&ctx, env.recentUrlsManaged());
+                    var urls = Urls.init(&env);
+                    defer urls.deinit(allocator);
+                    const value = try parser(&ctx, urls.toManaged(allocator));
+                    urls.commit(&env);
+                    return value;
                 },
                 else => |T| @compileError(@typeName(T) ++ " is not a supported argument list for a value parser"),
             }

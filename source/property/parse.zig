@@ -191,15 +191,15 @@ pub fn @"background-color"(ctx: *Context) ?DeclType(.@"background-color") {
     return .{ .background_color = .{ .color = .{ .declared = value } } };
 }
 
-pub fn @"background-image"(ctx: *Context, fba: *Fba, recent_urls: zss.Environment.RecentUrls.Managed) !?DeclType(.@"background-image") {
+pub fn @"background-image"(ctx: *Context, fba: *Fba, urls: zss.values.parse.Urls.Managed) !?DeclType(.@"background-image") {
     const save_point = ctx.enterTopLevelList() orelse return null;
-    const url_save_point = recent_urls.save();
+    const url_save_point = urls.save();
 
     const list = try fba.allocator().create([max_list_len]types.BackgroundImage);
     var list_len: usize = 0;
 
     while (ctx.nextListItem()) |_| {
-        const value = (try values.parse.background.image(ctx, recent_urls)) orelse break;
+        const value = (try values.parse.background.image(ctx, urls)) orelse break;
         ctx.endListItem() orelse break;
         if (list_len == max_list_len) break;
         list[list_len] = value;
@@ -209,7 +209,7 @@ pub fn @"background-image"(ctx: *Context, fba: *Fba, recent_urls: zss.Environmen
     }
 
     ctx.resetState(save_point);
-    recent_urls.reset(url_save_point);
+    urls.reset(url_save_point);
     return null;
 }
 

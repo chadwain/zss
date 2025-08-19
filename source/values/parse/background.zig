@@ -6,16 +6,17 @@ const TokenSource = zss.syntax.TokenSource;
 const values = zss.values;
 const types = values.types;
 const Context = values.parse.Context;
+const Urls = values.parse.Urls;
 
 // Spec: CSS Backgrounds and Borders Level 3
 // Syntax: <image> | none
 //         <image> = <url> | <gradient>
 //         <gradient> = <linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()> | <repeating-radial-gradient()>
-pub fn image(ctx: *Context, recent_urls: zss.Environment.RecentUrls.Managed) !?types.BackgroundImage {
+pub fn image(ctx: *Context, urls: Urls.Managed) !?types.BackgroundImage {
     // TODO: parse gradient functions
     if (values.parse.keyword(ctx, types.BackgroundImage, &.{.{ "none", .none }})) |value| {
         return value;
-    } else if (try values.parse.url(ctx, recent_urls)) |value| {
+    } else if (try values.parse.urlManaged(ctx, urls, .background_image)) |value| {
         return .{ .url = value };
     } else {
         return null;

@@ -172,18 +172,17 @@ fn createTest(
         var seq = ast.children(0);
         if (seq.nextSkipSpaces(ast)) |zml_element| {
             const cascade_source = try t.env.cascade_tree.createSource(t.env.allocator);
-            const root_element = try zss.zml.createDocument(&t.element_tree, allocator, &t.env, ast, zml_element, token_source, cascade_source);
+            const document = try zss.zml.createDocument(allocator, &t.element_tree, allocator, &t.env, ast, zml_element, token_source, cascade_source);
+            try loader.loadResourcesFromUrls(arena, &t.env, &document, token_source);
 
             const cascade_node = try t.env.cascade_tree.createNode(t.env.allocator, .{ .leaf = cascade_source });
             try t.env.cascade_tree.author.append(t.env.allocator, cascade_node);
 
-            break :blk root_element;
+            break :blk document.root_element;
         } else {
             break :blk Element.null_element;
         }
     };
-
-    try loader.loadResourcesFromUrls(arena, &t.env, token_source);
 
     if (!t.root_element.eqlNull() and t.element_tree.category(t.root_element) == .normal) {
         const block = try t.env.decls.openBlock(t.env.allocator);
@@ -222,17 +221,23 @@ const ResourceLoader = struct {
         loader.res_dir.close();
     }
 
-    fn loadResourcesFromUrls(loader: *ResourceLoader, arena: *ArenaAllocator, env: *zss.Environment, token_source: TokenSource) !void {
+    fn loadResourcesFromUrls(
+        loader: *ResourceLoader,
+        arena: *ArenaAllocator,
+        env: *zss.Environment,
+        document: *const zss.zml.Document,
+        token_source: TokenSource,
+    ) !void {
         const allocator = arena.allocator();
-        var url_iterator = env.recent_urls.iterator();
-        while (url_iterator.next()) |url| {
-            const string = switch (url.desc.src_loc) {
+        for (0..document.urls.len) |index| {
+            const url = document.urls.get(index);
+            const string = switch (url.src_loc) {
                 .url_token => |location| try token_source.copyUrl(location, allocator),
                 .string_token => |location| try token_source.copyString(location, allocator),
             };
 
-            switch (url.desc.type) {
-                .image => {
+            switch (url.type) {
+                .background_image => {
                     const gop = try loader.seen_images.getOrPut(allocator, string);
                     if (gop.found_existing) {
                         try env.linkUrlToImage(url.id, gop.value_ptr.*);
