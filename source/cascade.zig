@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const zss = @import("zss.zig");
@@ -82,6 +83,7 @@ pub fn run(env: *Environment, root_element: Element) !void {
     defer temp_arena.deinit();
 
     var lists = DeclBlockLists{};
+    var stack = zss.Stack([]const *const Tree.Node){};
     const order: [6]struct { Origin, Importance } = .{
         .{ .user_agent, .important },
         .{ .user, .important },
@@ -92,7 +94,7 @@ pub fn run(env: *Environment, root_element: Element) !void {
     };
     for (order) |item| {
         const origin, const importance = item;
-        try iterateSources(&env.cascade_tree, &env.element_tree, root_element, &lists, &temp_arena, origin, importance);
+        try traverseTree(&env.cascade_tree, &env.element_tree, root_element, &lists, &stack, &temp_arena, origin, importance);
     }
 
     var element_tree_arena = env.element_tree.arena.promote(env.allocator);
@@ -125,11 +127,12 @@ const DeclBlockLists = struct {
     }
 };
 
-fn iterateSources(
+fn traverseTree(
     tree: *const Tree,
     element_tree: *const ElementTree,
     root_element: Element,
     lists: *DeclBlockLists,
+    stack: *zss.Stack([]const *const Tree.Node),
     arena: *std.heap.ArenaAllocator,
     origin: Origin,
     importance: Importance,
@@ -139,48 +142,68 @@ fn iterateSources(
         .author => tree.author,
         .user_agent => tree.user_agent,
     };
-    for (node_list.items) |node| {
-        const source: *const Source = switch (node.*) {
-            .leaf => |source| source,
-            .inner => std.debug.panic("TODO: Cascade tree inner nodes", .{}),
-        };
+    const allocator = arena.allocator();
 
-        {
-            // TODO: Style attrs can only appear in sources with author origin
-            const style_attrs = switch (importance) {
-                .important => source.style_attrs_important,
-                .normal => source.style_attrs_normal,
-            };
-            var it = style_attrs.iterator();
-            while (it.next()) |entry| {
-                try lists.insert(arena, entry.key_ptr.*, entry.value_ptr.*, importance);
-            }
+    assert(stack.top == null);
+    stack.top = node_list.items;
+    while (stack.top) |*top| {
+        if (top.*.len == 0) {
+            _ = stack.pop();
+            continue;
         }
+        const node: *const Tree.Node = top.*[0];
+        top.* = top.*[1..];
+        switch (node.*) {
+            .inner => |inner| try stack.push(allocator, inner.items),
+            .leaf => |source| try evaluateSource(source, element_tree, root_element, lists, arena, importance),
+        }
+    }
+}
 
-        const selector_list = switch (importance) {
-            .important => source.selectors_important,
-            .normal => source.selectors_normal,
+fn evaluateSource(
+    source: *const Source,
+    element_tree: *const ElementTree,
+    root_element: Element,
+    lists: *DeclBlockLists,
+    arena: *std.heap.ArenaAllocator,
+    importance: Importance,
+) !void {
+    {
+        // TODO: Style attrs can only appear in sources with author origin
+        const style_attrs = switch (importance) {
+            .important => source.style_attrs_important,
+            .normal => source.style_attrs_normal,
         };
-        const allocator = arena.allocator();
-        for (selector_list.items(.selector), selector_list.items(.block)) |selector, block| {
-            var stack = zss.Stack(Element).init(root_element);
-            while (stack.top) |*top| {
-                if (top.eqlNull()) {
-                    _ = stack.pop();
-                    continue;
-                }
-                const element = top.*;
-                top.* = element_tree.nextSibling(element);
-                switch (element_tree.category(element)) {
-                    .text => continue,
-                    .normal => {},
-                }
-                const first_child = element_tree.firstChild(element);
-                if (!first_child.eqlNull()) try stack.push(allocator, first_child);
+        var it = style_attrs.iterator();
+        while (it.next()) |entry| {
+            try lists.insert(arena, entry.key_ptr.*, entry.value_ptr.*, importance);
+        }
+    }
 
-                if (zss.selectors.matchElement(source.selector_data.items, selector, element_tree, element)) {
-                    try lists.insert(arena, element, block, importance);
-                }
+    const selector_list = switch (importance) {
+        .important => source.selectors_important,
+        .normal => source.selectors_normal,
+    };
+    const allocator = arena.allocator();
+
+    for (selector_list.items(.selector), selector_list.items(.block)) |selector, block| {
+        var stack = zss.Stack(Element).init(root_element);
+        while (stack.top) |*top| {
+            if (top.eqlNull()) {
+                _ = stack.pop();
+                continue;
+            }
+            const element = top.*;
+            top.* = element_tree.nextSibling(element);
+            switch (element_tree.category(element)) {
+                .text => continue,
+                .normal => {},
+            }
+            const first_child = element_tree.firstChild(element);
+            if (!first_child.eqlNull()) try stack.push(allocator, first_child);
+
+            if (zss.selectors.matchElement(source.selector_data.items, selector, element_tree, element)) {
+                try lists.insert(arena, element, block, importance);
             }
         }
     }
