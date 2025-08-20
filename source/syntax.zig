@@ -433,6 +433,16 @@ pub const Ast = struct {
         return .{ .start = current, .end = end };
     }
 
+    /// Given that `location` is the location of a <ident-token>, return a reference to its bytes
+    pub fn identifierBytes(ast: Ast, token_source: TokenSource, ident: Size) []const u8 {
+        return token_source.identifierBytes(ast.location(ident));
+    }
+
+    /// Given that `location` is the location of a <at-keyword-token>, return a reference to its identifier
+    pub fn atKeywordIdentifierBytes(ast: Ast, token_source: TokenSource, at_rule: Size) []const u8 {
+        return token_source.atKeywordIdentifierBytes(ast.location(at_rule));
+    }
+
     pub const Debug = struct {
         pub fn print(debug: *const Debug, allocator: Allocator, writer: std.io.AnyWriter) !void {
             const ast = @as(*const Ast, @alignCast(@fieldParentPtr("debug", debug))).*;

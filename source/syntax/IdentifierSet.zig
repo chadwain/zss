@@ -1,4 +1,5 @@
 //! Assigns unique indeces to CSS identifiers.
+//! Indeces start from 0 and increase by 1 for every unique identifier.
 
 // TODO: Consider turning this from a set into a map
 
@@ -83,6 +84,40 @@ const AdapterGeneric = struct {
         return key_it.next() == null;
     }
 };
+
+fn getGeneric(set: *const IdentifierSet, key: anytype) ?usize {
+    const adapter = AdapterGeneric{ .set = set };
+    return set.map.getIndexAdapted(key, adapter);
+}
+
+pub fn getFromString(
+    set: *const IdentifierSet,
+    // TODO: Ensure this is an ASCII string
+    string: []const u8,
+) ?usize {
+    const Key = struct {
+        string: []const u8,
+
+        const Iterator = struct {
+            string: []const u8,
+            index: usize,
+
+            fn next(self: *@This()) ?u21 {
+                if (self.index == self.string.len) return null;
+                defer self.index += 1;
+                return self.string[self.index];
+            }
+        };
+
+        fn iterator(self: @This()) Iterator {
+            return .{ .string = self.string, .index = 0 };
+        }
+    };
+
+    assert(syntax.stringIsIdentSequence(string));
+    const key = Key{ .string = string };
+    return set.getGeneric(key);
+}
 
 fn getOrPutGeneric(set: *IdentifierSet, allocator: Allocator, key: anytype) !usize {
     const adapter = AdapterGeneric{ .set = set };

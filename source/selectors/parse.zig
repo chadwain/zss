@@ -23,7 +23,7 @@ pub const Parser = struct {
     env: *Environment,
     source: TokenSource,
     ast: Ast,
-    namespace_prefixes: *const std.StringArrayHashMapUnmanaged(NamespaceId),
+    namespaces: *const Stylesheet.Namespaces,
     default_namespace: NamespaceId,
 
     sequence: Ast.Sequence = undefined,
@@ -42,7 +42,7 @@ pub const Parser = struct {
             .env = env,
             .source = source,
             .ast = ast,
-            .namespace_prefixes = &namespaces.prefixes,
+            .namespaces = namespaces,
             .default_namespace = namespaces.default orelse .any,
 
             .specificities = .init(allocator),
@@ -208,13 +208,13 @@ fn parseTypeSelector(parser: *Parser, code_list: CodeList) !?void {
     const qn = parseQualifiedName(parser) orelse return null;
     const type_selector: selectors.QualifiedName = .{
         .namespace = switch (qn.namespace) {
-            .identifier => |identifier| try resolveNamespace(parser, identifier),
+            .identifier => |identifier| resolveNamespace(parser, identifier),
             .none => .none,
             .any => .any,
             .default => parser.default_namespace,
         },
         .name = switch (qn.name) {
-            .identifier => |identifier| try parser.env.addTypeOrAttributeName(identifier, parser.source),
+            .identifier => |identifier| try parser.env.addTypeOrAttributeName(parser.ast.location(identifier), parser.source),
             .any => .any,
         },
     };
@@ -232,13 +232,13 @@ const QualifiedName = struct {
     name: Name,
 
     const Namespace = union(enum) {
-        identifier: TokenSource.Location,
+        identifier: Ast.Size,
         none,
         any,
         default,
     };
     const Name = union(enum) {
-        identifier: TokenSource.Location,
+        identifier: Ast.Size,
         any,
     };
 };
@@ -261,7 +261,7 @@ fn parseQualifiedName(parser: *Parser) ?QualifiedName {
     const tag, const index = parser.next() orelse return null;
     qn.name = name: {
         switch (tag) {
-            .token_ident => break :name .{ .identifier = parser.ast.location(index) },
+            .token_ident => break :name .{ .identifier = index },
             .token_delim => switch (parser.ast.extra(index).codepoint) {
                 '*' => break :name .any,
                 '|' => {
@@ -284,7 +284,7 @@ fn parseQualifiedName(parser: *Parser) ?QualifiedName {
         if (parser.ast.extra(pipe_index).codepoint == '|') {
             if (parseName(parser)) |name| {
                 qn.namespace = switch (qn.name) {
-                    .identifier => |location| .{ .identifier = location },
+                    .identifier => |name_index| .{ .identifier = name_index },
                     .any => .any,
                 };
                 qn.name = name;
@@ -302,7 +302,7 @@ fn parseQualifiedName(parser: *Parser) ?QualifiedName {
 fn parseName(parser: *Parser) ?QualifiedName.Name {
     const tag, const index = parser.next() orelse return null;
     switch (tag) {
-        .token_ident => return .{ .identifier = parser.ast.location(index) },
+        .token_ident => return .{ .identifier = index },
         .token_delim => if (parser.ast.extra(index).codepoint == '*') return .any,
         else => {},
     }
@@ -310,15 +310,13 @@ fn parseName(parser: *Parser) ?QualifiedName.Name {
     return null;
 }
 
-fn resolveNamespace(parser: *Parser, location: TokenSource.Location) !NamespaceId {
-    // TODO: Don't allocate memory
-    const copy = try parser.source.copyIdentifier(location, parser.specificities.allocator);
-    defer parser.specificities.allocator.free(copy);
-    const id = parser.namespace_prefixes.get(copy) orelse {
+fn resolveNamespace(parser: *Parser, index: Ast.Size) NamespaceId {
+    const bytes = parser.ast.identifierBytes(parser.source, index);
+    const namespace_index = parser.namespaces.indexer.getFromString(bytes) orelse {
         parser.valid = false;
         return undefined;
     };
-    return id;
+    return parser.namespaces.ids.items[namespace_index];
 }
 
 fn parseSubclassSelector(parser: *Parser, code_list: CodeList) !?void {
@@ -377,13 +375,13 @@ fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast
     const qn = parseQualifiedName(parser) orelse return parser.fail();
     const attribute_selector: selectors.QualifiedName = .{
         .namespace = switch (qn.namespace) {
-            .identifier => |identifier| try resolveNamespace(parser, identifier),
+            .identifier => |identifier| resolveNamespace(parser, identifier),
             .none => .none,
             .any => .any,
             .default => .none,
         },
         .name = switch (qn.name) {
-            .identifier => |identifier| try parser.env.addTypeOrAttributeName(identifier, parser.source),
+            .identifier => |identifier| try parser.env.addTypeOrAttributeName(parser.ast.location(identifier), parser.source),
             .any => return parser.fail(),
         },
     };

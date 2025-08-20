@@ -95,6 +95,24 @@ pub const Source = struct {
         return it.next(source) == null;
     }
 
+    /// Given that `location` is the location of a <ident-token>, return a reference to its bytes
+    pub fn identifierBytes(source: Source, location: Location) []const u8 {
+        var it = identTokenIterator(source, location);
+        const start: usize = @intFromEnum(it.location);
+        while (it.next(source)) |_| {}
+        const end: usize = @intFromEnum(it.location);
+        return source.data[start..end];
+    }
+
+    /// Given that `location` is the location of a <at-keyword-token>, return a reference to its identifier
+    pub fn atKeywordIdentifierBytes(source: Source, location: Location) []const u8 {
+        var it = atKeywordTokenIterator(source, location);
+        const start: usize = @intFromEnum(it.location);
+        while (it.next(source)) |_| {}
+        const end: usize = @intFromEnum(it.location);
+        return source.data[start..end];
+    }
+
     /// Given that `location` is the location of a <ident-token>, copy that identifier
     pub fn copyIdentifier(source: Source, location: Location, allocator: Allocator) ![]const u8 {
         var iterator = identTokenIterator(source, location);

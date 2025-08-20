@@ -48,7 +48,7 @@ pub const Namespaces = struct {
     map: std.StringArrayHashMapUnmanaged(void) = .empty,
 
     pub const Id = enum(u8) {
-        /// Represents the null namespace.
+        /// Represents the null namespace, a.k.a. no namespace.
         none = 254,
         /// Not a valid namespace id. It represents a match on any namespace (in e.g. a type selector).
         any = 255,

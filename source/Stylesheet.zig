@@ -1,18 +1,18 @@
+/// The set of namespace prefixes and their corresponding namespace ids.
 namespaces: Namespaces,
+/// URLs found while parsing declaration blocks.
 decl_urls: Urls,
 
 pub const Namespaces = struct {
-    // TODO: consider making an `IdentifierMap` structure for this use case
-
-    /// Maps UTF-8 strings to namespaces.
-    /// Note that namespace prefixes are case-sensitive.
-    prefixes: std.StringArrayHashMapUnmanaged(NamespaceId) = .empty,
+    indexer: IdentifierSet = .{ .case = .sensitive, .max_size = std.math.maxInt(std.meta.Tag(NamespaceId)) },
+    /// Maps namespace prefixes to namespace ids.
+    ids: std.ArrayListUnmanaged(NamespaceId) = .empty,
     /// The default namespace, or `null` if there is no default namespace.
     default: ?NamespaceId = null,
 
     pub fn deinit(namespaces: *Namespaces, allocator: Allocator) void {
-        for (namespaces.prefixes.keys()) |string| allocator.free(string);
-        namespaces.prefixes.deinit(allocator);
+        namespaces.indexer.deinit(allocator);
+        namespaces.ids.deinit(allocator);
     }
 };
 
@@ -24,6 +24,7 @@ const Ast = zss.syntax.Ast;
 const AtRule = zss.syntax.Token.AtRule;
 const Declarations = zss.property.Declarations;
 const Environment = zss.Environment;
+const IdentifierSet = zss.syntax.IdentifierSet;
 const Importance = zss.property.Importance;
 const NamespaceId = Environment.Namespaces.Id;
 const TokenSource = zss.syntax.TokenSource;
@@ -64,26 +65,31 @@ pub fn create(
     var unsorted_selectors = std.MultiArrayList(struct { index: selectors.Size, specificity: Specificity }){};
     defer unsorted_selectors.deinit(allocator);
 
-    std.debug.assert(ast.tag(rule_list) == .rule_list);
+    assert(ast.tag(rule_list) == .rule_list);
     var rule_sequence = ast.children(rule_list);
     while (rule_sequence.nextSkipSpaces(ast)) |index| {
         switch (ast.tag(index)) {
             .at_rule => {
                 const at_rule = ast.extra(index).at_rule orelse {
-                    const copy = try token_source.copyAtKeyword(ast.location(index), allocator);
-                    defer allocator.free(copy);
-                    zss.log.warn("Ignoring unknown at-rule: @{s}", .{copy});
+                    const bytes = ast.atKeywordIdentifierBytes(token_source, index);
+                    zss.log.warn("Ignoring unknown at-rule: @{s}", .{bytes});
                     continue;
                 };
                 atRule(&namespaces, allocator, ast, token_source, env, at_rule, index) catch |err| switch (err) {
                     error.InvalidAtRule => {
+                        // NOTE: This is no longer a valid style sheet.
                         zss.log.warn("Ignoring invalid @{s} at-rule", .{@tagName(at_rule)});
+                        continue;
+                    },
+                    error.UnrecognizedAtRule => {
+                        zss.log.warn("Ignoring unknown at-rule: @{s}", .{@tagName(at_rule)});
+                        continue;
                     },
                     else => |e| return e,
                 };
             },
             .qualified_rule => {
-                // TODO: No handling of invalid style rules
+                // TODO: Handle invalid style rules
 
                 const end_of_prelude = ast.extra(index).index;
                 const selector_sequence: Ast.Sequence = .{ .start = index + 1, .end = end_of_prelude };
@@ -111,6 +117,7 @@ pub fn create(
                         if (!env.decls.hasValues(decl_block, importance)) continue;
 
                         try destination_list.append(env.allocator, .{
+                            // Temporarily store the selector number; after sorting, this is replaced with the selector index.
                             .selector = selector_number,
                             .block = decl_block,
                         });
@@ -184,7 +191,7 @@ fn atRule(
     //       Example 1: @namespace rules must come after @charset and @import
     //       Example 2: @import and @namespace must come before any other non-ignored at-rules and style rules
     switch (at_rule) {
-        .import => std.debug.panic("TODO: @import rules", .{}),
+        .import => return error.UnrecognizedAtRule,
         .namespace => {
             var sequence = ast.children(at_rule_index);
             const prefix_opt: ?Ast.Size = prefix: {
@@ -207,25 +214,32 @@ fn atRule(
 
             const id = try env.addNamespace(ast, token_source, namespace);
             if (prefix_opt) |prefix| {
-                try namespaces.prefixes.ensureUnusedCapacity(allocator, 1);
-                const prefix_str = try token_source.copyIdentifier(ast.location(prefix), allocator);
-                const gop_result = namespaces.prefixes.getOrPutAssumeCapacity(prefix_str);
-                if (gop_result.found_existing) {
-                    allocator.free(prefix_str);
+                const it = token_source.identTokenIterator(ast.location(prefix));
+                const index = try namespaces.indexer.getOrPutFromSource(allocator, token_source, it);
+                if (index == namespaces.ids.items.len) {
+                    try namespaces.ids.append(allocator, id);
+                } else {
+                    // NOTE: Later @namespace rules override previous ones.
+                    namespaces.ids.items[index] = id;
                 }
-                gop_result.value_ptr.* = id;
             } else {
-                // TODO: Need to check if there is already a default?
+                // NOTE: Later @namespace rules override previous ones.
                 namespaces.default = id;
             }
         },
     }
 }
 
-test "create stylesheet" {
+test "create a stylesheet" {
     const allocator = std.testing.allocator;
 
-    const input = "test {display: block}";
+    const input =
+        \\@charset "utf-8";
+        \\@import "import.css";
+        \\@namespace test "example.com";
+        \\@namespace test "foo.bar";
+        \\test {display: block}
+    ;
     const token_source = try zss.syntax.TokenSource.init(input);
 
     var ast = blk: {

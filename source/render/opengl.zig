@@ -227,8 +227,8 @@ pub const Renderer = struct {
         zgl.texParameter(.@"2d", .swizzle_a, .red);
         zgl.textureImage2D(.@"2d", 0, .red, buffer_width, buffer_rows, .red, .unsigned_byte, null);
 
-        var exists = [1]bool{false} ** max_glyphs;
-        var metrics = [1]GlyphMetrics{undefined} ** max_glyphs;
+        var exists: [max_glyphs]bool = @splat(false);
+        var metrics: [max_glyphs]GlyphMetrics = undefined;
         for (0..max_glyphs) |glyph_index| {
             if (hb.FT_Load_Glyph(face, @intCast(glyph_index), 0) != hb.FT_Err_Ok) return error.LoadGlyphFail;
             const glyph = face.*.glyph;
@@ -458,7 +458,7 @@ pub const Renderer = struct {
     }
 
     fn addQuad(renderer: *Renderer, vertices: [4][2]Unit, color: Color) !void {
-        return renderer.addQuadFull(vertices, color, .{[2]f32{ 0.0, 0.0 }} ** 4);
+        return renderer.addQuadFull(vertices, color, @splat([2]f32{ 0.0, 0.0 }));
     }
 
     fn zssRectToVertices(rect: Rect) [4][2]Unit {
