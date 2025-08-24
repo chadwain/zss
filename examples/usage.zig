@@ -30,7 +30,8 @@ pub fn main() !void {
     var stylesheet = try zss.Stylesheet.create(allocator, ast, 0, stylesheet_source, &env);
     defer stylesheet.deinit(allocator);
 
-    try env.cascade_tree.author.append(env.allocator, try env.cascade_tree.createNode(env.allocator, .{ .leaf = &stylesheet.cascade_source }));
+    const cascade_node: zss.cascade.Node = .{ .leaf = &stylesheet.cascade_source };
+    try env.cascade_list.author.append(env.allocator, &cascade_node);
     try zss.cascade.run(&env, root);
 
     var fonts = zss.Fonts.init();

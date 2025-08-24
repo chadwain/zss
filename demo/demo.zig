@@ -172,8 +172,8 @@ pub fn main() !u8 {
     var cascade_source = try createCascadeSource(allocator, &env, elements, zig_logo_handle);
     defer cascade_source.deinit(allocator);
 
-    const cascade_node = try env.cascade_tree.createNode(env.allocator, .{ .leaf = &cascade_source });
-    try env.cascade_tree.author.append(env.allocator, cascade_node);
+    const cascade_node = zss.cascade.Node{ .leaf = &cascade_source };
+    try env.cascade_list.author.append(env.allocator, &cascade_node);
     try zss.cascade.run(&env, elements.get(.root));
 
     var box_tree = blk: {

@@ -164,26 +164,32 @@ fn createTest(
 
         .root_element = undefined,
         .env = .init(allocator),
+
+        .document = undefined,
+        .ua_cascade_source = undefined,
+        .author_cascade_node = undefined,
+        .ua_cascade_node = undefined,
     };
 
-    t.root_element = blk: {
+    blk: {
         assert(ast.tag(0) == .zml_document);
         var seq = ast.children(0);
-        if (seq.nextSkipSpaces(ast)) |zml_element| {
-            const document = try allocator.create(zss.zml.Document);
-            document.* = try zss.zml.createDocument(allocator, &t.env, ast, zml_element, token_source);
-            try loader.loadResourcesFromUrls(arena, &t.env, document, token_source);
+        const zml_element = seq.nextSkipSpaces(ast) orelse {
+            t.root_element = Element.null_element;
+            break :blk;
+        };
+        t.document = try zss.zml.createDocument(allocator, &t.env, ast, zml_element, token_source);
+        t.root_element = t.document.root_element;
+        try loader.loadResourcesFromUrls(arena, &t.env, &t.document, token_source);
 
-            const cascade_node = try t.env.cascade_tree.createNode(t.env.allocator, .{ .leaf = &document.cascade_source });
-            try t.env.cascade_tree.author.append(t.env.allocator, cascade_node);
+        t.author_cascade_node = .{ .leaf = &t.document.cascade_source };
+        try t.env.cascade_list.author.append(t.env.allocator, &t.author_cascade_node);
 
-            break :blk document.root_element;
-        } else {
-            break :blk Element.null_element;
+        switch (t.env.element_tree.category(t.root_element)) {
+            .normal => {},
+            .text => break :blk,
         }
-    };
 
-    if (!t.root_element.eqlNull() and t.env.element_tree.category(t.root_element) == .normal) {
         const block = try t.env.decls.openBlock(t.env.allocator);
         const DeclaredValues = zss.property.groups.Tag.DeclaredValues;
         try t.env.decls.addValues(t.env.allocator, .normal, .{ .color = DeclaredValues(.color){
@@ -191,12 +197,10 @@ fn createTest(
         } });
         t.env.decls.closeBlock();
 
-        const cascade_source = try allocator.create(zss.cascade.Source);
-        cascade_source.* = .{};
-        try cascade_source.style_attrs_normal.putNoClobber(t.env.allocator, t.root_element, block);
-
-        const cascade_node = try t.env.cascade_tree.createNode(t.env.allocator, .{ .leaf = cascade_source });
-        try t.env.cascade_tree.user_agent.append(t.env.allocator, cascade_node);
+        t.ua_cascade_source = .{};
+        try t.ua_cascade_source.style_attrs_normal.putNoClobber(allocator, t.root_element, block);
+        t.ua_cascade_node = .{ .leaf = &t.ua_cascade_source };
+        try t.env.cascade_list.user_agent.append(t.env.allocator, &t.ua_cascade_node);
     }
 
     try zss.cascade.run(&t.env, t.root_element);

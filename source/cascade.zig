@@ -10,49 +10,60 @@ const Element = ElementTree.Element;
 const Environment = zss.Environment;
 const Importance = zss.property.Importance;
 
-pub const Tree = struct {
-    user: std.ArrayListUnmanaged(*Node) = .empty,
-    author: std.ArrayListUnmanaged(*Node) = .empty,
-    user_agent: std.ArrayListUnmanaged(*Node) = .empty,
+/// The list of all cascade sources, grouped by their cascade origin.
+///
+/// You can affect the CSS cascade by inserting nodes into/removing nodes from the `user`, `author`, or `user_agent` lists.
+/// Each list is independent of each other.
+/// Nodes earlier in each list are considered to have a higher cascade order than later nodes in the same list.
+///
+/// During the cascade, each node is visited in the following way:
+/// - If the node is a leaf node, its cascade source is applied.
+/// - If the node is an inner node, each of its child nodes are visited in order, recursively.
+pub const List = struct {
+    user: std.ArrayListUnmanaged(*const Node) = .empty,
+    author: std.ArrayListUnmanaged(*const Node) = .empty,
+    user_agent: std.ArrayListUnmanaged(*const Node) = .empty,
 
-    nodes: std.ArrayListUnmanaged(*Node) = .empty,
-
-    pub const Node = union(enum) {
-        leaf: *const Source,
-        inner: std.ArrayListUnmanaged(*Node),
-    };
-
-    pub fn deinit(tree: *Tree, allocator: Allocator) void {
-        tree.user.deinit(allocator);
-        tree.author.deinit(allocator);
-        tree.user_agent.deinit(allocator);
-        for (tree.nodes.items) |node| {
-            switch (node.*) {
-                .leaf => {},
-                .inner => |*list| list.deinit(allocator),
-            }
-            allocator.destroy(node);
-        }
-        tree.nodes.deinit(allocator);
-    }
-
-    pub fn createNode(tree: *Tree, allocator: Allocator, value: Node) !*Node {
-        try tree.nodes.ensureUnusedCapacity(allocator, 1);
-        const node = try allocator.create(Node);
-        node.* = value;
-        tree.nodes.appendAssumeCapacity(node);
-        return node;
+    pub fn deinit(list: *List, allocator: Allocator) void {
+        list.user.deinit(allocator);
+        list.author.deinit(allocator);
+        list.user_agent.deinit(allocator);
     }
 };
 
 pub const Origin = enum { user, author, user_agent };
 
+pub const Node = union(enum) {
+    leaf: *const Source,
+    inner: []const *const Node,
+};
+
+/// Contains the data necessary for a document to participate in the CSS cascade.
+/// Every document that contains CSS style information should produce one of these.
+///
+/// During the cascade (if this cascade source participates in it), this cascade source will get applied.
+/// Applying a cascade source means to assign all of its style information to the appropriate elements in the element tree.
 pub const Source = struct {
+    /// Pairs of elements and important declaration blocks.
+    /// These declaration blocks must be the results of parsing [style attributes](https://www.w3.org/TR/css-style-attr/),
+    /// or some equivalent mechanism by which the document applies style information directly to a specific element.
     style_attrs_important: std.AutoHashMapUnmanaged(Element, Block) = .empty,
+    /// Pairs of elements and normal declaration blocks.
+    /// These declaration blocks must be the results of parsing [style attributes](https://www.w3.org/TR/css-style-attr/),
+    /// or some equivalent mechanism by which the document applies style information directly to a specific element.
     style_attrs_normal: std.AutoHashMapUnmanaged(Element, Block) = .empty,
+    /// Pairs of complex selectors and important declaration blocks.
+    /// This list must be sorted such that selectors with higher cascade order appear earlier.
     selectors_important: std.MultiArrayList(SelectorBlock) = .empty,
+    /// Pairs of complex selectors and normal declaration blocks.
+    /// This list must be sorted such that selectors with higher cascade order appear earlier.
     selectors_normal: std.MultiArrayList(SelectorBlock) = .empty,
     selector_data: std.ArrayListUnmanaged(selectors.Code) = .empty,
+
+    pub const SelectorBlock = struct {
+        selector: selectors.Size,
+        block: Block,
+    };
 
     pub fn deinit(source: *Source, allocator: Allocator) void {
         source.style_attrs_important.deinit(allocator);
@@ -63,17 +74,13 @@ pub const Source = struct {
     }
 };
 
-pub const SelectorBlock = struct {
-    selector: selectors.Size,
-    block: Block,
-};
-
+/// Runs the CSS cascade.
 pub fn run(env: *Environment, root_element: Element) !void {
     var temp_arena = std.heap.ArenaAllocator.init(env.allocator);
     defer temp_arena.deinit();
 
-    var lists = DeclBlockLists{};
-    var stack = zss.Stack([]const *const Tree.Node){};
+    var block_lists = DeclBlockLists{};
+    var stack = zss.Stack([]const *const Node){};
     const order: [6]struct { Origin, Importance } = .{
         .{ .user_agent, .important },
         .{ .user, .important },
@@ -84,12 +91,12 @@ pub fn run(env: *Environment, root_element: Element) !void {
     };
     for (order) |item| {
         const origin, const importance = item;
-        try traverseTree(&env.cascade_tree, &env.element_tree, root_element, &lists, &stack, &temp_arena, origin, importance);
+        try traverseList(&env.cascade_list, &env.element_tree, root_element, &block_lists, &stack, &temp_arena, origin, importance);
     }
 
     var element_tree_arena = env.element_tree.arena.promote(env.allocator);
     defer env.element_tree.arena = element_tree_arena.state;
-    var element_iterator = lists.map.iterator();
+    var element_iterator = block_lists.map.iterator();
     while (element_iterator.next()) |entry| {
         const element = entry.key_ptr.*;
         const cascaded_values = env.element_tree.cascadedValuesPtr(element);
@@ -117,20 +124,20 @@ const DeclBlockLists = struct {
     }
 };
 
-fn traverseTree(
-    tree: *const Tree,
+fn traverseList(
+    list: *const List,
     element_tree: *const ElementTree,
     root_element: Element,
-    lists: *DeclBlockLists,
-    stack: *zss.Stack([]const *const Tree.Node),
+    block_lists: *DeclBlockLists,
+    stack: *zss.Stack([]const *const Node),
     arena: *std.heap.ArenaAllocator,
     origin: Origin,
     importance: Importance,
 ) !void {
     const node_list = switch (origin) {
-        .user => tree.user,
-        .author => tree.author,
-        .user_agent => tree.user_agent,
+        .user => list.user,
+        .author => list.author,
+        .user_agent => list.user_agent,
     };
     const allocator = arena.allocator();
 
@@ -141,20 +148,20 @@ fn traverseTree(
             _ = stack.pop();
             continue;
         }
-        const node: *const Tree.Node = top.*[0];
+        const node: *const Node = top.*[0];
         top.* = top.*[1..];
         switch (node.*) {
-            .inner => |inner| try stack.push(allocator, inner.items),
-            .leaf => |source| try evaluateSource(source, element_tree, root_element, lists, arena, importance),
+            .inner => |inner| try stack.push(allocator, inner),
+            .leaf => |source| try applySource(source, element_tree, root_element, block_lists, arena, importance),
         }
     }
 }
 
-fn evaluateSource(
+fn applySource(
     source: *const Source,
     element_tree: *const ElementTree,
     root_element: Element,
-    lists: *DeclBlockLists,
+    block_lists: *DeclBlockLists,
     arena: *std.heap.ArenaAllocator,
     importance: Importance,
 ) !void {
@@ -166,7 +173,7 @@ fn evaluateSource(
         };
         var it = style_attrs.iterator();
         while (it.next()) |entry| {
-            try lists.insert(arena, entry.key_ptr.*, entry.value_ptr.*, importance);
+            try block_lists.insert(arena, entry.key_ptr.*, entry.value_ptr.*, importance);
         }
     }
 
@@ -193,7 +200,7 @@ fn evaluateSource(
             if (!first_child.eqlNull()) try stack.push(allocator, first_child);
 
             if (zss.selectors.matchElement(source.selector_data.items, selector, element_tree, element)) {
-                try lists.insert(arena, element, block, importance);
+                try block_lists.insert(arena, element, block, importance);
             }
         }
     }

@@ -70,7 +70,7 @@ pub fn createDocument(
     allocator: Allocator,
     env: *Environment,
     ast: Ast,
-    root_ast_index: Ast.Size,
+    root_ast_index: Ast.Size, // TODO: This should be the index of a zml_document node
     token_source: TokenSource,
 ) !Document {
     var document: Document = .{
@@ -78,10 +78,7 @@ pub fn createDocument(
         .urls = .empty,
         .cascade_source = .{},
     };
-    errdefer {
-        document.urls.deinit(allocator);
-        document.cascade_source.deinit(allocator);
-    }
+    errdefer document.deinit(allocator);
 
     var stack = Stack(struct {
         sequence: Ast.Sequence,
@@ -262,8 +259,8 @@ test createDocument {
     var document = try createDocument(allocator, &env, ast, 1, token_source);
     defer document.deinit(allocator);
 
-    const cascade_node = try env.cascade_tree.createNode(env.allocator, .{ .leaf = &document.cascade_source });
-    try env.cascade_tree.author.append(env.allocator, cascade_node);
+    const cascade_node = zss.cascade.Node{ .leaf = &document.cascade_source };
+    try env.cascade_list.author.append(env.allocator, &cascade_node);
     try cascade.run(&env, document.root_element);
 
     const types = zss.values.types;

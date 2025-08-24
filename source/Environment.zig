@@ -22,7 +22,7 @@ type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value, .case 
 id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensitive },
 namespaces: Namespaces = .{},
 decls: Declarations = .{},
-cascade_tree: cascade.Tree = .{},
+cascade_list: cascade.List = .{},
 element_tree: zss.ElementTree = .init,
 next_url_id: ?UrlId.Int = 0,
 urls_to_images: std.AutoArrayHashMapUnmanaged(UrlId, Images.Handle) = .empty,
@@ -37,7 +37,7 @@ pub fn deinit(env: *Environment) void {
     env.id_or_class_names.deinit(env.allocator);
     env.namespaces.deinit(env.allocator);
     env.decls.deinit(env.allocator);
-    env.cascade_tree.deinit(env.allocator);
+    env.cascade_list.deinit(env.allocator);
     env.element_tree.deinit(env.allocator);
     env.urls_to_images.deinit(env.allocator);
     env.images.deinit(env.allocator);
@@ -148,6 +148,13 @@ pub const UrlId = enum(u16) {
 
     pub const Int = std.meta.Tag(@This());
 };
+
+/// Create a new URL value.
+pub fn createUrl(env: *Environment) !UrlId {
+    const int = if (env.next_url_id) |*int| int else return error.OutOfUrls;
+    defer env.next_url_id = std.math.add(UrlId.Int, int.*, 1) catch null;
+    return int.*;
+}
 
 pub fn linkUrlToImage(env: *Environment, url: UrlId, image: Images.Handle) !void {
     try env.urls_to_images.put(env.allocator, url, image);
