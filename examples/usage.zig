@@ -6,13 +6,10 @@ pub fn main() !void {
     defer std.debug.assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
-    var env = zss.Environment.init(allocator);
-    defer env.deinit();
-
     const stylesheet_text =
         \\@namespace hello "world";
         \\* {
-        \\  display: none;
+        \\  display: block;
         \\}
     ;
     const stylesheet_source = try zss.syntax.TokenSource.init(stylesheet_text);
@@ -24,14 +21,16 @@ pub fn main() !void {
     };
     defer ast.deinit(allocator);
 
-    const cascade_source = try env.cascade_tree.createSource(env.allocator);
-
-    var stylesheet = try zss.Stylesheet.create(allocator, ast, 0, stylesheet_source, &env, cascade_source);
-    defer stylesheet.deinit(allocator);
+    var env = zss.Environment.init(allocator);
+    defer env.deinit();
 
     const root = try env.element_tree.allocateElement(env.allocator);
     env.element_tree.initElement(root, .normal, .orphan);
-    try env.cascade_tree.author.append(env.allocator, try env.cascade_tree.createNode(env.allocator, .{ .leaf = cascade_source }));
+
+    var stylesheet = try zss.Stylesheet.create(allocator, ast, 0, stylesheet_source, &env);
+    defer stylesheet.deinit(allocator);
+
+    try env.cascade_tree.author.append(env.allocator, try env.cascade_tree.createNode(env.allocator, .{ .leaf = &stylesheet.cascade_source }));
     try zss.cascade.run(&env, root);
 
     var fonts = zss.Fonts.init();

@@ -2,6 +2,7 @@
 namespaces: Namespaces,
 /// URLs found while parsing declaration blocks.
 decl_urls: Urls,
+cascade_source: cascade.Source,
 
 pub const Namespaces = struct {
     indexer: IdentifierSet = .{ .case = .sensitive, .max_size = std.math.maxInt(std.meta.Tag(NamespaceId)) },
@@ -41,6 +42,7 @@ const Allocator = std.mem.Allocator;
 pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
     stylesheet.namespaces.deinit(allocator);
     stylesheet.decl_urls.deinit(allocator);
+    stylesheet.cascade_source.deinit(allocator);
 }
 
 /// Create a `Stylesheet` from an Ast `rule_list` node.
@@ -51,15 +53,15 @@ pub fn create(
     rule_list: Ast.Size,
     token_source: TokenSource,
     env: *Environment,
-    cascade_source: *cascade.Source,
 ) !Stylesheet {
-    var namespaces = Namespaces{};
-    errdefer namespaces.deinit(allocator);
+    var stylesheet = Stylesheet{
+        .namespaces = .{},
+        .decl_urls = .init(env),
+        .cascade_source = .{},
+    };
+    errdefer stylesheet.deinit(allocator);
 
-    var decl_urls = Urls.init(env);
-    errdefer decl_urls.deinit(allocator);
-
-    var selector_parser = selectors.Parser.init(env, allocator, token_source, ast, &namespaces);
+    var selector_parser = selectors.Parser.init(env, allocator, token_source, ast, &stylesheet.namespaces);
     defer selector_parser.deinit();
 
     var unsorted_selectors = std.MultiArrayList(struct { index: selectors.Size, specificity: Specificity }){};
@@ -75,7 +77,7 @@ pub fn create(
                     zss.log.warn("Ignoring unknown at-rule: @{s}", .{bytes});
                     continue;
                 };
-                atRule(&namespaces, allocator, ast, token_source, env, at_rule, index) catch |err| switch (err) {
+                atRule(&stylesheet.namespaces, allocator, ast, token_source, env, at_rule, index) catch |err| switch (err) {
                     error.InvalidAtRule => {
                         // NOTE: This is no longer a valid style sheet.
                         zss.log.warn("Ignoring invalid @{s} at-rule", .{@tagName(at_rule)});
@@ -93,7 +95,7 @@ pub fn create(
 
                 const end_of_prelude = ast.extra(index).index;
                 const selector_sequence: Ast.Sequence = .{ .start = index + 1, .end = end_of_prelude };
-                const selector_code_list = selectors.CodeList{ .list = &cascade_source.selector_data, .allocator = env.allocator };
+                const selector_code_list = selectors.CodeList{ .list = &stylesheet.cascade_source.selector_data, .allocator = env.allocator };
                 const first_complex_selector = selector_code_list.len();
                 selector_parser.parseComplexSelectorList(selector_code_list, selector_sequence) catch |err| switch (err) {
                     error.ParseError => continue,
@@ -102,7 +104,7 @@ pub fn create(
 
                 const last_declaration = ast.extra(end_of_prelude).index;
                 var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
-                const decl_block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration, decl_urls.toManaged(allocator));
+                const decl_block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration, stylesheet.decl_urls.toManaged(allocator));
 
                 var index_of_complex_selector = first_complex_selector;
                 for (selector_parser.specificities.items) |specificity| {
@@ -111,8 +113,8 @@ pub fn create(
 
                     for ([_]Importance{ .important, .normal }) |importance| {
                         const destination_list = switch (importance) {
-                            .important => &cascade_source.selectors_important,
-                            .normal => &cascade_source.selectors_normal,
+                            .important => &stylesheet.cascade_source.selectors_important,
+                            .normal => &stylesheet.cascade_source.selectors_normal,
                         };
                         if (!env.decls.hasValues(decl_block, importance)) continue;
 
@@ -131,15 +133,15 @@ pub fn create(
         }
     }
 
-    decl_urls.commit(env);
+    stylesheet.decl_urls.commit(env);
 
     const unsorted_selectors_slice = unsorted_selectors.slice();
 
     // Sort the selectors such that items with a higher cascade order appear earlier in each list.
     for ([_]Importance{ .important, .normal }) |importance| {
         const list = switch (importance) {
-            .important => &cascade_source.selectors_important,
-            .normal => &cascade_source.selectors_normal,
+            .important => &stylesheet.cascade_source.selectors_important,
+            .normal => &stylesheet.cascade_source.selectors_normal,
         };
         const SortContext = struct {
             selector_number: []const selectors.Size,
@@ -171,10 +173,7 @@ pub fn create(
         }
     }
 
-    return .{
-        .namespaces = namespaces,
-        .decl_urls = decl_urls,
-    };
+    return stylesheet;
 }
 
 fn atRule(
@@ -252,8 +251,6 @@ test "create a stylesheet" {
     var env = Environment.init(allocator);
     defer env.deinit();
 
-    const cascade_source = try env.cascade_tree.createSource(env.allocator);
-
-    var stylesheet = try create(allocator, ast, 0, token_source, &env, cascade_source);
+    var stylesheet = try create(allocator, ast, 0, token_source, &env);
     defer stylesheet.deinit(allocator);
 }

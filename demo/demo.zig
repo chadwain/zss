@@ -167,7 +167,14 @@ pub fn main() !u8 {
     defer zig_logo_data.deinit();
     const zig_logo_handle = try env.addImage(zig_logo_image);
 
-    const root_element = try createElements(&env, file_path, file_contents.items, zig_logo_handle);
+    const elements = try createElements(&env, file_path, file_contents.items);
+
+    var cascade_source = try createCascadeSource(allocator, &env, elements, zig_logo_handle);
+    defer cascade_source.deinit(allocator);
+
+    const cascade_node = try env.cascade_tree.createNode(env.allocator, .{ .leaf = &cascade_source });
+    try env.cascade_tree.author.append(env.allocator, cascade_node);
+    try zss.cascade.run(&env, elements.get(.root));
 
     var box_tree = blk: {
         var layout = zss.Layout.init(&env, .null_element, allocator, 0, 0, &fonts);
@@ -191,7 +198,7 @@ pub fn main() !u8 {
         .max_scroll = undefined,
 
         .allocator = allocator,
-        .root_element = root_element,
+        .root_element = elements.get(.root),
         .env = &env,
         .fonts = &fonts,
 
@@ -341,8 +348,7 @@ fn createElements(
     env: *zss.Environment,
     file_name: []const u8,
     file_contents: []const u8,
-    footer_image_handle: zss.Environment.Images.Handle,
-) !zss.ElementTree.Element {
+) !std.EnumArray(Elements, zss.ElementTree.Element) {
     const element_enum_values = comptime std.enums.values(Elements);
     const tree_elements = blk: {
         var tree_elements: [element_enum_values.len]zss.ElementTree.Element = undefined;
@@ -367,24 +373,17 @@ fn createElements(
     env.element_tree.setText(tree_elements.get(.title_text), file_name);
     env.element_tree.setText(tree_elements.get(.body_text), file_contents);
 
-    const cascade_source = try createCascadeSource(env, tree_elements, footer_image_handle);
-    const cascade_node = try env.cascade_tree.createNode(env.allocator, .{ .leaf = cascade_source });
-    try env.cascade_tree.author.append(env.allocator, cascade_node);
-    try zss.cascade.run(env, tree_elements.get(.root));
-
-    return tree_elements.get(.root);
+    return tree_elements;
 }
 
-const ElementStyleDecls = std.EnumArray(Elements, ?zss.property.Declarations.Block);
-
 fn createCascadeSource(
+    allocator: Allocator,
     env: *zss.Environment,
     elements: std.EnumArray(Elements, zss.ElementTree.Element),
     footer_image_handle: zss.Environment.Images.Handle,
-) !*const zss.cascade.Source {
-    const decls = &env.decls;
-    const allocator = env.allocator;
-    const cascade_source = try env.cascade_tree.createSource(env.allocator);
+) !zss.cascade.Source {
+    var cascade_source = zss.cascade.Source{};
+    errdefer cascade_source.deinit(allocator);
 
     const bg_color = 0xefefefff;
     const text_color = 0x101010ff;
@@ -395,7 +394,7 @@ fn createCascadeSource(
         const root_padding = zss.values.types.Padding{ .px = 30 };
         const root_border_color = zss.values.types.Color{ .rgba = 0xaf2233ff };
 
-        const block = try decls.openBlock(allocator);
+        const block = try env.decls.openBlock(env.allocator);
         try env.decls.addValues(env.allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .block } },
             .content_width = DeclaredValues(.content_width){ .min_width = .{ .declared = .{ .px = 200 } } },
@@ -430,25 +429,25 @@ fn createCascadeSource(
                 .color = .{ .declared = .{ .rgba = text_color } },
             },
         });
-        decls.closeBlock();
+        env.decls.closeBlock();
         try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.root), block);
     }
 
     { // Large element with display: none
-        const block = try decls.openBlock(allocator);
-        try decls.addValues(allocator, .normal, .{
+        const block = try env.decls.openBlock(env.allocator);
+        try env.decls.addValues(env.allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .none } },
             .content_width = DeclaredValues(.content_width){ .width = .{ .declared = .{ .px = 500 } } },
             .content_height = DeclaredValues(.content_height){ .height = .{ .declared = .{ .px = 500 } } },
             .background_color = DeclaredValues(.background_color){ .color = .{ .declared = .{ .rgba = 0xff00ffff } } },
         });
-        decls.closeBlock();
+        env.decls.closeBlock();
         try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.removed_block), block);
     }
 
     { // Title block box
-        const block = try decls.openBlock(allocator);
-        try decls.addValues(allocator, .normal, .{
+        const block = try env.decls.openBlock(env.allocator);
+        try env.decls.addValues(env.allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){
                 .display = .{ .declared = .block },
                 .position = .{ .declared = .relative },
@@ -467,13 +466,13 @@ fn createCascadeSource(
                 .bottom = .{ .declared = .solid },
             },
         });
-        decls.closeBlock();
+        env.decls.closeBlock();
         try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.title_block), block);
     }
 
     { // Title inline box
-        const block = try decls.openBlock(allocator);
-        try decls.addValues(allocator, .normal, .{
+        const block = try env.decls.openBlock(env.allocator);
+        try env.decls.addValues(env.allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .@"inline" } },
             .horizontal_edges = DeclaredValues(.horizontal_edges){
                 .padding_left = .{ .declared = .{ .px = 10 } },
@@ -502,35 +501,35 @@ fn createCascadeSource(
                 .left = .{ .declared = .{ .rgba = 0x1010aaff } },
             },
         });
-        decls.closeBlock();
+        env.decls.closeBlock();
         try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.title_inline_box), block);
     }
 
     { // Body block box
-        const block = try decls.openBlock(allocator);
-        try decls.addValues(allocator, .normal, .{
+        const block = try env.decls.openBlock(env.allocator);
+        try env.decls.addValues(env.allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){
                 .display = .{ .declared = .block },
                 .position = .{ .declared = .relative },
             },
         });
-        decls.closeBlock();
+        env.decls.closeBlock();
         try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.body_block), block);
     }
 
     { // Body inline box
-        const block = try decls.openBlock(allocator);
-        try decls.addValues(allocator, .normal, .{
+        const block = try env.decls.openBlock(env.allocator);
+        try env.decls.addValues(env.allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .@"inline" } },
             .color = DeclaredValues(.color){ .color = .{ .declared = .{ .rgba = 0x1010507f } } },
         });
-        decls.closeBlock();
+        env.decls.closeBlock();
         try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.body_inline_box), block);
     }
 
     { // Footer block
-        const block = try decls.openBlock(allocator);
-        try decls.addValues(allocator, .normal, .{
+        const block = try env.decls.openBlock(env.allocator);
+        try env.decls.addValues(env.allocator, .normal, .{
             .box_style = DeclaredValues(.box_style){
                 .display = .{ .declared = .block },
             },
@@ -571,7 +570,7 @@ fn createCascadeSource(
                 .size = .{ .declared = &.{.contain} },
             },
         });
-        decls.closeBlock();
+        env.decls.closeBlock();
         try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.footer), block);
     }
 

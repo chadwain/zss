@@ -170,11 +170,11 @@ fn createTest(
         assert(ast.tag(0) == .zml_document);
         var seq = ast.children(0);
         if (seq.nextSkipSpaces(ast)) |zml_element| {
-            const cascade_source = try t.env.cascade_tree.createSource(t.env.allocator);
-            const document = try zss.zml.createDocument(allocator, &t.env, ast, zml_element, token_source, cascade_source);
-            try loader.loadResourcesFromUrls(arena, &t.env, &document, token_source);
+            const document = try allocator.create(zss.zml.Document);
+            document.* = try zss.zml.createDocument(allocator, &t.env, ast, zml_element, token_source);
+            try loader.loadResourcesFromUrls(arena, &t.env, document, token_source);
 
-            const cascade_node = try t.env.cascade_tree.createNode(t.env.allocator, .{ .leaf = cascade_source });
+            const cascade_node = try t.env.cascade_tree.createNode(t.env.allocator, .{ .leaf = &document.cascade_source });
             try t.env.cascade_tree.author.append(t.env.allocator, cascade_node);
 
             break :blk document.root_element;
@@ -191,7 +191,8 @@ fn createTest(
         } });
         t.env.decls.closeBlock();
 
-        const cascade_source = try t.env.cascade_tree.createSource(t.env.allocator);
+        const cascade_source = try allocator.create(zss.cascade.Source);
+        cascade_source.* = .{};
         try cascade_source.style_attrs_normal.putNoClobber(t.env.allocator, t.root_element, block);
 
         const cascade_node = try t.env.cascade_tree.createNode(t.env.allocator, .{ .leaf = cascade_source });

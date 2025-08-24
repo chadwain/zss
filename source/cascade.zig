@@ -16,7 +16,6 @@ pub const Tree = struct {
     user_agent: std.ArrayListUnmanaged(*Node) = .empty,
 
     nodes: std.ArrayListUnmanaged(*Node) = .empty,
-    sources: std.ArrayListUnmanaged(*Source) = .empty,
 
     pub const Node = union(enum) {
         leaf: *const Source,
@@ -35,15 +34,6 @@ pub const Tree = struct {
             allocator.destroy(node);
         }
         tree.nodes.deinit(allocator);
-        for (tree.sources.items) |source| {
-            source.style_attrs_important.deinit(allocator);
-            source.style_attrs_normal.deinit(allocator);
-            source.selectors_important.deinit(allocator);
-            source.selectors_normal.deinit(allocator);
-            source.selector_data.deinit(allocator);
-            allocator.destroy(source);
-        }
-        tree.sources.deinit(allocator);
     }
 
     pub fn createNode(tree: *Tree, allocator: Allocator, value: Node) !*Node {
@@ -52,14 +42,6 @@ pub const Tree = struct {
         node.* = value;
         tree.nodes.appendAssumeCapacity(node);
         return node;
-    }
-
-    pub fn createSource(tree: *Tree, allocator: Allocator) !*Source {
-        try tree.sources.ensureUnusedCapacity(allocator, 1);
-        const source = try allocator.create(Source);
-        source.* = .{};
-        tree.sources.appendAssumeCapacity(source);
-        return source;
     }
 };
 
@@ -71,6 +53,14 @@ pub const Source = struct {
     selectors_important: std.MultiArrayList(SelectorBlock) = .empty,
     selectors_normal: std.MultiArrayList(SelectorBlock) = .empty,
     selector_data: std.ArrayListUnmanaged(selectors.Code) = .empty,
+
+    pub fn deinit(source: *Source, allocator: Allocator) void {
+        source.style_attrs_important.deinit(allocator);
+        source.style_attrs_normal.deinit(allocator);
+        source.selectors_important.deinit(allocator);
+        source.selectors_normal.deinit(allocator);
+        source.selector_data.deinit(allocator);
+    }
 };
 
 pub const SelectorBlock = struct {

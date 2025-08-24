@@ -49,6 +49,7 @@ const TokenSource = zss.syntax.TokenSource;
 pub const Document = struct {
     root_element: Element,
     urls: std.MultiArrayList(Url),
+    cascade_source: cascade.Source,
 
     pub const Url = struct {
         const Urls = zss.values.parse.Urls;
@@ -61,6 +62,7 @@ pub const Document = struct {
 
     pub fn deinit(document: *Document, allocator: Allocator) void {
         document.urls.deinit(allocator);
+        document.cascade_source.deinit(allocator);
     }
 };
 
@@ -70,13 +72,16 @@ pub fn createDocument(
     ast: Ast,
     root_ast_index: Ast.Size,
     token_source: TokenSource,
-    cascade_source: *cascade.Source,
 ) !Document {
     var document: Document = .{
         .root_element = undefined,
         .urls = .empty,
+        .cascade_source = .{},
     };
-    errdefer document.urls.deinit(allocator);
+    errdefer {
+        document.urls.deinit(allocator);
+        document.cascade_source.deinit(allocator);
+    }
 
     var stack = Stack(struct {
         sequence: Ast.Sequence,
@@ -86,7 +91,7 @@ pub fn createDocument(
 
     const root_placement: ElementTree.NodePlacement = .orphan;
     document.root_element, const root_children =
-        try createElement(&document, allocator, root_placement, env, ast, root_ast_index, token_source, cascade_source);
+        try createElement(&document, allocator, root_placement, env, ast, root_ast_index, token_source);
     if (root_children) |index| {
         stack.top = .{
             .sequence = ast.children(index),
@@ -100,7 +105,7 @@ pub fn createDocument(
         };
         const placement: ElementTree.NodePlacement = .{ .last_child_of = top.parent };
         const element, const children =
-            try createElement(&document, allocator, placement, env, ast, ast_index, token_source, cascade_source);
+            try createElement(&document, allocator, placement, env, ast, ast_index, token_source);
         if (children) |index| {
             try stack.push(allocator, .{
                 .sequence = ast.children(index),
@@ -120,12 +125,11 @@ fn createElement(
     ast: Ast,
     ast_index: Ast.Size,
     token_source: TokenSource,
-    cascade_source: *cascade.Source,
 ) !struct { Element, ?Ast.Size } {
     const element = try env.element_tree.allocateElement(env.allocator);
     switch (ast.tag(ast_index)) {
         .zml_element => {
-            const children_index = try parseElement(document, allocator, element, placement, env, ast, ast_index, token_source, cascade_source);
+            const children_index = try parseElement(document, allocator, element, placement, env, ast, ast_index, token_source);
             return .{ element, children_index };
         },
         .zml_text_element => {
@@ -145,7 +149,6 @@ fn parseElement(
     ast: Ast,
     zml_element: Ast.Size,
     token_source: TokenSource,
-    cascade_source: *cascade.Source,
 ) !Ast.Size {
     assert(ast.tag(zml_element) == .zml_element);
     env.element_tree.initElement(element, .normal, placement);
@@ -178,7 +181,7 @@ fn parseElement(
     const has_style_block = (ast.tag(style_block) == .zml_styles);
     if (has_style_block) {
         const last_declaration = ast.extra(style_block).index;
-        try applyStyleBlockDeclarations(document, allocator, element, env, ast, last_declaration, token_source, cascade_source);
+        try applyStyleBlockDeclarations(document, allocator, element, env, ast, last_declaration, token_source);
     }
 
     const children = if (has_style_block)
@@ -217,15 +220,14 @@ fn applyStyleBlockDeclarations(
     ast: Ast,
     last_declaration: Ast.Size,
     token_source: TokenSource,
-    cascade_source: *cascade.Source,
 ) !void {
     var urls = zss.values.parse.Urls.init(env);
     defer urls.deinit(allocator);
 
     var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
     const block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration, urls.toManaged(allocator));
-    if (env.decls.hasValues(block, .important)) try cascade_source.style_attrs_important.putNoClobber(env.allocator, element, block);
-    if (env.decls.hasValues(block, .normal)) try cascade_source.style_attrs_normal.putNoClobber(env.allocator, element, block);
+    if (env.decls.hasValues(block, .important)) try document.cascade_source.style_attrs_important.putNoClobber(env.allocator, element, block);
+    if (env.decls.hasValues(block, .normal)) try document.cascade_source.style_attrs_normal.putNoClobber(env.allocator, element, block);
 
     urls.commit(env);
     var iterator = urls.iterator();
@@ -257,11 +259,10 @@ test createDocument {
     const type1 = try env.addTypeOrAttributeNameString("type1");
     const type2 = try env.addTypeOrAttributeNameString("type2");
 
-    const cascade_source = try env.cascade_tree.createSource(env.allocator);
-    var document = try createDocument(allocator, &env, ast, 1, token_source, cascade_source);
+    var document = try createDocument(allocator, &env, ast, 1, token_source);
     defer document.deinit(allocator);
 
-    const cascade_node = try env.cascade_tree.createNode(env.allocator, .{ .leaf = cascade_source });
+    const cascade_node = try env.cascade_tree.createNode(env.allocator, .{ .leaf = &document.cascade_source });
     try env.cascade_tree.author.append(env.allocator, cascade_node);
     try cascade.run(&env, document.root_element);
 
