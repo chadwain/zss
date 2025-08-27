@@ -17,19 +17,32 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 allocator: Allocator,
-type_or_attribute_names: IdentifierSet = .{ .max_size = NameId.max_value, .case = .insensitive },
-// TODO: Case sensitivity depends on whether quirks mode is on
-id_or_class_names: IdentifierSet = .{ .max_size = IdId.max_value, .case = .sensitive },
-namespaces: Namespaces = .{},
-decls: Declarations = .{},
-cascade_list: cascade.List = .{},
-element_tree: zss.ElementTree = .init,
-next_url_id: ?UrlId.Int = 0,
-urls_to_images: std.AutoArrayHashMapUnmanaged(UrlId, Images.Handle) = .empty,
-images: Images = .{},
+type_or_attribute_names: IdentifierSet,
+id_or_class_names: IdentifierSet,
+attribute_values: zss.StringInterner,
+namespaces: Namespaces,
+decls: Declarations,
+cascade_list: cascade.List,
+element_tree: zss.ElementTree,
+next_url_id: ?UrlId.Int,
+urls_to_images: std.AutoArrayHashMapUnmanaged(UrlId, Images.Handle),
+images: Images,
 
 pub fn init(allocator: Allocator) Environment {
-    return Environment{ .allocator = allocator };
+    return Environment{
+        .allocator = allocator,
+        .type_or_attribute_names = .{ .max_size = NameId.max_value, .case = .insensitive },
+        // TODO: Case sensitivity depends on whether quirks mode is on
+        .id_or_class_names = .{ .max_size = IdId.max_value, .case = .sensitive },
+        .attribute_values = .init(.{ .max_size = AttributeValueId.num_unique_values }),
+        .namespaces = .{},
+        .decls = .{},
+        .cascade_list = .{},
+        .element_tree = .init,
+        .next_url_id = 0,
+        .urls_to_images = .empty,
+        .images = .{},
+    };
 }
 
 pub fn deinit(env: *Environment) void {
@@ -140,6 +153,21 @@ pub fn addIdNameString(env: *Environment, string: []const u8) !IdId {
 pub fn addClassName(env: *Environment, identifier: TokenSource.Location, source: TokenSource) !ClassId {
     const index = try env.id_or_class_names.getOrPutFromSource(env.allocator, source, source.identTokenIterator(identifier));
     return @enumFromInt(@as(ClassId.Value, @intCast(index)));
+}
+
+pub const AttributeValueId = enum(u32) {
+    _,
+    const num_unique_values = 1 << 32;
+};
+
+pub fn addAttributeValueIdent(env: *Environment, identifier: TokenSource.Location, source: TokenSource) !AttributeValueId {
+    const index = try env.attribute_values.addFromIdentToken(env.allocator, identifier, source);
+    return @enumFromInt(index);
+}
+
+pub fn addAttributeValueString(env: *Environment, string: TokenSource.Location, source: TokenSource) !AttributeValueId {
+    const index = try env.attribute_values.addFromStringToken(env.allocator, string, source);
+    return @enumFromInt(index);
 }
 
 /// A unique identifier for each URL.

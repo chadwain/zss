@@ -1,3 +1,6 @@
+//! Assigns index numbers to strings.
+//! Indeces start from 0 and increase by 1 for every unique string.
+
 const StringInterner = @This();
 
 const zss = @import("zss.zig");
@@ -20,16 +23,16 @@ const Range = struct {
 
 pub const Options = struct {
     /// The maximum amount of unique strings that can be held.
-    /// Must not be `std.math.maxInt(usize)`.
     max_size: usize,
 };
 
 pub fn init(options: Options) StringInterner {
-    assert(options.max_size +% 1 != 0);
     return .{
         .indexer = .empty,
         .string = .init(1 << 10, 1 << 31),
-        .options = options,
+        .options = .{
+            .max_size = options.max_size - @intFromBool(options.max_size +% 1 == 0),
+        },
     };
 }
 

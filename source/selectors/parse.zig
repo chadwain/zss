@@ -418,10 +418,12 @@ fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast
     // Parse the attribute value
     _ = parser.skipSpaces();
     const value_tag, const value_index = parser.next() orelse return parser.fail();
-    switch (value_tag) {
-        .token_ident, .token_string => {},
+    const attribute_value = switch (value_tag) {
+        .token_ident => try parser.env.addAttributeValueIdent(parser.ast.location(value_index), parser.source),
+        .token_string,
+        => try parser.env.addAttributeValueString(parser.ast.location(value_index), parser.source),
         else => return parser.fail(),
-    }
+    };
 
     // Parse the case modifier
     _ = parser.skipSpaces();
@@ -443,7 +445,7 @@ fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast
     try code_list.appendSlice(&.{
         .{ .simple_selector_tag = .{ .attribute = .{ .operator = operator, .case = case } } },
         .{ .attribute_selector = attribute_selector },
-        .{ .attribute_selector_value = value_index },
+        .{ .attribute_selector_value = attribute_value },
     });
 }
 

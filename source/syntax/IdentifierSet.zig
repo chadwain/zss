@@ -1,6 +1,7 @@
 //! Assigns unique indeces to CSS identifiers.
 //! Indeces start from 0 and increase by 1 for every unique identifier.
 
+// TODO: Delete this in favor of zss.StringInterner
 // TODO: Consider turning this from a set into a map
 
 const IdentifierSet = @This();

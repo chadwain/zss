@@ -1,5 +1,6 @@
 const zss = @import("zss.zig");
 const Ast = zss.syntax.Ast;
+const AttributeValueId = Environment.AttributeValueId;
 const ClassId = Environment.ClassId;
 const Element = ElementTree.Element;
 const ElementTree = zss.ElementTree;
@@ -32,8 +33,7 @@ pub const Code = union {
     id_selector: IdId,
     class_selector: ClassId,
     attribute_selector: QualifiedName,
-    // TODO: Intern attribute values parsed from selectors
-    attribute_selector_value: Ast.Size,
+    attribute_selector_value: AttributeValueId,
     pseudo_class_selector: PseudoClass,
     pseudo_element_selector: PseudoElement,
 
