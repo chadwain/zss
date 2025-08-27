@@ -5,13 +5,16 @@
 //! document elements with as little syntax as possible.
 //! The syntax should feel natural to anyone that has used CSS.
 //!
+//!
 //! The grammar of zml documents is presented below.
 //! It uses the value definition syntax described in CSS Values and Units Level 4.
 //!
 //! <root>               = <element>
-//! <element>            = <normal-element> | <text-element>
-//! <normal-element>     = <features> <inline-style-block>? <children>
-//! <text-element>       = <string-token>
+//! <node>               = <directive>* [ <element> | <text> ]
+//! <directive>          = <at-keyword-token> '(' <any-value> ')'
+//!
+//! <element>            = <features> <inline-style-block>? <children>
+//! <text>               = <string-token>
 //!
 //! <features>           = '*' | [ <type> | <id> | <class> | <attribute> ]+
 //! <type>               = <ident-token>
@@ -22,16 +25,26 @@
 //!
 //! <inline-style-block> = '(' <declaration-list> ')'
 //!
-//! <children>           = '{' <element>* '}'
+//! <children>           = '{' <node>* '}'
 //!
 //! <ident-token>        = <defined in CSS Syntax Level 3>
 //! <string-token>       = <defined in CSS Syntax Level 3>
 //! <hash-token>         = <defined in CSS Syntax Level 3>
+//! <at-keyword-token>   = <defined in CSS Syntax Level 3>
+//! <any-value>          = <defined in CSS Syntax Level 3>
 //! <declaration-list>   = <defined in CSS Style Attributes>
 //!
 //! Whitespace or comments are required between the components of <features>.
 //! The <hash-token> component of <id> must be an "id" hash token.
 //! No whitespace or comments are allowed between the components of <class>.
+//! No whitespace or comments are allowed between the <at-keyword-token> and '(' of <directive>.
+//!
+//!
+//! A directive can be placed before a node in order to modify it.
+//! List of directives:
+//!
+//! @name - Give a name to a zml node. Named nodes can be accessed using `Document.named_nodes`.
+//! Syntax: <ident-token>
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -50,6 +63,7 @@ pub const Document = struct {
     root_element: Element,
     urls: std.MultiArrayList(Url),
     cascade_source: cascade.Source,
+    named_nodes: std.StringArrayHashMapUnmanaged(Element),
 
     pub const Url = struct {
         const Urls = zss.values.parse.Urls;
@@ -63,6 +77,8 @@ pub const Document = struct {
     pub fn deinit(document: *Document, allocator: Allocator) void {
         document.urls.deinit(allocator);
         document.cascade_source.deinit(allocator);
+        for (document.named_nodes.keys()) |key| allocator.free(key);
+        document.named_nodes.deinit(allocator);
     }
 };
 
@@ -70,141 +86,169 @@ pub fn createDocument(
     allocator: Allocator,
     env: *Environment,
     ast: Ast,
-    root_ast_index: Ast.Size, // TODO: This should be the index of a zml_document node
     token_source: TokenSource,
+    zml_document_index: Ast.Size,
 ) !Document {
+    assert(ast.tag(zml_document_index) == .zml_document);
     var document: Document = .{
         .root_element = undefined,
         .urls = .empty,
         .cascade_source = .{},
+        .named_nodes = .empty,
     };
     errdefer document.deinit(allocator);
 
-    var stack = Stack(struct {
-        sequence: Ast.Sequence,
-        parent: Element,
-    }){};
-    defer stack.deinit(allocator);
-
-    const root_placement: ElementTree.NodePlacement = .orphan;
-    document.root_element, const root_children =
-        try createElement(&document, allocator, root_placement, env, ast, root_ast_index, token_source);
-    if (root_children) |index| {
-        stack.top = .{
-            .sequence = ast.children(index),
-            .parent = document.root_element,
+    const root_zml_node_index = blk: {
+        var document_children = ast.children(zml_document_index);
+        const root_zml_node_index = document_children.nextSkipSpaces(ast) orelse {
+            document.root_element = Element.null_element;
+            return document;
         };
+        assert(document_children.empty());
+        break :blk root_zml_node_index;
+    };
+
+    var node_stack = Stack(struct { element: Element, child_sequence: Ast.Sequence }){};
+    defer node_stack.deinit(allocator);
+
+    document.root_element, const root_zml_children_index = try analyzeNode(&document, allocator, .orphan, env, ast, token_source, root_zml_node_index);
+    if (root_zml_children_index) |index| {
+        node_stack.top = .{ .element = document.root_element, .child_sequence = ast.children(index) };
     }
-    while (stack.top) |*top| {
-        const ast_index = top.sequence.nextSkipSpaces(ast) orelse {
-            _ = stack.pop();
+
+    while (node_stack.top) |*top| {
+        const zml_node_index = top.child_sequence.nextSkipSpaces(ast) orelse {
+            _ = node_stack.pop();
             continue;
         };
-        const placement: ElementTree.NodePlacement = .{ .last_child_of = top.parent };
-        const element, const children =
-            try createElement(&document, allocator, placement, env, ast, ast_index, token_source);
-        if (children) |index| {
-            try stack.push(allocator, .{
-                .sequence = ast.children(index),
-                .parent = element,
-            });
+
+        const placement: ElementTree.NodePlacement = .{ .last_child_of = top.element };
+        const element, const zml_children_index = try analyzeNode(&document, allocator, placement, env, ast, token_source, zml_node_index);
+        if (zml_children_index) |index| {
+            try node_stack.push(allocator, .{ .element = element, .child_sequence = ast.children(index) });
         }
     }
 
     return document;
 }
 
-fn createElement(
+fn analyzeNode(
     document: *Document,
     allocator: Allocator,
     placement: ElementTree.NodePlacement,
     env: *Environment,
     ast: Ast,
-    ast_index: Ast.Size,
     token_source: TokenSource,
+    zml_node_index: Ast.Size,
 ) !struct { Element, ?Ast.Size } {
+    assert(ast.tag(zml_node_index) == .zml_node);
     const element = try env.element_tree.allocateElement(env.allocator);
-    switch (ast.tag(ast_index)) {
-        .zml_element => {
-            const children_index = try parseElement(document, allocator, element, placement, env, ast, ast_index, token_source);
-            return .{ element, children_index };
-        },
-        .zml_text_element => {
-            try parseTextElement(element, placement, env, ast, ast_index, token_source);
-            return .{ element, null };
-        },
-        else => unreachable,
+
+    var child_sequence = ast.children(zml_node_index);
+    while (child_sequence.nextSkipSpaces(ast)) |node_child_index| {
+        switch (ast.tag(node_child_index)) {
+            .zml_directive => {
+                const directive_name = try token_source.copyAtKeyword(ast.location(node_child_index), allocator); // TODO: Avoid heap allocation
+                defer allocator.free(directive_name);
+                if (std.mem.eql(u8, directive_name, "name")) {
+                    var directive_child_sequence = ast.children(node_child_index);
+                    const name_index = directive_child_sequence.nextSkipSpaces(ast) orelse return error.InvalidZmlDirective;
+                    if (ast.tag(name_index) != .token_ident) return error.InvalidZmlDirective;
+                    if (!directive_child_sequence.empty()) return error.InvalidZmlDirective;
+
+                    try document.named_nodes.ensureUnusedCapacity(allocator, 1);
+                    const name = try token_source.copyIdentifier(ast.location(name_index), allocator);
+                    errdefer allocator.free(name);
+                    const gop = document.named_nodes.getOrPutAssumeCapacity(name);
+                    if (gop.found_existing) return error.DuplicateZmlNamedNode;
+                    gop.value_ptr.* = element;
+                } else {
+                    return error.UnrecognizedZmlDirective;
+                }
+            },
+            .zml_element => {
+                assert(child_sequence.empty());
+                const zml_children_index = try analyzeElement(document, allocator, element, placement, env, ast, token_source, node_child_index);
+                return .{ element, zml_children_index };
+            },
+            .zml_text => {
+                assert(child_sequence.empty());
+                try analyzeText(element, placement, env, ast, token_source, node_child_index);
+                return .{ element, null };
+            },
+            else => unreachable,
+        }
     }
+    unreachable;
 }
 
-fn parseElement(
+fn analyzeElement(
     document: *Document,
     allocator: Allocator,
     element: Element,
     placement: ElementTree.NodePlacement,
     env: *Environment,
     ast: Ast,
-    zml_element: Ast.Size,
     token_source: TokenSource,
+    zml_element_index: Ast.Size,
 ) !Ast.Size {
-    assert(ast.tag(zml_element) == .zml_element);
+    assert(ast.tag(zml_element_index) == .zml_element);
     env.element_tree.initElement(element, .normal, placement);
 
-    var element_children = ast.children(zml_element);
+    var element_child_sequence = ast.children(zml_element_index);
 
-    const features = element_children.nextSkipSpaces(ast).?;
-    assert(ast.tag(features) == .zml_features);
+    const zml_features_index = element_child_sequence.nextSkipSpaces(ast).?;
+    assert(ast.tag(zml_features_index) == .zml_features);
 
-    {
-        var features_children = ast.children(features);
-        while (features_children.nextSkipSpaces(ast)) |index| {
-            switch (ast.tag(index)) {
-                .zml_type => {
-                    const type_name = try env.addTypeOrAttributeName(ast.location(index), token_source);
-                    env.element_tree.setFqType(element, .{ .namespace = .none, .name = type_name });
-                },
-                .zml_id => {
-                    const id = try env.addIdName(ast.location(index), token_source);
-                    try env.element_tree.registerId(env.allocator, id, element);
-                },
-                .zml_class => std.debug.panic("TODO: parse zml element: class feature", .{}),
-                .zml_attribute => std.debug.panic("TODO: parse zml element: attribute feature", .{}),
-                else => break,
-            }
+    var features_child_sequence = ast.children(zml_features_index);
+    while (features_child_sequence.nextSkipSpaces(ast)) |index| {
+        switch (ast.tag(index)) {
+            .zml_type => {
+                const type_name = try env.addTypeOrAttributeName(ast.location(index), token_source);
+                env.element_tree.setFqType(element, .{ .namespace = .none, .name = type_name });
+            },
+            .zml_id => {
+                const id = try env.addIdName(ast.location(index), token_source);
+                try env.element_tree.registerId(env.allocator, id, element);
+            },
+            .zml_class => std.debug.panic("TODO: parse zml element: class feature", .{}),
+            .zml_attribute => std.debug.panic("TODO: parse zml element: attribute feature", .{}),
+            else => break,
         }
     }
 
-    const style_block = element_children.nextSkipSpaces(ast).?;
-    const has_style_block = (ast.tag(style_block) == .zml_styles);
+    const zml_styles_index = element_child_sequence.nextSkipSpaces(ast).?;
+    const has_style_block = (ast.tag(zml_styles_index) == .zml_styles);
     if (has_style_block) {
-        const last_declaration = ast.extra(style_block).index;
-        try applyStyleBlockDeclarations(document, allocator, element, env, ast, last_declaration, token_source);
+        const last_declaration = ast.extra(zml_styles_index).index;
+        try applyStyleBlockDeclarations(document, allocator, element, env, ast, token_source, last_declaration);
     }
 
-    const children = if (has_style_block)
-        element_children.nextSkipSpaces(ast).?
+    const zml_children_index = if (has_style_block)
+        element_child_sequence.nextSkipSpaces(ast).?
     else
-        style_block;
-    assert(ast.tag(children) == .zml_children);
+        zml_styles_index;
+    assert(ast.tag(zml_children_index) == .zml_children);
 
-    return children;
+    assert(element_child_sequence.empty());
+    return zml_children_index;
 }
 
-fn parseTextElement(
+fn analyzeText(
     element: Element,
     placement: ElementTree.NodePlacement,
     env: *Environment,
     ast: Ast,
-    zml_text_element: Ast.Size,
     token_source: TokenSource,
+    zml_text_index: Ast.Size,
 ) !void {
-    assert(ast.tag(zml_text_element) == .zml_text_element);
+    assert(ast.tag(zml_text_index) == .zml_text);
     env.element_tree.initElement(element, .text, placement);
 
     // TODO: Don't use the element tree's arena
     var arena = env.element_tree.arena.promote(env.allocator);
     defer env.element_tree.arena = arena.state;
-    const location = ast.location(zml_text_element);
+    const location = ast.location(zml_text_index);
     const string = try token_source.copyString(location, arena.allocator());
     env.element_tree.setText(element, string);
 }
@@ -215,14 +259,14 @@ fn applyStyleBlockDeclarations(
     element: Element,
     env: *Environment,
     ast: Ast,
-    last_declaration: Ast.Size,
     token_source: TokenSource,
+    last_declaration_index: Ast.Size,
 ) !void {
     var urls = zss.values.parse.Urls.init(env);
     defer urls.deinit(allocator);
 
     var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
-    const block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration, urls.toManaged(allocator));
+    const block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration_index, urls.toManaged(allocator));
     if (env.decls.hasValues(block, .important)) try document.cascade_source.style_attrs_important.putNoClobber(env.allocator, element, block);
     if (env.decls.hasValues(block, .normal)) try document.cascade_source.style_attrs_normal.putNoClobber(env.allocator, element, block);
 
@@ -235,7 +279,7 @@ fn applyStyleBlockDeclarations(
 
 test createDocument {
     const input =
-        \\* (display: block) { /*comment*/
+        \\@name(root) * (display: block) { /*comment*/
         \\  type1 (all: unset) {}
         \\  type2 (display: block; all: inherit !important) {}
         \\}
@@ -256,8 +300,10 @@ test createDocument {
     const type1 = try env.addTypeOrAttributeNameString("type1");
     const type2 = try env.addTypeOrAttributeNameString("type2");
 
-    var document = try createDocument(allocator, &env, ast, 1, token_source);
+    var document = try createDocument(allocator, &env, ast, token_source, 0);
     defer document.deinit(allocator);
+
+    try std.testing.expectEqual(@as(?Element, document.root_element), document.named_nodes.get("root"));
 
     const cascade_node = zss.cascade.Node{ .leaf = &document.cascade_source };
     try env.cascade_list.author.append(env.allocator, &cascade_node);

@@ -172,14 +172,11 @@ fn createTest(
     };
 
     blk: {
-        assert(ast.tag(0) == .zml_document);
-        var seq = ast.children(0);
-        const zml_element = seq.nextSkipSpaces(ast) orelse {
-            t.root_element = Element.null_element;
-            break :blk;
-        };
-        t.document = try zss.zml.createDocument(allocator, &t.env, ast, zml_element, token_source);
+        t.document = try zss.zml.createDocument(allocator, &t.env, ast, token_source, 0);
         t.root_element = t.document.root_element;
+
+        if (t.root_element == Element.null_element) break :blk;
+
         try loader.loadResourcesFromUrls(arena, &t.env, &t.document, token_source);
 
         t.author_cascade_node = .{ .leaf = &t.document.cascade_source };

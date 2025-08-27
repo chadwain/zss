@@ -311,8 +311,10 @@ fn parseName(parser: *Parser) ?QualifiedName.Name {
 }
 
 fn resolveNamespace(parser: *Parser, index: Ast.Size) NamespaceId {
-    const bytes = parser.ast.identifierBytes(parser.source, index);
-    const namespace_index = parser.namespaces.indexer.getFromString(bytes) orelse {
+    const identifier = parser.source.copyIdentifier(parser.ast.location(index), parser.specificities.allocator) catch
+        std.debug.panic("TODO: Unhandled allocation failure", .{});
+    defer parser.specificities.allocator.free(identifier);
+    const namespace_index = parser.namespaces.indexer.getFromString(identifier) orelse {
         parser.valid = false;
         return undefined;
     };

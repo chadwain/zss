@@ -319,7 +319,7 @@ pub const Component = struct {
         zml_styles,
         /// description: A '{}-block' containing a zml element's children
         ///    location: The location of the <{-token> that opens the block
-        ///    children: A sequence of `zml_element` and `zml_text_element`
+        ///    children: A sequence of `zml_node`
         zml_children,
         /// description: A zml element
         ///    location: The location of the `zml_features`
@@ -327,12 +327,20 @@ pub const Component = struct {
         ///              optionally, the element's inline style declarations (a `zml_styles`) +
         ///              the element's children (a `zml_children`)
         zml_element,
-        /// description: A zml text element (a string)
+        /// description: A zml text string (a string)
         ///    location: The beginning '\'' or '"' codepoint
-        zml_text_element,
+        zml_text,
+        /// description: A zml directive (an <at-keyword-token> + '(' + arguments + ')')
+        ///    location: The location of the <at-keyword-token> that starts this directive
+        ///    children: An arbitrary sequence of components
+        zml_directive,
+        /// description: A zml node
+        ///    location: The location of the first child component
+        ///    children: A sequence of `zml_directive` + either a `zml_element` or `zml_text`
+        zml_node,
         /// description: A zml document
         ///    location: The beginning of the source document
-        ///    children: Optionally, a single `zml_element` or `zml_text_element`
+        ///    children: Optionally, a `zml_node`
         zml_document,
     };
 };
@@ -363,6 +371,8 @@ pub const Ast = struct {
 
         /// Returns the next component in the sequence, skipping over space components.
         pub fn nextSkipSpaces(sequence: *Sequence, ast: Ast) ?Size {
+            // TODO: This function does not work as advertised.
+            //       It skips spaces after the current component, not before it.
             if (sequence.empty()) return null;
             assert(sequence.start < sequence.end);
 
@@ -433,16 +443,6 @@ pub const Ast = struct {
         return .{ .start = current, .end = end };
     }
 
-    /// Given that `location` is the location of a <ident-token>, return a reference to its bytes
-    pub fn identifierBytes(ast: Ast, token_source: TokenSource, ident: Size) []const u8 {
-        return token_source.identifierBytes(ast.location(ident));
-    }
-
-    /// Given that `location` is the location of a <at-keyword-token>, return a reference to its identifier
-    pub fn atKeywordIdentifierBytes(ast: Ast, token_source: TokenSource, at_rule: Size) []const u8 {
-        return token_source.atKeywordIdentifierBytes(ast.location(at_rule));
-    }
-
     pub const Debug = struct {
         pub fn print(debug: *const Debug, allocator: Allocator, writer: std.io.AnyWriter) !void {
             const ast = @as(*const Ast, @alignCast(@fieldParentPtr("debug", debug))).*;
@@ -493,38 +493,3 @@ pub const Ast = struct {
         }
     };
 };
-
-pub fn ComptimeIdentifierMap(comptime V: type) type {
-    return struct {
-        map: Map,
-
-        const Self = @This();
-        const Map = std.StaticStringMapWithEql(V, stringEql);
-
-        fn stringEql(key: []const u8, str: []const u8) bool {
-            for (key, str) |k, s| {
-                const lowercase = switch (s) {
-                    'A'...'Z' => s - 'A' + 'a',
-                    else => s,
-                };
-                if (k != lowercase) return false;
-            }
-            return true;
-        }
-
-        pub fn init(kvs_list: anytype) Self {
-            comptime for (kvs_list) |kv| {
-                for (kv[0]) |c| switch (c) {
-                    // NOTE: This could be extended to support underscores and digits, but for now it is not needed.
-                    'a'...'z', '-' => {},
-                    else => @compileError("key must contain only lowercase letters and dashes, got " ++ kv[0]),
-                };
-            };
-            return .{ .map = Map.initComptime(kvs_list) };
-        }
-
-        pub fn get(self: Self, str: []const u8) ?V {
-            return self.map.get(str);
-        }
-    };
-}

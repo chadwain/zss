@@ -218,7 +218,7 @@ const DocumentType = enum { css, zml };
 
 pub const Parser = struct {
     rule_stack: Stack(QualifiedRule),
-    element_stack: ArrayListUnmanaged(struct { element_index: Ast.Size, block_index: Ast.Size }),
+    element_stack: ArrayListUnmanaged(struct { node_index: Ast.Size, element_index: Ast.Size, block_index: Ast.Size }),
     block_stack: Stack(struct { ending_tag: Component.Tag, index: Ast.Size }),
     token_source: TokenSource,
     allocator: Allocator,
@@ -249,6 +249,7 @@ pub const Parser = struct {
             expected_colon,
             expected_identifier,
             inline_style_block_before_features,
+            invalid_directive,
             invalid_feature,
             invalid_id,
             invalid_token,
@@ -267,6 +268,7 @@ pub const Parser = struct {
                     .expected_colon => "expected ':'",
                     .expected_identifier => "expected identifier",
                     .inline_style_block_before_features => "inline style block must appear after all features",
+                    .invalid_directive => "invalid directive",
                     .invalid_feature => "invalid feature",
                     .invalid_id => "invalid id (not a valid CSS identifier)",
                     .invalid_token => "invalid token",
@@ -301,6 +303,7 @@ pub const Parser = struct {
     }
 
     // TODO: Allow the Parser to be re-usable?
+    // TODO: Implement more parser entry functions
 
     pub const Error = error{ParseError} || AstManaged.AddComponentError || TokenSource.Error || Allocator.Error;
 
@@ -332,9 +335,9 @@ pub const Parser = struct {
         errdefer managed.deinit();
 
         const document_index = try managed.addComplexComponent(.zml_document, parser.location);
-        try consumeElement(parser, &managed);
+        try consumeZmlNode(parser, &managed);
         while (parser.element_stack.items.len > 0) {
-            try consumeElement(parser, &managed);
+            try consumeZmlNode(parser, &managed);
         }
         try parser.skipUntilEof();
         managed.finishComplexComponent(document_index);
@@ -775,31 +778,66 @@ fn blockTokenToComponents(token: Token) struct { Component.Tag, Component.Tag } 
     return .{ component_tag, ending_tag };
 }
 
-fn consumeElement(parser: *Parser, ast: *AstManaged) !void {
+fn consumeZmlNode(parser: *Parser, ast: *AstManaged) !void {
     try parser.skipSpacesAllowEof();
-    const main_token, const main_location = try parser.nextTokenAllowEof();
+    const node_token, const node_location = try parser.nextTokenAllowEof();
 
-    switch (main_token) {
+    switch (node_token) {
         .token_eof => {
             const no_open_elements = (parser.element_stack.items.len == 0);
             if (no_open_elements) return;
-            return parser.fail(.unexpected_eof, main_location);
+            return parser.fail(.unexpected_eof, node_location);
         },
         .token_right_curly => {
             const no_open_elements = (parser.element_stack.items.len == 0);
-            if (no_open_elements) return parser.fail(.invalid_token, main_location);
+            if (no_open_elements) return parser.fail(.invalid_token, node_location);
             parser.decreaseDepth(1);
             const item = parser.element_stack.pop().?;
             ast.finishElement(item.element_index, item.block_index);
+            ast.finishComplexComponent(item.node_index);
             return;
         },
-        .token_string => {
-            _ = try ast.addBasicComponent(.zml_text_element, main_location);
-            return;
-        },
-        else => parser.location = main_location,
+        else => parser.location = node_location,
     }
 
+    const node_index = try ast.addComplexComponent(.zml_node, node_location);
+    try parseZmlDirectives(parser, ast);
+
+    const node_child_token, const node_child_location = try parser.nextTokenSkipSpaces();
+    switch (node_child_token) {
+        .token_string => {
+            _ = try ast.addBasicComponent(.zml_text, node_child_location);
+            ast.finishComplexComponent(node_index);
+        },
+        else => {
+            parser.location = node_child_location;
+            try consumeZmlElement(parser, ast, node_index, node_child_location);
+        },
+    }
+}
+
+fn parseZmlDirectives(parser: *Parser, ast: *AstManaged) !void {
+    while (true) {
+        const directive_token, const directive_location = try parser.nextTokenSkipSpaces();
+        if (directive_token != .token_at_keyword) {
+            parser.location = directive_location;
+            break;
+        }
+        if (try parser.skipSpaces()) return parser.fail(.invalid_directive, directive_location);
+        const left_paren, _ = try parser.nextToken();
+        if (left_paren != .token_left_paren) return parser.fail(.invalid_directive, directive_location);
+
+        const directive_index = try ast.addComplexComponent(.zml_directive, directive_location);
+        while (true) {
+            const token, const location = try parser.nextToken();
+            if (token == .token_right_paren) break;
+            _ = try consumeComponentValue(parser, ast, token, location, .zml);
+        }
+        ast.finishComplexComponent(directive_index);
+    }
+}
+
+fn consumeZmlElement(parser: *Parser, ast: *AstManaged, node_index: Ast.Size, main_location: Location) !void {
     const element_index = try ast.addComplexComponent(.zml_element, main_location);
     const features_index = try ast.addComplexComponent(.zml_features, main_location);
     var has_preceding_whitespace = true;
@@ -818,17 +856,22 @@ fn consumeElement(parser: *Parser, ast: *AstManaged) !void {
             const after_left_curly, const after_left_curly_location = try parser.nextTokenSkipSpaces();
             if (after_left_curly == .token_right_curly) {
                 ast.finishElement(element_index, block_index);
+                ast.finishComplexComponent(node_index);
             } else {
                 parser.location = after_left_curly_location;
                 try parser.increaseDepth(location);
-                try parser.element_stack.append(parser.allocator, .{ .element_index = element_index, .block_index = block_index });
+                try parser.element_stack.append(parser.allocator, .{
+                    .node_index = node_index,
+                    .element_index = element_index,
+                    .block_index = block_index,
+                });
             }
             return;
         }
 
         if (token == .token_left_paren) {
             ast.finishComplexComponent(features_index);
-            try consumeInlineStyleBlock(parser, ast, location);
+            try consumeZmlInlineStyleBlock(parser, ast, location);
             if (!parsed_any_features) return parser.fail(.inline_style_block_before_features, location);
             if (parsed_inline_styles) |loc| return parser.fail(.multiple_inline_style_blocks, loc);
             parsed_inline_styles = location;
@@ -842,7 +885,7 @@ fn consumeElement(parser: *Parser, ast: *AstManaged) !void {
             if (parsed_any_features) return parser.fail(.empty_with_other_features, location);
             parsed_star = true;
         } else {
-            try consumeFeature(parser, ast, token, location, &parsed_type);
+            try consumeZmlFeature(parser, ast, token, location, &parsed_type);
             if (parsed_star) return parser.fail(.empty_with_other_features, location);
         }
 
@@ -851,7 +894,7 @@ fn consumeElement(parser: *Parser, ast: *AstManaged) !void {
     }
 }
 
-fn consumeFeature(parser: *Parser, ast: *AstManaged, main_token: Token, main_location: Location, parsed_type: *bool) !void {
+fn consumeZmlFeature(parser: *Parser, ast: *AstManaged, main_token: Token, main_location: Location, parsed_type: *bool) !void {
     switch (main_token) {
         .token_delim => |codepoint| blk: {
             if (codepoint == '.') {
@@ -897,7 +940,7 @@ fn consumeFeature(parser: *Parser, ast: *AstManaged, main_token: Token, main_loc
     return parser.fail(.invalid_feature, main_location);
 }
 
-fn consumeInlineStyleBlock(parser: *Parser, ast: *AstManaged, main_location: Location) !void {
+fn consumeZmlInlineStyleBlock(parser: *Parser, ast: *AstManaged, main_location: Location) !void {
     const style_block_index = try ast.addComplexComponent(.zml_styles, main_location);
 
     var previous_declaration: ?Ast.Size = null;
@@ -1008,6 +1051,7 @@ test "parse a zml document" {
         \\       /*comment*/p3/*comment*/[a=b] #id {}
         \\   }
         \\   p3 (decl: func({} [ {} {1}] };)) {}
+        \\   @directive(args) "World"
         \\}
     ;
     const token_source = try TokenSource.init(input);

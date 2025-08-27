@@ -10,9 +10,8 @@ const TokenSource = zss.syntax.TokenSource;
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
 
-indexer: AutoArrayHashMapUnmanaged(void, Range),
+indexer: std.AutoArrayHashMapUnmanaged(void, Range),
 string: zss.SegmentedUtf8String,
 options: Options,
 
@@ -78,8 +77,11 @@ fn addFromGenericTokenIterator(
         pub fn hash(_: @This(), key: Key) u32 {
             var hasher = std.hash.Wyhash.init(0);
             var it = key.it;
+            var limit: usize = 32;
             while (it.next(key.source)) |codepoint| {
+                if (limit == 0) break;
                 std.hash.autoHash(&hasher, codepoint);
+                limit -= 1;
             }
             return @truncate(hasher.final());
         }
@@ -147,7 +149,7 @@ test "StringInterner" {
 
     var interner = init(.{ .max_size = 3 });
     defer interner.deinit(allocator);
-    const ids = .{
+    const indeces = .{
         .apple_ident = try interner.addFromIdentToken(allocator, ast.location(ast_nodes.apple_ident), token_source),
         .banana = try interner.addFromIdentToken(allocator, ast.location(ast_nodes.banana), token_source),
         .cucumber = try interner.addFromIdentToken(allocator, ast.location(ast_nodes.cucumber), token_source),
@@ -157,8 +159,8 @@ test "StringInterner" {
         },
         .apple_string = try interner.addFromStringToken(allocator, ast.location(ast_nodes.apple_string), token_source),
     };
-    try std.testing.expectEqual(@as(usize, 0), ids.apple_ident);
-    try std.testing.expectEqual(@as(usize, 1), ids.banana);
-    try std.testing.expectEqual(@as(usize, 2), ids.cucumber);
-    try std.testing.expectEqual(@as(usize, 0), ids.apple_string);
+    try std.testing.expectEqual(@as(usize, 0), indeces.apple_ident);
+    try std.testing.expectEqual(@as(usize, 1), indeces.banana);
+    try std.testing.expectEqual(@as(usize, 2), indeces.cucumber);
+    try std.testing.expectEqual(@as(usize, 0), indeces.apple_string);
 }

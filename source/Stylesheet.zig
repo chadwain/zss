@@ -73,8 +73,10 @@ pub fn create(
         switch (ast.tag(index)) {
             .at_rule => {
                 const at_rule = ast.extra(index).at_rule orelse {
-                    const bytes = ast.atKeywordIdentifierBytes(token_source, index);
-                    zss.log.warn("Ignoring unknown at-rule: @{s}", .{bytes});
+                    const at_keyword_string = token_source.copyAtKeyword(ast.location(index), allocator) catch
+                        std.debug.panic("TODO: Unhandled allocation failure", .{});
+                    defer allocator.free(at_keyword_string);
+                    zss.log.warn("Ignoring unknown at-rule: @{s}", .{at_keyword_string});
                     continue;
                 };
                 atRule(&stylesheet.namespaces, allocator, ast, token_source, env, at_rule, index) catch |err| switch (err) {
