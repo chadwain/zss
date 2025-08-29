@@ -845,9 +845,15 @@ fn ComptimePrefixTree(comptime Enum: type) type {
                         .lt => break index,
                         .gt => {},
                         .eq => {
-                            stack.append(index);
-                            interval = .{ .begin = index + 1, .end = index + nodes.buffer[index].skip };
-                            continue :character_loop;
+                            if (character_index == field.name.len - 1) {
+                                assert(nodes.buffer[index].field_index == null);
+                                nodes.buffer[index].field_index = field_index;
+                                break :character_loop;
+                            } else {
+                                stack.append(index);
+                                interval = .{ .begin = index + 1, .end = index + nodes.buffer[index].skip };
+                                continue :character_loop;
+                            }
                         },
                     }
                 } else interval.end;

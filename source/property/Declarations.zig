@@ -27,7 +27,6 @@ const Declarations = @This();
 
 const zss = @import("../zss.zig");
 const CssWideKeyword = zss.values.types.CssWideKeyword;
-const Importance = zss.property.Importance;
 
 const groups = zss.property.groups;
 const DeclaredValueTag = groups.DeclaredValueTag;
@@ -152,6 +151,11 @@ pub fn closeBlock(decls: *Declarations) void {
     decls.current.block += 1;
     decls.current.meta = undefined;
 }
+
+pub const Importance = enum {
+    normal,
+    important,
+};
 
 /// `values` must be a struct such that each field is named after an group.
 /// Each field of `values` must also be a struct, such that each field:

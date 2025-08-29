@@ -2,6 +2,7 @@ const zss = @import("zss.zig");
 const groups = zss.property.groups;
 const CssWideKeyword = zss.values.types.CssWideKeyword;
 const Declarations = zss.property.Declarations;
+const Importance = Declarations.Importance;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -21,7 +22,7 @@ pub fn applyDeclBlock(
     arena: *ArenaAllocator,
     decls: *const Declarations,
     block: Declarations.Block,
-    importance: zss.property.Importance,
+    importance: Importance,
 ) !void {
     // TODO: The 'all' property does not affect some properties
     if (cascaded.all != null) return;

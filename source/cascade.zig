@@ -8,7 +8,7 @@ const Block = zss.property.Declarations.Block;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Environment = zss.Environment;
-const Importance = zss.property.Importance;
+const Importance = zss.property.Declarations.Importance;
 
 /// The list of all cascade sources, grouped by their cascade origin.
 ///

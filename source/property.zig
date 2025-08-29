@@ -2,6 +2,7 @@ const zss = @import("zss.zig");
 const Ast = zss.syntax.Ast;
 const CascadedValues = zss.CascadedValues;
 const Environment = zss.Environment;
+const Importance = Declarations.Importance;
 const TokenSource = zss.syntax.TokenSource;
 const Urls = zss.values.parse.Urls;
 const ValueContext = zss.values.parse.Context;
@@ -38,10 +39,12 @@ pub const Property = enum {
     @"padding-right",
     @"padding-top",
     @"padding-bottom",
+    padding,
     @"border-left-width",
     @"border-right-width",
     @"border-top-width",
     @"border-bottom-width",
+    @"border-width",
     @"margin-left",
     @"margin-right",
     @"margin-top",
@@ -58,6 +61,7 @@ pub const Property = enum {
     @"border-right-style",
     @"border-top-style",
     @"border-bottom-style",
+    @"border-style",
     color,
     @"background-color",
     @"background-image",
@@ -68,120 +72,120 @@ pub const Property = enum {
     @"background-origin",
     @"background-size",
 
-    pub const Description = union(enum) {
-        all,
-        non_shorthand: NonShorthand,
-
-        pub const NonShorthand = struct {
-            group: groups.Tag,
-            field: @Type(.enum_literal),
-        };
-    };
-
-    pub fn description(comptime property: Property) Description {
+    pub fn affectedFields(comptime property: Property) []const struct { groups.Tag, []const @Type(.enum_literal) } {
         // zig fmt: off
         return comptime switch (property) {
-            .all                      => .all,
+            .all                      => unreachable,
 
-            .display                  => nonShorthand(.box_style       , .display       ),
-            .position                 => nonShorthand(.box_style       , .position      ),
-            .float                    => nonShorthand(.box_style       , .float         ),
-            .@"z-index"               => nonShorthand(.z_index         , .z_index       ),
-            .width                    => nonShorthand(.content_width   , .width         ),
-            .@"min-width"             => nonShorthand(.content_width   , .min_width     ),
-            .@"max-width"             => nonShorthand(.content_width   , .max_width     ),
-            .height                   => nonShorthand(.content_height  , .height        ),
-            .@"min-height"            => nonShorthand(.content_height  , .min_height    ),
-            .@"max-height"            => nonShorthand(.content_height  , .max_height    ),
-            .@"padding-left"          => nonShorthand(.horizontal_edges, .padding_left  ),
-            .@"padding-right"         => nonShorthand(.horizontal_edges, .padding_right ),
-            .@"padding-top"           => nonShorthand(.vertical_edges  , .padding_top   ),
-            .@"padding-bottom"        => nonShorthand(.vertical_edges  , .padding_bottom),
-            .@"border-left-width"     => nonShorthand(.horizontal_edges, .border_left   ),
-            .@"border-right-width"    => nonShorthand(.horizontal_edges, .border_right  ),
-            .@"border-top-width"      => nonShorthand(.vertical_edges  , .border_top    ),
-            .@"border-bottom-width"   => nonShorthand(.vertical_edges  , .border_bottom ),
-            .@"margin-left"           => nonShorthand(.horizontal_edges, .margin_left   ),
-            .@"margin-right"          => nonShorthand(.horizontal_edges, .margin_right  ),
-            .@"margin-top"            => nonShorthand(.vertical_edges  , .margin_top    ),
-            .@"margin-bottom"         => nonShorthand(.vertical_edges  , .margin_bottom ),
-            .left                     => nonShorthand(.insets          , .left          ),
-            .right                    => nonShorthand(.insets          , .right         ),
-            .top                      => nonShorthand(.insets          , .top           ),
-            .bottom                   => nonShorthand(.insets          , .bottom        ),
-            .@"border-left-color"     => nonShorthand(.border_colors   , .left          ),
-            .@"border-right-color"    => nonShorthand(.border_colors   , .right         ),
-            .@"border-top-color"      => nonShorthand(.border_colors   , .top           ),
-            .@"border-bottom-color"   => nonShorthand(.border_colors   , .bottom        ),
-            .@"border-left-style"     => nonShorthand(.border_styles   , .left          ),
-            .@"border-right-style"    => nonShorthand(.border_styles   , .right         ),
-            .@"border-top-style"      => nonShorthand(.border_styles   , .top           ),
-            .@"border-bottom-style"   => nonShorthand(.border_styles   , .bottom        ),
-            .color                    => nonShorthand(.color           , .color         ),
-            .@"background-color"      => nonShorthand(.background_color, .color         ),
-            .@"background-image"      => nonShorthand(.background      , .image         ),
-            .@"background-repeat"     => nonShorthand(.background      , .repeat        ),
-            .@"background-attachment" => nonShorthand(.background      , .attachment    ),
-            .@"background-position"   => nonShorthand(.background      , .position      ),
-            .@"background-clip"       => nonShorthand(.background_clip , .clip          ),
-            .@"background-origin"     => nonShorthand(.background      , .origin        ),
-            .@"background-size"       => nonShorthand(.background      , .size          ),
+            .display                  => &.{.{.box_style       , &.{.display}       }},
+            .position                 => &.{.{.box_style       , &.{.position}      }},
+            .float                    => &.{.{.box_style       , &.{.float}         }},
+            .@"z-index"               => &.{.{.z_index         , &.{.z_index}       }},
+            .width                    => &.{.{.content_width   , &.{.width}         }},
+            .@"min-width"             => &.{.{.content_width   , &.{.min_width}     }},
+            .@"max-width"             => &.{.{.content_width   , &.{.max_width}     }},
+            .height                   => &.{.{.content_height  , &.{.height}        }},
+            .@"min-height"            => &.{.{.content_height  , &.{.min_height}    }},
+            .@"max-height"            => &.{.{.content_height  , &.{.max_height}    }},
+            .@"padding-left"          => &.{.{.horizontal_edges, &.{.padding_left}  }},
+            .@"padding-right"         => &.{.{.horizontal_edges, &.{.padding_right} }},
+            .@"padding-top"           => &.{.{.vertical_edges  , &.{.padding_top}   }},
+            .@"padding-bottom"        => &.{.{.vertical_edges  , &.{.padding_bottom}}},
+            .padding                  => &.{
+                .{.horizontal_edges, &.{.padding_left, .padding_right}},
+                .{.vertical_edges,   &.{.padding_top, .padding_bottom}},
+            },
+            .@"border-left-width"     => &.{.{.horizontal_edges, &.{.border_left}   }},
+            .@"border-right-width"    => &.{.{.horizontal_edges, &.{.border_right}  }},
+            .@"border-top-width"      => &.{.{.vertical_edges  , &.{.border_top}    }},
+            .@"border-bottom-width"   => &.{.{.vertical_edges  , &.{.border_bottom} }},
+            .@"border-width"          => &.{
+                .{.horizontal_edges, &.{.border_left, .border_right}},
+                .{.vertical_edges,   &.{.border_top, .border_bottom}},
+            },
+            .@"margin-left"           => &.{.{.horizontal_edges, &.{.margin_left}   }},
+            .@"margin-right"          => &.{.{.horizontal_edges, &.{.margin_right}  }},
+            .@"margin-top"            => &.{.{.vertical_edges  , &.{.margin_top}    }},
+            .@"margin-bottom"         => &.{.{.vertical_edges  , &.{.margin_bottom} }},
+            .left                     => &.{.{.insets          , &.{.left}          }},
+            .right                    => &.{.{.insets          , &.{.right}         }},
+            .top                      => &.{.{.insets          , &.{.top}           }},
+            .bottom                   => &.{.{.insets          , &.{.bottom}        }},
+            .@"border-left-color"     => &.{.{.border_colors   , &.{.left}          }},
+            .@"border-right-color"    => &.{.{.border_colors   , &.{.right}         }},
+            .@"border-top-color"      => &.{.{.border_colors   , &.{.top}           }},
+            .@"border-bottom-color"   => &.{.{.border_colors   , &.{.bottom}        }},
+            .@"border-left-style"     => &.{.{.border_styles   , &.{.left}          }},
+            .@"border-right-style"    => &.{.{.border_styles   , &.{.right}         }},
+            .@"border-top-style"      => &.{.{.border_styles   , &.{.top}           }},
+            .@"border-bottom-style"   => &.{.{.border_styles   , &.{.bottom}        }},
+            .@"border-style"          => &.{
+                .{.border_styles, &.{.top, .right, .bottom, .left}},
+            },
+            .color                    => &.{.{.color           , &.{.color}         }},
+            .@"background-color"      => &.{.{.background_color, &.{.color}         }},
+            .@"background-image"      => &.{.{.background      , &.{.image}         }},
+            .@"background-repeat"     => &.{.{.background      , &.{.repeat}        }},
+            .@"background-attachment" => &.{.{.background      , &.{.attachment}    }},
+            .@"background-position"   => &.{.{.background      , &.{.position}      }},
+            .@"background-clip"       => &.{.{.background_clip , &.{.clip}          }},
+            .@"background-origin"     => &.{.{.background      , &.{.origin}        }},
+            .@"background-size"       => &.{.{.background      , &.{.size}          }},
         };
         // zig fmt: on
     }
 
-    fn nonShorthand(
-        comptime group: groups.Tag,
-        comptime field: @Type(.enum_literal),
-    ) Description {
-        return .{
-            .non_shorthand = .{
-                .group = group,
-                .field = field,
-            },
+    pub fn ParseFnReturnType(comptime property: Property) type {
+        const ns = struct {
+            fn GroupFieldsStruct(comptime group: groups.Tag, field_tags: []const @Type(.enum_literal)) type {
+                var fields: [field_tags.len]std.builtin.Type.StructField = undefined;
+                for (&fields, field_tags) |*field, tag| {
+                    const FieldType = group.FieldType(tag);
+                    const Type = switch (group.size()) {
+                        .single => groups.SingleValue(FieldType),
+                        .multi => groups.MultiValue(FieldType),
+                    };
+                    const default: Type = .undeclared;
+                    field.* = .{
+                        .name = @tagName(tag),
+                        .type = Type,
+                        .alignment = @alignOf(Type),
+                        .is_comptime = false,
+                        .default_value_ptr = &default,
+                    };
+                }
+                return @Type(.{ .@"struct" = .{
+                    .layout = .auto,
+                    .fields = &fields,
+                    .decls = &.{},
+                    .is_tuple = false,
+                } });
+            }
         };
-    }
 
-    pub fn DeclarationType(comptime property: Property) type {
-        switch (property.description()) {
-            .all => return zss.values.types.CssWideKeyword,
-            .non_shorthand => |non_shorthand| {
-                const group = non_shorthand.group;
-                const Field = group.FieldType(non_shorthand.field);
-                return StructWithOneField(
-                    @tagName(group),
-                    StructWithOneField(
-                        @tagName(non_shorthand.field),
-                        switch (group.size()) {
-                            .single => groups.SingleValue(Field),
-                            .multi => groups.MultiValue(Field),
-                        },
-                    ),
-                );
-            },
+        const affected_fields = property.affectedFields();
+        var fields: [affected_fields.len]std.builtin.Type.StructField = undefined;
+        for (&fields, affected_fields) |*field, group| {
+            const Type = ns.GroupFieldsStruct(group[0], group[1]);
+            field.* = .{
+                .name = @tagName(group[0]),
+                .type = Type,
+                .alignment = @alignOf(Type),
+                .is_comptime = false,
+                .default_value_ptr = &Type{},
+            };
         }
-    }
-
-    fn StructWithOneField(comptime field_name: [:0]const u8, comptime T: type) type {
         return @Type(.{ .@"struct" = .{
             .layout = .auto,
-            .fields = &.{
-                .{
-                    .name = field_name,
-                    .type = T,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(T),
-                },
-            },
+            .fields = &fields,
             .decls = &.{},
             .is_tuple = false,
         } });
     }
 
-    fn declaredValueFromCwk(comptime property: Property, cwk: zss.values.types.CssWideKeyword) property.DeclarationType() {
-        var result: property.DeclarationType() = undefined;
-        inline for (@typeInfo(property.DeclarationType()).@"struct".fields) |group_field| {
+    fn declaredValueFromCwk(comptime property: Property, cwk: zss.values.types.CssWideKeyword) property.ParseFnReturnType() {
+        var result: property.ParseFnReturnType() = undefined;
+        inline for (@typeInfo(property.ParseFnReturnType()).@"struct".fields) |group_field| {
             inline for (@typeInfo(group_field.type).@"struct".fields) |value_field| {
                 @field(@field(result, group_field.name), value_field.name) = switch (cwk) {
                     .initial => .initial,
@@ -192,11 +196,6 @@ pub const Property = enum {
         }
         return result;
     }
-};
-
-pub const Importance = enum {
-    normal,
-    important,
 };
 
 // TODO: Pick a "smarter" number

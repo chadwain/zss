@@ -10,7 +10,7 @@ const Fba = std.heap.FixedBufferAllocator;
 
 const zss = @import("../zss.zig");
 const max_list_len = zss.property.Declarations.max_list_len;
-const DeclType = zss.property.Property.DeclarationType;
+const ReturnType = zss.property.Property.ParseFnReturnType;
 const TokenSource = zss.syntax.TokenSource;
 
 const values = zss.values;
@@ -56,187 +56,271 @@ fn parseList(ctx: *Context, fba: *Fba, parse_fn: anytype) !?[]const ParseFnValue
     return null;
 }
 
-pub fn display(ctx: *Context) ?DeclType(.display) {
+pub fn display(ctx: *Context) ?ReturnType(.display) {
     const value = values.parse.display(ctx) orelse return null;
     return .{ .box_style = .{ .display = .{ .declared = value } } };
 }
 
-pub fn position(ctx: *Context) ?DeclType(.position) {
+pub fn position(ctx: *Context) ?ReturnType(.position) {
     const value = values.parse.position(ctx) orelse return null;
     return .{ .box_style = .{ .position = .{ .declared = value } } };
 }
 
-pub fn float(ctx: *Context) ?DeclType(.float) {
+pub fn float(ctx: *Context) ?ReturnType(.float) {
     const value = values.parse.float(ctx) orelse return null;
     return .{ .box_style = .{ .float = .{ .declared = value } } };
 }
 
-pub fn @"z-index"(ctx: *Context) ?DeclType(.@"z-index") {
+pub fn @"z-index"(ctx: *Context) ?ReturnType(.@"z-index") {
     const value = values.parse.zIndex(ctx) orelse return null;
     return .{ .z_index = .{ .z_index = .{ .declared = value } } };
 }
 
-pub fn width(ctx: *Context) ?DeclType(.width) {
+pub fn width(ctx: *Context) ?ReturnType(.width) {
     const value = values.parse.lengthPercentageAuto(ctx, types.LengthPercentageAuto) orelse return null;
     return .{ .content_width = .{ .width = .{ .declared = value } } };
 }
 
-pub fn @"min-width"(ctx: *Context) ?DeclType(.@"min-width") {
+pub fn @"min-width"(ctx: *Context) ?ReturnType(.@"min-width") {
     const value = values.parse.lengthPercentage(ctx, types.LengthPercentage) orelse return null;
     return .{ .content_width = .{ .min_width = .{ .declared = value } } };
 }
 
-pub fn @"max-width"(ctx: *Context) ?DeclType(.@"max-width") {
+pub fn @"max-width"(ctx: *Context) ?ReturnType(.@"max-width") {
     const value = values.parse.lengthPercentageNone(ctx, types.MaxSize) orelse return null;
     return .{ .content_width = .{ .max_width = .{ .declared = value } } };
 }
 
-pub fn height(ctx: *Context) ?DeclType(.height) {
+pub fn height(ctx: *Context) ?ReturnType(.height) {
     const value = values.parse.lengthPercentageAuto(ctx, types.LengthPercentageAuto) orelse return null;
     return .{ .content_height = .{ .height = .{ .declared = value } } };
 }
 
-pub fn @"min-height"(ctx: *Context) ?DeclType(.@"min-height") {
+pub fn @"min-height"(ctx: *Context) ?ReturnType(.@"min-height") {
     const value = values.parse.lengthPercentage(ctx, types.LengthPercentage) orelse return null;
     return .{ .content_height = .{ .min_height = .{ .declared = value } } };
 }
 
-pub fn @"max-height"(ctx: *Context) ?DeclType(.@"max-height") {
+pub fn @"max-height"(ctx: *Context) ?ReturnType(.@"max-height") {
     const value = values.parse.lengthPercentageNone(ctx, types.MaxSize) orelse return null;
     return .{ .content_height = .{ .max_height = .{ .declared = value } } };
 }
 
-pub fn @"padding-left"(ctx: *Context) ?DeclType(.@"padding-left") {
+pub fn @"padding-left"(ctx: *Context) ?ReturnType(.@"padding-left") {
     const value = values.parse.lengthPercentage(ctx, types.LengthPercentage) orelse return null;
     return .{ .horizontal_edges = .{ .padding_left = .{ .declared = value } } };
 }
 
-pub fn @"padding-right"(ctx: *Context) ?DeclType(.@"padding-right") {
+pub fn @"padding-right"(ctx: *Context) ?ReturnType(.@"padding-right") {
     const value = values.parse.lengthPercentage(ctx, types.LengthPercentage) orelse return null;
     return .{ .horizontal_edges = .{ .padding_right = .{ .declared = value } } };
 }
 
-pub fn @"padding-top"(ctx: *Context) ?DeclType(.@"padding-top") {
+pub fn @"padding-top"(ctx: *Context) ?ReturnType(.@"padding-top") {
     const value = values.parse.lengthPercentage(ctx, types.LengthPercentage) orelse return null;
     return .{ .vertical_edges = .{ .padding_top = .{ .declared = value } } };
 }
 
-pub fn @"padding-bottom"(ctx: *Context) ?DeclType(.@"padding-bottom") {
+pub fn @"padding-bottom"(ctx: *Context) ?ReturnType(.@"padding-bottom") {
     const value = values.parse.lengthPercentage(ctx, types.LengthPercentage) orelse return null;
     return .{ .vertical_edges = .{ .padding_bottom = .{ .declared = value } } };
 }
 
-pub fn @"border-left-width"(ctx: *Context) ?DeclType(.@"border-left-width") {
+pub fn padding(ctx: *Context) ?ReturnType(.padding) {
+    var sizes: [4]zss.property.groups.SingleValue(types.LengthPercentage) = undefined;
+    var num: u3 = 0;
+    for (0..4) |i| {
+        const size = values.parse.lengthPercentage(ctx, types.LengthPercentage) orelse break;
+        sizes[i] = .{ .declared = size };
+        num += 1;
+    }
+    switch (num) {
+        0 => return null,
+        1 => return .{
+            .horizontal_edges = .{ .padding_left = sizes[0], .padding_right = sizes[0] },
+            .vertical_edges = .{ .padding_top = sizes[0], .padding_bottom = sizes[0] },
+        },
+        2 => return .{
+            .horizontal_edges = .{ .padding_left = sizes[1], .padding_right = sizes[1] },
+            .vertical_edges = .{ .padding_top = sizes[0], .padding_bottom = sizes[0] },
+        },
+        3 => return .{
+            .horizontal_edges = .{ .padding_left = sizes[1], .padding_right = sizes[1] },
+            .vertical_edges = .{ .padding_top = sizes[0], .padding_bottom = sizes[2] },
+        },
+        4 => return .{
+            .horizontal_edges = .{ .padding_left = sizes[3], .padding_right = sizes[1] },
+            .vertical_edges = .{ .padding_top = sizes[0], .padding_bottom = sizes[2] },
+        },
+        else => unreachable,
+    }
+}
+
+pub fn @"border-left-width"(ctx: *Context) ?ReturnType(.@"border-left-width") {
     const value = values.parse.borderWidth(ctx) orelse return null;
     return .{ .horizontal_edges = .{ .border_left = .{ .declared = value } } };
 }
 
-pub fn @"border-right-width"(ctx: *Context) ?DeclType(.@"border-right-width") {
+pub fn @"border-right-width"(ctx: *Context) ?ReturnType(.@"border-right-width") {
     const value = values.parse.borderWidth(ctx) orelse return null;
     return .{ .horizontal_edges = .{ .border_right = .{ .declared = value } } };
 }
 
-pub fn @"border-top-width"(ctx: *Context) ?DeclType(.@"border-top-width") {
+pub fn @"border-top-width"(ctx: *Context) ?ReturnType(.@"border-top-width") {
     const value = values.parse.borderWidth(ctx) orelse return null;
     return .{ .vertical_edges = .{ .border_top = .{ .declared = value } } };
 }
 
-pub fn @"border-bottom-width"(ctx: *Context) ?DeclType(.@"border-bottom-width") {
+pub fn @"border-bottom-width"(ctx: *Context) ?ReturnType(.@"border-bottom-width") {
     const value = values.parse.borderWidth(ctx) orelse return null;
     return .{ .vertical_edges = .{ .border_bottom = .{ .declared = value } } };
 }
 
-pub fn @"margin-left"(ctx: *Context) ?DeclType(.@"margin-left") {
+pub fn @"border-width"(ctx: *Context) ?ReturnType(.@"border-width") {
+    var widths: [4]types.BorderWidth = undefined;
+    var num: u3 = 0;
+    for (0..4) |i| {
+        widths[i] = values.parse.borderWidth(ctx) orelse break;
+        num += 1;
+    }
+    switch (num) {
+        0 => return null,
+        1 => return .{
+            .horizontal_edges = .{ .border_left = .{ .declared = widths[0] }, .border_right = .{ .declared = widths[0] } },
+            .vertical_edges = .{ .border_top = .{ .declared = widths[0] }, .border_bottom = .{ .declared = widths[0] } },
+        },
+        2 => return .{
+            .horizontal_edges = .{ .border_left = .{ .declared = widths[1] }, .border_right = .{ .declared = widths[1] } },
+            .vertical_edges = .{ .border_top = .{ .declared = widths[0] }, .border_bottom = .{ .declared = widths[0] } },
+        },
+        3 => return .{
+            .horizontal_edges = .{ .border_left = .{ .declared = widths[1] }, .border_right = .{ .declared = widths[1] } },
+            .vertical_edges = .{ .border_top = .{ .declared = widths[0] }, .border_bottom = .{ .declared = widths[2] } },
+        },
+        4 => return .{
+            .horizontal_edges = .{ .border_left = .{ .declared = widths[3] }, .border_right = .{ .declared = widths[1] } },
+            .vertical_edges = .{ .border_top = .{ .declared = widths[0] }, .border_bottom = .{ .declared = widths[2] } },
+        },
+        else => unreachable,
+    }
+}
+
+pub fn @"margin-left"(ctx: *Context) ?ReturnType(.@"margin-left") {
     const value = values.parse.lengthPercentageAuto(ctx, types.LengthPercentageAuto) orelse return null;
     return .{ .horizontal_edges = .{ .margin_left = .{ .declared = value } } };
 }
 
-pub fn @"margin-right"(ctx: *Context) ?DeclType(.@"margin-right") {
+pub fn @"margin-right"(ctx: *Context) ?ReturnType(.@"margin-right") {
     const value = values.parse.lengthPercentageAuto(ctx, types.LengthPercentageAuto) orelse return null;
     return .{ .horizontal_edges = .{ .margin_right = .{ .declared = value } } };
 }
 
-pub fn @"margin-top"(ctx: *Context) ?DeclType(.@"margin-top") {
+pub fn @"margin-top"(ctx: *Context) ?ReturnType(.@"margin-top") {
     const value = values.parse.lengthPercentageAuto(ctx, types.LengthPercentageAuto) orelse return null;
     return .{ .vertical_edges = .{ .margin_top = .{ .declared = value } } };
 }
 
-pub fn @"margin-bottom"(ctx: *Context) ?DeclType(.@"margin-bottom") {
+pub fn @"margin-bottom"(ctx: *Context) ?ReturnType(.@"margin-bottom") {
     const value = values.parse.lengthPercentageAuto(ctx, types.LengthPercentageAuto) orelse return null;
     return .{ .vertical_edges = .{ .margin_bottom = .{ .declared = value } } };
 }
 
-pub fn left(ctx: *Context) ?DeclType(.left) {
+pub fn left(ctx: *Context) ?ReturnType(.left) {
     const value = values.parse.lengthPercentageAuto(ctx, types.LengthPercentageAuto) orelse return null;
     return .{ .insets = .{ .left = .{ .declared = value } } };
 }
 
-pub fn right(ctx: *Context) ?DeclType(.right) {
+pub fn right(ctx: *Context) ?ReturnType(.right) {
     const value = values.parse.lengthPercentageAuto(ctx, types.LengthPercentageAuto) orelse return null;
     return .{ .insets = .{ .right = .{ .declared = value } } };
 }
 
-pub fn top(ctx: *Context) ?DeclType(.top) {
+pub fn top(ctx: *Context) ?ReturnType(.top) {
     const value = values.parse.lengthPercentageAuto(ctx, types.LengthPercentageAuto) orelse return null;
     return .{ .insets = .{ .top = .{ .declared = value } } };
 }
 
-pub fn bottom(ctx: *Context) ?DeclType(.bottom) {
+pub fn bottom(ctx: *Context) ?ReturnType(.bottom) {
     const value = values.parse.lengthPercentageAuto(ctx, types.LengthPercentageAuto) orelse return null;
     return .{ .insets = .{ .bottom = .{ .declared = value } } };
 }
 
-pub fn @"border-left-color"(ctx: *Context) ?DeclType(.@"border-left-color") {
+pub fn @"border-left-color"(ctx: *Context) ?ReturnType(.@"border-left-color") {
     const value = values.parse.color(ctx) orelse return null;
     return .{ .border_colors = .{ .left = .{ .declared = value } } };
 }
 
-pub fn @"border-right-color"(ctx: *Context) ?DeclType(.@"border-right-color") {
+pub fn @"border-right-color"(ctx: *Context) ?ReturnType(.@"border-right-color") {
     const value = values.parse.color(ctx) orelse return null;
     return .{ .border_colors = .{ .right = .{ .declared = value } } };
 }
 
-pub fn @"border-top-color"(ctx: *Context) ?DeclType(.@"border-top-color") {
+pub fn @"border-top-color"(ctx: *Context) ?ReturnType(.@"border-top-color") {
     const value = values.parse.color(ctx) orelse return null;
     return .{ .border_colors = .{ .top = .{ .declared = value } } };
 }
 
-pub fn @"border-bottom-color"(ctx: *Context) ?DeclType(.@"border-bottom-color") {
+pub fn @"border-bottom-color"(ctx: *Context) ?ReturnType(.@"border-bottom-color") {
     const value = values.parse.color(ctx) orelse return null;
     return .{ .border_colors = .{ .bottom = .{ .declared = value } } };
 }
 
-pub fn @"border-left-style"(ctx: *Context) ?DeclType(.@"border-left-style") {
+pub fn @"border-left-style"(ctx: *Context) ?ReturnType(.@"border-left-style") {
     const value = values.parse.borderStyle(ctx) orelse return null;
     return .{ .border_styles = .{ .left = .{ .declared = value } } };
 }
 
-pub fn @"border-right-style"(ctx: *Context) ?DeclType(.@"border-right-style") {
+pub fn @"border-right-style"(ctx: *Context) ?ReturnType(.@"border-right-style") {
     const value = values.parse.borderStyle(ctx) orelse return null;
     return .{ .border_styles = .{ .right = .{ .declared = value } } };
 }
 
-pub fn @"border-top-style"(ctx: *Context) ?DeclType(.@"border-top-style") {
+pub fn @"border-top-style"(ctx: *Context) ?ReturnType(.@"border-top-style") {
     const value = values.parse.borderStyle(ctx) orelse return null;
     return .{ .border_styles = .{ .top = .{ .declared = value } } };
 }
 
-pub fn @"border-bottom-style"(ctx: *Context) ?DeclType(.@"border-bottom-style") {
+pub fn @"border-bottom-style"(ctx: *Context) ?ReturnType(.@"border-bottom-style") {
     const value = values.parse.borderStyle(ctx) orelse return null;
     return .{ .border_styles = .{ .bottom = .{ .declared = value } } };
 }
 
-pub fn color(ctx: *Context) ?DeclType(.color) {
+pub fn @"border-style"(ctx: *Context) ?ReturnType(.@"border-style") {
+    var styles: [4]types.BorderStyle = undefined;
+    var num: u3 = 0;
+    for (0..4) |i| {
+        styles[i] = values.parse.borderStyle(ctx) orelse break;
+        num += 1;
+    }
+    switch (num) {
+        0 => return null,
+        1 => return .{
+            .border_styles = .{ .left = .{ .declared = styles[0] }, .right = .{ .declared = styles[0] }, .top = .{ .declared = styles[0] }, .bottom = .{ .declared = styles[0] } },
+        },
+        2 => return .{
+            .border_styles = .{ .left = .{ .declared = styles[1] }, .right = .{ .declared = styles[1] }, .top = .{ .declared = styles[0] }, .bottom = .{ .declared = styles[0] } },
+        },
+        3 => return .{
+            .border_styles = .{ .left = .{ .declared = styles[1] }, .right = .{ .declared = styles[1] }, .top = .{ .declared = styles[0] }, .bottom = .{ .declared = styles[2] } },
+        },
+        4 => return .{
+            .border_styles = .{ .left = .{ .declared = styles[3] }, .right = .{ .declared = styles[1] }, .top = .{ .declared = styles[0] }, .bottom = .{ .declared = styles[2] } },
+        },
+        else => unreachable,
+    }
+}
+
+pub fn color(ctx: *Context) ?ReturnType(.color) {
     const value = values.parse.color(ctx) orelse return null;
     return .{ .color = .{ .color = .{ .declared = value } } };
 }
 
-pub fn @"background-color"(ctx: *Context) ?DeclType(.@"background-color") {
+pub fn @"background-color"(ctx: *Context) ?ReturnType(.@"background-color") {
     const value = values.parse.color(ctx) orelse return null;
     return .{ .background_color = .{ .color = .{ .declared = value } } };
 }
 
-pub fn @"background-image"(ctx: *Context, fba: *Fba, urls: zss.values.parse.Urls.Managed) !?DeclType(.@"background-image") {
+pub fn @"background-image"(ctx: *Context, fba: *Fba, urls: zss.values.parse.Urls.Managed) !?ReturnType(.@"background-image") {
     const save_point = ctx.enterTopLevelList() orelse return null;
     const url_save_point = urls.save();
 
@@ -258,32 +342,32 @@ pub fn @"background-image"(ctx: *Context, fba: *Fba, urls: zss.values.parse.Urls
     return null;
 }
 
-pub fn @"background-repeat"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-repeat") {
+pub fn @"background-repeat"(ctx: *Context, fba: *Fba) !?ReturnType(.@"background-repeat") {
     const list = (try parseList(ctx, fba, values.parse.background.repeat)) orelse return null;
     return .{ .background = .{ .repeat = .{ .declared = list } } };
 }
 
-pub fn @"background-attachment"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-attachment") {
+pub fn @"background-attachment"(ctx: *Context, fba: *Fba) !?ReturnType(.@"background-attachment") {
     const list = (try parseList(ctx, fba, values.parse.background.attachment)) orelse return null;
     return .{ .background = .{ .attachment = .{ .declared = list } } };
 }
 
-pub fn @"background-position"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-position") {
+pub fn @"background-position"(ctx: *Context, fba: *Fba) !?ReturnType(.@"background-position") {
     const list = (try parseList(ctx, fba, values.parse.background.position)) orelse return null;
     return .{ .background = .{ .position = .{ .declared = list } } };
 }
 
-pub fn @"background-clip"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-clip") {
+pub fn @"background-clip"(ctx: *Context, fba: *Fba) !?ReturnType(.@"background-clip") {
     const list = (try parseList(ctx, fba, values.parse.background.clip)) orelse return null;
     return .{ .background_clip = .{ .clip = .{ .declared = list } } };
 }
 
-pub fn @"background-origin"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-origin") {
+pub fn @"background-origin"(ctx: *Context, fba: *Fba) !?ReturnType(.@"background-origin") {
     const list = (try parseList(ctx, fba, values.parse.background.origin)) orelse return null;
     return .{ .background = .{ .origin = .{ .declared = list } } };
 }
 
-pub fn @"background-size"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-size") {
+pub fn @"background-size"(ctx: *Context, fba: *Fba) !?ReturnType(.@"background-size") {
     const list = (try parseList(ctx, fba, values.parse.background.size)) orelse return null;
     return .{ .background = .{ .size = .{ .declared = list } } };
 }
