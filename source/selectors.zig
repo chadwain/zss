@@ -99,7 +99,7 @@ pub const Combinator = enum(u8) { descendant, child, next_sibling, subsequent_si
 
 pub const PseudoElement = enum { unrecognized };
 
-pub const PseudoClass = enum { unrecognized };
+pub const PseudoClass = enum { root, unrecognized };
 
 pub const AttributeOperator = enum { equals, list_contains, equals_or_prefix_dash, starts_with, ends_with, contains };
 
@@ -184,103 +184,124 @@ test "Specificity.order" {
 pub fn matchElement(
     code: []const Code,
     complex_selector_index: Size,
-    tree: *const ElementTree,
+    env: *const Environment,
     match_candidate: Element,
 ) bool {
-    switch (tree.category(match_candidate)) {
+    switch (env.element_tree.category(match_candidate)) {
         .normal => {},
         .text => unreachable,
     }
 
     const last_trailing = code[complex_selector_index].next_complex_selector - 1;
-    return matchComplexSelector(code, complex_selector_index + 1, last_trailing, tree, match_candidate);
+    return matchComplexSelector(code, complex_selector_index + 1, last_trailing, env, match_candidate);
 }
 
 fn matchComplexSelector(
     codes: []const Code,
     first_compound: Size,
     last_trailing: Size,
-    tree: *const ElementTree,
+    env: *const Environment,
     match_candidate: Element,
 ) bool {
     var trailing_index = last_trailing;
     var trailing = codes[trailing_index].trailing;
     var element = match_candidate;
-    if (!matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, tree, element)) return false;
+    if (!matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element)) return false;
     compound_loop: while (trailing.compound_selector_start != first_compound) {
         trailing_index = trailing.compound_selector_start - 1;
         trailing = codes[trailing_index].trailing;
         switch (trailing.combinator) {
             .descendant => {
-                element = tree.parent(element);
-                while (!element.eqlNull()) : (element = tree.parent(element)) {
-                    switch (tree.category(element)) {
+                element = env.element_tree.parent(element);
+                while (!element.eqlNull()) : (element = env.element_tree.parent(element)) {
+                    switch (env.element_tree.category(element)) {
                         .normal => {},
                         .text => unreachable,
                     }
-                    if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
+                    if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element)) continue :compound_loop;
                 } else return false;
             },
             .child => {
-                element = tree.parent(element);
-                while (!element.eqlNull()) : (element = tree.parent(element)) {
-                    switch (tree.category(element)) {
+                element = env.element_tree.parent(element);
+                while (!element.eqlNull()) : (element = env.element_tree.parent(element)) {
+                    switch (env.element_tree.category(element)) {
                         .normal => break,
                         .text => unreachable,
                     }
                 } else return false;
-                if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
+                if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element)) continue :compound_loop;
                 return false;
             },
             .subsequent_sibling => {
-                element = tree.previousSibling(element);
-                while (!element.eqlNull()) : (element = tree.previousSibling(element)) {
-                    switch (tree.category(element)) {
+                element = env.element_tree.previousSibling(element);
+                while (!element.eqlNull()) : (element = env.element_tree.previousSibling(element)) {
+                    switch (env.element_tree.category(element)) {
                         .normal => {
-                            if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
+                            if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element)) continue :compound_loop;
                         },
                         .text => {},
                     }
                 }
             },
             .next_sibling => {
-                element = tree.previousSibling(element);
-                while (!element.eqlNull()) : (element = tree.previousSibling(element)) {
-                    switch (tree.category(element)) {
+                element = env.element_tree.previousSibling(element);
+                while (!element.eqlNull()) : (element = env.element_tree.previousSibling(element)) {
+                    switch (env.element_tree.category(element)) {
                         .normal => break,
                         .text => {},
                     }
                 } else return false;
-                if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, tree, element)) continue :compound_loop;
+                if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element)) continue :compound_loop;
                 return false;
             },
-            else => panic("TODO: Unsupported combinator: {s}\n", .{@tagName(trailing.combinator)}),
+            .column => panic("TODO: Unsupported selector combinator: {s}\n", .{@tagName(trailing.combinator)}),
         }
     }
     return true;
 }
 
-fn matchCompoundSelector(codes: []const Code, start: Size, end: Size, tree: *const ElementTree, element: Element) bool {
+fn matchCompoundSelector(
+    codes: []const Code,
+    start: Size,
+    end: Size,
+    env: *const Environment,
+    element: Element,
+) bool {
     var index = start;
     while (index < end) : (index += 1) {
         switch (codes[index].simple_selector_tag) {
             .type => {
                 index += 1;
                 const ty = codes[index].type_selector;
-                const element_type = tree.fqType(element);
+                const element_type = env.element_tree.fqType(element);
                 if (!ty.matchElement(element_type)) return false;
             },
             .id => {
                 index += 1;
                 const id = codes[index].id_selector;
-                const element_with_id = tree.getElementById(id) orelse return false;
+                const element_with_id = env.element_tree.getElementById(id) orelse return false;
                 if (element != element_with_id) return false;
             },
             .class,
             .attribute,
-            .pseudo_class,
-            .pseudo_element,
-            => panic("TODO: Handle '{s}' selector in compound selector matching", .{@tagName(codes[index].simple_selector_tag)}),
+            => panic("TODO: Unsupported simple selector: {s}", .{@tagName(codes[index].simple_selector_tag)}),
+            .pseudo_class => {
+                index += 1;
+                const pseudo_class = codes[index].pseudo_class_selector;
+                switch (pseudo_class) {
+                    .root => {
+                        if (element != env.root_element) return false;
+                    },
+                    .unrecognized => {},
+                }
+            },
+            .pseudo_element => {
+                index += 1;
+                const pseudo_element = codes[index].pseudo_element_selector;
+                switch (pseudo_element) {
+                    .unrecognized => {},
+                }
+            },
         }
     }
     return true;
@@ -601,6 +622,8 @@ test "complex selector matching" {
     try env.element_tree.registerId(env.allocator, ids[0], elements[0]);
     try env.element_tree.registerId(env.allocator, ids[1], elements[5]);
 
+    env.root_element = elements[0];
+
     const doTest = struct {
         fn f(selector_string: []const u8, en: *Environment, d: CodeList, ar: *ArenaAllocator, e: ElementTree.Element) !bool {
             const complex_start = d.len();
@@ -609,7 +632,7 @@ test "complex selector matching" {
                 else => |er| return er,
             };
             assert(num_selectors == 1);
-            return matchElement(d.list.items, complex_start, &en.element_tree, e);
+            return matchElement(d.list.items, complex_start, en, e);
         }
     }.f;
     const expect = std.testing.expect;
@@ -619,6 +642,7 @@ test "complex selector matching" {
 
     // zig fmt: off
     try expect(try doTest("root"                  , &env, code_list, &arena, elements[0]));
+    try expect(try doTest(":root"                 , &env, code_list, &arena, elements[0]));
     try expect(try doTest("first"                 , &env, code_list, &arena, elements[1]));
     try expect(try doTest("root > first"          , &env, code_list, &arena, elements[1]));
     try expect(try doTest("root first"            , &env, code_list, &arena, elements[1]));

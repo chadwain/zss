@@ -116,6 +116,13 @@ fn getAllTests(
     var loader = try ResourceLoader.init(args);
     defer loader.deinit();
 
+    const ua_stylesheet = blk: {
+        const token_source = try zss.syntax.TokenSource.init(@embedFile("ua-stylesheet.css"));
+        var parser = zss.syntax.Parser.init(token_source, allocator);
+        const ast = try parser.parseCssStylesheet(allocator);
+        break :blk UaStylesheet{ .ast = ast, .rule_list = 0, .token_source = token_source };
+    };
+
     var walker = try cases_dir.walk(allocator);
     defer walker.deinit();
 
@@ -138,12 +145,18 @@ fn getAllTests(
 
         const name = try allocator.dupe(u8, entry.path[0 .. entry.path.len - ".zml".len]);
 
-        const t = try createTest(arena, name, ast, token_source, fonts, font_handle, &loader);
+        const t = try createTest(arena, name, ast, token_source, fonts, font_handle, &loader, ua_stylesheet);
         try list.append(t);
     }
 
     return list.toOwnedSlice();
 }
+
+const UaStylesheet = struct {
+    ast: zss.syntax.Ast,
+    rule_list: zss.syntax.Ast.Size,
+    token_source: zss.syntax.TokenSource,
+};
 
 fn createTest(
     arena: *ArenaAllocator,
@@ -153,6 +166,7 @@ fn createTest(
     fonts: *const zss.Fonts,
     font_handle: zss.Fonts.Handle,
     loader: *ResourceLoader,
+    ua_stylesheet: UaStylesheet,
 ) !*Test {
     const allocator = arena.allocator();
 
@@ -165,41 +179,23 @@ fn createTest(
         .env = .init(allocator),
 
         .document = undefined,
-        .ua_cascade_source = undefined,
+        .stylesheet = undefined,
         .author_cascade_node = undefined,
         .ua_cascade_node = undefined,
     };
 
-    blk: {
-        t.document = try zss.zml.createDocument(allocator, &t.env, ast, token_source, 0);
-        t.env.root_element = t.document.root_element;
+    t.document = try zss.zml.createDocument(allocator, &t.env, ast, token_source, 0);
+    t.author_cascade_node = .{ .leaf = &t.document.cascade_source };
+    try t.env.cascade_list.author.append(t.env.allocator, &t.author_cascade_node);
 
-        if (t.env.root_element == Element.null_element) break :blk;
+    t.stylesheet = try zss.Stylesheet.create(allocator, ua_stylesheet.ast, ua_stylesheet.rule_list, ua_stylesheet.token_source, &t.env);
+    t.ua_cascade_node = .{ .leaf = &t.stylesheet.cascade_source };
+    try t.env.cascade_list.user_agent.append(t.env.allocator, &t.ua_cascade_node);
 
-        try loader.loadResourcesFromUrls(arena, &t.env, &t.document, token_source);
-
-        t.author_cascade_node = .{ .leaf = &t.document.cascade_source };
-        try t.env.cascade_list.author.append(t.env.allocator, &t.author_cascade_node);
-
-        switch (t.env.element_tree.category(t.env.root_element)) {
-            .normal => {},
-            .text => break :blk,
-        }
-
-        const block = try t.env.decls.openBlock(t.env.allocator);
-        const DeclaredValues = zss.property.groups.Tag.DeclaredValues;
-        try t.env.decls.addValues(t.env.allocator, .normal, .{ .color = DeclaredValues(.color){
-            .color = .{ .declared = .{ .rgba = 0xffffffff } },
-        } });
-        t.env.decls.closeBlock();
-
-        t.ua_cascade_source = .{};
-        try t.ua_cascade_source.style_attrs_normal.putNoClobber(allocator, t.env.root_element, block);
-        t.ua_cascade_node = .{ .leaf = &t.ua_cascade_source };
-        try t.env.cascade_list.user_agent.append(t.env.allocator, &t.ua_cascade_node);
-    }
-
+    t.env.root_element = t.document.root_element;
     try zss.cascade.run(&t.env);
+
+    try loader.loadResourcesFromUrls(arena, &t.env, &t.document, token_source);
 
     return t;
 }

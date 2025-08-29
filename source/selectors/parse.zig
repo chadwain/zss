@@ -491,6 +491,9 @@ fn parsePseudo(comptime what: enum { element, class, legacy_element }, parser: *
     switch (main_component_tag) {
         .token_ident => {
             // TODO: Get the actual pseudo element/class name.
+            if (what == .class and parser.source.matchIdentifierEnum(parser.ast.location(main_component_index), selectors.PseudoClass) == .root) {
+                return .root;
+            }
             return .unrecognized;
         },
         .function => {

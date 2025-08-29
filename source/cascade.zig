@@ -91,7 +91,7 @@ pub fn run(env: *Environment) !void {
     };
     for (order) |item| {
         const origin, const importance = item;
-        try traverseList(&env.cascade_list, &env.element_tree, env.root_element, &block_lists, &stack, &temp_arena, origin, importance);
+        try traverseList(&env.cascade_list, env, &block_lists, &stack, &temp_arena, origin, importance);
     }
 
     var element_tree_arena = env.element_tree.arena.promote(env.allocator);
@@ -126,8 +126,7 @@ const DeclBlockLists = struct {
 
 fn traverseList(
     list: *const List,
-    element_tree: *const ElementTree,
-    root_element: Element,
+    env: *const Environment,
     block_lists: *DeclBlockLists,
     stack: *zss.Stack([]const *const Node),
     arena: *std.heap.ArenaAllocator,
@@ -152,15 +151,14 @@ fn traverseList(
         top.* = top.*[1..];
         switch (node.*) {
             .inner => |inner| try stack.push(allocator, inner),
-            .leaf => |source| try applySource(source, element_tree, root_element, block_lists, arena, importance),
+            .leaf => |source| try applySource(source, env, block_lists, arena, importance),
         }
     }
 }
 
 fn applySource(
     source: *const Source,
-    element_tree: *const ElementTree,
-    root_element: Element,
+    env: *const Environment,
     block_lists: *DeclBlockLists,
     arena: *std.heap.ArenaAllocator,
     importance: Importance,
@@ -184,22 +182,22 @@ fn applySource(
     const allocator = arena.allocator();
 
     for (selector_list.items(.selector), selector_list.items(.block)) |selector, block| {
-        var stack = zss.Stack(Element).init(root_element);
+        var stack = zss.Stack(Element).init(env.root_element);
         while (stack.top) |*top| {
             if (top.eqlNull()) {
                 _ = stack.pop();
                 continue;
             }
             const element = top.*;
-            top.* = element_tree.nextSibling(element);
-            switch (element_tree.category(element)) {
+            top.* = env.element_tree.nextSibling(element);
+            switch (env.element_tree.category(element)) {
                 .text => continue,
                 .normal => {},
             }
-            const first_child = element_tree.firstChild(element);
+            const first_child = env.element_tree.firstChild(element);
             if (!first_child.eqlNull()) try stack.push(allocator, first_child);
 
-            if (zss.selectors.matchElement(source.selector_data.items, selector, element_tree, element)) {
+            if (zss.selectors.matchElement(source.selector_data.items, selector, env, element)) {
                 try block_lists.insert(arena, element, block, importance);
             }
         }

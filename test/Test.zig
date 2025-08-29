@@ -8,7 +8,7 @@ const Fonts = zss.Fonts;
 name: []const u8,
 env: Environment,
 document: zss.zml.Document,
-ua_cascade_source: zss.cascade.Source,
+stylesheet: zss.Stylesheet,
 author_cascade_node: zss.cascade.Node,
 ua_cascade_node: zss.cascade.Node,
 fonts: *const Fonts,

@@ -72,7 +72,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
         defer draw_list.deinit(allocator);
 
         setIcbBackgroundColor(&box_tree, zss.math.Color.fromRgbaInt(0x202020ff));
-        const root_block_size = rootBlockSize(&box_tree, t.root_element);
+        const root_block_size = rootBlockSize(&box_tree, t.env.root_element);
 
         const pages = try std.math.divCeil(u32, root_block_size.height, t.height);
         var image = try zigimg.Image.create(allocator, root_block_size.width, pages * t.height, .rgba32);
@@ -150,6 +150,7 @@ fn rootBlockSize(box_tree: *BoxTree, root_element: zss.ElementTree.Element) stru
 }
 
 fn setIcbBackgroundColor(box_tree: *BoxTree, color: zss.math.Color) void {
+    // TODO: This wouldn't be necessary if [background propagation](https://www.w3.org/TR/css-backgrounds-3/#special-backgrounds) was implemented.
     const icb = box_tree.initial_containing_block;
     const subtree = box_tree.getSubtree(icb.subtree).view();
     const background = &subtree.items(.background)[icb.index];
