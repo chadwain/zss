@@ -61,7 +61,6 @@ const Stacks = struct {
 };
 
 pub const Inputs = struct {
-    root_element: Element,
     width: u32,
     height: u32,
     env: *const Environment,
@@ -77,7 +76,6 @@ pub const Error = error{
 
 pub fn init(
     env: *const Environment,
-    root_element: Element,
     allocator: Allocator,
     /// The width of the viewport in pixels.
     width: u32,
@@ -85,12 +83,6 @@ pub fn init(
     height: u32,
     fonts: *const Fonts,
 ) Layout {
-    // TODO: Ensure the root element has no siblings
-    if (!root_element.eqlNull()) {
-        const parent = env.element_tree.parent(root_element);
-        assert(parent.eqlNull());
-    }
-
     return .{
         .box_tree = undefined,
         .computer = StyleComputer.init(&env.element_tree, allocator),
@@ -98,7 +90,6 @@ pub fn init(
         .absolute = .{},
         .viewport = undefined,
         .inputs = .{
-            .root_element = root_element,
             .width = width,
             .height = height,
             .env = env,
@@ -164,7 +155,7 @@ fn boxGeneration(layout: *Layout) !void {
     layout.computer.stage = .{ .box_gen = .{} };
     defer layout.computer.deinitStage(.box_gen);
 
-    layout.stacks.element.top = layout.inputs.root_element;
+    layout.stacks.element.top = layout.inputs.env.root_element;
 
     try initial.beginMode(layout);
     init: {
@@ -274,7 +265,7 @@ fn cosmeticLayout(layout: *Layout) !void {
     layout.computer.stage = .{ .cosmetic = .{} };
     defer layout.computer.deinitStage(.cosmetic);
 
-    layout.stacks.element.top = layout.inputs.root_element;
+    layout.stacks.element.top = layout.inputs.env.root_element;
 
     try cosmetic.run(layout);
 }

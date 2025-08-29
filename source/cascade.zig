@@ -75,7 +75,7 @@ pub const Source = struct {
 };
 
 /// Runs the CSS cascade.
-pub fn run(env: *Environment, root_element: Element) !void {
+pub fn run(env: *Environment) !void {
     var temp_arena = std.heap.ArenaAllocator.init(env.allocator);
     defer temp_arena.deinit();
 
@@ -91,7 +91,7 @@ pub fn run(env: *Environment, root_element: Element) !void {
     };
     for (order) |item| {
         const origin, const importance = item;
-        try traverseList(&env.cascade_list, &env.element_tree, root_element, &block_lists, &stack, &temp_arena, origin, importance);
+        try traverseList(&env.cascade_list, &env.element_tree, env.root_element, &block_lists, &stack, &temp_arena, origin, importance);
     }
 
     var element_tree_arena = env.element_tree.arena.promote(env.allocator);

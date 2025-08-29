@@ -6,7 +6,6 @@ const Environment = zss.Environment;
 const Fonts = zss.Fonts;
 
 name: []const u8,
-root_element: Element,
 env: Environment,
 document: zss.zml.Document,
 ua_cascade_source: zss.cascade.Source,

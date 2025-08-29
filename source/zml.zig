@@ -305,9 +305,10 @@ test createDocument {
 
     try std.testing.expectEqual(@as(?Element, document.root_element), document.named_nodes.get("root"));
 
+    env.root_element = document.root_element;
     const cascade_node = zss.cascade.Node{ .leaf = &document.cascade_source };
     try env.cascade_list.author.append(env.allocator, &cascade_node);
-    try cascade.run(&env, document.root_element);
+    try cascade.run(&env);
 
     const types = zss.values.types;
 

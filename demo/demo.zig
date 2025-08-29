@@ -23,7 +23,6 @@ const ProgramState = struct {
     max_scroll: ZssUnit,
 
     allocator: Allocator,
-    root_element: zss.ElementTree.Element,
     env: *zss.Environment,
     fonts: *const zss.Fonts,
 
@@ -45,7 +44,7 @@ const ProgramState = struct {
         self.main_window_height = height;
         try self.relayout();
 
-        const box = if (self.box_tree.element_to_generated_box.get(self.root_element)) |generated_box|
+        const box = if (self.box_tree.element_to_generated_box.get(self.env.root_element)) |generated_box|
             switch (generated_box) {
                 .block_ref => |ref| ref,
                 .inline_box, .text => unreachable,
@@ -76,7 +75,6 @@ const ProgramState = struct {
     fn relayout(self: *ProgramState) !void {
         var layout = zss.Layout.init(
             self.env,
-            self.root_element,
             self.allocator,
             self.main_window_width,
             self.main_window_height,
@@ -168,16 +166,17 @@ pub fn main() !u8 {
     const zig_logo_handle = try env.addImage(zig_logo_image);
 
     const elements = try createElements(&env, file_path, file_contents.items);
+    env.root_element = elements.get(.root);
 
     var cascade_source = try createCascadeSource(allocator, &env, elements, zig_logo_handle);
     defer cascade_source.deinit(allocator);
 
     const cascade_node = zss.cascade.Node{ .leaf = &cascade_source };
     try env.cascade_list.author.append(env.allocator, &cascade_node);
-    try zss.cascade.run(&env, elements.get(.root));
+    try zss.cascade.run(&env);
 
     var box_tree = blk: {
-        var layout = zss.Layout.init(&env, .null_element, allocator, 0, 0, &fonts);
+        var layout = zss.Layout.init(&env, allocator, 0, 0, &fonts);
         defer layout.deinit();
         break :blk try layout.run(allocator);
     };
@@ -198,7 +197,6 @@ pub fn main() !u8 {
         .max_scroll = undefined,
 
         .allocator = allocator,
-        .root_element = elements.get(.root),
         .env = &env,
         .fonts = &fonts,
 

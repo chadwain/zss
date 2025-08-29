@@ -26,18 +26,19 @@ pub fn main() !void {
 
     const root = try env.element_tree.allocateElement(env.allocator);
     env.element_tree.initElement(root, .normal, .orphan);
+    env.root_element = root;
 
     var stylesheet = try zss.Stylesheet.create(allocator, ast, 0, stylesheet_source, &env);
     defer stylesheet.deinit(allocator);
 
     const cascade_node: zss.cascade.Node = .{ .leaf = &stylesheet.cascade_source };
     try env.cascade_list.author.append(env.allocator, &cascade_node);
-    try zss.cascade.run(&env, root);
+    try zss.cascade.run(&env);
 
     var fonts = zss.Fonts.init();
     defer fonts.deinit();
 
-    var layout = zss.Layout.init(&env, root, allocator, 100, 100, &fonts);
+    var layout = zss.Layout.init(&env, allocator, 100, 100, &fonts);
     defer layout.deinit();
 
     var box_tree = try layout.run(allocator);

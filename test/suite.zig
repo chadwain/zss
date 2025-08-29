@@ -162,7 +162,6 @@ fn createTest(
         .fonts = fonts,
         .font_handle = font_handle,
 
-        .root_element = undefined,
         .env = .init(allocator),
 
         .document = undefined,
@@ -173,16 +172,16 @@ fn createTest(
 
     blk: {
         t.document = try zss.zml.createDocument(allocator, &t.env, ast, token_source, 0);
-        t.root_element = t.document.root_element;
+        t.env.root_element = t.document.root_element;
 
-        if (t.root_element == Element.null_element) break :blk;
+        if (t.env.root_element == Element.null_element) break :blk;
 
         try loader.loadResourcesFromUrls(arena, &t.env, &t.document, token_source);
 
         t.author_cascade_node = .{ .leaf = &t.document.cascade_source };
         try t.env.cascade_list.author.append(t.env.allocator, &t.author_cascade_node);
 
-        switch (t.env.element_tree.category(t.root_element)) {
+        switch (t.env.element_tree.category(t.env.root_element)) {
             .normal => {},
             .text => break :blk,
         }
@@ -195,12 +194,12 @@ fn createTest(
         t.env.decls.closeBlock();
 
         t.ua_cascade_source = .{};
-        try t.ua_cascade_source.style_attrs_normal.putNoClobber(allocator, t.root_element, block);
+        try t.ua_cascade_source.style_attrs_normal.putNoClobber(allocator, t.env.root_element, block);
         t.ua_cascade_node = .{ .leaf = &t.ua_cascade_source };
         try t.env.cascade_list.user_agent.append(t.env.allocator, &t.ua_cascade_node);
     }
 
-    try zss.cascade.run(&t.env, t.root_element);
+    try zss.cascade.run(&t.env);
 
     return t;
 }

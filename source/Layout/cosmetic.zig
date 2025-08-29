@@ -48,7 +48,7 @@ pub fn run(layout: *Layout) !void {
         rootInlineBoxCosmeticLayout(ifc);
     }
 
-    const root_element = layout.inputs.root_element;
+    const root_element = layout.inputs.env.root_element;
     if (root_element.eqlNull()) return;
     try layout.computer.setCurrentElement(.cosmetic, root_element);
 

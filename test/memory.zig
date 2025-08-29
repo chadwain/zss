@@ -20,7 +20,6 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
 
         try std.testing.checkAllAllocationFailures(allocator, testFn, .{
             &t.env,
-            t.root_element,
             t.width,
             t.height,
             t.fonts,
@@ -35,12 +34,11 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
 fn testFn(
     allocator: std.mem.Allocator,
     env: *const zss.Environment,
-    root: Element,
     width: u32,
     height: u32,
     fonts: *const zss.Fonts,
 ) !void {
-    var layout = zss.Layout.init(env, root, allocator, width, height, fonts);
+    var layout = zss.Layout.init(env, allocator, width, height, fonts);
     defer layout.deinit();
 
     var box_tree = try layout.run(allocator);

@@ -21,7 +21,6 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
 
         var layout = zss.Layout.init(
             &t.env,
-            t.root_element,
             allocator,
             t.width,
             t.height,
