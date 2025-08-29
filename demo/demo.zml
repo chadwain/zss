@@ -1,0 +1,14 @@
+* {
+	header {
+		* {
+			@name(title) "File name goes here"
+		}
+	}
+	#nuisance (display: block; width: 500px; height: 500px; background-color: #f0f) {}
+	main {
+		* {
+			@name(body) "File contents go here"
+		}
+	}
+	footer (background-image: src("zig.png")) {}
+}

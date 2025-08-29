@@ -45,6 +45,14 @@ pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
     stylesheet.cascade_source.deinit(allocator);
 }
 
+pub fn createFromTokenSource(allocator: Allocator, token_source: TokenSource, env: *Environment) !Stylesheet {
+    var parser = zss.syntax.Parser.init(token_source, allocator);
+    defer parser.deinit();
+    var ast, const rule_list_index = try parser.parseCssStylesheet(allocator);
+    defer ast.deinit(allocator);
+    return create(allocator, ast, rule_list_index, token_source, env);
+}
+
 /// Create a `Stylesheet` from an Ast `rule_list` node.
 /// Free using `deinit`.
 pub fn create(

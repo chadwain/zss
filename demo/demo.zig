@@ -1,3 +1,7 @@
+//! This demo program uses zss to display the contents of a file in a window.
+//! To run it, run `zig build demo -- my-file.txt`, or `zig-out/bin/demo my-file.txt`.
+//! You can use the up/down arrow keys and the page up/page down keys to scroll.
+
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -95,7 +99,7 @@ const ProgramState = struct {
     }
 };
 
-pub fn main() !u8 {
+pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
@@ -107,7 +111,7 @@ pub fn main() !u8 {
     var file_contents = try readFile(allocator, file_path);
     defer file_contents.deinit(allocator);
 
-    std.debug.print("{s}\n", .{glfw.getVersionString()});
+    // Setup GLFW
 
     if (!glfw.init(.{})) return glfwError();
     defer glfw.terminate();
@@ -133,6 +137,8 @@ pub fn main() !u8 {
     };
     try zgl.loadExtensions({}, ns.getProcAddressWrapper);
 
+    // Setup FreeType
+
     var library: hb.FT_Library = undefined;
     try checkFtError(hb.FT_Init_FreeType(&library));
     defer _ = hb.FT_Done_FreeType(library);
@@ -156,6 +162,8 @@ pub fn main() !u8 {
     defer hb.hb_font_destroy(font);
     hb.hb_ft_font_set_funcs(font);
 
+    // Setup zss
+
     var env = zss.Environment.init(allocator);
     defer env.deinit();
 
@@ -166,21 +174,57 @@ pub fn main() !u8 {
     defer fonts.deinit();
     _ = fonts.setFont(font);
 
+    // Load the document.
+    const zml_document_token_source = try zss.syntax.TokenSource.init(@embedFile("demo.zml"));
+    var zml_document = try zss.zml.createDocumentFromTokenSource(allocator, zml_document_token_source, &env);
+    defer zml_document.deinit(allocator);
+
+    // Replace the text of the title and body nodes with the file name and file contents.
+    if (zml_document.named_nodes.get("title")) |title_text| {
+        if (env.element_tree.category(title_text) == .text) {
+            env.element_tree.setText(title_text, try env.addTextFromString(file_path));
+        }
+    }
+    if (zml_document.named_nodes.get("body")) |body_text| {
+        if (env.element_tree.category(body_text) == .text) {
+            env.element_tree.setText(body_text, try env.addTextFromString(file_contents.items));
+        }
+    }
+
+    env.root_element = zml_document.root_element;
+
+    // Load the stylesheet.
+    const stylesheet_token_source = try zss.syntax.TokenSource.init(@embedFile("demo.css"));
+    var stylesheet = try zss.Stylesheet.createFromTokenSource(allocator, stylesheet_token_source, &env);
+    defer stylesheet.deinit(allocator);
+
+    // Load the Zig logo image.
     var zig_logo_data, const zig_logo_image = try loadImage(@embedFile("zig.png"), allocator);
     defer zig_logo_data.deinit();
     const zig_logo_handle = try images.addImage(allocator, zig_logo_image);
+    const resources = Resources{ .zig_logo = zig_logo_handle };
 
-    const elements = try createElements(&env, file_path, file_contents.items);
-    env.root_element = elements.get(.root);
+    // Resolve URLs in both the document and the stylesheet.
+    for (0..zml_document.urls.len) |index| {
+        const url = zml_document.urls.get(index);
+        try linkResource(resources, allocator, &env, url.id, url.type, url.src_loc, zml_document_token_source);
+    }
+    var stylesheet_urls_it = stylesheet.decl_urls.iterator();
+    while (stylesheet_urls_it.next()) |url| {
+        try linkResource(resources, allocator, &env, url.id, url.desc.type, url.desc.src_loc, stylesheet_token_source);
+    }
 
-    var cascade_source = try createCascadeSource(allocator, &env, elements, zig_logo_handle);
-    defer cascade_source.deinit(allocator);
-
-    const cascade_node = zss.cascade.Node{ .leaf = &cascade_source };
-    try env.cascade_list.author.append(env.allocator, &cascade_node);
+    // Run the CSS cascade.
+    // This gives style information to every node in the document tree.
+    const zml_document_cascade_node = zss.cascade.Node{ .leaf = &zml_document.cascade_source };
+    const stylesheet_cascade_node = zss.cascade.Node{ .leaf = &stylesheet.cascade_source };
+    try env.cascade_list.author.appendSlice(env.allocator, &.{ &zml_document_cascade_node, &stylesheet_cascade_node });
     try zss.cascade.run(&env);
 
+    // Perform an "empty" layout, just to initialize the box tree.
     var box_tree = blk: {
+        env.root_element = zss.ElementTree.Element.null_element;
+        defer env.root_element = zml_document.root_element;
         var layout = zss.Layout.init(&env, allocator, 0, 0, &images, &fonts);
         defer layout.deinit();
         break :blk try layout.run(allocator);
@@ -214,6 +258,8 @@ pub fn main() !u8 {
     window.setKeyCallback(keyCallback);
     window.setFramebufferSizeCallback(framebufferSizeCallback);
     // TODO: window.setContentScaleCallback
+
+    // This causes layout to be performed again, this time with the correct window width and height.
     try program_state.changeMainWindowSize(initial_width, initial_height);
 
     var renderer = zss.render.opengl.Renderer.init(allocator);
@@ -252,8 +298,6 @@ pub fn main() !u8 {
         window.swapBuffers();
         glfw.waitEventsTimeout(0.25);
     }
-
-    return 0;
 }
 
 const Args = struct {
@@ -287,8 +331,9 @@ fn checkFtError(err: hb.FT_Error) error{FreeTypeError}!void {
 }
 
 fn glfwError() error{GlfwError} {
-    const glfw_error = glfw.getError().?;
-    std.debug.print("GLFWError({s}): {?s}\n", .{ @errorName(glfw_error.error_code), glfw_error.description });
+    if (glfw.getError()) |glfw_error| {
+        std.debug.print("GLFWError({s}): {?s}\n", .{ @errorName(glfw_error.error_code), glfw_error.description });
+    }
     return error.GlfwError;
 }
 
@@ -335,250 +380,31 @@ fn loadImage(bytes: []const u8, allocator: Allocator) !struct { zigimg.Image, zs
     return .{ zigimg_image, zss_image };
 }
 
-const Elements = enum {
-    root,
-    removed_block,
-    title_block,
-    title_inline_box,
-    title_text,
-    body_block,
-    body_inline_box,
-    body_text,
-    footer,
+const Resources = struct {
+    zig_logo: zss.Images.Handle,
 };
 
-/// Returns the root element.
-fn createElements(
-    env: *zss.Environment,
-    file_name: []const u8,
-    file_contents: []const u8,
-) !std.EnumArray(Elements, zss.ElementTree.Element) {
-    const element_enum_values = comptime std.enums.values(Elements);
-    const tree_elements = blk: {
-        var tree_elements: [element_enum_values.len]zss.ElementTree.Element = undefined;
-        try env.element_tree.allocateElements(env.allocator, &tree_elements);
-        var array: std.EnumArray(Elements, zss.ElementTree.Element) = .initUndefined();
-        for (element_enum_values, 0..) |value, index| array.set(value, tree_elements[index]);
-        break :blk array;
-    };
-
-    // zig fmt: off
-    env.element_tree.initElement(tree_elements.get(.root),             .normal, .orphan);
-    env.element_tree.initElement(tree_elements.get(.removed_block),    .normal, .{ .first_child_of = tree_elements.get(.root) });
-    env.element_tree.initElement(tree_elements.get(.title_block),      .normal, .{ .last_child_of  = tree_elements.get(.root) });
-    env.element_tree.initElement(tree_elements.get(.title_inline_box), .normal, .{ .first_child_of = tree_elements.get(.title_block) });
-    env.element_tree.initElement(tree_elements.get(.title_text),       .text,   .{ .first_child_of = tree_elements.get(.title_inline_box) });
-    env.element_tree.initElement(tree_elements.get(.body_block),       .normal, .{ .last_child_of  = tree_elements.get(.root) });
-    env.element_tree.initElement(tree_elements.get(.body_inline_box),  .normal, .{ .last_child_of  = tree_elements.get(.body_block) });
-    env.element_tree.initElement(tree_elements.get(.body_text),        .text,   .{ .first_child_of = tree_elements.get(.body_inline_box) });
-    env.element_tree.initElement(tree_elements.get(.footer),           .normal, .{ .last_child_of  = tree_elements.get(.root) });
-    // zig fmt: on
-
-    env.element_tree.setText(tree_elements.get(.title_text), try env.addTextFromString(file_name));
-    env.element_tree.setText(tree_elements.get(.body_text), try env.addTextFromString(file_contents));
-
-    return tree_elements;
-}
-
-fn createCascadeSource(
+fn linkResource(
+    resources: Resources,
     allocator: Allocator,
     env: *zss.Environment,
-    elements: std.EnumArray(Elements, zss.ElementTree.Element),
-    footer_image_handle: zss.Images.Handle,
-) !zss.cascade.Source {
-    var cascade_source = zss.cascade.Source{};
-    errdefer cascade_source.deinit(allocator);
-
-    const bg_color = 0xefefefff;
-    const text_color = 0x101010ff;
-    const DeclaredValues = zss.values.groups.Tag.DeclaredValues;
-
-    { // Root element
-        const root_border = zss.values.types.BorderWidth{ .px = 10 };
-        const root_padding = zss.values.types.Padding{ .px = 30 };
-        const root_border_color = zss.values.types.Color{ .rgba = 0xaf2233ff };
-
-        const block = try env.decls.openBlock(env.allocator);
-        try env.decls.addValues(env.allocator, .normal, .{
-            .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .block } },
-            .content_width = DeclaredValues(.content_width){ .min_width = .{ .declared = .{ .px = 200 } } },
-            .horizontal_edges = DeclaredValues(.horizontal_edges){
-                .padding_left = .{ .declared = root_padding },
-                .padding_right = .{ .declared = root_padding },
-                .border_left = .{ .declared = root_border },
-                .border_right = .{ .declared = root_border },
-            },
-            .vertical_edges = DeclaredValues(.vertical_edges){
-                .padding_top = .{ .declared = root_padding },
-                .padding_bottom = .{ .declared = root_padding },
-                .border_top = .{ .declared = root_border },
-                .border_bottom = .{ .declared = root_border },
-            },
-            .border_colors = DeclaredValues(.border_colors){
-                .top = .{ .declared = root_border_color },
-                .right = .{ .declared = root_border_color },
-                .bottom = .{ .declared = root_border_color },
-                .left = .{ .declared = root_border_color },
-            },
-            .border_styles = DeclaredValues(.border_styles){
-                .top = .{ .declared = .solid },
-                .right = .{ .declared = .solid },
-                .bottom = .{ .declared = .solid },
-                .left = .{ .declared = .solid },
-            },
-            .background_color = DeclaredValues(.background_color){
-                .color = .{ .declared = .{ .rgba = bg_color } },
-            },
-            .color = DeclaredValues(.color){
-                .color = .{ .declared = .{ .rgba = text_color } },
-            },
-        });
-        env.decls.closeBlock();
-        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.root), block);
+    id: zss.Environment.UrlId,
+    @"type": zss.values.parse.Urls.Type,
+    src_loc: zss.values.parse.Urls.SourceLocation,
+    token_source: zss.syntax.TokenSource,
+) !void {
+    const url_string = switch (src_loc) {
+        .url_token => |location| try token_source.copyUrl(location, allocator),
+        .string_token => |location| try token_source.copyString(location, allocator),
+    };
+    defer allocator.free(url_string);
+    switch (@"type") {
+        .background_image => {
+            if (std.mem.eql(u8, url_string, "zig.png")) {
+                try env.linkUrlToImage(id, resources.zig_logo);
+            }
+        },
     }
-
-    { // Large element with display: none
-        const block = try env.decls.openBlock(env.allocator);
-        try env.decls.addValues(env.allocator, .normal, .{
-            .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .none } },
-            .content_width = DeclaredValues(.content_width){ .width = .{ .declared = .{ .px = 500 } } },
-            .content_height = DeclaredValues(.content_height){ .height = .{ .declared = .{ .px = 500 } } },
-            .background_color = DeclaredValues(.background_color){ .color = .{ .declared = .{ .rgba = 0xff00ffff } } },
-        });
-        env.decls.closeBlock();
-        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.removed_block), block);
-    }
-
-    { // Title block box
-        const block = try env.decls.openBlock(env.allocator);
-        try env.decls.addValues(env.allocator, .normal, .{
-            .box_style = DeclaredValues(.box_style){
-                .display = .{ .declared = .block },
-                .position = .{ .declared = .relative },
-            },
-            .vertical_edges = DeclaredValues(.vertical_edges){
-                .border_bottom = .{ .declared = .{ .px = 2 } },
-                .margin_bottom = .{ .declared = .{ .px = 24 } },
-            },
-            .z_index = DeclaredValues(.z_index){
-                .z_index = .{ .declared = .{ .integer = -1 } },
-            },
-            .border_colors = DeclaredValues(.border_colors){
-                .bottom = .{ .declared = .{ .rgba = 0x202020ff } },
-            },
-            .border_styles = DeclaredValues(.border_styles){
-                .bottom = .{ .declared = .solid },
-            },
-        });
-        env.decls.closeBlock();
-        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.title_block), block);
-    }
-
-    { // Title inline box
-        const block = try env.decls.openBlock(env.allocator);
-        try env.decls.addValues(env.allocator, .normal, .{
-            .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .@"inline" } },
-            .horizontal_edges = DeclaredValues(.horizontal_edges){
-                .padding_left = .{ .declared = .{ .px = 10 } },
-                .padding_right = .{ .declared = .{ .px = 10 } },
-                .border_left = .{ .declared = .{ .px = 10 } },
-                .border_right = .{ .declared = .{ .px = 10 } },
-            },
-            .vertical_edges = DeclaredValues(.vertical_edges){
-                .padding_bottom = .{ .declared = .{ .px = 5 } },
-                .border_top = .{ .declared = .{ .px = 10 } },
-                .border_bottom = .{ .declared = .{ .px = 10 } },
-            },
-            .background_color = DeclaredValues(.background_color){
-                .color = .{ .declared = .{ .rgba = 0xfa58007f } },
-            },
-            .border_styles = DeclaredValues(.border_styles){
-                .top = .{ .declared = .solid },
-                .right = .{ .declared = .solid },
-                .bottom = .{ .declared = .solid },
-                .left = .{ .declared = .solid },
-            },
-            .border_colors = DeclaredValues(.border_colors){
-                .top = .{ .declared = .{ .rgba = 0xaa1010ff } },
-                .right = .{ .declared = .{ .rgba = 0x10aa10ff } },
-                .bottom = .{ .declared = .{ .rgba = 0x504090ff } },
-                .left = .{ .declared = .{ .rgba = 0x1010aaff } },
-            },
-        });
-        env.decls.closeBlock();
-        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.title_inline_box), block);
-    }
-
-    { // Body block box
-        const block = try env.decls.openBlock(env.allocator);
-        try env.decls.addValues(env.allocator, .normal, .{
-            .box_style = DeclaredValues(.box_style){
-                .display = .{ .declared = .block },
-                .position = .{ .declared = .relative },
-            },
-        });
-        env.decls.closeBlock();
-        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.body_block), block);
-    }
-
-    { // Body inline box
-        const block = try env.decls.openBlock(env.allocator);
-        try env.decls.addValues(env.allocator, .normal, .{
-            .box_style = DeclaredValues(.box_style){ .display = .{ .declared = .@"inline" } },
-            .color = DeclaredValues(.color){ .color = .{ .declared = .{ .rgba = 0x1010507f } } },
-        });
-        env.decls.closeBlock();
-        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.body_inline_box), block);
-    }
-
-    { // Footer block
-        const block = try env.decls.openBlock(env.allocator);
-        try env.decls.addValues(env.allocator, .normal, .{
-            .box_style = DeclaredValues(.box_style){
-                .display = .{ .declared = .block },
-            },
-            .content_height = DeclaredValues(.content_height){
-                .height = .{ .declared = .{ .px = 200 } },
-            },
-            .horizontal_edges = DeclaredValues(.horizontal_edges){
-                .border_left = .inherit,
-                .border_right = .inherit,
-            },
-            .vertical_edges = DeclaredValues(.vertical_edges){
-                .margin_top = .{ .declared = .{ .px = 10 } },
-                .border_top = .inherit,
-                .border_bottom = .inherit,
-            },
-            .border_colors = DeclaredValues(.border_colors){
-                .top = .inherit,
-                .right = .inherit,
-                .bottom = .inherit,
-                .left = .inherit,
-            },
-            .border_styles = DeclaredValues(.border_styles){
-                .top = .inherit,
-                .right = .inherit,
-                .bottom = .inherit,
-                .left = .inherit,
-            },
-            .background_clip = DeclaredValues(.background_clip){
-                .clip = .{ .declared = &.{.padding_box} },
-            },
-            .background = DeclaredValues(.background){
-                .image = .{ .declared = &.{.{ .image = footer_image_handle }} },
-                .position = .{ .declared = &.{.{
-                    .x = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
-                    .y = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
-                }} },
-                .repeat = .{ .declared = &.{.{ .x = .space, .y = .no_repeat }} },
-                .size = .{ .declared = &.{.contain} },
-            },
-        });
-        env.decls.closeBlock();
-        try cascade_source.style_attrs_normal.putNoClobber(allocator, elements.get(.footer), block);
-    }
-
-    return cascade_source;
 }
 
 fn keyCallback(window: glfw.Window, key: glfw.Key, scancode: i32, action: glfw.Action, mods: glfw.Mods) void {
