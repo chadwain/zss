@@ -500,6 +500,23 @@ pub fn borderWidth(ctx: *Context) ?types.BorderWidth {
         });
 }
 
+// Spec: CSS Backgrounds and Borders Level 3
+// Syntax: <line-style> = none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset
+pub fn borderStyle(ctx: *Context) ?types.BorderStyle {
+    return keyword(ctx, types.BorderStyle, &.{
+        .{ "none", .none },
+        .{ "hidden", .hidden },
+        .{ "dotted", .dotted },
+        .{ "dashed", .dashed },
+        .{ "solid", .solid },
+        .{ "double", .double },
+        .{ "groove", .groove },
+        .{ "ridge", .ridge },
+        .{ "inset", .inset },
+        .{ "outset", .outset },
+    });
+}
+
 test "value parsers" {
     const ns = struct {
         fn expectValue(comptime parser: anytype, input: []const u8, expected: ExpectedType(parser)) !void {
@@ -702,4 +719,7 @@ test "value parsers" {
     try ns.expectValue(color, "#abcd", .{ .rgba = 0xaabbccdd });
     try ns.expectValue(color, "#123456", .{ .rgba = 0x123456ff });
     try ns.expectValue(color, "#12345678", .{ .rgba = 0x12345678 });
+
+    try ns.expectValue(borderStyle, "none", .none);
+    try ns.expectValue(borderStyle, "ridge", .ridge);
 }

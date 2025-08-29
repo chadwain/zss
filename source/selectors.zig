@@ -292,14 +292,14 @@ fn matchCompoundSelector(
                     .root => {
                         if (element != env.root_element) return false;
                     },
-                    .unrecognized => {},
+                    .unrecognized => return false,
                 }
             },
             .pseudo_element => {
                 index += 1;
                 const pseudo_element = codes[index].pseudo_element_selector;
                 switch (pseudo_element) {
-                    .unrecognized => {},
+                    .unrecognized => return false,
                 }
             },
         }

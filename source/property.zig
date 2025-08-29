@@ -50,6 +50,15 @@ pub const Property = enum {
     right,
     top,
     bottom,
+    @"border-left-color",
+    @"border-right-color",
+    @"border-top-color",
+    @"border-bottom-color",
+    @"border-left-style",
+    @"border-right-style",
+    @"border-top-style",
+    @"border-bottom-style",
+    color,
     @"background-color",
     @"background-image",
     @"background-repeat",
@@ -58,7 +67,6 @@ pub const Property = enum {
     @"background-clip",
     @"background-origin",
     @"background-size",
-    color,
 
     pub const Description = union(enum) {
         all,
@@ -101,6 +109,15 @@ pub const Property = enum {
             .right                    => nonShorthand(.insets          , .right         ),
             .top                      => nonShorthand(.insets          , .top           ),
             .bottom                   => nonShorthand(.insets          , .bottom        ),
+            .@"border-left-color"     => nonShorthand(.border_colors   , .left          ),
+            .@"border-right-color"    => nonShorthand(.border_colors   , .right         ),
+            .@"border-top-color"      => nonShorthand(.border_colors   , .top           ),
+            .@"border-bottom-color"   => nonShorthand(.border_colors   , .bottom        ),
+            .@"border-left-style"     => nonShorthand(.border_styles   , .left          ),
+            .@"border-right-style"    => nonShorthand(.border_styles   , .right         ),
+            .@"border-top-style"      => nonShorthand(.border_styles   , .top           ),
+            .@"border-bottom-style"   => nonShorthand(.border_styles   , .bottom        ),
+            .color                    => nonShorthand(.color           , .color         ),
             .@"background-color"      => nonShorthand(.background_color, .color         ),
             .@"background-image"      => nonShorthand(.background      , .image         ),
             .@"background-repeat"     => nonShorthand(.background      , .repeat        ),
@@ -109,7 +126,6 @@ pub const Property = enum {
             .@"background-clip"       => nonShorthand(.background_clip , .clip          ),
             .@"background-origin"     => nonShorthand(.background      , .origin        ),
             .@"background-size"       => nonShorthand(.background      , .size          ),
-            .color                    => nonShorthand(.color           , .color         ),
         };
         // zig fmt: on
     }
@@ -329,6 +345,16 @@ test "parsing properties from a stylesheet" {
         \\
         \\  background-image: url();
         \\  background-image: none;
+        \\
+        \\  border-left-color: #ff000000;
+        \\  border-right-color: #00ff0000;
+        \\  border-top-color: #0000ff00;
+        \\  border-bottom-color: #000000ff;
+        \\
+        \\  border-left-style: dotted;
+        \\  border-right-style: dashed;
+        \\  border-top-style: groove;
+        \\  border-bottom-style: outset;
         \\}
     ;
     const source = try TokenSource.init(input);
@@ -428,5 +454,19 @@ test "parsing properties from a stylesheet" {
         .position = .unset,
         .origin = .unset,
         .size = .unset,
+    });
+
+    try ns.expectEqual(.border_colors, &env.decls, block, .{
+        .left = .{ .declared = .{ .rgba = 0xff000000 } },
+        .right = .{ .declared = .{ .rgba = 0x00ff0000 } },
+        .top = .{ .declared = .{ .rgba = 0x0000ff00 } },
+        .bottom = .{ .declared = .{ .rgba = 0x000000ff } },
+    });
+
+    try ns.expectEqual(.border_styles, &env.decls, block, .{
+        .left = .{ .declared = .dotted },
+        .right = .{ .declared = .dashed },
+        .top = .{ .declared = .groove },
+        .bottom = .{ .declared = .outset },
     });
 }

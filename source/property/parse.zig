@@ -186,6 +186,51 @@ pub fn bottom(ctx: *Context) ?DeclType(.bottom) {
     return .{ .insets = .{ .bottom = .{ .declared = value } } };
 }
 
+pub fn @"border-left-color"(ctx: *Context) ?DeclType(.@"border-left-color") {
+    const value = values.parse.color(ctx) orelse return null;
+    return .{ .border_colors = .{ .left = .{ .declared = value } } };
+}
+
+pub fn @"border-right-color"(ctx: *Context) ?DeclType(.@"border-right-color") {
+    const value = values.parse.color(ctx) orelse return null;
+    return .{ .border_colors = .{ .right = .{ .declared = value } } };
+}
+
+pub fn @"border-top-color"(ctx: *Context) ?DeclType(.@"border-top-color") {
+    const value = values.parse.color(ctx) orelse return null;
+    return .{ .border_colors = .{ .top = .{ .declared = value } } };
+}
+
+pub fn @"border-bottom-color"(ctx: *Context) ?DeclType(.@"border-bottom-color") {
+    const value = values.parse.color(ctx) orelse return null;
+    return .{ .border_colors = .{ .bottom = .{ .declared = value } } };
+}
+
+pub fn @"border-left-style"(ctx: *Context) ?DeclType(.@"border-left-style") {
+    const value = values.parse.borderStyle(ctx) orelse return null;
+    return .{ .border_styles = .{ .left = .{ .declared = value } } };
+}
+
+pub fn @"border-right-style"(ctx: *Context) ?DeclType(.@"border-right-style") {
+    const value = values.parse.borderStyle(ctx) orelse return null;
+    return .{ .border_styles = .{ .right = .{ .declared = value } } };
+}
+
+pub fn @"border-top-style"(ctx: *Context) ?DeclType(.@"border-top-style") {
+    const value = values.parse.borderStyle(ctx) orelse return null;
+    return .{ .border_styles = .{ .top = .{ .declared = value } } };
+}
+
+pub fn @"border-bottom-style"(ctx: *Context) ?DeclType(.@"border-bottom-style") {
+    const value = values.parse.borderStyle(ctx) orelse return null;
+    return .{ .border_styles = .{ .bottom = .{ .declared = value } } };
+}
+
+pub fn color(ctx: *Context) ?DeclType(.color) {
+    const value = values.parse.color(ctx) orelse return null;
+    return .{ .color = .{ .color = .{ .declared = value } } };
+}
+
 pub fn @"background-color"(ctx: *Context) ?DeclType(.@"background-color") {
     const value = values.parse.color(ctx) orelse return null;
     return .{ .background_color = .{ .color = .{ .declared = value } } };
@@ -241,9 +286,4 @@ pub fn @"background-origin"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-o
 pub fn @"background-size"(ctx: *Context, fba: *Fba) !?DeclType(.@"background-size") {
     const list = (try parseList(ctx, fba, values.parse.background.size)) orelse return null;
     return .{ .background = .{ .size = .{ .declared = list } } };
-}
-
-pub fn color(ctx: *Context) ?DeclType(.color) {
-    const value = values.parse.color(ctx) orelse return null;
-    return .{ .color = .{ .color = .{ .declared = value } } };
 }
