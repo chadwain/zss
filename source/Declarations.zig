@@ -8,27 +8,28 @@
 //! design is because in CSS, later declarations overwrite previous ones. By adding
 //! declarations in reverse order, it allows us to simply discard declarations that
 //! would have been overwritten anyway. The end result is that declaration blocks
-//! store values don't actually store declared values, but instead values that are,
-//! in a sense, between declared values and cascaded values. We refer to these values
-//! as "partially cascaded values".
+//! don't actually store declared values, but instead values that are, in a sense,
+//! between declared values and cascaded values. We refer to these values as
+//! "partially cascaded values".
 //!
 //! Each CSS declaration can be either important (if it ends in "!important"), or
 //! normal. Important declarations within a declaration block will always have a
 //! higher cascade order than normal declarations within the same block. Conceptually,
 //! this splits each declaration block into two: one that only stores important
-//! declarations, and one that only stores normal ones. This is why there is an
-//! `importance` parameter in every API that sets or retreives values.
+//! declarations, and one that only stores normal ones. It is useful to treat these as
+//! separate entities. For this reason, there is an `importance` parameter in every
+//! API that sets or retrieves values.
 //!
 //! This struct manages its own memory. When declarations are added, a full copy of
-//! all the required memory is made. Also, once a block is closed, any pointers to
-//! its data will never be invalidated.
+//! all the required memory is made. Also, once a block is closed, it is immutable,
+//! and any pointers to its contents will never be invalidated.
 
 const Declarations = @This();
 
-const zss = @import("../zss.zig");
+const zss = @import("zss.zig");
 const CssWideKeyword = zss.values.types.CssWideKeyword;
 
-const groups = zss.property.groups;
+const groups = zss.values.groups;
 const DeclaredValueTag = groups.DeclaredValueTag;
 const MultiValue = groups.MultiValue;
 const SingleValue = groups.SingleValue;
@@ -157,9 +158,9 @@ pub const Importance = enum {
     important,
 };
 
-/// `values` must be a struct such that each field is named after an group.
+/// `values` must be a struct such that each field is named after a group.
 /// Each field of `values` must also be a struct, such that each field:
-///     is named after an group member, and
+///     is named after a group member, and
 ///     has a type of either `SingleValue` or `MultiValue` (depending on the group)
 pub fn addValues(decls: *Declarations, allocator: Allocator, importance: Importance, values: anytype) !void {
     decls.debug.assertBlockOpened();

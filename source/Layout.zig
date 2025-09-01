@@ -9,7 +9,7 @@ const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Environment = zss.Environment;
 const Fonts = zss.Fonts;
-const Images = Environment.Images;
+const Images = zss.Images;
 const Stack = zss.Stack;
 
 const cosmetic = @import("Layout/cosmetic.zig");
@@ -64,7 +64,7 @@ pub const Inputs = struct {
     width: u32,
     height: u32,
     env: *const Environment,
-    images: Images.View,
+    images: *const Images,
     fonts: *const Fonts,
 };
 
@@ -81,6 +81,7 @@ pub fn init(
     width: u32,
     /// The height of the viewport in pixels.
     height: u32,
+    images: *const Images,
     fonts: *const Fonts,
 ) Layout {
     return .{
@@ -93,7 +94,7 @@ pub fn init(
             .width = width,
             .height = height,
             .env = env,
-            .images = env.images.view(),
+            .images = images,
             .fonts = fonts,
         },
         .allocator = allocator,
@@ -638,7 +639,7 @@ pub const BlockComputedSizes = struct {
     vertical_edges: ComputedValues(.vertical_edges),
     insets: ComputedValues(.insets),
 
-    const ComputedValues = zss.property.groups.Tag.ComputedValues;
+    const ComputedValues = zss.values.groups.Tag.ComputedValues;
 };
 
 /// Fields ending with `_untagged` each have an associated flag.

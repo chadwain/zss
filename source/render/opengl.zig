@@ -4,7 +4,7 @@ const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
-const Images = zss.Environment.Images;
+const Images = zss.Images;
 const DrawList = @import("./DrawList.zig");
 const QuadTree = @import("./QuadTree.zig");
 
@@ -324,7 +324,7 @@ pub const Renderer = struct {
         };
     }
 
-    fn uploadImage(renderer: *Renderer, images: Images.View, handle: Images.Handle) !zgl.Texture {
+    fn uploadImage(renderer: *Renderer, images: *const Images, handle: Images.Handle) !zgl.Texture {
         const image = images.get(handle);
         const texture: zgl.Texture = switch (image.format) {
             .rgba => blk: {
@@ -487,7 +487,7 @@ pub const Renderer = struct {
 
 pub fn drawBoxTree(
     renderer: *Renderer,
-    images: Images.View,
+    images: *const Images,
     box_tree: *const BoxTree,
     draw_list: *const DrawList,
     allocator: Allocator,
@@ -590,7 +590,7 @@ fn getThreeBoxes(
 fn drawBlockContainer(
     renderer: *Renderer,
     box_tree: *const BoxTree,
-    images: Images.View,
+    images: *const Images,
     boxes: ThreeBoxes,
     background: zss.BoxTree.BlockBoxBackground,
     border_colors: zss.BoxTree.BorderColors,

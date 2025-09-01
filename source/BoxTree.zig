@@ -148,7 +148,7 @@ pub const BackgroundImage = struct {
         y: Style = .none,
     };
 
-    handle: ?zss.Environment.Images.Handle = null,
+    handle: ?zss.Images.Handle = null,
     position: Position = .{ .x = 0, .y = 0 },
     size: Size = .{ .w = 0, .h = 0 },
     repeat: Repeat = .{},

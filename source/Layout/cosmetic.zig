@@ -14,7 +14,7 @@ const Color = zss.math.Color;
 const Size = zss.math.Size;
 const Unit = zss.math.Unit;
 
-const groups = zss.property.groups;
+const groups = zss.values.groups;
 const ComputedValues = groups.Tag.ComputedValues;
 const SpecifiedValues = groups.Tag.SpecifiedValues;
 

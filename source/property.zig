@@ -1,6 +1,8 @@
 const zss = @import("zss.zig");
+const groups = zss.values.groups;
 const Ast = zss.syntax.Ast;
 const CascadedValues = zss.CascadedValues;
+const Declarations = zss.Declarations;
 const Environment = zss.Environment;
 const Importance = Declarations.Importance;
 const TokenSource = zss.syntax.TokenSource;
@@ -11,14 +13,11 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
-pub const groups = @import("property/groups.zig");
 pub const parse = @import("property/parse.zig");
-pub const Declarations = @import("property/Declarations.zig");
 
 comptime {
     if (@import("builtin").is_test) {
         _ = parse;
-        _ = Declarations;
     }
 }
 

@@ -4,11 +4,11 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("zss.zig");
 const selectors = zss.selectors;
-const Block = zss.property.Declarations.Block;
+const Block = zss.Declarations.Block;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Environment = zss.Environment;
-const Importance = zss.property.Declarations.Importance;
+const Importance = zss.Declarations.Importance;
 
 /// The list of all cascade sources, grouped by their cascade origin.
 ///

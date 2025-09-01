@@ -21,7 +21,7 @@ const flow = @import("./flow.zig");
 const stf = @import("./shrink_to_fit.zig");
 const solve = @import("./solve.zig");
 
-const groups = zss.property.groups;
+const groups = zss.values.groups;
 const ComputedValues = groups.Tag.ComputedValues;
 
 const BoxTree = zss.BoxTree;

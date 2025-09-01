@@ -17,7 +17,7 @@ const Unit = zss.math.Unit;
 const solve = @import("./solve.zig");
 const @"inline" = @import("./inline.zig");
 
-const groups = zss.property.groups;
+const groups = zss.values.groups;
 const SpecifiedValues = groups.Tag.SpecifiedValues;
 const ComputedValues = groups.Tag.ComputedValues;
 

@@ -35,10 +35,13 @@ pub fn main() !void {
     try env.cascade_list.author.append(env.allocator, &cascade_node);
     try zss.cascade.run(&env);
 
+    var images = zss.Images.init();
+    defer images.deinit(allocator);
+
     var fonts = zss.Fonts.init();
     defer fonts.deinit();
 
-    var layout = zss.Layout.init(&env, allocator, 100, 100, &fonts);
+    var layout = zss.Layout.init(&env, allocator, 100, 100, &images, &fonts);
     defer layout.deinit();
 
     var box_tree = try layout.run(allocator);

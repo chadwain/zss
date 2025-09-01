@@ -4,7 +4,7 @@ const zss = @import("../zss.zig");
 const types = zss.values.types;
 const BoxTree = zss.BoxTree;
 
-const groups = zss.property.groups;
+const groups = zss.values.groups;
 const ComputedValues = groups.Tag.ComputedValues;
 const SpecifiedValues = groups.Tag.SpecifiedValues;
 
@@ -223,8 +223,8 @@ pub fn inlineBoxBackground(col: types.Color, clip: types.BackgroundClip, current
 }
 
 pub fn backgroundImage(
-    handle: zss.Environment.Images.Handle,
-    dimensions: zss.Environment.Images.Dimensions,
+    handle: zss.Images.Handle,
+    dimensions: zss.Images.Dimensions,
     specified: struct {
         origin: types.BackgroundOrigin,
         position: types.BackgroundPosition,

@@ -60,9 +60,8 @@ const Args = struct {
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(gpa.deinit() == .ok);
-    const allocator = gpa.allocator();
 
-    var arena = ArenaAllocator.init(allocator);
+    var arena = ArenaAllocator.init(gpa.allocator());
     defer arena.deinit();
 
     const args = try Args.init(&arena);
@@ -71,8 +70,7 @@ pub fn main() !void {
     if (hb.FT_Init_FreeType(&library) != 0) return error.FreeTypeError;
     defer _ = hb.FT_Done_FreeType(library);
 
-    const font_name = try std.fs.path.joinZ(allocator, &.{ args.resources_path, "NotoSans-Regular.ttf" });
-    defer allocator.free(font_name);
+    const font_name = try std.fs.path.joinZ(arena.allocator(), &.{ args.resources_path, "NotoSans-Regular.ttf" });
     const font_size = 12;
     var face: hb.FT_Face = undefined;
     if (hb.FT_New_Face(library, font_name.ptr, 0, &face) != 0) return error.FreeTypeError;
@@ -82,11 +80,14 @@ pub fn main() !void {
     const font = hb.hb_ft_font_create_referenced(face).?;
     hb.hb_ft_font_set_funcs(font);
 
+    var images = zss.Images.init();
+    defer images.deinit(arena.allocator());
+
     var fonts = zss.Fonts.init();
     defer fonts.deinit();
     const font_handle = fonts.setFont(font);
 
-    const tests = try getAllTests(args, &arena, &fonts, font_handle);
+    const tests = try getAllTests(args, &arena, &images, &fonts, font_handle);
 
     const Category = enum { check, memory, opengl, print };
     inline for (@import("build-options").test_categories) |category| {
@@ -103,6 +104,7 @@ pub fn main() !void {
 fn getAllTests(
     args: Args,
     arena: *ArenaAllocator,
+    images: *zss.Images,
     fonts: *const zss.Fonts,
     font_handle: zss.Fonts.Handle,
 ) ![]*Test {
@@ -145,7 +147,7 @@ fn getAllTests(
 
         const name = try allocator.dupe(u8, entry.path[0 .. entry.path.len - ".zml".len]);
 
-        const t = try createTest(arena, name, ast, token_source, fonts, font_handle, &loader, ua_stylesheet);
+        const t = try createTest(arena, name, ast, token_source, images, fonts, font_handle, &loader, ua_stylesheet);
         try list.append(t);
     }
 
@@ -163,6 +165,7 @@ fn createTest(
     name: []const u8,
     ast: Ast,
     token_source: TokenSource,
+    images: *zss.Images,
     fonts: *const zss.Fonts,
     font_handle: zss.Fonts.Handle,
     loader: *ResourceLoader,
@@ -173,6 +176,7 @@ fn createTest(
     const t = try allocator.create(Test);
     t.* = .{
         .name = name,
+        .images = images,
         .fonts = fonts,
         .font_handle = font_handle,
 
@@ -195,7 +199,7 @@ fn createTest(
     t.env.root_element = t.document.root_element;
     try zss.cascade.run(&t.env);
 
-    try loader.loadResourcesFromUrls(arena, &t.env, &t.document, token_source);
+    try loader.loadResourcesFromUrls(arena, t, images, token_source);
 
     return t;
 }
@@ -203,7 +207,7 @@ fn createTest(
 const ResourceLoader = struct {
     res_dir: std.fs.Dir,
     /// maps image URLs to image handles
-    seen_images: std.StringHashMapUnmanaged(zss.Environment.Images.Handle),
+    seen_images: std.StringHashMapUnmanaged(zss.Images.Handle),
 
     fn init(args: Args) !ResourceLoader {
         const res_dir = try std.fs.cwd().openDir(args.resources_path, .{});
@@ -220,13 +224,13 @@ const ResourceLoader = struct {
     fn loadResourcesFromUrls(
         loader: *ResourceLoader,
         arena: *ArenaAllocator,
-        env: *zss.Environment,
-        document: *const zss.zml.Document,
+        t: *Test,
+        images: *zss.Images,
         token_source: TokenSource,
     ) !void {
         const allocator = arena.allocator();
-        for (0..document.urls.len) |index| {
-            const url = document.urls.get(index);
+        for (0..t.document.urls.len) |index| {
+            const url = t.document.urls.get(index);
             const string = switch (url.src_loc) {
                 .url_token => |location| try token_source.copyUrl(location, allocator),
                 .string_token => |location| try token_source.copyString(location, allocator),
@@ -236,7 +240,7 @@ const ResourceLoader = struct {
                 .background_image => {
                     const gop = try loader.seen_images.getOrPut(allocator, string);
                     if (gop.found_existing) {
-                        try env.linkUrlToImage(url.id, gop.value_ptr.*);
+                        try t.env.linkUrlToImage(url.id, gop.value_ptr.*);
                         continue;
                     }
 
@@ -244,7 +248,7 @@ const ResourceLoader = struct {
                     defer file.close();
 
                     const zigimg_image = try zigimg.Image.fromFile(allocator, &file);
-                    const zss_image = try env.addImage(.{
+                    const zss_image = try images.addImage(allocator, .{
                         .dimensions = .{
                             .width_px = @intCast(zigimg_image.width),
                             .height_px = @intCast(zigimg_image.height),
@@ -257,7 +261,7 @@ const ResourceLoader = struct {
                     });
 
                     gop.value_ptr.* = zss_image;
-                    try env.linkUrlToImage(url.id, zss_image);
+                    try t.env.linkUrlToImage(url.id, zss_image);
                 },
             }
         }

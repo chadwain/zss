@@ -24,6 +24,7 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
             allocator,
             t.width,
             t.height,
+            t.images,
             t.fonts,
         );
         defer layout.deinit();

@@ -9,7 +9,7 @@ const std = @import("std");
 const Fba = std.heap.FixedBufferAllocator;
 
 const zss = @import("../zss.zig");
-const max_list_len = zss.property.Declarations.max_list_len;
+const max_list_len = zss.Declarations.max_list_len;
 const ReturnType = zss.property.Property.ParseFnReturnType;
 const TokenSource = zss.syntax.TokenSource;
 
@@ -127,7 +127,7 @@ pub fn @"padding-bottom"(ctx: *Context) ?ReturnType(.@"padding-bottom") {
 }
 
 pub fn padding(ctx: *Context) ?ReturnType(.padding) {
-    var sizes: [4]zss.property.groups.SingleValue(types.LengthPercentage) = undefined;
+    var sizes: [4]values.groups.SingleValue(types.LengthPercentage) = undefined;
     var num: u3 = 0;
     for (0..4) |i| {
         const size = values.parse.lengthPercentage(ctx, types.LengthPercentage) orelse break;

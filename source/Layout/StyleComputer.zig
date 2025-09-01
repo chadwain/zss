@@ -10,7 +10,7 @@ const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
 const Stack = zss.Stack;
 
-const groups = zss.property.groups;
+const groups = zss.values.groups;
 const SpecifiedValues = groups.Tag.SpecifiedValues;
 const ComputedValues = groups.Tag.ComputedValues;
 

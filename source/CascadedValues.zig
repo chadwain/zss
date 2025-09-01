@@ -1,7 +1,7 @@
 const zss = @import("zss.zig");
-const groups = zss.property.groups;
+const groups = zss.values.groups;
 const CssWideKeyword = zss.values.types.CssWideKeyword;
-const Declarations = zss.property.Declarations;
+const Declarations = zss.Declarations;
 const Importance = Declarations.Importance;
 
 const std = @import("std");

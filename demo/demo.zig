@@ -24,6 +24,7 @@ const ProgramState = struct {
 
     allocator: Allocator,
     env: *zss.Environment,
+    images: *const zss.Images,
     fonts: *const zss.Fonts,
 
     box_tree: *zss.BoxTree,
@@ -78,6 +79,7 @@ const ProgramState = struct {
             self.allocator,
             self.main_window_width,
             self.main_window_height,
+            self.images,
             self.fonts,
         );
         defer layout.deinit();
@@ -157,13 +159,16 @@ pub fn main() !u8 {
     var env = zss.Environment.init(allocator);
     defer env.deinit();
 
+    var images = zss.Images.init();
+    defer images.deinit(allocator);
+
     var fonts = zss.Fonts.init();
     defer fonts.deinit();
     _ = fonts.setFont(font);
 
     var zig_logo_data, const zig_logo_image = try loadImage(@embedFile("zig.png"), allocator);
     defer zig_logo_data.deinit();
-    const zig_logo_handle = try env.addImage(zig_logo_image);
+    const zig_logo_handle = try images.addImage(allocator, zig_logo_image);
 
     const elements = try createElements(&env, file_path, file_contents.items);
     env.root_element = elements.get(.root);
@@ -176,7 +181,7 @@ pub fn main() !u8 {
     try zss.cascade.run(&env);
 
     var box_tree = blk: {
-        var layout = zss.Layout.init(&env, allocator, 0, 0, &fonts);
+        var layout = zss.Layout.init(&env, allocator, 0, 0, &images, &fonts);
         defer layout.deinit();
         break :blk try layout.run(allocator);
     };
@@ -198,6 +203,7 @@ pub fn main() !u8 {
 
         .allocator = allocator,
         .env = &env,
+        .images = &images,
         .fonts = &fonts,
 
         .box_tree = &box_tree,
@@ -230,7 +236,7 @@ pub fn main() !u8 {
         };
         try zss.render.opengl.drawBoxTree(
             &renderer,
-            program_state.env.images.view(),
+            program_state.images,
             program_state.box_tree,
             program_state.draw_list,
             allocator,
@@ -310,11 +316,11 @@ fn readFile(allocator: Allocator, file_path: []const u8) !std.ArrayListUnmanaged
     return list.moveToUnmanaged();
 }
 
-fn loadImage(bytes: []const u8, allocator: Allocator) !struct { zigimg.Image, zss.Environment.Images.Image } {
+fn loadImage(bytes: []const u8, allocator: Allocator) !struct { zigimg.Image, zss.Images.Description } {
     var zigimg_image = try zigimg.Image.fromMemory(allocator, bytes);
     errdefer zigimg_image.deinit();
 
-    const zss_image: zss.Environment.Images.Image = .{
+    const zss_image: zss.Images.Description = .{
         .dimensions = .{
             .width_px = @intCast(zigimg_image.width),
             .height_px = @intCast(zigimg_image.height),
@@ -378,14 +384,14 @@ fn createCascadeSource(
     allocator: Allocator,
     env: *zss.Environment,
     elements: std.EnumArray(Elements, zss.ElementTree.Element),
-    footer_image_handle: zss.Environment.Images.Handle,
+    footer_image_handle: zss.Images.Handle,
 ) !zss.cascade.Source {
     var cascade_source = zss.cascade.Source{};
     errdefer cascade_source.deinit(allocator);
 
     const bg_color = 0xefefefff;
     const text_color = 0x101010ff;
-    const DeclaredValues = zss.property.groups.Tag.DeclaredValues;
+    const DeclaredValues = zss.values.groups.Tag.DeclaredValues;
 
     { // Root element
         const root_border = zss.values.types.BorderWidth{ .px = 10 };

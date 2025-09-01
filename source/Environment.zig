@@ -4,7 +4,7 @@ const zss = @import("zss.zig");
 const cascade = zss.cascade;
 const syntax = zss.syntax;
 const Ast = syntax.Ast;
-const Declarations = zss.property.Declarations;
+const Declarations = zss.Declarations;
 const TokenSource = syntax.TokenSource;
 const Stylesheet = zss.Stylesheet;
 const IdentifierSet = syntax.IdentifierSet;
@@ -26,8 +26,7 @@ cascade_list: cascade.List,
 element_tree: zss.ElementTree,
 root_element: zss.ElementTree.Element,
 next_url_id: ?UrlId.Int,
-urls_to_images: std.AutoArrayHashMapUnmanaged(UrlId, Images.Handle),
-images: Images,
+urls_to_images: std.AutoArrayHashMapUnmanaged(UrlId, zss.Images.Handle),
 
 pub fn init(allocator: Allocator) Environment {
     return Environment{
@@ -43,7 +42,6 @@ pub fn init(allocator: Allocator) Environment {
         .root_element = zss.ElementTree.Element.null_element,
         .next_url_id = 0,
         .urls_to_images = .empty,
-        .images = .{},
     };
 }
 
@@ -55,7 +53,6 @@ pub fn deinit(env: *Environment) void {
     env.cascade_list.deinit(env.allocator);
     env.element_tree.deinit(env.allocator);
     env.urls_to_images.deinit(env.allocator);
-    env.images.deinit(env.allocator);
 }
 
 // TODO: consider making an `IdentifierMap` structure for this use case
@@ -186,68 +183,6 @@ pub fn createUrl(env: *Environment) !UrlId {
     return int.*;
 }
 
-pub fn linkUrlToImage(env: *Environment, url: UrlId, image: Images.Handle) !void {
+pub fn linkUrlToImage(env: *Environment, url: UrlId, image: zss.Images.Handle) !void {
     try env.urls_to_images.put(env.allocator, url, image);
-}
-
-pub const Images = struct {
-    pub const Handle = enum(u32) { _ };
-
-    pub const Image = struct {
-        dimensions: Dimensions,
-        format: Format,
-        /// Externally managed image data.
-        /// Use `null` to signal that the data is not available.
-        data: ?[]const u8,
-    };
-
-    pub const Dimensions = struct {
-        width_px: u32,
-        height_px: u32,
-    };
-
-    pub const Format = enum {
-        rgba,
-    };
-
-    list: MultiArrayList(Image) = .{},
-
-    fn deinit(images: *Images, allocator: Allocator) void {
-        images.list.deinit(allocator);
-    }
-
-    fn nextHandle(images: Images) ?Handle {
-        if (images.list.len == std.math.maxInt(std.meta.Tag(Handle))) return null;
-        return @enumFromInt(images.list.len);
-    }
-
-    pub const View = struct {
-        slice: MultiArrayList(Image).Slice,
-
-        pub fn dimensions(v: View, handle: Handle) Dimensions {
-            return v.slice.items(.dimensions)[@intFromEnum(handle)];
-        }
-
-        pub fn format(v: View, handle: Handle) Format {
-            return v.slice.items(.format)[@intFromEnum(handle)];
-        }
-
-        pub fn data(v: View, handle: Handle) []const u8 {
-            return v.slice.items(.data)[@intFromEnum(handle)];
-        }
-
-        pub fn get(v: View, handle: Handle) Image {
-            return v.slice.get(@intFromEnum(handle));
-        }
-    };
-
-    pub fn view(images: Images) View {
-        return .{ .slice = images.list.slice() };
-    }
-};
-
-pub fn addImage(env: *Environment, image: Images.Image) !Images.Handle {
-    const handle = env.images.nextHandle() orelse return error.OutOfImages;
-    try env.images.list.append(env.allocator, image);
-    return handle;
 }
