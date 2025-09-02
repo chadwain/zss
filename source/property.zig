@@ -56,6 +56,7 @@ pub const Property = enum {
     @"border-right-color",
     @"border-top-color",
     @"border-bottom-color",
+    @"border-color",
     @"border-left-style",
     @"border-right-style",
     @"border-top-style",
@@ -114,6 +115,9 @@ pub const Property = enum {
             .@"border-right-color"    => &.{.{.border_colors   , &.{.right}         }},
             .@"border-top-color"      => &.{.{.border_colors   , &.{.top}           }},
             .@"border-bottom-color"   => &.{.{.border_colors   , &.{.bottom}        }},
+            .@"border-color"          => &.{
+                .{.border_colors, &.{.top, .right, .bottom, .left}},
+            },
             .@"border-left-style"     => &.{.{.border_styles   , &.{.left}          }},
             .@"border-right-style"    => &.{.{.border_styles   , &.{.right}         }},
             .@"border-top-style"      => &.{.{.border_styles   , &.{.top}           }},
@@ -198,7 +202,7 @@ pub const Property = enum {
 };
 
 // TODO: Pick a "smarter" number
-// TODO: Consider just creating a buffer outselves instead of requiring the user to provide one
+// TODO: Consider just creating a buffer ourselves instead of requiring the user to provide one
 pub const recommended_buffer_size = Declarations.max_list_len * 32;
 
 pub fn parseDeclarationsFromAst(

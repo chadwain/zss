@@ -265,6 +265,24 @@ pub fn @"border-bottom-color"(ctx: *Context) ?ReturnType(.@"border-bottom-color"
     return .{ .border_colors = .{ .bottom = .{ .declared = value } } };
 }
 
+pub fn @"border-color"(ctx: *Context) ?ReturnType(.@"border-color") {
+    var colors: [4]values.groups.SingleValue(types.Color) = undefined;
+    var num: u3 = 0;
+    for (0..4) |i| {
+        const col = values.parse.color(ctx) orelse break;
+        colors[i] = .{ .declared = col };
+        num += 1;
+    }
+    switch (num) {
+        0 => return null,
+        1 => return .{ .border_colors = .{ .left = colors[0], .right = colors[0], .top = colors[0], .bottom = colors[0] } },
+        2 => return .{ .border_colors = .{ .left = colors[1], .right = colors[1], .top = colors[0], .bottom = colors[0] } },
+        3 => return .{ .border_colors = .{ .left = colors[1], .right = colors[1], .top = colors[0], .bottom = colors[2] } },
+        4 => return .{ .border_colors = .{ .left = colors[3], .right = colors[1], .top = colors[0], .bottom = colors[2] } },
+        else => unreachable,
+    }
+}
+
 pub fn @"border-left-style"(ctx: *Context) ?ReturnType(.@"border-left-style") {
     const value = values.parse.borderStyle(ctx) orelse return null;
     return .{ .border_styles = .{ .left = .{ .declared = value } } };
