@@ -374,6 +374,7 @@ fn SingleValueHeader(comptime group: groups.Tag) type {
 
 fn MultiValueHeader(comptime group: groups.Tag) type {
     const FieldEnum = group.FieldEnum();
+    const field_enum_values = comptime std.enums.values(FieldEnum);
     const default_counts = std.enums.directEnumArrayDefault(FieldEnum, ValueCount, .undeclared, 0, .{});
     const Counts = @TypeOf(default_counts);
 
@@ -410,10 +411,10 @@ fn MultiValueHeader(comptime group: groups.Tag) type {
                     count.* = .fromInt(@intCast(slice.len));
 
                     const Field = group.FieldType(field);
-                    const field_range_start = fieldRangeStart(header, field, importance);
-                    const field_range_len = std.mem.alignForward(usize, field_range_start + @sizeOf(Field) * count.num, max_alignment);
-                    const range = try header.data.addManyAt(arena.allocator(), field_range_start, field_range_len);
-                    @memcpy(range.ptr, std.mem.sliceAsBytes(slice));
+                    const byte_range_start = byteRangeStart(header, field, importance);
+                    const byte_range_len = @sizeOf(Field) * slice.len;
+                    const range = try header.data.addManyAt(arena.allocator(), byte_range_start, std.mem.alignForward(usize, byte_range_len, max_alignment));
+                    @memcpy(range[0..byte_range_len], std.mem.sliceAsBytes(slice));
                 },
                 .initial, .inherit, .unset, .undeclared => count.* = .fromTag(value),
             }
@@ -424,11 +425,11 @@ fn MultiValueHeader(comptime group: groups.Tag) type {
                 .important => header.important_tags,
                 .normal => header.normal_tags,
             };
-            var current_index = fieldRangeStart(header, @enumFromInt(0), importance);
+            var byte_range_start = byteRangeStart(header, field_enum_values[0], importance);
             inline for (group.fields(), 0..) |field, field_index| {
                 const count = counts[field_index];
-                const end_index = current_index + @sizeOf(field.type) * count.num;
-                defer current_index = std.mem.alignForward(usize, end_index, max_alignment);
+                const byte_range_end = byte_range_start + @sizeOf(field.type) * count.num;
+                defer byte_range_start = std.mem.alignForward(usize, byte_range_end, max_alignment);
 
                 const dest_field = &@field(dest, field.name);
                 if (dest_field.* == .undeclared) {
@@ -437,7 +438,7 @@ fn MultiValueHeader(comptime group: groups.Tag) type {
                             if (count.num == 0) {
                                 break :blk zss.meta.unionInitVoid(MultiValue(field.type), default_value);
                             } else {
-                                const bytes: []align(max_alignment) const u8 = @alignCast(header.data.items[current_index..end_index]);
+                                const bytes: []align(max_alignment) const u8 = @alignCast(header.data.items[byte_range_start..byte_range_end]);
                                 break :blk .{ .declared = std.mem.bytesAsSlice(field.type, bytes) };
                             }
                         },
@@ -449,14 +450,14 @@ fn MultiValueHeader(comptime group: groups.Tag) type {
             }
         }
 
-        fn fieldRangeStart(header: *const @This(), field: FieldEnum, importance: Importance) usize {
+        fn byteRangeStart(header: *const @This(), field: FieldEnum, importance: Importance) usize {
             var current_index: usize = 0;
             for ([_]Importance{ .normal, .important }) |current_importance| {
                 const counts = switch (current_importance) {
                     .important => header.important_tags,
                     .normal => header.normal_tags,
                 };
-                for (std.enums.values(FieldEnum)) |current_field| {
+                for (field_enum_values) |current_field| {
                     const count = counts[@intFromEnum(current_field)];
                     if (current_importance == importance and current_field == field) {
                         assert(current_index % max_alignment == 0);
