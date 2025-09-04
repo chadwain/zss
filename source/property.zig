@@ -251,7 +251,7 @@ fn parseDeclaration(
         // TODO: don't heap allocate
         const name_string = ctx.token_source.copyIdentifier(ctx.ast.location(declaration_index), env.allocator) catch return;
         defer env.allocator.free(name_string);
-        zss.log.warn("Ignoring declaration with unrecognized name: {s}", .{name_string});
+        zss.log.warn("Ignoring unsupported declaration: {s}", .{name_string});
         return;
     };
     // zss.log.debug("Parsing declaration '{s}'", .{@tagName(property)});
@@ -383,10 +383,9 @@ test "parsing properties from a stylesheet" {
             block: Declarations.Block,
             expected: group.DeclaredValues(),
         ) !void {
-            const meta = decls.getMeta(block);
             const Values = group.DeclaredValues();
             var values = Values{};
-            decls.apply(group, block, .normal, meta, &values);
+            decls.apply(group, block, .normal, &values);
 
             inline for (std.meta.fields(Values)) |field| {
                 const expected_field = @field(expected, field.name);

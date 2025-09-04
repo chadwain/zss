@@ -21,8 +21,8 @@
 //! API that sets or retrieves values.
 //!
 //! This struct manages its own memory. When declarations are added, a full copy of
-//! all the required memory is made. Also, once a block is closed, it is immutable,
-//! and any pointers to its contents will never be invalidated.
+//! all the required memory is made. Once a block is closed, it is immutable, and
+//! pointers to multi-valued data will never be invalidated.
 
 const Declarations = @This();
 
@@ -68,36 +68,13 @@ const Headers = blk: {
     break :blk zss.meta.EnumFieldMapStruct(groups.Tag, ns.fieldMap);
 };
 
-pub const Meta = struct {
+const Meta = struct {
     active_groups_normal: Set = .{},
     active_groups_important: Set = .{},
     all_normal: ?CssWideKeyword = null,
     all_important: ?CssWideKeyword = null,
 
-    pub const Set = std.EnumSet(groups.Tag);
-
-    pub fn getAll(meta: *const Meta, importance: Importance) ?CssWideKeyword {
-        return switch (importance) {
-            .important => meta.all_important,
-            .normal => meta.all_normal,
-        };
-    }
-
-    /// Iterates over every group tag that has declared values.
-    pub fn tagIterator(meta: *const Meta, importance: Importance) Set.Iterator {
-        switch (importance) {
-            .important => return meta.active_groups_important.iterator(),
-            .normal => return meta.active_groups_normal.iterator(),
-        }
-    }
-
-    fn defaultValue(meta: *const Meta, importance: Importance) DeclaredValueTag {
-        if (meta.getAll(importance)) |all| {
-            return zss.meta.coerceEnum(DeclaredValueTag, all);
-        } else {
-            return .undeclared;
-        }
-    }
+    const Set = std.EnumSet(groups.Tag);
 };
 
 const Debug = switch (zss.debug.runtime_safety) {
@@ -158,9 +135,12 @@ pub const Importance = enum {
     important,
 };
 
+/// Add values to the currently open declaration block.
+/// See also: `addAll`.
+///
 /// `values` must be a struct such that each field is named after a group.
 /// Each field of `values` must also be a struct, such that each field:
-///     is named after a group member, and
+///     is named after a group field, and
 ///     has a type of either `SingleValue` or `MultiValue` (depending on the group)
 pub fn addValues(decls: *Declarations, allocator: Allocator, importance: Importance, values: anytype) !void {
     decls.debug.assertBlockOpened();
@@ -186,7 +166,11 @@ pub fn addValues(decls: *Declarations, allocator: Allocator, importance: Importa
         const group = comptime std.enums.nameCast(groups.Tag, group_field.name);
         const size = comptime group.size();
 
-        const header = try decls.getHeader(group, allocator, decls.current.block);
+        const header = blk: {
+            const gop_result = try @field(decls.headers, @tagName(group)).getOrPut(allocator, decls.current.block);
+            if (!gop_result.found_existing) gop_result.value_ptr.* = .{};
+            break :blk gop_result.value_ptr;
+        };
         const set = switch (importance) {
             .important => &meta.active_groups_important,
             .normal => &meta.active_groups_normal,
@@ -205,6 +189,8 @@ pub fn addValues(decls: *Declarations, allocator: Allocator, importance: Importa
     }
 }
 
+/// Adds a declaration for the 'all' CSS property to the currently open declaration block.
+/// See also: `addValues`.
 pub fn addAll(decls: *Declarations, importance: Importance, value: CssWideKeyword) void {
     decls.debug.assertBlockOpened();
     const all = switch (importance) {
@@ -214,13 +200,7 @@ pub fn addAll(decls: *Declarations, importance: Importance, value: CssWideKeywor
     if (all.* == null) all.* = value;
 }
 
-fn getHeader(decls: *Declarations, comptime group: groups.Tag, allocator: Allocator, block: Block.Tag) !*Header(group) {
-    const gop_result = try @field(decls.headers, @tagName(group)).getOrPut(allocator, block);
-    if (!gop_result.found_existing) gop_result.value_ptr.* = .{};
-    return gop_result.value_ptr;
-}
-
-/// Returns `true` if `block` has any declared values with importance `important`.
+/// Returns `true` if `block` has any declared values with importance `importance`.
 pub fn hasValues(decls: *const Declarations, block: Block, importance: Importance) bool {
     const meta = decls.meta.items[@intFromEnum(block)];
     const all, const set = switch (importance) {
@@ -230,14 +210,23 @@ pub fn hasValues(decls: *const Declarations, block: Block, importance: Importanc
     return (all != null) or (set.count() != 0);
 }
 
-pub fn getMeta(decls: *const Declarations, block: Block) *const Meta {
-    return &decls.meta.items[@intFromEnum(block)];
+/// Gets the value of the 'all' property with importance `importance` for `block`, or null if such a property was never declared.
+pub fn getAll(decls: *const Declarations, block: Block, importance: Importance) ?CssWideKeyword {
+    const meta = decls.meta.items[@intFromEnum(block)];
+    return switch (importance) {
+        .important => meta.all_important,
+        .normal => meta.all_normal,
+    };
 }
 
-// TODO: These non-mutating APIs have some flaws:
-//       1. Too much of it is public
-//       2. Requires passing pointers to metadata (`getMeta` should not exist + aliasing)
-//       Solution: Move code from users of this API into this file.
+/// Iterates over every group that has had values added to it.
+pub fn groupIterator(decls: *const Declarations, block: Block, importance: Importance) std.EnumSet(groups.Tag).Iterator {
+    const meta = decls.meta.items[@intFromEnum(block)];
+    switch (importance) {
+        .important => return meta.active_groups_important.iterator(),
+        .normal => return meta.active_groups_normal.iterator(),
+    }
+}
 
 /// For each group field, gets the partially cascaded value from the
 /// declaration block and applies it to `dest`.
@@ -249,17 +238,18 @@ pub fn apply(
     comptime group: groups.Tag,
     block: Block,
     importance: Importance,
-    meta: *const Meta,
     dest: *group.DeclaredValues(),
 ) void {
-    assert(meta == &decls.meta.items[@intFromEnum(block)]);
-    const default_value = meta.defaultValue(importance);
+    const default_value = if (decls.getAll(block, importance)) |all|
+        zss.meta.coerceEnum(DeclaredValueTag, all)
+    else
+        .undeclared;
 
     if (@field(decls.headers, @tagName(group)).get(@intFromEnum(block))) |header| {
         return header.apply(importance, dest, default_value);
     }
 
-    if (default_value == .undeclared) return;
+    if (default_value == .undeclared) return; // Applying a default value of `undeclared` would have no effect.
     inline for (group.fields()) |field| {
         const dest_field = &@field(dest, field.name);
         if (dest_field.* == .undeclared) {
@@ -502,13 +492,26 @@ test "adding values" {
         },
     });
 
+    const size_values = &[_]types.BackgroundSize{.contain};
+    const repeat_values = &[_]types.BackgroundRepeat{.{ .x = .space, .y = .no_repeat }};
+    const position_values = &[_]types.BackgroundPosition{.{
+        .x = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
+        .y = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
+    }};
+    try decls.addValues(allocator, .normal, .{
+        .background = .{
+            .size = MultiValue(types.BackgroundSize){ .declared = size_values },
+            .repeat = MultiValue(types.BackgroundRepeat){ .declared = repeat_values },
+            .position = MultiValue(types.BackgroundPosition){ .declared = position_values },
+        },
+    });
+
     decls.closeBlock();
 
     const ns = struct {
         fn getValues(d: *const Declarations, comptime group: groups.Tag, b: Block, importance: Importance) group.DeclaredValues() {
-            const meta = d.getMeta(b);
             var values: group.DeclaredValues() = .{};
-            d.apply(group, b, importance, meta, &values);
+            d.apply(group, b, importance, &values);
             return values;
         }
     };
@@ -522,4 +525,9 @@ test "adding values" {
 
     const background_clip_important = ns.getValues(&decls, .background_clip, block, .important);
     try background_clip_important.clip.expectEqual(.initial);
+
+    const background_normal = ns.getValues(&decls, .background, block, .normal);
+    try background_normal.size.expectEqual(.{ .declared = size_values });
+    try background_normal.repeat.expectEqual(.{ .declared = repeat_values });
+    try background_normal.position.expectEqual(.{ .declared = position_values });
 }

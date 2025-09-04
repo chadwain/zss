@@ -27,17 +27,16 @@ pub fn applyDeclBlock(
     // TODO: The 'all' property does not affect some properties
     if (cascaded.all != null) return;
 
-    const meta = decls.getMeta(block);
-    if (meta.getAll(importance)) |all| cascaded.all = all;
+    if (decls.getAll(block, importance)) |all| cascaded.all = all;
 
-    var iterator = meta.tagIterator(importance);
+    var iterator = decls.groupIterator(block, importance);
     while (iterator.next()) |group| {
         const gop_result = try cascaded.map.getOrPut(arena.allocator(), group);
         switch (group) {
             inline else => |comptime_group| {
                 try initValues(comptime_group, arena, gop_result);
                 const values = castValuePtr(comptime_group, gop_result.value_ptr);
-                decls.apply(comptime_group, block, importance, meta, values);
+                decls.apply(comptime_group, block, importance, values);
             },
         }
     }
