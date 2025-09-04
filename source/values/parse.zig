@@ -646,7 +646,7 @@ test "value parsers" {
         .y = .{ .side = .start, .offset = .{ .percentage = 0 } },
     });
     try ns.expectValue(background.position, "50%", .{
-        .x = .{ .side = .start, .offset = .{ .percentage = 50 } },
+        .x = .{ .side = .start, .offset = .{ .percentage = 0.5 } },
         .y = .{ .side = .center, .offset = .{ .percentage = 0 } },
     });
     try ns.expectValue(background.position, "50px", .{
@@ -683,19 +683,19 @@ test "value parsers" {
     });
     try ns.expectValue(background.position, "left 20px bottom 50%", .{
         .x = .{ .side = .start, .offset = .{ .px = 20 } },
-        .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
+        .y = .{ .side = .end, .offset = .{ .percentage = 0.5 } },
     });
     try ns.expectValue(background.position, "center bottom 50%", .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
-        .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
+        .y = .{ .side = .end, .offset = .{ .percentage = 0.5 } },
     });
     try ns.expectValue(background.position, "bottom 50% center", .{
         .x = .{ .side = .center, .offset = .{ .percentage = 0 } },
-        .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
+        .y = .{ .side = .end, .offset = .{ .percentage = 0.5 } },
     });
     try ns.expectValue(background.position, "bottom 50% left 20px", .{
         .x = .{ .side = .start, .offset = .{ .px = 20 } },
-        .y = .{ .side = .end, .offset = .{ .percentage = 50 } },
+        .y = .{ .side = .end, .offset = .{ .percentage = 0.5 } },
     });
 
     try ns.expectValue(background.clip, "border-box", .border_box);
@@ -711,7 +711,7 @@ test "value parsers" {
     try ns.expectValue(background.size, "auto", .{ .size = .{ .width = .auto, .height = .auto } });
     try ns.expectValue(background.size, "auto auto", .{ .size = .{ .width = .auto, .height = .auto } });
     try ns.expectValue(background.size, "5px", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .px = 5 } } });
-    try ns.expectValue(background.size, "5px 5%", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .percentage = 5 } } });
+    try ns.expectValue(background.size, "5px 5%", .{ .size = .{ .width = .{ .px = 5 }, .height = .{ .percentage = 0.05 } } });
 
     try ns.expectValue(color, "currentColor", .current_color);
     try ns.expectValue(color, "transparent", .transparent);

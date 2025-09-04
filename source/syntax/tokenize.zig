@@ -593,8 +593,8 @@ fn consumeNumericToken(source: Source, start: Source.Location) !NextToken {
     if (percent_sign.codepoint == '%') {
         const token: Token = .{
             .token_percentage = switch (result.value) {
-                .integer => |integer| if (integer) |int| @floatFromInt(int) else null,
-                .number => |number| number,
+                .integer => |integer| if (integer) |int| @as(Token.Float, @floatFromInt(int)) / 100.0 else null,
+                .number => |number| if (number) |num| num / 100.0 else null,
             },
         };
         return NextToken{ .token = token, .next_location = percent_sign.next_location };
@@ -611,7 +611,7 @@ const ConsumeNumber = struct {
     const Type = enum { integer, number };
     const Value = union(Type) {
         integer: ?i32,
-        number: ?f32,
+        number: ?Token.Float,
     };
 
     value: Value,
@@ -706,9 +706,10 @@ fn consumeNumber(source: Source, start: Source.Location) !ConsumeNumber {
         },
         .number => {
             if (buffer.overflow()) break :value .{ .number = null };
-            var float = std.fmt.parseFloat(f32, buffer.slice()) catch |err| switch (err) {
+            var float = std.fmt.parseFloat(Token.Float, buffer.slice()) catch |err| switch (err) {
                 error.InvalidCharacter => unreachable,
             };
+            // TODO: Preserve negative zero?
             if (std.math.isPositiveZero(float) or std.math.isNegativeZero(float)) {
                 float = 0.0;
             } else if (!std.math.isNormal(float)) {

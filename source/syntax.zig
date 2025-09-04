@@ -62,10 +62,10 @@ pub const Token = union(enum) {
     token_integer: ?i32,
     /// description: A numeric value (integral or floating point)
     ///    location: The first codepoint of the number
-    token_number: ?f32,
+    token_number: ?Float,
     /// description: A numeric value (integral or floating point) + a '%' codepoint
     ///    location: The first codepoint of the number
-    token_percentage: ?f32,
+    token_percentage: ?Float,
     /// description: A numeric value (integral or floating point) + an identifier
     ///    location: The first codepoint of the number
     token_dimension: Dimension,
@@ -106,12 +106,14 @@ pub const Token = union(enum) {
     ///    location: The codepoint
     token_right_curly,
 
+    pub const Float = f32;
+
     pub const Unit = enum {
         px,
     };
 
     pub const Dimension = struct {
-        number: ?f32,
+        number: ?Float,
         unit: ?Unit,
         unit_location: TokenSource.Location,
     };
