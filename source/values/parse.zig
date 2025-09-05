@@ -123,7 +123,7 @@ pub const Context = struct {
 
     pub fn empty(ctx: *Context) bool {
         switch (ctx.state.mode) {
-            .normal => return ctx.state.sequence.empty(),
+            .normal => return ctx.state.sequence.emptySkipSpaces(ctx.ast),
             .list => {
                 const item = ctx.rawNext() orelse return true;
                 ctx.state.sequence.reset(item.index);

@@ -104,7 +104,7 @@ pub fn createDocument(
             document.root_element = Element.null_element;
             return document;
         };
-        assert(document_children.empty());
+        assert(document_children.emptySkipSpaces(ast));
         break :blk root_zml_node_index;
     };
 
@@ -154,7 +154,7 @@ fn analyzeNode(
                     var directive_child_sequence = ast.children(node_child_index);
                     const name_index = directive_child_sequence.nextSkipSpaces(ast) orelse return error.InvalidZmlDirective;
                     if (ast.tag(name_index) != .token_ident) return error.InvalidZmlDirective;
-                    if (!directive_child_sequence.empty()) return error.InvalidZmlDirective;
+                    if (!directive_child_sequence.emptySkipSpaces(ast)) return error.InvalidZmlDirective;
 
                     try document.named_nodes.ensureUnusedCapacity(allocator, 1);
                     const name = try token_source.copyIdentifier(ast.location(name_index), allocator);
@@ -167,12 +167,12 @@ fn analyzeNode(
                 }
             },
             .zml_element => {
-                assert(child_sequence.empty());
+                assert(child_sequence.emptySkipSpaces(ast));
                 const zml_children_index = try analyzeElement(document, allocator, element, placement, env, ast, token_source, node_child_index);
                 return .{ element, zml_children_index };
             },
             .zml_text => {
-                assert(child_sequence.empty());
+                assert(child_sequence.emptySkipSpaces(ast));
                 try analyzeText(element, placement, env, ast, token_source, node_child_index);
                 return .{ element, null };
             },
@@ -230,7 +230,7 @@ fn analyzeElement(
         zml_styles_index;
     assert(ast.tag(zml_children_index) == .zml_children);
 
-    assert(element_child_sequence.empty());
+    assert(element_child_sequence.emptySkipSpaces(ast));
     return zml_children_index;
 }
 

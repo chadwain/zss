@@ -121,7 +121,7 @@ pub const Parser = struct {
     }
 
     fn expectEof(parser: *Parser) !void {
-        if (!parser.sequence.empty()) return parser.fail();
+        if (!parser.sequence.emptyKeepSpaces()) return parser.fail();
     }
 
     /// Returns true if any spaces were encountered.

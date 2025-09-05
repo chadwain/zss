@@ -358,35 +358,28 @@ pub const Ast = struct {
         start: Size,
         end: Size,
 
-        pub fn empty(sequence: Sequence) bool {
+        /// Returns `true` if there are no more components in the sequence.
+        pub fn emptyKeepSpaces(sequence: Sequence) bool {
             return (sequence.start == sequence.end);
+        }
+
+        /// Returns `true` if there are no more components in the sequence except for spaces.
+        pub fn emptySkipSpaces(sequence: *Sequence, ast: Ast) bool {
+            _ = sequence.skipSpaces(ast);
+            return sequence.emptyKeepSpaces();
         }
 
         /// Returns the next component in the sequence.
         pub fn nextKeepSpaces(sequence: *Sequence, ast: Ast) ?Size {
-            if (sequence.empty()) return null;
-            assert(sequence.start < sequence.end);
-
+            if (sequence.start == sequence.end) return null;
             defer sequence.start = ast.nextSibling(sequence.start);
             return sequence.start;
         }
 
-        /// Returns the next component in the sequence, skipping over space components.
+        /// Returns the next component in the sequence, skipping over leading space components.
         pub fn nextSkipSpaces(sequence: *Sequence, ast: Ast) ?Size {
-            // TODO: This function does not work as advertised.
-            //       It skips spaces after the current component, not before it.
-            if (sequence.empty()) return null;
-            assert(sequence.start < sequence.end);
-
-            var current = ast.nextSibling(sequence.start);
-            defer sequence.start = while (current != sequence.end) {
-                assert(current < sequence.end);
-                switch (ast.tag(current)) {
-                    .token_whitespace, .token_comments => current = ast.nextSibling(current),
-                    else => break current,
-                }
-            } else sequence.end;
-            return sequence.start;
+            _ = sequence.skipSpaces(ast);
+            return sequence.nextKeepSpaces(ast);
         }
 
         /// Returns true if any space components were encountered.
@@ -431,18 +424,9 @@ pub const Ast = struct {
         return ast.components.items(.extra)[index];
     }
 
-    /// Returns the sequence of the immediate children of `index`
-    // TODO: Change the name to reflect that this skips leading space components
+    /// Returns the sequence of the immediate children of `index`.
     pub fn children(ast: Ast, index: Size) Sequence {
-        var current = index + 1;
-        const end = ast.nextSibling(index);
-        while (current != end) {
-            switch (ast.tag(current)) {
-                .token_whitespace, .token_comments => current = ast.nextSibling(current),
-                else => break,
-            }
-        }
-        return .{ .start = current, .end = end };
+        return .{ .start = index + 1, .end = ast.nextSibling(index) };
     }
 
     pub const Debug = struct {
@@ -460,6 +444,7 @@ pub const Ast = struct {
                     _ = stack.pop();
                     continue;
                 };
+
                 const component = ast.components.get(index);
                 const indent = stack.lenExcludingTop() * 4;
                 try writer.writeByteNTimes(' ', indent);
@@ -468,7 +453,7 @@ pub const Ast = struct {
                 try writer.writeAll("\n");
 
                 const children_sequence = ast.children(index);
-                if (!children_sequence.empty()) {
+                if (!children_sequence.emptyKeepSpaces()) {
                     try stack.push(allocator, children_sequence);
                 }
             }
