@@ -71,7 +71,7 @@ pub fn build(b: *Build) void {
     deps.addHarfbuzz(b, config, zss);
     deps.addZgl(b, config, zss);
 
-    const unit_tests = addUnitTests(b, config);
+    const unit_tests = addUnitTests(b, config, zss);
     const test_suite = addTestSuite(b, config, zss);
     addDemo(b, config, zss);
     addExamples(b, config, zss);
@@ -81,13 +81,11 @@ pub fn build(b: *Build) void {
     all_tests.dependOn(&test_suite.step);
 }
 
-fn addUnitTests(b: *Build, config: Config) *Step.Run {
+fn addUnitTests(b: *Build, config: Config, zss: *Module) *Step.Run {
     const test_filters = b.option([]const []const u8, "test-filter", "A unit test filter (can be used multiple times)") orelse &.{};
     const unit_tests = b.addTest(.{
         .name = "zss-unit-tests",
-        .root_source_file = b.path("source/zss.zig"),
-        .target = config.target,
-        .optimize = config.optimize,
+        .root_module = zss,
         .filters = test_filters,
     });
     deps.addHarfbuzz(b, config, unit_tests.root_module);
@@ -105,11 +103,15 @@ fn addUnitTests(b: *Build, config: Config) *Step.Run {
 fn addTestSuite(b: *Build, config: Config, zss: *Module) *Step.Run {
     const test_suite = b.addExecutable(.{
         .name = "zss-test-suite",
-        .root_source_file = b.path("test/suite.zig"),
-        .target = config.target,
-        .optimize = config.optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/suite.zig"),
+            .target = config.target,
+            .optimize = config.optimize,
+            .imports = &.{
+                .{ .name = "zss", .module = zss },
+            },
+        }),
     });
-    test_suite.root_module.addImport("zss", zss);
     deps.addHarfbuzz(b, config, test_suite.root_module);
     deps.addZgl(b, config, test_suite.root_module);
     deps.addZigimg(b, config, test_suite.root_module);
@@ -166,11 +168,15 @@ fn addTestSuite(b: *Build, config: Config, zss: *Module) *Step.Run {
 fn addDemo(b: *Build, config: Config, zss: *Module) void {
     const demo = b.addExecutable(.{
         .name = "demo",
-        .root_source_file = b.path("demo/demo.zig"),
-        .target = config.target,
-        .optimize = config.optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("demo/demo.zig"),
+            .target = config.target,
+            .optimize = config.optimize,
+            .imports = &.{
+                .{ .name = "zss", .module = zss },
+            },
+        }),
     });
-    demo.root_module.addImport("zss", zss);
     deps.addHarfbuzz(b, config, demo.root_module);
     deps.addZgl(b, config, demo.root_module);
     deps.addZigimg(b, config, demo.root_module);
@@ -200,11 +206,15 @@ fn addExample(
 ) void {
     const exe = b.addExecutable(.{
         .name = name,
-        .root_source_file = b.path(path),
-        .target = config.target,
-        .optimize = config.optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path(path),
+            .target = config.target,
+            .optimize = config.optimize,
+            .imports = &.{
+                .{ .name = "zss", .module = zss },
+            },
+        }),
     });
-    exe.root_module.addImport("zss", zss);
     b.installArtifact(exe);
 
     const run = b.addRunArtifact(exe);
