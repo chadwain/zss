@@ -131,14 +131,13 @@ fn addFromGenericTokenIterator(
 test "StringInterner" {
     const allocator = std.testing.allocator;
     const token_source = try TokenSource.init("apple banana cucumber durian \"apple\"");
-    var ast = ast: {
+    var ast, const component_list_index = ast: {
         var parser = zss.syntax.Parser.init(token_source, allocator);
         defer parser.deinit();
         break :ast try parser.parseListOfComponentValues(allocator);
     };
     defer ast.deinit(allocator);
-    assert(ast.tag(0) == .component_list);
-    var children = ast.children(0);
+    var children = component_list_index.children(ast);
     const ast_nodes = .{
         .apple_ident = children.nextSkipSpaces(ast).?,
         .banana = children.nextSkipSpaces(ast).?,
@@ -150,14 +149,14 @@ test "StringInterner" {
     var interner = init(.{ .max_size = 3 });
     defer interner.deinit(allocator);
     const indeces = .{
-        .apple_ident = try interner.addFromIdentToken(allocator, ast.location(ast_nodes.apple_ident), token_source),
-        .banana = try interner.addFromIdentToken(allocator, ast.location(ast_nodes.banana), token_source),
-        .cucumber = try interner.addFromIdentToken(allocator, ast.location(ast_nodes.cucumber), token_source),
+        .apple_ident = try interner.addFromIdentToken(allocator, ast_nodes.apple_ident.location(ast), token_source),
+        .banana = try interner.addFromIdentToken(allocator, ast_nodes.banana.location(ast), token_source),
+        .cucumber = try interner.addFromIdentToken(allocator, ast_nodes.cucumber.location(ast), token_source),
         .durian = durian: {
-            try std.testing.expectError(error.MaxSizeExceeded, interner.addFromIdentToken(allocator, ast.location(ast_nodes.durian), token_source));
+            try std.testing.expectError(error.MaxSizeExceeded, interner.addFromIdentToken(allocator, ast_nodes.durian.location(ast), token_source));
             break :durian undefined;
         },
-        .apple_string = try interner.addFromStringToken(allocator, ast.location(ast_nodes.apple_string), token_source),
+        .apple_string = try interner.addFromStringToken(allocator, ast_nodes.apple_string.location(ast), token_source),
     };
     try std.testing.expectEqual(@as(usize, 0), indeces.apple_ident);
     try std.testing.expectEqual(@as(usize, 1), indeces.banana);

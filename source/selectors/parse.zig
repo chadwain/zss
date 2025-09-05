@@ -97,14 +97,14 @@ pub const Parser = struct {
         return error.ParseError;
     }
 
-    fn next(parser: *Parser) ?struct { Component.Tag, Ast.Size } {
+    fn next(parser: *Parser) ?struct { Component.Tag, Ast.Index } {
         const index = parser.sequence.nextKeepSpaces(parser.ast) orelse return null;
-        const tag = parser.ast.tag(index);
+        const tag = index.tag(parser.ast);
         return .{ tag, index };
     }
 
     /// If the next component is `accepted_tag`, then return that component index.
-    fn accept(parser: *Parser, accepted_tag: Component.Tag) ?Ast.Size {
+    fn accept(parser: *Parser, accepted_tag: Component.Tag) ?Ast.Index {
         const tag, const index = parser.next() orelse return null;
         if (accepted_tag == tag) {
             return index;
@@ -115,7 +115,7 @@ pub const Parser = struct {
     }
 
     /// Fails parsing if an unexpected component or EOF is encountered.
-    fn expect(parser: *Parser, expected_tag: Component.Tag) !Ast.Size {
+    fn expect(parser: *Parser, expected_tag: Component.Tag) !Ast.Index {
         const tag, const index = parser.next() orelse return parser.fail();
         return if (expected_tag == tag) index else parser.fail();
     }
@@ -170,13 +170,13 @@ fn parseComplexSelector(parser: *Parser, code_list: CodeList) !?void {
 fn parseCombinator(parser: *Parser) ?selectors.Combinator {
     const has_space = parser.skipSpaces();
     if (parser.accept(.token_delim)) |index| {
-        switch (parser.ast.extra(index).codepoint) {
+        switch (index.extra(parser.ast).codepoint) {
             '>' => return .child,
             '+' => return .next_sibling,
             '~' => return .subsequent_sibling,
             '|' => {
                 if (parser.accept(.token_delim)) |second_pipe| {
-                    if (parser.ast.extra(second_pipe).codepoint == '|') return .column;
+                    if (second_pipe.extra(parser.ast).codepoint == '|') return .column;
                 }
             },
             else => {},
@@ -214,7 +214,7 @@ fn parseTypeSelector(parser: *Parser, code_list: CodeList) !?void {
             .default => parser.default_namespace,
         },
         .name = switch (qn.name) {
-            .identifier => |identifier| try parser.env.addTypeOrAttributeName(parser.ast.location(identifier), parser.source),
+            .identifier => |identifier| try parser.env.addTypeOrAttributeName(identifier.location(parser.ast), parser.source),
             .any => .any,
         },
     };
@@ -232,13 +232,13 @@ const QualifiedName = struct {
     name: Name,
 
     const Namespace = union(enum) {
-        identifier: Ast.Size,
+        identifier: Ast.Index,
         none,
         any,
         default,
     };
     const Name = union(enum) {
-        identifier: Ast.Size,
+        identifier: Ast.Index,
         any,
     };
 };
@@ -262,7 +262,7 @@ fn parseQualifiedName(parser: *Parser) ?QualifiedName {
     qn.name = name: {
         switch (tag) {
             .token_ident => break :name .{ .identifier = index },
-            .token_delim => switch (parser.ast.extra(index).codepoint) {
+            .token_delim => switch (index.extra(parser.ast).codepoint) {
                 '*' => break :name .any,
                 '|' => {
                     if (parseName(parser)) |name| {
@@ -281,7 +281,7 @@ fn parseQualifiedName(parser: *Parser) ?QualifiedName {
     };
 
     if (parser.accept(.token_delim)) |pipe_index| {
-        if (parser.ast.extra(pipe_index).codepoint == '|') {
+        if (pipe_index.extra(parser.ast).codepoint == '|') {
             if (parseName(parser)) |name| {
                 qn.namespace = switch (qn.name) {
                     .identifier => |name_index| .{ .identifier = name_index },
@@ -303,15 +303,15 @@ fn parseName(parser: *Parser) ?QualifiedName.Name {
     const tag, const index = parser.next() orelse return null;
     switch (tag) {
         .token_ident => return .{ .identifier = index },
-        .token_delim => if (parser.ast.extra(index).codepoint == '*') return .any,
+        .token_delim => if (index.extra(parser.ast).codepoint == '*') return .any,
         else => {},
     }
     parser.sequence.reset(index);
     return null;
 }
 
-fn resolveNamespace(parser: *Parser, index: Ast.Size) NamespaceId {
-    const identifier = parser.source.copyIdentifier(parser.ast.location(index), parser.specificities.allocator) catch
+fn resolveNamespace(parser: *Parser, index: Ast.Index) NamespaceId {
+    const identifier = parser.source.copyIdentifier(index.location(parser.ast), parser.specificities.allocator) catch
         std.debug.panic("TODO: Unhandled allocation failure", .{});
     defer parser.specificities.allocator.free(identifier);
     const namespace_index = parser.namespaces.indexer.getFromString(identifier) orelse {
@@ -325,7 +325,7 @@ fn parseSubclassSelector(parser: *Parser, code_list: CodeList) !?void {
     const first_component_tag, const first_component_index = parser.next() orelse return null;
     switch (first_component_tag) {
         .token_hash_id => {
-            const location = parser.ast.location(first_component_index);
+            const location = first_component_index.location(parser.ast);
             const name = try parser.env.addIdName(location, parser.source);
             try code_list.appendSlice(&.{
                 .{ .simple_selector_tag = .id },
@@ -335,9 +335,9 @@ fn parseSubclassSelector(parser: *Parser, code_list: CodeList) !?void {
             return;
         },
         .token_delim => class_selector: {
-            if (parser.ast.extra(first_component_index).codepoint != '.') break :class_selector;
+            if (first_component_index.extra(parser.ast).codepoint != '.') break :class_selector;
             const class_name_index = parser.accept(.token_ident) orelse break :class_selector;
-            const location = parser.ast.location(class_name_index);
+            const location = class_name_index.location(parser.ast);
             const name = try parser.env.addClassName(location, parser.source);
             try code_list.appendSlice(&.{
                 .{ .simple_selector_tag = .class },
@@ -367,10 +367,10 @@ fn parseSubclassSelector(parser: *Parser, code_list: CodeList) !?void {
     return null;
 }
 
-fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast.Size) !void {
+fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast.Index) !void {
     const sequence = parser.sequence;
     defer parser.sequence = sequence;
-    parser.sequence = parser.ast.children(block_index);
+    parser.sequence = block_index.children(parser.ast);
 
     // Parse the attribute namespace and name
     _ = parser.skipSpaces();
@@ -383,7 +383,7 @@ fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast
             .default => .none,
         },
         .name = switch (qn.name) {
-            .identifier => |identifier| try parser.env.addTypeOrAttributeName(parser.ast.location(identifier), parser.source),
+            .identifier => |identifier| try parser.env.addTypeOrAttributeName(identifier.location(parser.ast), parser.source),
             .any => return parser.fail(),
         },
     };
@@ -400,7 +400,7 @@ fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast
     // Parse the attribute matcher
     const operator = operator: {
         if (after_qn_tag != .token_delim) return parser.fail();
-        const codepoint = parser.ast.extra(after_qn_index).codepoint;
+        const codepoint = after_qn_index.extra(parser.ast).codepoint;
         const operator: selectors.AttributeOperator = switch (codepoint) {
             '=' => .equals,
             '~' => .list_contains,
@@ -412,7 +412,7 @@ fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast
         };
         if (operator != .equals) {
             const equal_sign = try parser.expect(.token_delim);
-            if (parser.ast.extra(equal_sign).codepoint != '=') return parser.fail();
+            if (equal_sign.extra(parser.ast).codepoint != '=') return parser.fail();
         }
         break :operator operator;
     };
@@ -421,9 +421,9 @@ fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast
     _ = parser.skipSpaces();
     const value_tag, const value_index = parser.next() orelse return parser.fail();
     const attribute_value = switch (value_tag) {
-        .token_ident => try parser.env.addAttributeValueIdent(parser.ast.location(value_index), parser.source),
+        .token_ident => try parser.env.addAttributeValueIdent(value_index.location(parser.ast), parser.source),
         .token_string,
-        => try parser.env.addAttributeValueString(parser.ast.location(value_index), parser.source),
+        => try parser.env.addAttributeValueString(value_index.location(parser.ast), parser.source),
         else => return parser.fail(),
     };
 
@@ -431,7 +431,7 @@ fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast
     _ = parser.skipSpaces();
     const case: selectors.AttributeCase = case: {
         if (parser.accept(.token_ident)) |case_index| {
-            const location = parser.ast.location(case_index);
+            const location = case_index.location(parser.ast);
             const case = parser.source.mapIdentifier(location, selectors.AttributeCase, &.{
                 .{ "i", .ignore_case },
                 .{ "s", .same_case },
@@ -491,13 +491,13 @@ fn parsePseudo(comptime what: enum { element, class, legacy_element }, parser: *
     switch (main_component_tag) {
         .token_ident => {
             // TODO: Get the actual pseudo element/class name.
-            if (what == .class and parser.source.matchIdentifierEnum(parser.ast.location(main_component_index), selectors.PseudoClass) == .root) {
+            if (what == .class and parser.source.matchIdentifierEnum(main_component_index.location(parser.ast), selectors.PseudoClass) == .root) {
                 return .root;
             }
             return .unrecognized;
         },
         .function => {
-            var function_values = parser.ast.children(main_component_index);
+            var function_values = main_component_index.children(parser.ast);
             if (anyValue(parser.ast, &function_values)) {
                 // TODO: Get the actual pseudo element/class name.
                 return .unrecognized;
@@ -512,7 +512,7 @@ fn parsePseudo(comptime what: enum { element, class, legacy_element }, parser: *
 /// Returns true if the sequence matches the grammar of <any-value>.
 fn anyValue(ast: Ast, sequence: *Ast.Sequence) bool {
     while (sequence.nextKeepSpaces(ast)) |index| {
-        switch (ast.tag(index)) {
+        switch (index.tag(ast)) {
             .token_bad_string, .token_bad_url, .token_right_paren, .token_right_square, .token_right_curly => return false,
             else => {},
         }

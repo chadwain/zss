@@ -462,20 +462,17 @@ fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, code
 fn stringToSelectorList(input: []const u8, env: *Environment, allocator: Allocator, code_list: CodeList) !Size {
     const source = try TokenSource.init(input);
 
-    var ast = blk: {
+    var ast, const component_list_index = blk: {
         var parser = zss.syntax.Parser.init(source, env.allocator);
         defer parser.deinit();
         break :blk try parser.parseListOfComponentValues(env.allocator);
     };
     defer ast.deinit(env.allocator);
 
-    const component_list: Ast.Size = 0;
-    assert(ast.tag(component_list) == .component_list);
-
     var parser = Parser.init(env, allocator, source, ast, &.{});
     defer parser.deinit();
 
-    try parser.parseComplexSelectorList(code_list, ast.children(component_list));
+    try parser.parseComplexSelectorList(code_list, component_list_index.children(ast));
     return @intCast(parser.specificities.items.len);
 }
 

@@ -50,7 +50,7 @@ pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
 pub fn create(
     allocator: Allocator,
     ast: Ast,
-    rule_list: Ast.Size,
+    rule_list_index: Ast.Index,
     token_source: TokenSource,
     env: *Environment,
 ) !Stylesheet {
@@ -67,13 +67,13 @@ pub fn create(
     var unsorted_selectors = std.MultiArrayList(struct { index: selectors.Size, specificity: Specificity }){};
     defer unsorted_selectors.deinit(allocator);
 
-    assert(ast.tag(rule_list) == .rule_list);
-    var rule_sequence = ast.children(rule_list);
+    assert(rule_list_index.tag(ast) == .rule_list);
+    var rule_sequence = rule_list_index.children(ast);
     while (rule_sequence.nextSkipSpaces(ast)) |index| {
-        switch (ast.tag(index)) {
+        switch (index.tag(ast)) {
             .at_rule => {
-                const at_rule = ast.extra(index).at_rule orelse {
-                    const at_keyword_string = token_source.copyAtKeyword(ast.location(index), allocator) catch
+                const at_rule = index.extra(ast).at_rule orelse {
+                    const at_keyword_string = token_source.copyAtKeyword(index.location(ast), allocator) catch
                         std.debug.panic("TODO: Unhandled allocation failure", .{});
                     defer allocator.free(at_keyword_string);
                     zss.log.warn("Ignoring unknown at-rule: @{s}", .{at_keyword_string});
@@ -95,8 +95,7 @@ pub fn create(
             .qualified_rule => {
                 // TODO: Handle invalid style rules
 
-                const end_of_prelude = ast.extra(index).index;
-                const selector_sequence: Ast.Sequence = .{ .start = index + 1, .end = end_of_prelude };
+                const selector_sequence = ast.qualifiedRulePrelude(index);
                 const selector_code_list = selectors.CodeList{ .list = &stylesheet.cascade_source.selector_data, .allocator = env.allocator };
                 const first_complex_selector = selector_code_list.len();
                 selector_parser.parseComplexSelectorList(selector_code_list, selector_sequence) catch |err| switch (err) {
@@ -104,7 +103,7 @@ pub fn create(
                     else => |e| return e,
                 };
 
-                const last_declaration = ast.extra(end_of_prelude).index;
+                const last_declaration = selector_sequence.end.extra(ast).index;
                 var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
                 const decl_block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration, stylesheet.decl_urls.toManaged(allocator));
 
@@ -185,7 +184,7 @@ fn atRule(
     token_source: TokenSource,
     env: *Environment,
     at_rule: AtRule,
-    at_rule_index: Ast.Size,
+    at_rule_index: Ast.Index,
 ) !void {
 
     // TODO: There are rules involving how some at-rules must be ordered
@@ -194,19 +193,19 @@ fn atRule(
     switch (at_rule) {
         .import => return error.UnrecognizedAtRule,
         .namespace => {
-            var sequence = ast.children(at_rule_index);
-            const prefix_opt: ?Ast.Size = prefix: {
+            var sequence = at_rule_index.children(ast);
+            const prefix_opt: ?Ast.Index = prefix: {
                 const index = sequence.nextSkipSpaces(ast) orelse break :prefix null;
-                if (ast.tag(index) != .token_ident) {
+                if (index.tag(ast) != .token_ident) {
                     sequence.reset(index);
                     break :prefix null;
                 }
                 break :prefix index;
             };
             // TODO: The namespace must match the grammar of <url>.
-            const namespace: Ast.Size = namespace: {
+            const namespace: Ast.Index = namespace: {
                 const index = sequence.nextSkipSpaces(ast) orelse return error.InvalidAtRule;
-                switch (ast.tag(index)) {
+                switch (index.tag(ast)) {
                     .token_string, .token_url, .token_bad_url => break :namespace index,
                     else => return error.InvalidAtRule,
                 }
@@ -215,7 +214,7 @@ fn atRule(
 
             const id = try env.addNamespace(ast, token_source, namespace);
             if (prefix_opt) |prefix| {
-                const it = token_source.identTokenIterator(ast.location(prefix));
+                const it = token_source.identTokenIterator(prefix.location(ast));
                 const index = try namespaces.indexer.getOrPutFromSource(allocator, token_source, it);
                 if (index == namespaces.ids.items.len) {
                     try namespaces.ids.append(allocator, id);
@@ -243,7 +242,7 @@ test "create a stylesheet" {
     ;
     const token_source = try zss.syntax.TokenSource.init(input);
 
-    var ast = blk: {
+    var ast, const rule_list_index = blk: {
         var parser = zss.syntax.Parser.init(token_source, allocator);
         defer parser.deinit();
         break :blk try parser.parseCssStylesheet(allocator);
@@ -253,6 +252,6 @@ test "create a stylesheet" {
     var env = Environment.init(allocator);
     defer env.deinit();
 
-    var stylesheet = try create(allocator, ast, 0, token_source, &env);
+    var stylesheet = try create(allocator, ast, rule_list_index, token_source, &env);
     defer stylesheet.deinit(allocator);
 }

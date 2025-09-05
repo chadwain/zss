@@ -150,7 +150,7 @@ const AstManaged = struct {
     fn finishInlineStyleBlock(ast: *AstManaged, style_block_index: Ast.Size, last_declaration: Ast.Size) void {
         const next_sibling: Ast.Size = ast.len();
         ast.components.items(.next_sibling)[style_block_index] = next_sibling;
-        ast.components.items(.extra)[style_block_index] = .{ .index = last_declaration };
+        ast.components.items(.extra)[style_block_index] = .{ .index = @enumFromInt(last_declaration) };
     }
 
     fn addDeclaration(ast: *AstManaged, main_location: Location, previous_declaration: ?Ast.Size) !Ast.Size {
@@ -158,7 +158,7 @@ const AstManaged = struct {
             .next_sibling = undefined,
             .tag = undefined,
             .location = main_location,
-            .extra = .{ .index = previous_declaration orelse 0 },
+            .extra = .{ .index = @enumFromInt(previous_declaration orelse 0) },
         });
     }
 
@@ -309,28 +309,26 @@ pub const Parser = struct {
 
     /// Creates an Ast with a root node with tag `rule_list`
     /// Implements CSS Syntax Level 3 Section 9 "Parse a CSS stylesheet"
-    pub fn parseCssStylesheet(parser: *Parser, allocator: Allocator) Error!Ast {
+    pub fn parseCssStylesheet(parser: *Parser, allocator: Allocator) Error!struct { Ast, Ast.Index } {
         var managed = AstManaged{ .allocator = allocator };
         errdefer managed.deinit();
 
         const index = try consumeListOfRules(parser, &managed, true);
-        _ = index; // TODO: Return the index
-        return .{ .components = managed.components.slice() };
+        return .{ Ast{ .components = managed.components.slice() }, @enumFromInt(index) };
     }
 
     /// Creates an Ast with a root node with tag `component_list`
     /// Implements CSS Syntax Level 3 Section 5.3.10 "Parse a list of component values"
-    pub fn parseListOfComponentValues(parser: *Parser, allocator: Allocator) Error!Ast {
+    pub fn parseListOfComponentValues(parser: *Parser, allocator: Allocator) Error!struct { Ast, Ast.Index } {
         var managed = AstManaged{ .allocator = allocator };
         errdefer managed.deinit();
 
         const index = try consumeListOfComponentValues(parser, &managed);
-        _ = index; // TODO: Return the index
-        return .{ .components = managed.components.slice() };
+        return .{ Ast{ .components = managed.components.slice() }, @enumFromInt(index) };
     }
 
     /// Creates an Ast with a root node with tag `zml_document`
-    pub fn parseZmlDocument(parser: *Parser, allocator: Allocator) Error!Ast {
+    pub fn parseZmlDocument(parser: *Parser, allocator: Allocator) Error!struct { Ast, Ast.Index } {
         var managed = AstManaged{ .allocator = allocator };
         errdefer managed.deinit();
 
@@ -342,7 +340,7 @@ pub const Parser = struct {
         try parser.skipUntilEof();
         managed.finishComplexComponent(document_index);
 
-        return .{ .components = managed.components.slice() };
+        return .{ Ast{ .components = managed.components.slice() }, @enumFromInt(document_index) };
     }
 
     fn setLocation(parser: *Parser, location: Location) void {
@@ -516,10 +514,10 @@ fn consumeQualifiedRule(parser: *Parser, ast: *AstManaged) !void {
                 try parser.rule_stack.push(parser.allocator, .{ .index = nested_rule_index, .is_style_rule = false });
                 continue;
             }
-            ast.finishComplexComponentExtra(qualified_rule.index_of_block.?, .{ .index = qualified_rule.index_of_last_declaration orelse 0 });
+            ast.finishComplexComponentExtra(qualified_rule.index_of_block.?, .{ .index = @enumFromInt(qualified_rule.index_of_last_declaration orelse 0) });
         }
 
-        ast.finishComplexComponentExtra(qualified_rule.index, .{ .index = qualified_rule.index_of_block.? });
+        ast.finishComplexComponentExtra(qualified_rule.index, .{ .index = @enumFromInt(qualified_rule.index_of_block.?) });
 
         parser.decreaseDepth(1);
         _ = parser.rule_stack.pop();
@@ -801,7 +799,7 @@ fn consumeZmlNode(parser: *Parser, ast: *AstManaged) !void {
     }
 
     const node_index = try ast.addComplexComponent(.zml_node, node_location);
-    try parseZmlDirectives(parser, ast);
+    try consumeZmlDirectives(parser, ast);
 
     const node_child_token, const node_child_location = try parser.nextTokenSkipSpaces();
     switch (node_child_token) {
@@ -816,7 +814,7 @@ fn consumeZmlNode(parser: *Parser, ast: *AstManaged) !void {
     }
 }
 
-fn parseZmlDirectives(parser: *Parser, ast: *AstManaged) !void {
+fn consumeZmlDirectives(parser: *Parser, ast: *AstManaged) !void {
     while (true) {
         const directive_token, const directive_location = try parser.nextTokenSkipSpaces();
         if (directive_token != .token_at_keyword) {
@@ -964,105 +962,6 @@ fn consumeZmlInlineStyleBlock(parser: *Parser, ast: *AstManaged, main_location: 
     ast.finishInlineStyleBlock(style_block_index, previous_declaration.?);
 }
 
-test "parse a stylesheet" {
-    const allocator = std.testing.allocator;
-    const input =
-        \\@charset "utf-8";
-        \\@new-rule {}
-        \\
-        \\root {
-        \\    prop: value;
-        \\    prop2: func(abc) !important
-        \\}
-        \\
-        \\other {}
-        \\
-        \\broken_rule
-    ;
-    const token_source = try TokenSource.init(input);
-
-    var parser = Parser.init(token_source, allocator);
-    defer parser.deinit();
-
-    var ast = try parser.parseCssStylesheet(allocator);
-    defer ast.deinit(allocator);
-
-    const TestComponent = struct {
-        next_sibling: Ast.Size,
-        tag: Component.Tag,
-        location: Location,
-        extra: union(enum) {
-            index: Ast.Size,
-            codepoint: u21,
-            integer: ?i32,
-            number: ?f32,
-            unit: ?Token.Unit,
-            at_rule: ?Token.AtRule,
-
-            const undef: @This() = .{ .index = 0 };
-        },
-    };
-
-    // zig fmt: off
-    const expecteds = [20]TestComponent{
-        .{ .next_sibling = 20, .tag = .rule_list,             .location = @enumFromInt(0),  .extra = .undef               },
-        .{ .next_sibling = 4,  .tag = .at_rule,               .location = @enumFromInt(0),  .extra = .{ .at_rule = null } },
-        .{ .next_sibling = 3,  .tag = .token_whitespace,      .location = @enumFromInt(8),  .extra = .undef               },
-        .{ .next_sibling = 4,  .tag = .token_string,          .location = @enumFromInt(9),  .extra = .undef               },
-        .{ .next_sibling = 7,  .tag = .at_rule,               .location = @enumFromInt(18), .extra = .{ .at_rule = null } },
-        .{ .next_sibling = 6,  .tag = .token_whitespace,      .location = @enumFromInt(27), .extra = .undef               },
-        .{ .next_sibling = 7,  .tag = .simple_block_curly,    .location = @enumFromInt(28), .extra = .undef               },
-        .{ .next_sibling = 16, .tag = .qualified_rule,        .location = @enumFromInt(32), .extra = .{ .index = 10 }     },
-        .{ .next_sibling = 9,  .tag = .token_ident,           .location = @enumFromInt(32), .extra = .undef               },
-        .{ .next_sibling = 10, .tag = .token_whitespace,      .location = @enumFromInt(36), .extra = .undef               },
-        .{ .next_sibling = 16, .tag = .style_block,           .location = @enumFromInt(37), .extra = .{ .index = 13 }     },
-        .{ .next_sibling = 13, .tag = .declaration_normal,    .location = @enumFromInt(43), .extra = .{ .index = 0 }      },
-        .{ .next_sibling = 13, .tag = .token_ident,           .location = @enumFromInt(49), .extra = .undef               },
-        .{ .next_sibling = 16, .tag = .declaration_important, .location = @enumFromInt(60), .extra = .{ .index = 11 }     },
-        .{ .next_sibling = 16, .tag = .function,              .location = @enumFromInt(67), .extra = .undef               },
-        .{ .next_sibling = 16, .tag = .token_ident,           .location = @enumFromInt(72), .extra = .undef               },
-        .{ .next_sibling = 20, .tag = .qualified_rule,        .location = @enumFromInt(91), .extra = .{ .index = 19 }     },
-        .{ .next_sibling = 18, .tag = .token_ident,           .location = @enumFromInt(91), .extra = .undef               },
-        .{ .next_sibling = 19, .tag = .token_whitespace,      .location = @enumFromInt(96), .extra = .undef               },
-        .{ .next_sibling = 20, .tag = .style_block,           .location = @enumFromInt(97), .extra = .{ .index = 0 }      },
-    };
-    // zig fmt: on
-
-    if (expecteds.len != ast.components.len) return error.TestFailure;
-    for (expecteds, 0..) |expected, i| {
-        const actual = ast.components.get(@intCast(i));
-        try std.testing.expectEqual(expected.next_sibling, actual.next_sibling);
-        try std.testing.expectEqual(expected.tag, actual.tag);
-        try std.testing.expectEqual(expected.location, actual.location);
-        switch (expected.extra) {
-            inline else => |value, tag| try std.testing.expectEqual(value, @field(actual.extra, @tagName(tag))),
-        }
-    }
-}
-
-test "parse a zml document" {
-    const allocator = std.testing.allocator;
-    const input =
-        \\* {
-        \\   p1 {}
-        \\   * {}
-        \\   "Hello"
-        \\   p2 (decl: value !important; decl: asdf) {
-        \\       /*comment*/p3/*comment*/[a=b] #id {}
-        \\   }
-        \\   p3 (decl: func({} [ {} {1}] };)) {}
-        \\   @directive(args) "World"
-        \\}
-    ;
-    const token_source = try TokenSource.init(input);
-
-    var parser = Parser.init(token_source, allocator);
-    defer parser.deinit();
-
-    var ast = try parser.parseZmlDocument(allocator);
-    defer ast.deinit(allocator);
-}
-
 test "parser fuzz test" {
     const ns = struct {
         fn fuzzFn(comptime document_type: DocumentType) fn (_: void, input: []const u8) anyerror!void {
@@ -1078,7 +977,7 @@ test "parser fuzz test" {
                     var parser = Parser.init(token_source, allocator);
                     defer parser.deinit();
 
-                    var ast = parse_fn(&parser, allocator) catch |err| switch (err) {
+                    var ast, _ = parse_fn(&parser, allocator) catch |err| switch (err) {
                         error.OutOfMemory => return error.OutOfMemory,
                         else => return,
                     };

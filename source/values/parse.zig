@@ -29,13 +29,13 @@ pub const Context = struct {
     }
 
     pub const Item = struct {
-        index: Ast.Size,
+        index: Ast.Index,
         tag: Component.Tag,
     };
 
     fn rawNext(ctx: *Context) ?Item {
         const index = ctx.state.sequence.nextSkipSpaces(ctx.ast) orelse return null;
-        const tag = ctx.ast.tag(index);
+        const tag = index.tag(ctx.ast);
         return .{ .index = index, .tag = tag };
     }
 
@@ -54,18 +54,18 @@ pub const Context = struct {
         }
     }
 
-    pub fn save(ctx: *Context) Ast.Size {
+    pub fn save(ctx: *Context) Ast.Index {
         return ctx.state.sequence.start;
     }
 
-    pub fn reset(ctx: *Context, save_point: Ast.Size) void {
+    pub fn reset(ctx: *Context, save_point: Ast.Index) void {
         ctx.state.sequence.reset(save_point);
     }
 
     /// Sets the children of the Ast node `index` as the current node sequence to iterate over.
-    pub fn enterSequence(ctx: *Context, index: Ast.Size) State {
+    pub fn enterSequence(ctx: *Context, index: Ast.Index) State {
         defer ctx.state = .{
-            .sequence = ctx.ast.children(index),
+            .sequence = index.children(ctx.ast),
             .mode = .normal,
         };
         return ctx.state;
@@ -74,8 +74,8 @@ pub const Context = struct {
     /// Sets the children of the Ast node `index` as the current node sequence to iterate over.
     /// In addition, it treats the new sequence as a comma-separated list.
     /// A return value of `null` represents a parse error.
-    pub fn enterList(ctx: *Context, index: Ast.Size) ?State {
-        return ctx.beginList(ctx.ast.children(index));
+    pub fn enterList(ctx: *Context, index: Ast.Index) ?State {
+        return ctx.beginList(index.children(ctx.ast));
     }
 
     /// Treat the current Ast node sequence as a comma-separated list.
@@ -243,26 +243,26 @@ pub fn cssWideKeyword(ctx: *Context) ?types.CssWideKeyword {
     });
 }
 
-fn genericLength(ctx: *const Context, comptime Type: type, index: Ast.Size) ?Type {
-    var children = ctx.ast.children(index);
+fn genericLength(ctx: *const Context, comptime Type: type, index: Ast.Index) ?Type {
+    var children = index.children(ctx.ast);
     const unit_index = children.nextSkipSpaces(ctx.ast).?;
 
-    const number = ctx.ast.extra(index).number orelse return null;
-    const unit = ctx.ast.extra(unit_index).unit orelse return null;
+    const number = index.extra(ctx.ast).number orelse return null;
+    const unit = unit_index.extra(ctx.ast).unit orelse return null;
     return switch (unit) {
         .px => .{ .px = number },
     };
 }
 
-fn genericPercentage(ctx: *const Context, comptime Type: type, index: Ast.Size) ?Type {
-    const value = ctx.ast.extra(index).number orelse return null;
+fn genericPercentage(ctx: *const Context, comptime Type: type, index: Ast.Index) ?Type {
+    const value = index.extra(ctx.ast).number orelse return null;
     return .{ .percentage = value };
 }
 
 pub fn keyword(ctx: *Context, comptime Type: type, kvs: []const TokenSource.KV(Type)) ?Type {
     const item = ctx.next() orelse return null;
     if (item.tag == .token_ident) {
-        const location = ctx.ast.location(item.index);
+        const location = item.index.location(ctx.ast);
         if (ctx.token_source.mapIdentifier(location, Type, kvs)) |result| return result;
     }
 
@@ -273,7 +273,7 @@ pub fn keyword(ctx: *Context, comptime Type: type, kvs: []const TokenSource.KV(T
 pub fn integer(ctx: *Context) ?i32 {
     const item = ctx.next() orelse return null;
     if (item.tag == .token_integer) {
-        if (ctx.ast.extra(item.index).integer) |value| return value;
+        if (item.index.extra(ctx.ast).integer) |value| return value;
     }
 
     ctx.reset(item.index);
@@ -325,7 +325,7 @@ pub fn lengthPercentageNone(ctx: *Context, comptime Type: type) ?Type {
 pub fn string(ctx: *Context) ?Location {
     const item = ctx.next() orelse return null;
     if (item.tag == .token_string) {
-        return ctx.ast.location(item.index);
+        return item.index.location(ctx.ast);
     }
 
     ctx.reset(item.index);
@@ -335,7 +335,7 @@ pub fn string(ctx: *Context) ?Location {
 pub fn hash(ctx: *Context) ?Location {
     const item = ctx.next() orelse return null;
     switch (item.tag) {
-        .token_hash_id, .token_hash_unrestricted => return ctx.ast.location(item.index),
+        .token_hash_id, .token_hash_unrestricted => return item.index.location(ctx.ast),
         else => {},
     }
     ctx.reset(item.index);
@@ -403,9 +403,9 @@ pub fn color(ctx: *Context) ?types.Color {
 pub fn url(ctx: *Context) ?Urls.SourceLocation {
     const item = ctx.next() orelse return null;
     switch (item.tag) {
-        .token_url => return .{ .url_token = ctx.ast.location(item.index) },
+        .token_url => return .{ .url_token = item.index.location(ctx.ast) },
         .function => blk: {
-            const location = ctx.ast.location(item.index);
+            const location = item.index.location(ctx.ast);
             _ = ctx.token_source.mapIdentifier(location, void, &.{
                 .{ "url", {} },
                 .{ "src", {} },
@@ -539,7 +539,7 @@ test "value parsers" {
             const allocator = std.testing.allocator;
 
             const token_source = try TokenSource.init(input);
-            var ast = blk: {
+            var ast, const component_list_index = blk: {
                 var syntax_parser = zss.syntax.Parser.init(token_source, allocator);
                 defer syntax_parser.deinit();
                 break :blk try syntax_parser.parseListOfComponentValues(allocator);
@@ -547,7 +547,7 @@ test "value parsers" {
             defer ast.deinit(allocator);
 
             var ctx = Context.init(ast, token_source);
-            _ = ctx.enterSequence(0);
+            _ = ctx.enterSequence(component_list_index);
 
             switch (std.meta.ArgsTuple(@TypeOf(parser))) {
                 struct { *Context } => return parser(&ctx),

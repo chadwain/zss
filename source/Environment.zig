@@ -75,10 +75,10 @@ pub const Namespaces = struct {
     }
 };
 
-pub fn addNamespace(env: *Environment, ast: Ast, source: TokenSource, index: Ast.Size) !Namespaces.Id {
+pub fn addNamespace(env: *Environment, ast: Ast, source: TokenSource, index: Ast.Index) !Namespaces.Id {
     try env.namespaces.map.ensureUnusedCapacity(env.allocator, 1);
-    const location = ast.location(index);
-    const namespace = try switch (ast.tag(index)) {
+    const location = index.location(ast);
+    const namespace = try switch (index.tag(ast)) {
         .token_string => source.copyString(location, env.allocator),
         .token_url, .token_bad_url => panic("TODO: addNamespace with a URL", .{}),
         else => unreachable,

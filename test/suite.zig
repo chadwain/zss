@@ -121,8 +121,8 @@ fn getAllTests(
     const ua_stylesheet = blk: {
         const token_source = try zss.syntax.TokenSource.init(@embedFile("ua-stylesheet.css"));
         var parser = zss.syntax.Parser.init(token_source, allocator);
-        const ast = try parser.parseCssStylesheet(allocator);
-        break :blk UaStylesheet{ .ast = ast, .rule_list = 0, .token_source = token_source };
+        const ast, const rule_list = try parser.parseCssStylesheet(allocator);
+        break :blk UaStylesheet{ .ast = ast, .rule_list = rule_list, .token_source = token_source };
     };
 
     var walker = try cases_dir.walk(allocator);
@@ -140,14 +140,14 @@ fn getAllTests(
 
         const source = try cases_dir.readFileAlloc(allocator, entry.path, 100_000);
         const token_source = try TokenSource.init(source);
-        const ast = blk: {
+        const ast, const zml_document_index = blk: {
             var parser = zss.syntax.Parser.init(token_source, allocator);
             break :blk try parser.parseZmlDocument(allocator);
         };
 
         const name = try allocator.dupe(u8, entry.path[0 .. entry.path.len - ".zml".len]);
 
-        const t = try createTest(arena, name, ast, token_source, images, fonts, font_handle, &loader, ua_stylesheet);
+        const t = try createTest(arena, name, ast, token_source, zml_document_index, images, fonts, font_handle, &loader, ua_stylesheet);
         try list.append(t);
     }
 
@@ -156,7 +156,7 @@ fn getAllTests(
 
 const UaStylesheet = struct {
     ast: zss.syntax.Ast,
-    rule_list: zss.syntax.Ast.Size,
+    rule_list: zss.syntax.Ast.Index,
     token_source: zss.syntax.TokenSource,
 };
 
@@ -165,6 +165,7 @@ fn createTest(
     name: []const u8,
     ast: Ast,
     token_source: TokenSource,
+    zml_document_index: Ast.Index,
     images: *zss.Images,
     fonts: *const zss.Fonts,
     font_handle: zss.Fonts.Handle,
@@ -188,7 +189,7 @@ fn createTest(
         .ua_cascade_node = undefined,
     };
 
-    t.document = try zss.zml.createDocument(allocator, &t.env, ast, token_source, 0);
+    t.document = try zss.zml.createDocument(allocator, &t.env, ast, token_source, zml_document_index);
     t.author_cascade_node = .{ .leaf = &t.document.cascade_source };
     try t.env.cascade_list.author.append(t.env.allocator, &t.author_cascade_node);
 

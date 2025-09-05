@@ -45,7 +45,7 @@ pub fn main() !u8 {
 }
 
 fn runParser(
-    parse_fn: *const fn (*Parser, Allocator) Parser.Error!Ast,
+    parse_fn: *const fn (*Parser, Allocator) Parser.Error!struct { Ast, Ast.Index },
     source: TokenSource,
     allocator: Allocator,
     stdout: std.io.AnyWriter,
@@ -53,7 +53,7 @@ fn runParser(
     var parser = zss.syntax.Parser.init(source, allocator);
     defer parser.deinit();
 
-    var ast = parse_fn(&parser, allocator) catch |err| {
+    var ast, _ = parse_fn(&parser, allocator) catch |err| {
         switch (err) {
             error.ParseError => {
                 const stderr = std.io.getStdErr().writer();

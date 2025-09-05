@@ -145,14 +145,14 @@ pub const Component = struct {
 
     // TODO: size goal: 4 bytes (in unsafe builds)
     pub const Extra = union {
-        index: Ast.Size,
+        index: Ast.Index,
         codepoint: u21,
         integer: ?i32,
         number: ?f32,
         unit: ?Token.Unit,
         at_rule: ?Token.AtRule,
 
-        pub const undef: Extra = .{ .index = 0 };
+        pub const undef: Extra = .{ .index = @enumFromInt(0) };
     };
 
     /// Each field has the following information:
@@ -354,9 +354,35 @@ pub const Ast = struct {
 
     pub const Size = u32;
 
+    pub const Index = enum(Size) {
+        _,
+
+        pub fn nextSibling(index: Index, ast: Ast) Index {
+            return @enumFromInt(ast.components.items(.next_sibling)[@intFromEnum(index)]);
+        }
+
+        pub fn tag(index: Index, ast: Ast) Component.Tag {
+            return ast.components.items(.tag)[@intFromEnum(index)];
+        }
+
+        pub fn location(index: Index, ast: Ast) TokenSource.Location {
+            return ast.components.items(.location)[@intFromEnum(index)];
+        }
+
+        pub fn extra(index: Index, ast: Ast) Component.Extra {
+            return ast.components.items(.extra)[@intFromEnum(index)];
+        }
+
+        /// Returns the sequence of the immediate children of `index`.
+        pub fn children(index: Index, ast: Ast) Sequence {
+            const int = @intFromEnum(index);
+            return .{ .start = @enumFromInt(int + 1), .end = index.nextSibling(ast) };
+        }
+    };
+
     pub const Sequence = struct {
-        start: Size,
-        end: Size,
+        start: Index,
+        end: Index,
 
         /// Returns `true` if there are no more components in the sequence.
         pub fn emptyKeepSpaces(sequence: Sequence) bool {
@@ -370,14 +396,14 @@ pub const Ast = struct {
         }
 
         /// Returns the next component in the sequence.
-        pub fn nextKeepSpaces(sequence: *Sequence, ast: Ast) ?Size {
+        pub fn nextKeepSpaces(sequence: *Sequence, ast: Ast) ?Index {
             if (sequence.start == sequence.end) return null;
-            defer sequence.start = ast.nextSibling(sequence.start);
+            defer sequence.start = sequence.start.nextSibling(ast);
             return sequence.start;
         }
 
         /// Returns the next component in the sequence, skipping over leading space components.
-        pub fn nextSkipSpaces(sequence: *Sequence, ast: Ast) ?Size {
+        pub fn nextSkipSpaces(sequence: *Sequence, ast: Ast) ?Index {
             _ = sequence.skipSpaces(ast);
             return sequence.nextKeepSpaces(ast);
         }
@@ -386,9 +412,9 @@ pub const Ast = struct {
         pub fn skipSpaces(sequence: *Sequence, ast: Ast) bool {
             const initial_index = sequence.start;
             while (sequence.start != sequence.end) {
-                assert(sequence.start < sequence.end);
-                switch (ast.tag(sequence.start)) {
-                    .token_whitespace, .token_comments => sequence.start = ast.nextSibling(sequence.start),
+                assert(@intFromEnum(sequence.start) < @intFromEnum(sequence.end));
+                switch (sequence.start.tag(ast)) {
+                    .token_whitespace, .token_comments => sequence.start = sequence.start.nextSibling(ast),
                     else => break,
                 }
             }
@@ -397,8 +423,8 @@ pub const Ast = struct {
 
         /// Returns to a previously visited point in the sequence.
         /// `index` must be a value that was previously returned from one of the `next*` functions.
-        pub fn reset(sequence: *Sequence, index: Size) void {
-            assert(index < sequence.end);
+        pub fn reset(sequence: *Sequence, index: Index) void {
+            assert(@intFromEnum(index) < @intFromEnum(sequence.end));
             sequence.start = index;
         }
     };
@@ -408,25 +434,9 @@ pub const Ast = struct {
         ast.components.deinit(allocator);
     }
 
-    pub fn nextSibling(ast: Ast, index: Size) Size {
-        return ast.components.items(.next_sibling)[index];
-    }
-
-    pub fn tag(ast: Ast, index: Size) Component.Tag {
-        return ast.components.items(.tag)[index];
-    }
-
-    pub fn location(ast: Ast, index: Size) TokenSource.Location {
-        return ast.components.items(.location)[index];
-    }
-
-    pub fn extra(ast: Ast, index: Size) Component.Extra {
-        return ast.components.items(.extra)[index];
-    }
-
-    /// Returns the sequence of the immediate children of `index`.
-    pub fn children(ast: Ast, index: Size) Sequence {
-        return .{ .start = index + 1, .end = ast.nextSibling(index) };
+    pub fn qualifiedRulePrelude(ast: Ast, qualified_rule_index: Index) Sequence {
+        const int = @intFromEnum(qualified_rule_index);
+        return .{ .start = @enumFromInt(int + 1), .end = qualified_rule_index.extra(ast).index };
     }
 
     pub const Debug = struct {
@@ -437,7 +447,8 @@ pub const Ast = struct {
 
             var stack = zss.Stack(Sequence){};
             defer stack.deinit(allocator);
-            stack.top = .{ .start = 0, .end = ast.nextSibling(0) };
+            const first_index: Index = @enumFromInt(0);
+            stack.top = .{ .start = first_index, .end = first_index.nextSibling(ast) };
 
             while (stack.top) |*top| {
                 const index = top.nextKeepSpaces(ast) orelse {
@@ -445,14 +456,14 @@ pub const Ast = struct {
                     continue;
                 };
 
-                const component = ast.components.get(index);
+                const component = ast.components.get(@intFromEnum(index));
                 const indent = stack.lenExcludingTop() * 4;
                 try writer.writeByteNTimes(' ', indent);
-                try writer.print("{} {s} {} ", .{ index, @tagName(component.tag), @intFromEnum(component.location) });
+                try writer.print("{} {s} {} ", .{ @intFromEnum(index), @tagName(component.tag), @intFromEnum(component.location) });
                 try printExtra(writer, component.tag, component.extra);
                 try writer.writeAll("\n");
 
-                const children_sequence = ast.children(index);
+                const children_sequence = index.children(ast);
                 if (!children_sequence.emptyKeepSpaces()) {
                     try stack.push(allocator, children_sequence);
                 }

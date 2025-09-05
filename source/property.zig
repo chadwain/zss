@@ -213,7 +213,7 @@ pub fn parseDeclarationsFromAst(
     /// See also: `recommended_buffer_size`.
     buffer: []u8,
     /// The last declaration in a list of declarations, or 0 if the list is empty.
-    last_declaration_index: Ast.Size,
+    last_declaration_index: Ast.Index,
     urls: Urls.Managed,
 ) !Declarations.Block {
     var ctx = ValueContext.init(ast, token_source);
@@ -223,14 +223,14 @@ pub fn parseDeclarationsFromAst(
     // We parse declarations in the reverse order in which they appear.
     // This is because later declarations will override previous ones.
     var index = last_declaration_index;
-    while (index != 0) {
-        const importance: Importance = switch (ast.tag(index)) {
+    while (@intFromEnum(index) != 0) {
+        const importance: Importance = switch (index.tag(ast)) {
             .declaration_important => .important,
             .declaration_normal => .normal,
             else => unreachable,
         };
         try parseDeclaration(env, &ctx, &fba, urls, index, importance);
-        index = ast.extra(index).index;
+        index = index.extra(ast).index;
     }
 
     env.decls.closeBlock();
@@ -242,14 +242,14 @@ fn parseDeclaration(
     ctx: *ValueContext,
     fba: *std.heap.FixedBufferAllocator,
     urls: Urls.Managed,
-    declaration_index: Ast.Size,
+    declaration_index: Ast.Index,
     importance: Importance,
 ) !void {
     // TODO: If this property has already been declared, skip parsing a value entirely.
-    const location = ctx.ast.location(declaration_index);
+    const location = declaration_index.location(ctx.ast);
     const property = ctx.token_source.matchIdentifierEnum(location, Property) orelse {
         // TODO: don't heap allocate
-        const name_string = ctx.token_source.copyIdentifier(ctx.ast.location(declaration_index), env.allocator) catch return;
+        const name_string = ctx.token_source.copyIdentifier(location, env.allocator) catch return;
         defer env.allocator.free(name_string);
         zss.log.warn("Ignoring unsupported declaration: {s}", .{name_string});
         return;
@@ -360,21 +360,19 @@ test "parsing properties from a stylesheet" {
         \\}
     ;
     const source = try TokenSource.init(input);
-    var ast = blk: {
+    var ast, const rule_list_index = blk: {
         var parser = zss.syntax.Parser.init(source, allocator);
         defer parser.deinit();
         break :blk try parser.parseCssStylesheet(allocator);
     };
     defer ast.deinit(allocator);
 
-    const rule_list: Ast.Size = 0;
-    std.debug.assert(ast.tag(rule_list) == .rule_list);
-    var rules = ast.children(rule_list);
+    var rules = rule_list_index.children(ast);
     const qualified_rule = rules.nextSkipSpaces(ast).?;
-    std.debug.assert(ast.tag(qualified_rule) == .qualified_rule);
-    const style_block = ast.extra(qualified_rule).index;
-    std.debug.assert(ast.tag(style_block) == .style_block);
-    const last_declaration = ast.extra(style_block).index;
+    std.debug.assert(qualified_rule.tag(ast) == .qualified_rule);
+    const style_block = qualified_rule.extra(ast).index;
+    std.debug.assert(style_block.tag(ast) == .style_block);
+    const last_declaration = style_block.extra(ast).index;
 
     const ns = struct {
         fn expectEqual(

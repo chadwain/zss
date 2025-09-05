@@ -14,7 +14,7 @@ pub fn main() !void {
     ;
     const stylesheet_source = try zss.syntax.TokenSource.init(stylesheet_text);
 
-    var ast = blk: {
+    var ast, const rule_list_index = blk: {
         var parser = zss.syntax.Parser.init(stylesheet_source, allocator);
         defer parser.deinit();
         break :blk try parser.parseCssStylesheet(allocator);
@@ -28,7 +28,7 @@ pub fn main() !void {
     env.element_tree.initElement(root, .normal, .orphan);
     env.root_element = root;
 
-    var stylesheet = try zss.Stylesheet.create(allocator, ast, 0, stylesheet_source, &env);
+    var stylesheet = try zss.Stylesheet.create(allocator, ast, rule_list_index, stylesheet_source, &env);
     defer stylesheet.deinit(allocator);
 
     const cascade_node: zss.cascade.Node = .{ .leaf = &stylesheet.cascade_source };
