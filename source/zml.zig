@@ -61,9 +61,72 @@ const TokenSource = zss.syntax.TokenSource;
 
 pub const Document = struct {
     root_element: Element,
+    tree: NodeList.Slice,
+    slice_ptr: *const NodeList.Slice,
     urls: std.MultiArrayList(Url),
     cascade_source: cascade.Source,
     named_nodes: std.StringArrayHashMapUnmanaged(Element),
+
+    pub const NodeList = std.MultiArrayList(Node);
+
+    pub const Node = struct {
+        pub const Index = u32;
+
+        pub const Extra = struct {
+            // TODO: Storing a heap-allocated copy of the document tree is kinda weird.
+            slice_ptr: *const NodeList.Slice,
+            zss_node: zss.Node,
+        };
+
+        extra: Extra,
+        /// `parent == index` represents null.
+        parent: Index,
+        /// `next_sibling == 0` represents null.
+        next_sibling: Index,
+        /// `previous_sibling == 0` represents null.
+        previous_sibling: Index,
+        /// The first child of any node, if it exists, is `index + 1`.
+        /// `last_child == 0` represents null.
+        first_child: void,
+        /// `last_child == 0` represents null.
+        last_child: Index,
+
+        pub const vtable: *const zss.Node.VTable = &.{
+            .edge = vtable_fns.edge,
+        };
+
+        pub const vtable_fns = struct {
+            pub fn edge(zss_node: *zss.Node, which: zss.Node.Edge) ?*zss.Node {
+                const extra: *const Extra = @fieldParentPtr("zss_node", zss_node);
+                const slice = extra.slice_ptr;
+                const extra_base_ptr = slice.items(.extra).ptr;
+                const index: Index = @intCast(extra - extra_base_ptr);
+
+                switch (which) {
+                    .parent => {
+                        const parent = slice.items(.parent)[index];
+                        if (parent == index) return null;
+                        return &extra_base_ptr[parent].zss_node;
+                    },
+                    inline .previous_sibling, .next_sibling => |comptime_which| {
+                        const sibling = slice.items(std.enums.nameCast(NodeList.Field, comptime_which))[index];
+                        if (sibling == 0) return null;
+                        return &extra_base_ptr[sibling].zss_node;
+                    },
+                    inline .first_child, .last_child => |comptime_which| {
+                        const last_child = slice.items(.last_child)[index];
+                        if (last_child == 0) return null;
+                        const child = switch (comptime_which) {
+                            .first_child => index + 1,
+                            .last_child => last_child,
+                            else => comptime unreachable,
+                        };
+                        return &extra_base_ptr[child].zss_node;
+                    },
+                }
+            }
+        };
+    };
 
     pub const Url = struct {
         const Urls = zss.values.parse.Urls;
@@ -75,10 +138,17 @@ pub const Document = struct {
     };
 
     pub fn deinit(document: *Document, allocator: Allocator) void {
+        document.tree.deinit(allocator);
+        allocator.destroy(document.slice_ptr);
         document.urls.deinit(allocator);
         document.cascade_source.deinit(allocator);
         for (document.named_nodes.keys()) |key| allocator.free(key);
         document.named_nodes.deinit(allocator);
+    }
+
+    pub fn rootZssNode(document: *const Document) ?*Node {
+        if (document.tree.len == 0) return null;
+        return &document.tree.items(.extra)[0].zss_node;
     }
 };
 
@@ -98,13 +168,19 @@ pub fn createDocument(
     zml_document_index: Ast.Index,
 ) !Document {
     assert(zml_document_index.tag(ast) == .zml_document);
+
     var document: Document = .{
         .root_element = undefined,
+        .tree = .empty,
+        .slice_ptr = try allocator.create(Document.NodeList.Slice),
         .urls = .empty,
         .cascade_source = .{},
         .named_nodes = .empty,
     };
     errdefer document.deinit(allocator);
+
+    var tree = Document.NodeList{};
+    errdefer tree.deinit(allocator);
 
     const root_zml_node_index = blk: {
         var document_children = zml_document_index.children(ast);
@@ -116,27 +192,84 @@ pub fn createDocument(
         break :blk root_zml_node_index;
     };
 
-    var node_stack = Stack(struct { element: Element, child_sequence: Ast.Sequence }){};
-    defer node_stack.deinit(allocator);
+    const ns = struct {
+        fn init(tr: *const Document.NodeList.Slice, tree_index: Document.Node.Index, parent: Document.Node.Index, previous_sibling: Document.Node.Index) void {
+            tr.items(.parent)[tree_index] = parent;
+            tr.items(.previous_sibling)[tree_index] = previous_sibling;
+            tr.items(.next_sibling)[tree_index] = 0;
+            tr.items(.first_child)[tree_index] = {};
+            if (previous_sibling != 0) {
+                tr.items(.next_sibling)[previous_sibling] = tree_index;
+            }
+        }
+
+        fn finalize(tr: *const Document.NodeList.Slice, tree_index: Document.Node.Index, last_child: Document.Node.Index) void {
+            tr.items(.last_child)[tree_index] = last_child;
+        }
+    };
+
+    const Item = struct {
+        element: Element,
+        parent_tree_index: Document.Node.Index,
+        previous_sibling_tree_index: Document.Node.Index,
+        last_child_tree_index: Document.Node.Index,
+        child_sequence: Ast.Sequence,
+    };
+
+    var stack = Stack(Item){};
+    defer stack.deinit(allocator);
+
+    const root_tree_index: Document.Node.Index = @intCast(try tree.addOne(allocator));
+    ns.init(&tree.slice(), root_tree_index, root_tree_index, 0);
 
     document.root_element, const root_zml_children_index = try analyzeNode(&document, allocator, .orphan, env, ast, token_source, root_zml_node_index);
     if (root_zml_children_index) |index| {
-        node_stack.top = .{ .element = document.root_element, .child_sequence = index.children(ast) };
+        stack.top = .{
+            .element = document.root_element,
+            .parent_tree_index = root_tree_index,
+            .previous_sibling_tree_index = 0,
+            .last_child_tree_index = 0,
+            .child_sequence = index.children(ast),
+        };
+    } else {
+        ns.finalize(&tree.slice(), root_tree_index, root_tree_index + 1);
     }
 
-    while (node_stack.top) |*top| {
+    while (stack.top) |*top| {
         const zml_node_index = top.child_sequence.nextSkipSpaces(ast) orelse {
-            _ = node_stack.pop();
+            const item = stack.pop();
+            ns.finalize(&tree.slice(), item.parent_tree_index, item.last_child_tree_index);
+            if (stack.top) |*top2| top2.last_child_tree_index = item.parent_tree_index;
             continue;
         };
+
+        const tree_index: Document.Node.Index = @intCast(try tree.addOne(allocator));
+        ns.init(&tree.slice(), tree_index, top.parent_tree_index, top.previous_sibling_tree_index);
+        top.previous_sibling_tree_index = tree_index;
 
         const placement: ElementTree.NodePlacement = .{ .last_child_of = top.element };
         const element, const zml_children_index = try analyzeNode(&document, allocator, placement, env, ast, token_source, zml_node_index);
         if (zml_children_index) |index| {
-            try node_stack.push(allocator, .{ .element = element, .child_sequence = index.children(ast) });
+            try stack.push(allocator, .{
+                .element = element,
+                .parent_tree_index = tree_index,
+                .previous_sibling_tree_index = 0,
+                .last_child_tree_index = 0,
+                .child_sequence = index.children(ast),
+            });
+        } else {
+            ns.finalize(&tree.slice(), tree_index, tree_index + 1);
+            top.last_child_tree_index = tree_index;
         }
     }
 
+    @memset(tree.items(.extra), .{
+        .slice_ptr = document.slice_ptr,
+        .zss_node = .{ .vtable = Document.Node.vtable },
+    });
+
+    document.tree = tree.slice();
+    @constCast(document.slice_ptr).* = document.tree;
     return document;
 }
 
@@ -280,7 +413,7 @@ fn analyzeInlineStyleBlock(
     }
 }
 
-test createDocument {
+test "create a zml document" {
     const input =
         \\@name(root) * (display: block) { /*comment*/
         \\  type1 (all: unset) {}
@@ -341,4 +474,34 @@ test createDocument {
         try std.testing.expect(cascaded_values.getPtr(.box_style) == null);
         try std.testing.expectEqual(types.CssWideKeyword.inherit, all);
     }
+}
+
+test "create a zml document 2" {
+    const input =
+        \\* {
+        \\  * {
+        \\    * {}
+        \\    ""
+        \\  }
+        \\  * {
+        \\    ""
+        \\  }
+        \\  * {}
+        \\}
+    ;
+    const token_source = try TokenSource.init(input);
+    const allocator = std.testing.allocator;
+
+    var ast, const zml_document_index = blk: {
+        var parser = zss.syntax.Parser.init(token_source, allocator);
+        defer parser.deinit();
+        break :blk try parser.parseZmlDocument(allocator);
+    };
+    defer ast.deinit(allocator);
+
+    var env = Environment.init(allocator);
+    defer env.deinit();
+
+    var document = try createDocument(allocator, &env, ast, token_source, zml_document_index);
+    defer document.deinit(allocator);
 }
