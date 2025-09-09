@@ -69,7 +69,7 @@ pub fn run(layout: *Layout) !void {
                 try blockBoxCosmeticLayout(layout, context, ref, .Root);
                 layout.computer.commitElement(.cosmetic);
 
-                if (!layout.computer.element_tree.firstChild(root_element).eqlNull()) {
+                if (!layout.inputs.env.element_tree.firstChild(root_element).eqlNull()) {
                     const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
                     const box_offsets = subtree.items(.box_offsets)[ref.index];
                     try context.mode.append(context.allocator, .Flow);
@@ -98,7 +98,7 @@ pub fn run(layout: *Layout) !void {
                     try blockBoxCosmeticLayout(layout, context, ref, .NonRoot);
                     layout.computer.commitElement(.cosmetic);
 
-                    const has_children = !layout.computer.element_tree.firstChild(element).eqlNull();
+                    const has_children = !layout.inputs.env.element_tree.firstChild(element).eqlNull();
                     if (has_children) {
                         const subtree = layout.box_tree.ptr.getSubtree(ref.subtree).view();
                         const box_offsets = subtree.items(.box_offsets)[ref.index];
@@ -114,7 +114,7 @@ pub fn run(layout: *Layout) !void {
                     inlineBoxCosmeticLayout(layout, context, ifc, inline_box.index);
                     layout.computer.commitElement(.cosmetic);
 
-                    const has_children = !layout.computer.element_tree.firstChild(element).eqlNull();
+                    const has_children = !layout.inputs.env.element_tree.firstChild(element).eqlNull();
                     if (has_children) {
                         try context.mode.append(context.allocator, .InlineBox);
                         try layout.pushElement();

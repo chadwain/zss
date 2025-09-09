@@ -7,6 +7,7 @@ const Importance = Declarations.Importance;
 const NamespaceId = Environment.Namespaces.Id;
 const NameId = Environment.NameId;
 const Specificity = zss.selectors.Specificity;
+const TextId = Environment.TextId;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -37,7 +38,7 @@ const Node = struct {
     previous_sibling: Element,
 
     fq_type: FqType,
-    text: Text,
+    text: TextId,
     cascaded_values: CascadedValues,
 
     const fields = std.enums.values(std.meta.FieldEnum(Node));
@@ -83,8 +84,6 @@ pub const FqType = struct {
         assert(fq_type.name != .any);
     }
 };
-
-pub const Text = ?[]const u8;
 
 pub const init = ElementTree{
     .nodes = .empty,
@@ -238,7 +237,7 @@ pub fn initElement(tree: *const ElementTree, element: Element, initial_category:
     }
 
     node.fq_type = .{ .namespace = .none, .name = .anonymous };
-    node.text = null;
+    node.text = .empty;
     node.cascaded_values = .{};
 
     inline for (Node.fields) |field| {
@@ -297,7 +296,7 @@ pub fn fqType(tree: *const ElementTree, element: Element) FqType {
     return tree.nodes.items(.fq_type)[element.index];
 }
 
-pub fn text(tree: *const ElementTree, element: Element) Text {
+pub fn text(tree: *const ElementTree, element: Element) TextId {
     tree.assertIsText(element);
     return tree.nodes.items(.text)[element.index];
 }
@@ -318,7 +317,7 @@ pub fn cascadedValuesPtr(tree: *const ElementTree, element: Element) *CascadedVa
     return &tree.nodes.items(.cascaded_values)[element.index];
 }
 
-pub fn setText(tree: *const ElementTree, element: Element, text_: Text) void {
+pub fn setText(tree: *const ElementTree, element: Element, text_: TextId) void {
     tree.assertIsText(element);
     tree.nodes.items(.text)[element.index] = text_;
 }

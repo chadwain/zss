@@ -86,7 +86,7 @@ pub fn init(
 ) Layout {
     return .{
         .box_tree = undefined,
-        .computer = StyleComputer.init(&env.element_tree, allocator),
+        .computer = StyleComputer.init(env, allocator),
         .sct_builder = .{},
         .absolute = .{},
         .viewport = undefined,
@@ -342,8 +342,8 @@ pub fn currentElement(layout: Layout) Element {
 
 pub fn pushElement(layout: *Layout) !void {
     const element = &layout.stacks.element.top.?;
-    const child = layout.computer.element_tree.firstChild(element.*);
-    element.* = layout.computer.element_tree.nextSibling(element.*);
+    const child = layout.inputs.env.element_tree.firstChild(element.*);
+    element.* = layout.inputs.env.element_tree.nextSibling(element.*);
     try layout.stacks.element.push(layout.allocator, child);
 }
 
@@ -353,7 +353,7 @@ pub fn popElement(layout: *Layout) void {
 
 pub fn advanceElement(layout: *Layout) void {
     const element = &layout.stacks.element.top.?;
-    element.* = layout.computer.element_tree.nextSibling(element.*);
+    element.* = layout.inputs.env.element_tree.nextSibling(element.*);
 }
 
 pub fn currentSubtree(layout: *Layout) Subtree.Id {

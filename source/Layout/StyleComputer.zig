@@ -8,6 +8,7 @@ const null_element = Element.null_element;
 const CascadedValues = zss.CascadedValues;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
+const Environment = zss.Environment;
 const Stack = zss.Stack;
 
 const groups = zss.values.groups;
@@ -58,7 +59,7 @@ const Current = struct {
     cascaded_values: CascadedValues,
 };
 
-element_tree: *const ElementTree,
+env: *const Environment,
 root_element: Element,
 current: Current,
 allocator: Allocator,
@@ -75,9 +76,9 @@ stage: union {
     },
 },
 
-pub fn init(element_tree: *const ElementTree, allocator: Allocator) StyleComputer {
+pub fn init(env: *const Environment, allocator: Allocator) StyleComputer {
     return .{
-        .element_tree = element_tree,
+        .env = env,
         .allocator = allocator,
         .root_element = undefined,
         .current = undefined,
@@ -95,14 +96,14 @@ pub fn deinitStage(self: *StyleComputer, comptime stage: Stage) void {
 }
 
 pub fn elementCategory(self: StyleComputer, element: Element) ElementTree.Category {
-    return self.element_tree.category(element);
+    return self.env.element_tree.category(element);
 }
 
 // TODO: Setting the current element should not require allocating
 pub fn setCurrentElement(self: *StyleComputer, comptime stage: Stage, element: Element) !void {
     assert(!element.eqlNull());
     const cascaded_values = switch (self.elementCategory(element)) {
-        .normal => self.element_tree.cascadedValues(element),
+        .normal => self.env.element_tree.cascadedValues(element),
         .text => undefined,
     };
     self.current = .{
@@ -124,10 +125,11 @@ pub fn commitElement(self: *StyleComputer, comptime stage: Stage) void {
     current_stage.map.putAssumeCapacity(element, current_stage.current_computed);
 }
 
-pub fn getText(self: StyleComputer) zss.values.types.Text {
+pub fn getText(self: StyleComputer) []const u8 {
     const element = self.current.element;
     assert(self.elementCategory(element) == .text);
-    return self.element_tree.text(element) orelse "";
+    const id = self.env.element_tree.text(element);
+    return self.env.getText(id);
 }
 
 pub fn getTextFont(self: StyleComputer, comptime stage: Stage) ComputedValues(.font) {
@@ -219,7 +221,7 @@ fn InheritedValue(comptime group: groups.Tag) type {
             if (self.value) |value| return value;
 
             const current_stage = @field(computer.stage, @tagName(stage));
-            const parent = computer.element_tree.parent(self.element);
+            const parent = computer.env.element_tree.parent(self.element);
             self.value = if (parent.eqlNull())
                 group.initialValues()
             else blk: {
@@ -230,7 +232,7 @@ fn InheritedValue(comptime group: groups.Tag) type {
                 }
                 // TODO: Cache the parent's computed value for faster access in future calls.
 
-                const cascaded_values = computer.element_tree.cascadedValues(parent);
+                const cascaded_values = computer.env.element_tree.cascadedValues(parent);
                 // TODO: Recursive call here
                 const specified_value = computer.getSpecifiedValueForElement(stage, group, parent, cascaded_values);
                 break :blk specifiedToComputed(group, specified_value, computer, parent);
@@ -244,7 +246,7 @@ fn InheritedValue(comptime group: groups.Tag) type {
 fn specifiedToComputed(comptime group: groups.Tag, specified: SpecifiedValues(group), computer: StyleComputer, element: Element) ComputedValues(group) {
     switch (group) {
         .box_style => {
-            const parent = computer.element_tree.parent(element);
+            const parent = computer.env.element_tree.parent(element);
             const computed_value, _ = if (parent.eqlNull())
                 solve.boxStyle(specified, .Root)
             else

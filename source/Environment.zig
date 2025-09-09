@@ -19,6 +19,7 @@ const MultiArrayList = std.MultiArrayList;
 allocator: Allocator,
 type_or_attribute_names: IdentifierSet,
 id_or_class_names: IdentifierSet,
+texts: Texts,
 attribute_values: zss.StringInterner,
 namespaces: Namespaces,
 decls: Declarations,
@@ -34,6 +35,7 @@ pub fn init(allocator: Allocator) Environment {
         .type_or_attribute_names = .{ .max_size = NameId.max_value, .case = .insensitive },
         // TODO: Case sensitivity depends on whether quirks mode is on
         .id_or_class_names = .{ .max_size = IdId.max_value, .case = .sensitive },
+        .texts = .{},
         .attribute_values = .init(.{ .max_size = AttributeValueId.num_unique_values }),
         .namespaces = .{},
         .decls = .{},
@@ -48,6 +50,7 @@ pub fn init(allocator: Allocator) Environment {
 pub fn deinit(env: *Environment) void {
     env.type_or_attribute_names.deinit(env.allocator);
     env.id_or_class_names.deinit(env.allocator);
+    env.texts.deinit(env.allocator);
     env.namespaces.deinit(env.allocator);
     env.decls.deinit(env.allocator);
     env.cascade_list.deinit(env.allocator);
@@ -67,7 +70,7 @@ pub const Namespaces = struct {
         _,
     };
 
-    fn deinit(namespaces: *Namespaces, allocator: Allocator) void {
+    pub fn deinit(namespaces: *Namespaces, allocator: Allocator) void {
         for (namespaces.map.keys()) |key| {
             allocator.free(key);
         }
@@ -167,6 +170,53 @@ pub fn addAttributeValueIdent(env: *Environment, identifier: TokenSource.Locatio
 pub fn addAttributeValueString(env: *Environment, string: TokenSource.Location, source: TokenSource) !AttributeValueId {
     const index = try env.attribute_values.addFromStringToken(env.allocator, string, source);
     return @enumFromInt(index);
+}
+
+pub const Texts = struct {
+    list: std.ArrayListUnmanaged([]const u8) = .empty,
+    arena: std.heap.ArenaAllocator.State = .{},
+
+    pub fn deinit(texts: *Texts, allocator: Allocator) void {
+        texts.list.deinit(allocator);
+        var arena = texts.arena.promote(allocator);
+        defer texts.arena = arena.state;
+        arena.deinit();
+    }
+};
+
+pub const TextId = enum(u32) {
+    _,
+
+    pub const empty: TextId = @enumFromInt(0);
+};
+
+pub fn addTextFromStringToken(env: *Environment, string: TokenSource.Location, source: TokenSource) !TextId {
+    var iterator = source.stringTokenIterator(string);
+    if (iterator.next(source) == null) return .empty;
+    const id = std.math.cast(std.meta.Tag(TextId), try std.math.add(usize, 1, env.texts.list.items.len)) orelse return error.OutOfTexts;
+
+    try env.texts.list.ensureUnusedCapacity(env.allocator, 1);
+    var arena = env.texts.arena.promote(env.allocator);
+    defer env.texts.arena = arena.state;
+    env.texts.list.appendAssumeCapacity(try source.copyString(string, arena.allocator())); // TODO: Arena allocation wastes memory here
+    return @enumFromInt(id);
+}
+
+pub fn addTextFromString(env: *Environment, text: []const u8) !TextId {
+    if (text.len == 0) return .empty;
+    const id = std.math.cast(std.meta.Tag(TextId), try std.math.add(usize, 1, env.texts.list.items.len)) orelse return error.OutOfTexts;
+
+    try env.texts.list.ensureUnusedCapacity(env.allocator, 1);
+    var arena = env.texts.arena.promote(env.allocator);
+    defer env.texts.arena = arena.state;
+    env.texts.list.appendAssumeCapacity(try arena.allocator().dupe(u8, text));
+    return @enumFromInt(id);
+}
+
+pub fn getText(env: *const Environment, id: TextId) []const u8 {
+    const int = @intFromEnum(id);
+    if (int == 0) return "";
+    return env.texts.list.items[int - 1];
 }
 
 /// A unique identifier for each URL.

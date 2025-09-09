@@ -244,13 +244,8 @@ fn analyzeText(
 ) !void {
     assert(zml_text_index.tag(ast) == .zml_text);
     env.element_tree.initElement(element, .text, placement);
-
-    // TODO: Don't use the element tree's arena
-    var arena = env.element_tree.arena.promote(env.allocator);
-    defer env.element_tree.arena = arena.state;
-    const location = zml_text_index.location(ast);
-    const string = try token_source.copyString(location, arena.allocator());
-    env.element_tree.setText(element, string);
+    const text_id = try env.addTextFromStringToken(zml_text_index.location(ast), token_source);
+    env.element_tree.setText(element, text_id);
 }
 
 fn analyzeInlineStyleBlock(

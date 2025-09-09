@@ -374,8 +374,8 @@ fn createElements(
     env.element_tree.initElement(tree_elements.get(.footer),           .normal, .{ .last_child_of  = tree_elements.get(.root) });
     // zig fmt: on
 
-    env.element_tree.setText(tree_elements.get(.title_text), file_name);
-    env.element_tree.setText(tree_elements.get(.body_text), file_contents);
+    env.element_tree.setText(tree_elements.get(.title_text), try env.addTextFromString(file_name));
+    env.element_tree.setText(tree_elements.get(.body_text), try env.addTextFromString(file_contents));
 
     return tree_elements;
 }
