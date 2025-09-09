@@ -1,5 +1,6 @@
-//! Assigns index numbers to strings.
+//! Assigns index numbers to UTF-8 strings.
 //! Indeces start from 0 and increase by 1 for every unique string.
+//! Unicode normalization is not taken into account.
 
 const StringInterner = @This();
 
@@ -40,6 +41,33 @@ pub fn deinit(interner: *StringInterner, allocator: Allocator) void {
     interner.string.deinit(allocator);
 }
 
+const Hasher = struct {
+    impl: std.hash.Wyhash,
+    limit: u8,
+
+    fn init() Hasher {
+        return .{ .impl = .init(0), .limit = 32 };
+    }
+
+    fn end(hasher: *Hasher) u32 {
+        return @truncate(hasher.impl.final());
+    }
+
+    fn addCodepoint(hasher: *Hasher, codepoint: u21) void {
+        var buffer: [4]u8 = undefined;
+        const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
+        const hashed_len = @min(hasher.limit, len);
+        hasher.limit -= hashed_len;
+        hasher.impl.update((&buffer)[0..hashed_len]);
+    }
+
+    fn addString(hasher: *Hasher, string: []const u8) void {
+        const hashed_len = @min(hasher.limit, string.len);
+        hasher.limit -= hashed_len;
+        hasher.impl.update(string[0..hashed_len]);
+    }
+};
+
 pub fn addFromIdentToken(
     interner: *StringInterner,
     allocator: Allocator,
@@ -75,15 +103,13 @@ fn addFromGenericTokenIterator(
         interner: *const StringInterner,
 
         pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = std.hash.Wyhash.init(0);
+            var hasher = Hasher.init();
             var it = key.it;
-            var limit: usize = 32;
             while (it.next(key.source)) |codepoint| {
-                if (limit == 0) break;
-                std.hash.autoHash(&hasher, codepoint);
-                limit -= 1;
+                if (hasher.limit == 0) break;
+                hasher.addCodepoint(codepoint);
             }
-            return @truncate(hasher.final());
+            return hasher.end();
         }
 
         pub fn eql(adapter: @This(), key: Key, _: void, index: usize) bool {
@@ -128,6 +154,43 @@ fn addFromGenericTokenIterator(
     return gop.index;
 }
 
+pub fn addFromString(interner: *StringInterner, allocator: Allocator, string: []const u8) !usize {
+    const Adapter = struct {
+        interner: *const StringInterner,
+
+        pub fn hash(_: @This(), key: []const u8) u32 {
+            var hasher = Hasher.init();
+            hasher.addString(key);
+            return hasher.end();
+        }
+
+        pub fn eql(adapter: @This(), key: []const u8, _: void, index: usize) bool {
+            var key_index: usize = 0;
+            const range = adapter.interner.indexer.values()[index];
+            var segment_iterator = adapter.interner.string.iterator(range.position, range.len);
+            while (segment_iterator.next()) |segment| {
+                if (segment.len > key.len - key_index) return false;
+                if (!std.mem.eql(u8, key[key_index..][0..segment.len], segment)) return false;
+                key_index += segment.len;
+            }
+            return key_index == key.len;
+        }
+    };
+
+    const gop = try interner.indexer.getOrPutAdapted(allocator, string, Adapter{ .interner = interner });
+    if (gop.found_existing) return gop.index;
+
+    if (gop.index == interner.options.max_size) {
+        interner.indexer.swapRemoveAt(gop.index);
+        return error.MaxSizeExceeded;
+    }
+
+    const range = Range{ .position = interner.string.position, .len = string.len };
+    try interner.string.append(allocator, string);
+    gop.value_ptr.* = range;
+    return gop.index;
+}
+
 test "StringInterner" {
     const allocator = std.testing.allocator;
     const token_source = try TokenSource.init("apple banana cucumber durian \"apple\"");
@@ -157,9 +220,11 @@ test "StringInterner" {
             break :durian undefined;
         },
         .apple_string = try interner.addFromStringToken(allocator, ast_nodes.apple_string.location(ast), token_source),
+        .banana_string = try interner.addFromString(allocator, "banana"),
     };
     try std.testing.expectEqual(@as(usize, 0), indeces.apple_ident);
     try std.testing.expectEqual(@as(usize, 1), indeces.banana);
     try std.testing.expectEqual(@as(usize, 2), indeces.cucumber);
     try std.testing.expectEqual(@as(usize, 0), indeces.apple_string);
+    try std.testing.expectEqual(@as(usize, 1), indeces.banana_string);
 }
