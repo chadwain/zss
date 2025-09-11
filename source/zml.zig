@@ -193,7 +193,21 @@ pub fn createDocument(
     };
 
     const ns = struct {
-        fn init(tr: *const Document.NodeList.Slice, tree_index: Document.Node.Index, parent: Document.Node.Index, previous_sibling: Document.Node.Index) void {
+        fn init(
+            tr: *const Document.NodeList.Slice,
+            tree_index: Document.Node.Index,
+            slice_ptr: *const Document.NodeList.Slice,
+            zss_node_id: zss.Node.Id,
+            parent: Document.Node.Index,
+            previous_sibling: Document.Node.Index,
+        ) void {
+            tr.items(.extra)[tree_index] = .{
+                .slice_ptr = slice_ptr,
+                .zss_node = .{
+                    .vtable = Document.Node.vtable,
+                    .id = zss_node_id,
+                },
+            };
             tr.items(.parent)[tree_index] = parent;
             tr.items(.previous_sibling)[tree_index] = previous_sibling;
             tr.items(.next_sibling)[tree_index] = 0;
@@ -219,10 +233,11 @@ pub fn createDocument(
     var stack = Stack(Item){};
     defer stack.deinit(allocator);
 
-    const root_tree_index: Document.Node.Index = @intCast(try tree.addOne(allocator));
-    ns.init(&tree.slice(), root_tree_index, root_tree_index, 0);
+    document.root_element, const root_tree_index, const zss_root_node_id, const root_zml_children_index =
+        try analyzeNode(&document, allocator, .orphan, &tree, env, ast, token_source, root_zml_node_index);
 
-    document.root_element, const root_zml_children_index = try analyzeNode(&document, allocator, .orphan, env, ast, token_source, root_zml_node_index);
+    ns.init(&tree.slice(), root_tree_index, document.slice_ptr, zss_root_node_id, root_tree_index, 0);
+
     if (root_zml_children_index) |index| {
         stack.top = .{
             .element = document.root_element,
@@ -232,7 +247,7 @@ pub fn createDocument(
             .child_sequence = index.children(ast),
         };
     } else {
-        ns.finalize(&tree.slice(), root_tree_index, root_tree_index + 1);
+        ns.finalize(&tree.slice(), root_tree_index, 0);
     }
 
     while (stack.top) |*top| {
@@ -243,12 +258,13 @@ pub fn createDocument(
             continue;
         };
 
-        const tree_index: Document.Node.Index = @intCast(try tree.addOne(allocator));
-        ns.init(&tree.slice(), tree_index, top.parent_tree_index, top.previous_sibling_tree_index);
+        const placement: ElementTree.NodePlacement = .{ .last_child_of = top.element };
+        const element, const tree_index, const zss_node_id, const zml_children_index =
+            try analyzeNode(&document, allocator, placement, &tree, env, ast, token_source, zml_node_index);
+
+        ns.init(&tree.slice(), tree_index, document.slice_ptr, zss_node_id, top.parent_tree_index, top.previous_sibling_tree_index);
         top.previous_sibling_tree_index = tree_index;
 
-        const placement: ElementTree.NodePlacement = .{ .last_child_of = top.element };
-        const element, const zml_children_index = try analyzeNode(&document, allocator, placement, env, ast, token_source, zml_node_index);
         if (zml_children_index) |index| {
             try stack.push(allocator, .{
                 .element = element,
@@ -263,10 +279,9 @@ pub fn createDocument(
         }
     }
 
-    @memset(tree.items(.extra), .{
-        .slice_ptr = document.slice_ptr,
-        .zss_node = .{ .vtable = Document.Node.vtable },
-    });
+    for (tree.items(.extra)) |*extra| {
+        env.setNodePtr(&extra.zss_node);
+    }
 
     document.tree = tree.slice();
     @constCast(document.slice_ptr).* = document.tree;
@@ -277,13 +292,16 @@ fn analyzeNode(
     document: *Document,
     allocator: Allocator,
     placement: ElementTree.NodePlacement,
+    tree: *Document.NodeList,
     env: *Environment,
     ast: Ast,
     token_source: TokenSource,
     zml_node_index: Ast.Index,
-) !struct { Element, ?Ast.Index } {
+) !struct { Element, Document.Node.Index, zss.Node.Id, ?Ast.Index } {
     assert(zml_node_index.tag(ast) == .zml_node);
     const element = try env.element_tree.allocateElement(env.allocator);
+    const tree_index: Document.Node.Index = @intCast(try tree.addOne(allocator));
+    const zss_node_id = try env.createNode(); // TODO: Reserve every node beforehand
 
     var child_sequence = zml_node_index.children(ast);
     while (child_sequence.nextSkipSpaces(ast)) |node_child_index| {
@@ -309,13 +327,13 @@ fn analyzeNode(
             },
             .zml_element => {
                 assert(child_sequence.emptySkipSpaces(ast));
-                const zml_children_index = try analyzeElement(document, allocator, element, placement, env, ast, token_source, node_child_index);
-                return .{ element, zml_children_index };
+                const zml_children_index = try analyzeElement(document, allocator, element, placement, zss_node_id, env, ast, token_source, node_child_index);
+                return .{ element, tree_index, zss_node_id, zml_children_index };
             },
             .zml_text => {
                 assert(child_sequence.emptySkipSpaces(ast));
-                try analyzeText(element, placement, env, ast, token_source, node_child_index);
-                return .{ element, null };
+                try analyzeText(element, placement, zss_node_id, env, ast, token_source, node_child_index);
+                return .{ element, tree_index, zss_node_id, null };
             },
             else => unreachable,
         }
@@ -328,6 +346,7 @@ fn analyzeElement(
     allocator: Allocator,
     element: Element,
     placement: ElementTree.NodePlacement,
+    zss_node_id: zss.Node.Id,
     env: *Environment,
     ast: Ast,
     token_source: TokenSource,
@@ -335,6 +354,7 @@ fn analyzeElement(
 ) !Ast.Index {
     assert(zml_element_index.tag(ast) == .zml_element);
     env.element_tree.initElement(element, .normal, placement);
+    env.setNodeCategory(zss_node_id, .element);
 
     var element_child_sequence = zml_element_index.children(ast);
 
@@ -346,10 +366,12 @@ fn analyzeElement(
         switch (index.tag(ast)) {
             .zml_type => {
                 const type_name = try env.addTypeOrAttributeName(index.location(ast), token_source);
+                env.setNodeType(zss_node_id, .{ .namespace = .none, .name = type_name });
                 env.element_tree.setFqType(element, .{ .namespace = .none, .name = type_name });
             },
             .zml_id => {
                 const id = try env.addIdName(index.location(ast), token_source);
+                try env.registerId(id, zss_node_id);
                 try env.element_tree.registerId(env.allocator, id, element);
             },
             .zml_class => std.debug.panic("TODO: parse zml element: class feature", .{}),
@@ -378,6 +400,7 @@ fn analyzeElement(
 fn analyzeText(
     element: Element,
     placement: ElementTree.NodePlacement,
+    zss_node_id: zss.Node.Id,
     env: *Environment,
     ast: Ast,
     token_source: TokenSource,
@@ -385,8 +408,11 @@ fn analyzeText(
 ) !void {
     assert(zml_text_index.tag(ast) == .zml_text);
     env.element_tree.initElement(element, .text, placement);
+    env.setNodeCategory(zss_node_id, .text);
+
     const text_id = try env.addTextFromStringToken(zml_text_index.location(ast), token_source);
     env.element_tree.setText(element, text_id);
+    env.setNodeText(zss_node_id, text_id);
 }
 
 fn analyzeInlineStyleBlock(

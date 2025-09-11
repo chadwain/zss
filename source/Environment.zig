@@ -5,9 +5,10 @@ const cascade = zss.cascade;
 const syntax = zss.syntax;
 const Ast = syntax.Ast;
 const Declarations = zss.Declarations;
+const IdentifierSet = syntax.IdentifierSet;
+const Node = zss.Node;
 const TokenSource = syntax.TokenSource;
 const Stylesheet = zss.Stylesheet;
-const IdentifierSet = syntax.IdentifierSet;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -24,6 +25,8 @@ attribute_values: zss.StringInterner,
 namespaces: Namespaces,
 decls: Declarations,
 cascade_list: cascade.List,
+nodes: Nodes,
+ids_to_nodes: std.AutoHashMapUnmanaged(IdId, Node.Id),
 element_tree: zss.ElementTree,
 root_element: zss.ElementTree.Element,
 next_url_id: ?UrlId.Int,
@@ -40,6 +43,8 @@ pub fn init(allocator: Allocator) Environment {
         .namespaces = .{},
         .decls = .{},
         .cascade_list = .{},
+        .nodes = .{},
+        .ids_to_nodes = .empty,
         .element_tree = .init,
         .root_element = zss.ElementTree.Element.null_element,
         .next_url_id = 0,
@@ -54,6 +59,8 @@ pub fn deinit(env: *Environment) void {
     env.namespaces.deinit(env.allocator);
     env.decls.deinit(env.allocator);
     env.cascade_list.deinit(env.allocator);
+    env.nodes.deinit(env.allocator);
+    env.ids_to_nodes.deinit(env.allocator);
     env.element_tree.deinit(env.allocator);
     env.urls_to_images.deinit(env.allocator);
 }
@@ -187,12 +194,12 @@ pub const Texts = struct {
 pub const TextId = enum(u32) {
     _,
 
-    pub const empty: TextId = @enumFromInt(0);
+    pub const empty_string: TextId = @enumFromInt(0);
 };
 
 pub fn addTextFromStringToken(env: *Environment, string: TokenSource.Location, source: TokenSource) !TextId {
     var iterator = source.stringTokenIterator(string);
-    if (iterator.next(source) == null) return .empty;
+    if (iterator.next(source) == null) return .empty_string;
     const id = std.math.cast(std.meta.Tag(TextId), try std.math.add(usize, 1, env.texts.list.items.len)) orelse return error.OutOfTexts;
 
     try env.texts.list.ensureUnusedCapacity(env.allocator, 1);
@@ -235,4 +242,62 @@ pub fn createUrl(env: *Environment) !UrlId {
 
 pub fn linkUrlToImage(env: *Environment, url: UrlId, image: zss.Images.Handle) !void {
     try env.urls_to_images.put(env.allocator, url, image);
+}
+
+pub const Nodes = struct {
+    list: std.MultiArrayList(struct {
+        ptr: *const Node,
+        category: Node.Category,
+        type: Node.Type,
+        cascaded_values: zss.CascadedValues,
+        text: TextId,
+    }) = .empty,
+    /// Only used to store cascaded values.
+    arena: std.heap.ArenaAllocator.State = .{},
+
+    pub fn deinit(nodes: *Nodes, allocator: Allocator) void {
+        nodes.list.deinit(allocator);
+        nodes.arena.promote(allocator).deinit();
+    }
+};
+
+pub fn createNode(env: *Environment) !Node.Id {
+    const id = std.math.cast(std.meta.Tag(Node.Id), env.nodes.list.len) orelse return error.OutOfNodes;
+    try env.nodes.list.append(env.allocator, .{
+        .ptr = undefined,
+        .category = undefined,
+        .type = .{ .namespace = .none, .name = .anonymous },
+        .cascaded_values = .{},
+        .text = .empty_string,
+    });
+    return @enumFromInt(id);
+}
+
+pub fn setNodePtr(env: *const Environment, node: *const Node) void {
+    env.nodes.list.items(.ptr)[@intFromEnum(node.id)] = node;
+}
+
+pub fn setNodeCategory(env: *const Environment, node: Node.Id, category: Node.Category) void {
+    env.nodes.list.items(.category)[@intFromEnum(node)] = category;
+}
+
+pub fn setNodeType(env: *const Environment, node: Node.Id, @"type": Node.Type) void {
+    env.nodes.list.items(.type)[@intFromEnum(node)] = @"type";
+}
+
+pub fn setNodeText(env: *const Environment, node: Node.Id, text: TextId) void {
+    env.nodes.list.items(.text)[@intFromEnum(node)] = text;
+}
+
+/// Returns `error.IdAlreadyExists` if `id` was already registered.
+pub fn registerId(env: *Environment, id: IdId, node: Node.Id) !void {
+    const gop = try env.ids_to_nodes.getOrPut(env.allocator, id);
+    // TODO: If `gop.found_existing == true`, the existing element may have been destroyed, so consider allowing the Id to be reused.
+    if (gop.found_existing and gop.value_ptr.* != node) return error.IdAlreadyExists;
+    gop.value_ptr.* = node;
+}
+
+pub fn getElementById(env: *const Environment, id: IdId) ?Node.id {
+    // TODO: Even if an element was returned, it could have been destroyed.
+    return env.ids_to_nodes.get(id);
 }

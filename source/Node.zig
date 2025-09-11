@@ -1,9 +1,17 @@
+//! Provides an interface that can represent a node in any document tree structure.
+
 const Node = @This();
+const zss = @import("zss.zig");
 
 vtable: *const VTable,
+id: Id,
+
+pub const Id = enum(u32) { _ };
 
 pub const VTable = struct {
-    edge: *const fn (node: *Node, edge: Edge) ?*Node,
+    /// Return the node that has the relationship to `node` specified by `which`, or
+    /// `null` if there is no such node.
+    edge: *const fn (node: *Node, which: Edge) ?*Node,
 };
 
 pub const Edge = enum {
@@ -12,6 +20,13 @@ pub const Edge = enum {
     previous_sibling,
     first_child,
     last_child,
+};
+
+pub const Category = enum { element, text };
+
+pub const Type = packed struct {
+    namespace: zss.Environment.Namespaces.Id,
+    name: zss.Environment.NameId,
 };
 
 pub fn parent(node: *Node) ?*Node {

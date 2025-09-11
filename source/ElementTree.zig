@@ -181,7 +181,7 @@ pub const NodePlacement = union(enum) {
     last_child_of: Element,
 };
 
-/// Initializes an element and places it at the specificied spot in the tree.
+/// Initializes an element and places it at the specified spot in the tree.
 /// If the payload of `placement` is an Element, it is a prerequisite that that element must have already been initialized.
 pub fn initElement(tree: *const ElementTree, element: Element, initial_category: Category, placement: NodePlacement) void {
     tree.assertGeneration(element);
@@ -237,7 +237,7 @@ pub fn initElement(tree: *const ElementTree, element: Element, initial_category:
     }
 
     node.fq_type = .{ .namespace = .none, .name = .anonymous };
-    node.text = .empty;
+    node.text = .empty_string;
     node.cascaded_values = .{};
 
     inline for (Node.fields) |field| {
