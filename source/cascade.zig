@@ -5,8 +5,6 @@ const Allocator = std.mem.Allocator;
 const zss = @import("zss.zig");
 const selectors = zss.selectors;
 const Block = zss.Declarations.Block;
-const ElementTree = zss.ElementTree;
-const Element = ElementTree.Element;
 const Environment = zss.Environment;
 const Importance = zss.Declarations.Importance;
 
@@ -47,11 +45,11 @@ pub const Source = struct {
     /// Pairs of elements and important declaration blocks.
     /// These declaration blocks must be the results of parsing [style attributes](https://www.w3.org/TR/css-style-attr/),
     /// or some equivalent mechanism by which the document applies style information directly to a specific element.
-    style_attrs_important: std.AutoHashMapUnmanaged(Element, Block) = .empty,
+    style_attrs_important: std.AutoHashMapUnmanaged(zss.Node.Id, Block) = .empty,
     /// Pairs of elements and normal declaration blocks.
     /// These declaration blocks must be the results of parsing [style attributes](https://www.w3.org/TR/css-style-attr/),
     /// or some equivalent mechanism by which the document applies style information directly to a specific element.
-    style_attrs_normal: std.AutoHashMapUnmanaged(Element, Block) = .empty,
+    style_attrs_normal: std.AutoHashMapUnmanaged(zss.Node.Id, Block) = .empty,
     /// Pairs of complex selectors and important declaration blocks.
     /// This list must be sorted such that selectors with higher cascade order appear earlier.
     selectors_important: std.MultiArrayList(SelectorBlock) = .empty,
@@ -91,32 +89,32 @@ pub fn run(env: *Environment) !void {
     };
     for (order) |item| {
         const origin, const importance = item;
-        try traverseList(&env.cascade_list, env, &block_lists, &stack, &temp_arena, origin, importance);
+        try traverseList(env, &block_lists, &stack, &temp_arena, origin, importance);
     }
 
-    var element_tree_arena = env.element_tree.arena.promote(env.allocator);
-    defer env.element_tree.arena = element_tree_arena.state;
+    var cascaded_values_arena = env.nodes.arena.promote(env.allocator);
+    defer env.nodes.arena = cascaded_values_arena.state;
     var element_iterator = block_lists.map.iterator();
     while (element_iterator.next()) |entry| {
-        const element = entry.key_ptr.*;
-        const cascaded_values = env.element_tree.cascadedValuesPtr(element);
+        const node = entry.key_ptr.*;
+        const cascaded_values = env.nodes.ptr(.cascaded_values, node);
         for (entry.value_ptr.*.items) |item| {
-            try cascaded_values.applyDeclBlock(&element_tree_arena, &env.decls, item.block, item.importance);
+            try cascaded_values.applyDeclBlock(&cascaded_values_arena, &env.decls, item.block, item.importance);
         }
     }
 }
 
 const DeclBlockLists = struct {
-    map: std.AutoArrayHashMapUnmanaged(Element, std.ArrayListUnmanaged(BlockImportance)) = .empty,
+    map: std.AutoArrayHashMapUnmanaged(zss.Node.Id, std.ArrayListUnmanaged(BlockImportance)) = .empty,
 
     const BlockImportance = struct {
         block: Block,
         importance: Importance,
     };
 
-    fn insert(lists: *DeclBlockLists, arena: *std.heap.ArenaAllocator, element: Element, block: Block, importance: Importance) !void {
+    fn insert(lists: *DeclBlockLists, arena: *std.heap.ArenaAllocator, node: zss.Node.Id, block: Block, importance: Importance) !void {
         const allocator = arena.allocator();
-        const gop = try lists.map.getOrPut(allocator, element);
+        const gop = try lists.map.getOrPut(allocator, node);
         if (!gop.found_existing) {
             gop.value_ptr.* = .{};
         }
@@ -125,7 +123,6 @@ const DeclBlockLists = struct {
 };
 
 fn traverseList(
-    list: *const List,
     env: *const Environment,
     block_lists: *DeclBlockLists,
     stack: *zss.Stack([]const *const Node),
@@ -134,9 +131,9 @@ fn traverseList(
     importance: Importance,
 ) !void {
     const node_list = switch (origin) {
-        .user => list.user,
-        .author => list.author,
-        .user_agent => list.user_agent,
+        .user => env.cascade_list.user,
+        .author => env.cascade_list.author,
+        .user_agent => env.cascade_list.user_agent,
     };
     const allocator = arena.allocator();
 
@@ -183,23 +180,22 @@ fn applySource(
     const allocator = arena.allocator();
 
     for (selector_list.items(.selector), selector_list.items(.block)) |selector, block| {
-        var stack = zss.Stack(Element).init(env.root_element);
+        var stack = zss.Stack(?*const zss.Node){};
+        if (env.root_node) |root_node| stack.top = env.nodes.get(.ptr, root_node);
         while (stack.top) |*top| {
-            if (top.eqlNull()) {
+            const node = top.* orelse {
                 _ = stack.pop();
                 continue;
-            }
-            const element = top.*;
-            top.* = env.element_tree.nextSibling(element);
-            switch (env.element_tree.category(element)) {
+            };
+            top.* = node.nextSibling();
+            switch (env.nodes.get(.category, node.id)) {
                 .text => continue,
-                .normal => {},
+                .element => {},
             }
-            const first_child = env.element_tree.firstChild(element);
-            if (!first_child.eqlNull()) try stack.push(allocator, first_child);
+            if (node.firstChild()) |first_child| try stack.push(allocator, first_child);
 
-            if (zss.selectors.matchElement(source.selector_data.items, selector, env, element)) {
-                try block_lists.insert(arena, element, block, importance);
+            if (zss.selectors.matchElement(source.selector_data.items, selector, env, node.id)) {
+                try block_lists.insert(arena, node.id, block, importance);
             }
         }
     }

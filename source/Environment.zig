@@ -25,10 +25,9 @@ attribute_values: zss.StringInterner,
 namespaces: Namespaces,
 decls: Declarations,
 cascade_list: cascade.List,
+root_node: ?Node.Id,
 nodes: Nodes,
 ids_to_nodes: std.AutoHashMapUnmanaged(IdId, Node.Id),
-element_tree: zss.ElementTree,
-root_element: zss.ElementTree.Element,
 next_url_id: ?UrlId.Int,
 urls_to_images: std.AutoArrayHashMapUnmanaged(UrlId, zss.Images.Handle),
 
@@ -43,10 +42,9 @@ pub fn init(allocator: Allocator) Environment {
         .namespaces = .{},
         .decls = .{},
         .cascade_list = .{},
+        .root_node = null,
         .nodes = .{},
         .ids_to_nodes = .empty,
-        .element_tree = .init,
-        .root_element = zss.ElementTree.Element.null_element,
         .next_url_id = 0,
         .urls_to_images = .empty,
     };
@@ -61,7 +59,6 @@ pub fn deinit(env: *Environment) void {
     env.cascade_list.deinit(env.allocator);
     env.nodes.deinit(env.allocator);
     env.ids_to_nodes.deinit(env.allocator);
-    env.element_tree.deinit(env.allocator);
     env.urls_to_images.deinit(env.allocator);
 }
 
@@ -245,19 +242,33 @@ pub fn linkUrlToImage(env: *Environment, url: UrlId, image: zss.Images.Handle) !
 }
 
 pub const Nodes = struct {
-    list: std.MultiArrayList(struct {
+    list: std.MultiArrayList(ListItem) = .empty,
+    /// Only used to store cascaded values.
+    arena: std.heap.ArenaAllocator.State = .{},
+
+    pub const ListItem = struct {
         ptr: *const Node,
         category: Node.Category,
         type: Node.Type,
         cascaded_values: zss.CascadedValues,
         text: TextId,
-    }) = .empty,
-    /// Only used to store cascaded values.
-    arena: std.heap.ArenaAllocator.State = .{},
+    };
 
     pub fn deinit(nodes: *Nodes, allocator: Allocator) void {
         nodes.list.deinit(allocator);
         nodes.arena.promote(allocator).deinit();
+    }
+
+    pub fn set(nodes: *const Nodes, comptime field: std.meta.FieldEnum(ListItem), node: Node.Id, value: @FieldType(ListItem, @tagName(field))) void {
+        nodes.list.items(field)[@intFromEnum(node)] = value;
+    }
+
+    pub fn get(nodes: *const Nodes, comptime field: std.meta.FieldEnum(ListItem), node: Node.Id) @FieldType(ListItem, @tagName(field)) {
+        return nodes.list.items(field)[@intFromEnum(node)];
+    }
+
+    pub fn ptr(nodes: *const Nodes, comptime field: std.meta.FieldEnum(ListItem), node: Node.Id) *@FieldType(ListItem, @tagName(field)) {
+        return &nodes.list.items(field)[@intFromEnum(node)];
     }
 };
 
@@ -273,22 +284,6 @@ pub fn createNode(env: *Environment) !Node.Id {
     return @enumFromInt(id);
 }
 
-pub fn setNodePtr(env: *const Environment, node: *const Node) void {
-    env.nodes.list.items(.ptr)[@intFromEnum(node.id)] = node;
-}
-
-pub fn setNodeCategory(env: *const Environment, node: Node.Id, category: Node.Category) void {
-    env.nodes.list.items(.category)[@intFromEnum(node)] = category;
-}
-
-pub fn setNodeType(env: *const Environment, node: Node.Id, @"type": Node.Type) void {
-    env.nodes.list.items(.type)[@intFromEnum(node)] = @"type";
-}
-
-pub fn setNodeText(env: *const Environment, node: Node.Id, text: TextId) void {
-    env.nodes.list.items(.text)[@intFromEnum(node)] = text;
-}
-
 /// Returns `error.IdAlreadyExists` if `id` was already registered.
 pub fn registerId(env: *Environment, id: IdId, node: Node.Id) !void {
     const gop = try env.ids_to_nodes.getOrPut(env.allocator, id);
@@ -297,7 +292,7 @@ pub fn registerId(env: *Environment, id: IdId, node: Node.Id) !void {
     gop.value_ptr.* = node;
 }
 
-pub fn getElementById(env: *const Environment, id: IdId) ?Node.id {
+pub fn getElementById(env: *const Environment, id: IdId) ?Node.Id {
     // TODO: Even if an element was returned, it could have been destroyed.
     return env.ids_to_nodes.get(id);
 }

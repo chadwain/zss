@@ -206,7 +206,7 @@ fn parseCompoundSelector(parser: *Parser, code_list: CodeList) !?void {
 
 fn parseTypeSelector(parser: *Parser, code_list: CodeList) !?void {
     const qn = parseQualifiedName(parser) orelse return null;
-    const type_selector: selectors.QualifiedName = .{
+    const type_selector: zss.Node.Type = .{
         .namespace = switch (qn.namespace) {
             .identifier => |identifier| resolveNamespace(parser, identifier),
             .none => .none,
@@ -375,7 +375,7 @@ fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast
     // Parse the attribute namespace and name
     _ = parser.skipSpaces();
     const qn = parseQualifiedName(parser) orelse return parser.fail();
-    const attribute_selector: selectors.QualifiedName = .{
+    const attribute_selector: zss.Node.Type = .{
         .namespace = switch (qn.namespace) {
             .identifier => |identifier| resolveNamespace(parser, identifier),
             .none => .none,
