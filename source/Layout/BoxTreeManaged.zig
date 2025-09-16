@@ -2,7 +2,6 @@ const BoxTreeManaged = @This();
 
 const std = @import("std");
 const zss = @import("../zss.zig");
-const Element = zss.ElementTree.Element;
 
 const BoxTree = zss.BoxTree;
 const BackgroundImage = BoxTree.BackgroundImage;
@@ -14,8 +13,8 @@ const Subtree = BoxTree.Subtree;
 
 ptr: *BoxTree,
 
-pub fn setGeneratedBox(box_tree: BoxTreeManaged, element: Element, generated_box: GeneratedBox) !void {
-    try box_tree.ptr.element_to_generated_box.putNoClobber(box_tree.ptr.allocator, element, generated_box);
+pub fn setGeneratedBox(box_tree: BoxTreeManaged, node: zss.Environment.NodeId, generated_box: GeneratedBox) !void {
+    try box_tree.ptr.node_to_generated_box.putNoClobber(box_tree.ptr.allocator, node, generated_box);
 }
 
 pub fn newSubtree(box_tree: BoxTreeManaged) !*Subtree {

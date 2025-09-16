@@ -1,7 +1,7 @@
 const zss = @import("../zss.zig");
 const BoxTree = zss.BoxTree;
-const Element = zss.ElementTree.Element;
 const Layout = zss.Layout;
+const NodeId = zss.Environment.NodeId;
 const SctBuilder = Layout.StackingContextTreeBuilder;
 const StyleComputer = Layout.StyleComputer;
 
@@ -18,16 +18,16 @@ pub fn endMode(layout: *Layout) void {
     layout.popSubtree();
 }
 
-pub fn blockElement(layout: *Layout, element: Element, inner_block: BoxTree.BoxStyle.InnerBlock, position: BoxTree.BoxStyle.Position) !void {
+pub fn blockElement(layout: *Layout, element: NodeId, inner_block: BoxTree.BoxStyle.InnerBlock, position: BoxTree.BoxStyle.Position) !void {
     const sizes = flow.solveAllSizes(&layout.computer, position, .{ .Normal = layout.viewport.w }, layout.viewport.h);
     const stacking_context = rootBlockSolveStackingContext(&layout.computer);
-    layout.computer.commitElement(.box_gen);
+    layout.computer.commitNode(.box_gen);
 
     switch (inner_block) {
         .flow => {
             const ref = try layout.pushFlowBlock(sizes, .Normal, stacking_context, element);
             try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
-            try layout.pushElement();
+            try layout.pushNode();
             return layout.pushFlowMode(.Root);
         },
     }
@@ -39,7 +39,7 @@ pub fn inlineElement(layout: *Layout) !void {
 
 pub fn afterFlowMode(layout: *Layout) void {
     layout.popFlowBlock(.Normal);
-    layout.popElement();
+    layout.popNode();
 }
 
 pub fn afterStfMode() noreturn {

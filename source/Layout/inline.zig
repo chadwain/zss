@@ -7,10 +7,9 @@ const zss = @import("../zss.zig");
 const BlockComputedSizes = zss.Layout.BlockComputedSizes;
 const BlockUsedSizes = zss.Layout.BlockUsedSizes;
 const BoxTreeManaged = Layout.BoxTreeManaged;
-const ElementTree = zss.ElementTree;
-const Element = ElementTree.Element;
 const Fonts = zss.Fonts;
 const Layout = zss.Layout;
+const NodeId = zss.Environment.NodeId;
 const SctBuilder = Layout.StackingContextTreeBuilder;
 const Stack = zss.Stack;
 const StyleComputer = Layout.StyleComputer;
@@ -139,7 +138,7 @@ pub const Context = struct {
     }
 };
 
-pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.InnerInline, position: BoxStyle.Position) !void {
+pub fn inlineElement(layout: *Layout, node: NodeId, inner_inline: BoxStyle.InnerInline, position: BoxStyle.Position) !void {
     const ctx = &layout.inline_context;
     const ifc = ctx.ifc.top.?;
 
@@ -147,7 +146,7 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
     switch (inner_inline) {
         .text => {
             const generated_box = GeneratedBox{ .text = ifc.ptr.id };
-            try layout.box_tree.setGeneratedBox(element, generated_box);
+            try layout.box_tree.setGeneratedBox(node, generated_box);
 
             // TODO: Do proper font matching.
             const font = layout.computer.getTextFont(.box_gen);
@@ -161,7 +160,7 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
                 try ifcAddText(layout.box_tree, ifc.ptr, text, hb_font);
             }
 
-            layout.advanceElement();
+            layout.advanceNode();
         },
         .@"inline" => {
             { // TODO: Grabbing useless data to satisfy inheritance...
@@ -174,25 +173,25 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
                 layout.computer.setComputedValue(.box_gen, .content_height, data.content_height);
                 layout.computer.setComputedValue(.box_gen, .z_index, data.z_index);
 
-                layout.computer.commitElement(.box_gen);
+                layout.computer.commitNode(.box_gen);
             }
 
-            const inline_box_index = try pushInlineBox(layout, element);
+            const inline_box_index = try pushInlineBox(layout, node);
             const generated_box = GeneratedBox{ .inline_box = .{ .ifc_id = ifc.ptr.id, .index = inline_box_index } };
-            try layout.box_tree.setGeneratedBox(element, generated_box);
-            try layout.pushElement();
+            try layout.box_tree.setGeneratedBox(node, generated_box);
+            try layout.pushNode();
         },
         .block => |block_inner| switch (block_inner) {
             .flow => {
                 const sizes = inlineBlockSolveSizes(&layout.computer, position, ifc.containing_block_size);
                 const stacking_context = inlineBlockSolveStackingContext(&layout.computer, position);
-                layout.computer.commitElement(.box_gen);
+                layout.computer.commitNode(.box_gen);
 
                 if (sizes.get(.inline_size)) |_| {
-                    const ref = try layout.pushFlowBlock(sizes, .Normal, stacking_context, element);
-                    try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
+                    const ref = try layout.pushFlowBlock(sizes, .Normal, stacking_context, node);
+                    try layout.box_tree.setGeneratedBox(node, .{ .block_ref = ref });
                     try ifcAddInlineBlock(layout.box_tree, ifc.ptr, ref.index);
-                    try layout.pushElement();
+                    try layout.pushNode();
                     return layout.pushFlowMode(.NonRoot);
                 } else {
                     const available_width_unclamped = ifc.containing_block_size.width -
@@ -201,10 +200,10 @@ pub fn inlineElement(layout: *Layout, element: Element, inner_inline: BoxStyle.I
                             sizes.padding_inline_start + sizes.padding_inline_end);
                     const available_width = solve.clampSize(available_width_unclamped, sizes.min_inline_size, sizes.max_inline_size);
 
-                    const ref = try layout.pushFlowBlock(sizes, .{ .ShrinkToFit = available_width }, stacking_context, element);
-                    try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
+                    const ref = try layout.pushFlowBlock(sizes, .{ .ShrinkToFit = available_width }, stacking_context, node);
+                    try layout.box_tree.setGeneratedBox(node, .{ .block_ref = ref });
                     try ifcAddInlineBlock(layout.box_tree, ifc.ptr, ref.index);
-                    try layout.pushElement();
+                    try layout.pushNode();
                     return layout.pushStfMode(.flow, sizes);
                 }
             },
@@ -225,13 +224,13 @@ pub fn nullElement(layout: *Layout) !void {
     const ifc = ctx.ifc.top.?;
     if (ifc.depth == 1) return layout.popInlineMode();
     const skip = try popInlineBox(layout);
-    layout.popElement();
+    layout.popNode();
     ctx.accumulateSkip(skip);
 }
 
 pub fn afterFlowMode(layout: *Layout) void {
     layout.popFlowBlock(.Normal);
-    layout.popElement();
+    layout.popNode();
 }
 
 pub fn afterInlineMode() noreturn {
@@ -240,7 +239,7 @@ pub fn afterInlineMode() noreturn {
 
 pub fn afterStfMode(layout: *Layout, layout_result: stf.Result) void {
     layout.popFlowBlock(.{ .ShrinkToFit = layout_result.auto_width });
-    layout.popElement();
+    layout.popNode();
 }
 
 fn pushRootInlineBox(layout: *Layout) !void {
@@ -252,11 +251,11 @@ fn pushRootInlineBox(layout: *Layout) !void {
     try ctx.pushInlineBox(layout.allocator, index);
 }
 
-fn pushInlineBox(layout: *Layout, element: Element) !Ifc.Size {
+fn pushInlineBox(layout: *Layout, node: NodeId) !Ifc.Size {
     const ctx = &layout.inline_context;
     const ifc = &ctx.ifc.top.?;
     const index = try layout.box_tree.appendInlineBox(ifc.ptr);
-    setDataInlineBox(&layout.computer, ifc.ptr.slice(), index, element, ifc.percentage_base_unit);
+    setDataInlineBox(&layout.computer, ifc.ptr.slice(), index, node, ifc.percentage_base_unit);
     try ifcAddBoxStart(layout.box_tree, ifc.ptr, index);
     try ctx.pushInlineBox(layout.allocator, index);
     return index;
@@ -358,7 +357,7 @@ fn ifcAddTextRun(box_tree: BoxTreeManaged, ifc: *Ifc, buffer: *hb.hb_buffer_t, f
 
 fn setDataRootInlineBox(ifc: *const Ifc, inline_box_index: Ifc.Size) void {
     const ifc_slice = ifc.slice();
-    ifc_slice.items(.element)[inline_box_index] = .null_element;
+    ifc_slice.items(.node)[inline_box_index] = null;
     ifc_slice.items(.inline_start)[inline_box_index] = .{};
     ifc_slice.items(.inline_end)[inline_box_index] = .{};
     ifc_slice.items(.block_start)[inline_box_index] = .{};
@@ -366,7 +365,7 @@ fn setDataRootInlineBox(ifc: *const Ifc, inline_box_index: Ifc.Size) void {
     ifc_slice.items(.margins)[inline_box_index] = .{};
 }
 
-fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: Ifc.Size, element: Element, percentage_base_unit: Unit) void {
+fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: Ifc.Size, node: NodeId, percentage_base_unit: Unit) void {
     // TODO: Also use the logical properties ('padding-inline-start', 'border-block-end', etc.).
     const specified = .{
         .horizontal_edges = computer.getSpecifiedValue(.box_gen, .horizontal_edges),
@@ -529,7 +528,7 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
     computer.setComputedValue(.box_gen, .vertical_edges, computed.vertical_edges);
     computer.setComputedValue(.box_gen, .border_styles, specified.border_styles);
 
-    ifc.items(.element)[inline_box_index] = element;
+    ifc.items(.node)[inline_box_index] = node;
     ifc.items(.inline_start)[inline_box_index] = .{ .border = used.border_inline_start, .padding = used.padding_inline_start };
     ifc.items(.inline_end)[inline_box_index] = .{ .border = used.border_inline_end, .padding = used.padding_inline_end };
     ifc.items(.block_start)[inline_box_index] = .{ .border = used.border_block_start, .padding = used.padding_block_start };
