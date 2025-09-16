@@ -6,7 +6,8 @@ const Environment = zss.Environment;
 const IdId = Environment.IdId;
 const NamespaceId = Environment.Namespaces.Id;
 const NameId = Environment.NameId;
-const Node = zss.Node;
+const NodeId = Environment.NodeId;
+const NodeType = Environment.NodeType;
 const Stylesheet = zss.Stylesheet;
 const TokenSource = zss.syntax.TokenSource;
 
@@ -28,10 +29,10 @@ pub const Code = union {
     /// Found after every compound selector.
     trailing: Trailing,
     simple_selector_tag: SimpleSelectorTag,
-    type_selector: Node.Type,
+    type_selector: NodeType,
     id_selector: IdId,
     class_selector: ClassId,
-    attribute_selector: Node.Type,
+    attribute_selector: NodeType,
     attribute_selector_value: AttributeValueId,
     pseudo_class_selector: PseudoClass,
     pseudo_element_selector: PseudoElement,
@@ -165,15 +166,15 @@ pub fn matchElement(
     code: []const Code,
     complex_selector_index: Size,
     env: *const Environment,
-    match_candidate: Node.Id,
+    match_candidate: NodeId,
 ) bool {
-    switch (env.nodes.get(.category, match_candidate)) {
+    switch (env.getNodeProperty(.category, match_candidate)) {
         .element => {},
         .text => unreachable,
     }
 
     const last_trailing = code[complex_selector_index].next_complex_selector - 1;
-    return matchComplexSelector(code, complex_selector_index + 1, last_trailing, env, env.nodes.get(.ptr, match_candidate));
+    return matchComplexSelector(code, complex_selector_index + 1, last_trailing, env, match_candidate);
 }
 
 fn matchComplexSelector(
@@ -181,57 +182,57 @@ fn matchComplexSelector(
     first_compound: Size,
     last_trailing: Size,
     env: *const Environment,
-    match_candidate: *const Node,
+    match_candidate: NodeId,
 ) bool {
     var trailing_index = last_trailing;
     var trailing = codes[trailing_index].trailing;
-    var element: ?*const Node = match_candidate;
-    if (!matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element.?.id)) return false;
+    var element: ?NodeId = match_candidate;
+    if (!matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element.?)) return false;
     compound_loop: while (trailing.compound_selector_start != first_compound) {
         trailing_index = trailing.compound_selector_start - 1;
         trailing = codes[trailing_index].trailing;
         switch (trailing.combinator) {
             .descendant => {
-                element = element.?.parent();
-                while (element) |e| : (element = e.parent()) {
-                    switch (env.nodes.get(.category, e.id)) {
+                element = element.?.parent(env);
+                while (element) |e| : (element = e.parent(env)) {
+                    switch (env.getNodeProperty(.category, e)) {
                         .element => {},
                         .text => unreachable,
                     }
-                    if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, e.id)) continue :compound_loop;
+                    if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, e)) continue :compound_loop;
                 } else return false;
             },
             .child => {
-                element = element.?.parent();
-                while (element) |e| : (element = e.parent()) {
-                    switch (env.nodes.get(.category, e.id)) {
+                element = element.?.parent(env);
+                while (element) |e| : (element = e.parent(env)) {
+                    switch (env.getNodeProperty(.category, e)) {
                         .element => break,
                         .text => unreachable,
                     }
                 } else return false;
-                if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element.?.id)) continue :compound_loop;
+                if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element.?)) continue :compound_loop;
                 return false;
             },
             .subsequent_sibling => {
-                element = element.?.previousSibling();
-                while (element) |e| : (element = e.previousSibling()) {
-                    switch (env.nodes.get(.category, e.id)) {
+                element = element.?.previousSibling(env);
+                while (element) |e| : (element = e.previousSibling(env)) {
+                    switch (env.getNodeProperty(.category, e)) {
                         .element => {
-                            if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, e.id)) continue :compound_loop;
+                            if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, e)) continue :compound_loop;
                         },
                         .text => {},
                     }
                 }
             },
             .next_sibling => {
-                element = element.?.previousSibling();
-                while (element) |e| : (element = e.previousSibling()) {
-                    switch (env.nodes.get(.category, e.id)) {
+                element = element.?.previousSibling(env);
+                while (element) |e| : (element = e.previousSibling(env)) {
+                    switch (env.getNodeProperty(.category, e)) {
                         .element => break,
                         .text => {},
                     }
                 } else return false;
-                if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element.?.id)) continue :compound_loop;
+                if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element.?)) continue :compound_loop;
                 return false;
             },
             .column => panic("TODO: Unsupported selector combinator: {s}\n", .{@tagName(trailing.combinator)}),
@@ -245,7 +246,7 @@ fn matchCompoundSelector(
     start: Size,
     end: Size,
     env: *const Environment,
-    element: Node.Id,
+    element: NodeId,
 ) bool {
     var index = start;
     while (index < end) : (index += 1) {
@@ -253,7 +254,7 @@ fn matchCompoundSelector(
             .type => {
                 index += 1;
                 const selector_type = codes[index].type_selector;
-                const element_type = env.nodes.get(.type, element);
+                const element_type = env.getNodeProperty(.type, element);
                 if (!matchTypeSelector(selector_type, element_type)) return false;
             },
             .id => {
@@ -287,7 +288,7 @@ fn matchCompoundSelector(
     return true;
 }
 
-fn matchTypeSelector(selector_type: Node.Type, element_type: Node.Type) bool {
+fn matchTypeSelector(selector_type: NodeType, element_type: NodeType) bool {
     assert(element_type.namespace != .any);
     assert(element_type.name != .any);
 
@@ -309,10 +310,10 @@ test "matching type selectors" {
     const some_namespace = @as(NamespaceId, @enumFromInt(24));
     const some_name = @as(NameId, @enumFromInt(42));
 
-    const e1 = Node.Type{ .namespace = .none, .name = .anonymous };
-    const e2 = Node.Type{ .namespace = .none, .name = some_name };
-    const e3 = Node.Type{ .namespace = some_namespace, .name = .anonymous };
-    const e4 = Node.Type{ .namespace = some_namespace, .name = some_name };
+    const e1 = NodeType{ .namespace = .none, .name = .anonymous };
+    const e2 = NodeType{ .namespace = .none, .name = some_name };
+    const e3 = NodeType{ .namespace = some_namespace, .name = .anonymous };
+    const e4 = NodeType{ .namespace = some_namespace, .name = some_name };
 
     const expect = std.testing.expect;
     const matches = matchTypeSelector;

@@ -6,7 +6,6 @@ const syntax = zss.syntax;
 const Ast = syntax.Ast;
 const Declarations = zss.Declarations;
 const IdentifierSet = syntax.IdentifierSet;
-const Node = zss.Node;
 const TokenSource = syntax.TokenSource;
 const Stylesheet = zss.Stylesheet;
 
@@ -23,28 +22,39 @@ id_or_class_names: IdentifierSet,
 texts: Texts,
 attribute_values: zss.StringInterner,
 namespaces: Namespaces,
+
 decls: Declarations,
 cascade_list: cascade.List,
-root_node: ?Node.Id,
-nodes: Nodes,
-ids_to_nodes: std.AutoHashMapUnmanaged(IdId, Node.Id),
+
+tree_interface: TreeInterface,
+next_document_id: ?std.meta.Tag(DocumentId),
+root_node: ?NodeId,
+node_properties: NodeProperties,
+ids_to_nodes: std.AutoHashMapUnmanaged(IdId, NodeId),
+
 next_url_id: ?UrlId.Int,
 urls_to_images: std.AutoArrayHashMapUnmanaged(UrlId, zss.Images.Handle),
 
 pub fn init(allocator: Allocator) Environment {
     return Environment{
         .allocator = allocator,
+
         .type_or_attribute_names = .{ .max_size = NameId.max_value, .case = .insensitive },
         // TODO: Case sensitivity depends on whether quirks mode is on
         .id_or_class_names = .{ .max_size = IdId.max_value, .case = .sensitive },
         .texts = .{},
         .attribute_values = .init(.{ .max_size = AttributeValueId.num_unique_values }),
         .namespaces = .{},
+
         .decls = .{},
         .cascade_list = .{},
+
+        .tree_interface = .default,
+        .next_document_id = 0,
         .root_node = null,
-        .nodes = .{},
+        .node_properties = .{},
         .ids_to_nodes = .empty,
+
         .next_url_id = 0,
         .urls_to_images = .empty,
     };
@@ -57,7 +67,7 @@ pub fn deinit(env: *Environment) void {
     env.namespaces.deinit(env.allocator);
     env.decls.deinit(env.allocator);
     env.cascade_list.deinit(env.allocator);
-    env.nodes.deinit(env.allocator);
+    env.node_properties.deinit(env.allocator);
     env.ids_to_nodes.deinit(env.allocator);
     env.urls_to_images.deinit(env.allocator);
 }
@@ -241,58 +251,140 @@ pub fn linkUrlToImage(env: *Environment, url: UrlId, image: zss.Images.Handle) !
     try env.urls_to_images.put(env.allocator, url, image);
 }
 
-pub const Nodes = struct {
-    list: std.MultiArrayList(ListItem) = .empty,
-    /// Only used to store cascaded values.
-    arena: std.heap.ArenaAllocator.State = .{},
+pub const DocumentId = enum(usize) { _ };
 
-    pub const ListItem = struct {
-        ptr: *const Node,
-        category: Node.Category,
-        type: Node.Type,
-        cascaded_values: zss.CascadedValues,
-        text: TextId,
+pub fn addDocument(env: *Environment) !DocumentId {
+    const int = if (env.next_document_id) |*int| int else return error.OutOfDocuments;
+    defer env.next_document_id = std.math.add(std.meta.Tag(DocumentId), int.*, 1) catch null;
+    return @enumFromInt(int.*);
+}
+
+pub const TreeInterface = struct {
+    context: *const anyopaque,
+    vtable: *const VTable,
+
+    pub const default: TreeInterface = .{
+        .context = undefined,
+        .vtable = &.{
+            .node_edge = VTable.defaultNodeEdge,
+        },
     };
 
-    pub fn deinit(nodes: *Nodes, allocator: Allocator) void {
-        nodes.list.deinit(allocator);
-        nodes.arena.promote(allocator).deinit();
+    pub const VTable = struct {
+        node_edge: *const fn (context: *const anyopaque, node: NodeId, edge: Edge) ?NodeId,
+
+        pub fn defaultNodeEdge(_: *const anyopaque, _: NodeId, _: Edge) ?NodeId {
+            unreachable;
+        }
+    };
+
+    pub const Edge = enum {
+        parent,
+        previous_sibling,
+        next_sibling,
+        first_child,
+        last_child,
+    };
+};
+
+pub const NodeId = packed struct {
+    document: DocumentId,
+    value: usize,
+
+    pub fn parent(node: NodeId, env: *const Environment) ?NodeId {
+        return env.tree_interface.vtable.node_edge(env.tree_interface.context, node, .parent);
     }
 
-    pub fn set(nodes: *const Nodes, comptime field: std.meta.FieldEnum(ListItem), node: Node.Id, value: @FieldType(ListItem, @tagName(field))) void {
-        nodes.list.items(field)[@intFromEnum(node)] = value;
+    pub fn previousSibling(node: NodeId, env: *const Environment) ?NodeId {
+        return env.tree_interface.vtable.node_edge(env.tree_interface.context, node, .previous_sibling);
     }
 
-    pub fn get(nodes: *const Nodes, comptime field: std.meta.FieldEnum(ListItem), node: Node.Id) @FieldType(ListItem, @tagName(field)) {
-        return nodes.list.items(field)[@intFromEnum(node)];
+    pub fn nextSibling(node: NodeId, env: *const Environment) ?NodeId {
+        return env.tree_interface.vtable.node_edge(env.tree_interface.context, node, .next_sibling);
     }
 
-    pub fn ptr(nodes: *const Nodes, comptime field: std.meta.FieldEnum(ListItem), node: Node.Id) *@FieldType(ListItem, @tagName(field)) {
-        return &nodes.list.items(field)[@intFromEnum(node)];
+    pub fn firstChild(node: NodeId, env: *const Environment) ?NodeId {
+        return env.tree_interface.vtable.node_edge(env.tree_interface.context, node, .first_child);
+    }
+
+    pub fn lastChild(node: NodeId, env: *const Environment) ?NodeId {
+        return env.tree_interface.vtable.node_edge(env.tree_interface.context, node, .last_child);
     }
 };
 
-pub fn createNode(env: *Environment) !Node.Id {
-    const id = std.math.cast(std.meta.Tag(Node.Id), env.nodes.list.len) orelse return error.OutOfNodes;
-    try env.nodes.list.append(env.allocator, .{
-        .ptr = undefined,
-        .category = undefined,
-        .type = .{ .namespace = .none, .name = .anonymous },
-        .cascaded_values = .{},
-        .text = .empty_string,
-    });
-    return @enumFromInt(id);
+// TODO: Consider having a category for uninitialized nodes.
+pub const NodeCategory = enum { element, text };
+
+pub const NodeType = packed struct {
+    namespace: Namespaces.Id,
+    name: NameId,
+};
+
+pub const NodeProperty = struct {
+    category: NodeCategory = .text,
+    type: NodeType = .{ .namespace = .none, .name = .anonymous },
+    cascaded_values: zss.CascadedValues = .{},
+    text: TextId = .empty_string,
+};
+
+const NodeProperties = struct {
+    // TODO: Better memory management
+
+    map: std.AutoHashMapUnmanaged(NodeId, NodeProperty) = .empty,
+    /// Only used to store cascaded values.
+    arena: std.heap.ArenaAllocator.State = .{},
+
+    fn deinit(np: *NodeProperties, allocator: Allocator) void {
+        np.map.deinit(allocator);
+        np.arena.promote(allocator).deinit();
+    }
+
+    fn getOrPutNode(np: *NodeProperties, allocator: Allocator, node: NodeId) !*NodeProperty {
+        const gop = try np.map.getOrPut(allocator, node);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{};
+        }
+        return gop.value_ptr;
+    }
+};
+
+pub fn setNodeProperty(
+    env: *Environment,
+    comptime field: std.meta.FieldEnum(NodeProperty),
+    node: NodeId,
+    value: @FieldType(NodeProperty, @tagName(field)),
+) !void {
+    const value_ptr = try env.node_properties.getOrPutNode(env.allocator, node);
+    @field(value_ptr, @tagName(field)) = value;
+}
+
+pub fn getNodeProperty(
+    env: *const Environment,
+    comptime field: std.meta.FieldEnum(NodeProperty),
+    node: NodeId,
+) @FieldType(NodeProperty, @tagName(field)) {
+    const value_ptr: *const NodeProperty = env.node_properties.map.getPtr(node) orelse &.{};
+    return @field(value_ptr, @tagName(field));
+}
+
+pub fn getNodePropertyPtr(
+    env: *Environment,
+    comptime field: std.meta.FieldEnum(NodeProperty),
+    node: NodeId,
+) !*@FieldType(NodeProperty, @tagName(field)) {
+    const value_ptr = try env.node_properties.getOrPutNode(env.allocator, node);
+    return &@field(value_ptr, @tagName(field));
 }
 
 /// Returns `error.IdAlreadyExists` if `id` was already registered.
-pub fn registerId(env: *Environment, id: IdId, node: Node.Id) !void {
+pub fn registerId(env: *Environment, id: IdId, node: NodeId) !void {
     const gop = try env.ids_to_nodes.getOrPut(env.allocator, id);
     // TODO: If `gop.found_existing == true`, the existing element may have been destroyed, so consider allowing the Id to be reused.
     if (gop.found_existing and gop.value_ptr.* != node) return error.IdAlreadyExists;
     gop.value_ptr.* = node;
 }
 
-pub fn getElementById(env: *const Environment, id: IdId) ?Node.Id {
+pub fn getElementById(env: *const Environment, id: IdId) ?NodeId {
     // TODO: Even if an element was returned, it could have been destroyed.
     return env.ids_to_nodes.get(id);
 }

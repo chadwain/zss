@@ -60,7 +60,6 @@ const Current = struct {
 };
 
 env: *const Environment,
-root_element: Element,
 current: Current,
 allocator: Allocator,
 stage: union {
@@ -80,7 +79,6 @@ pub fn init(env: *const Environment, allocator: Allocator) StyleComputer {
     return .{
         .env = env,
         .allocator = allocator,
-        .root_element = undefined,
         .current = undefined,
         .stage = undefined,
     };

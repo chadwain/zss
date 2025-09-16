@@ -18,7 +18,6 @@ pub const Environment = @import("Environment.zig");
 pub const Fonts = @import("Fonts.zig");
 pub const Images = @import("Images.zig");
 pub const Layout = @import("Layout.zig");
-pub const Node = @import("Node.zig");
 pub const Stack = @import("stack.zig").Stack;
 pub const SegmentedUtf8String = @import("SegmentedUtf8String.zig");
 pub const StringInterner = @import("StringInterner.zig");
