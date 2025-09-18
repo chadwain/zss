@@ -113,6 +113,8 @@ pub const AttributeCase = enum { default, same_case, ignore_case };
 /// <complex-selector> = [ <compound-selector> `trailing` ]+
 /// <compound-selector> = [ `simple_selector_tag` <simple-selector> ]+
 /// <simple-selector> = <variable data, depending on the previous `simple_selector_tag`>
+
+// TODO: Make this non-public
 pub const CodeList = struct {
     list: *std.ArrayListUnmanaged(Code),
     allocator: Allocator,
@@ -181,6 +183,8 @@ test "Specificity.order" {
     try ex(Order.lt, order(.{}, .{ .a = 255, .b = 255, .c = 255 }));
 }
 
+/// Returns `true` if the complex selector matches `match_candidate`.
+/// Asserts that `match_candidate` is an element node.
 pub fn matchElement(
     code: []const Code,
     complex_selector_index: Size,

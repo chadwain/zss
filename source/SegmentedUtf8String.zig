@@ -124,6 +124,7 @@ pub fn append(string: *SegmentedUtf8String, allocator: Allocator, items: []const
             errdefer allocator.free(segment);
 
             const old_segments = string.segments[0..location.segment_index];
+            // TODO: Consider allocating all segment pointers beforehand
             const new_segments = try allocator.realloc(old_segments, location.segment_index + 1);
             new_segments[location.segment_index] = .{ .addr = @intFromPtr(segment.ptr) };
             string.segments = new_segments.ptr;
@@ -190,6 +191,7 @@ pub fn iterator(
     string: *const SegmentedUtf8String,
     position: Size,
     /// The length in bytes of the substring.
+    /// The substring MUST end on a valid codepoint boundary.
     len: Size,
 ) Iterator {
     return .{

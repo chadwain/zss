@@ -42,7 +42,7 @@ pub const Node = union(enum) {
 /// Every document that contains CSS style information should produce one of these.
 ///
 /// During the cascade (if this cascade source participates in it), this cascade source will get applied.
-/// Applying a cascade source means to assign all of its style information to the appropriate elements in the element tree.
+/// Applying a cascade source means to assign all of its style information to the appropriate elements in the document tree.
 pub const Source = struct {
     /// Pairs of elements and important declaration blocks.
     /// These declaration blocks must be the results of parsing [style attributes](https://www.w3.org/TR/css-style-attr/),
@@ -149,6 +149,7 @@ fn traverseList(
         }
         const node: *const Node = top.*[0];
         top.* = top.*[1..];
+
         switch (node.*) {
             .inner => |inner| try stack.push(allocator, inner),
             .leaf => |source| try applySource(source, env, block_lists, arena, importance),

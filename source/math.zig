@@ -2,6 +2,11 @@ const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 
+// About the zss coordinate space:
+//
+// The zss coordinate space is a space made of integral points (also called 'units').
+// The x-axis increases going to the right, and the y-axis increases going downwards.
+
 /// The smallest unit of space in the zss coordinate system.
 pub const Unit = i32;
 
