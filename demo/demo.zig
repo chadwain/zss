@@ -108,8 +108,11 @@ pub fn main() !void {
     defer args.deinit(allocator);
 
     const file_path = args.filePath();
-    var file_contents = try readFile(allocator, file_path);
-    defer file_contents.deinit(allocator);
+    const file_contents = try readFile(allocator, file_path);
+    defer switch (file_contents) {
+        .text => |text| allocator.free(text),
+        .open_error => {},
+    };
 
     // Setup GLFW
 
@@ -187,7 +190,15 @@ pub fn main() !void {
     }
     if (zml_document.named_nodes.get("body")) |body_text| {
         if (env.element_tree.category(body_text) == .text) {
-            env.element_tree.setText(body_text, try env.addTextFromString(file_contents.items));
+            const text_id = switch (file_contents) {
+                .text => |text| try env.addTextFromString(text),
+                .open_error => |err| blk: {
+                    const string = try std.fmt.allocPrint(allocator, "(Unable to open file: {s})\n", .{@errorName(err)});
+                    defer allocator.free(string);
+                    break :blk try env.addTextFromString(string);
+                },
+            };
+            env.element_tree.setText(body_text, text_id);
         }
     }
 
@@ -337,11 +348,14 @@ fn glfwError() error{GlfwError} {
     return error.GlfwError;
 }
 
-fn readFile(allocator: Allocator, file_path: []const u8) !std.ArrayListUnmanaged(u8) {
+fn readFile(allocator: Allocator, file_path: []const u8) !union(enum) {
+    text: []const u8,
+    open_error: std.fs.File.OpenError,
+} {
     var list = std.ArrayList(u8).init(allocator);
     errdefer list.deinit();
 
-    const file = try std.fs.cwd().openFile(file_path, .{});
+    const file = std.fs.cwd().openFile(file_path, .{}) catch |err| return .{ .open_error = err };
     defer file.close();
     try file.reader().readAllArrayList(&list, 1024 * 1024);
 
@@ -358,7 +372,7 @@ fn readFile(allocator: Allocator, file_path: []const u8) !std.ArrayListUnmanaged
         }
     }
 
-    return list.moveToUnmanaged();
+    return .{ .text = try list.toOwnedSlice() };
 }
 
 fn loadImage(bytes: []const u8, allocator: Allocator) !struct { zigimg.Image, zss.Images.Description } {
