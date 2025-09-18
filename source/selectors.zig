@@ -97,9 +97,9 @@ pub const QualifiedName = packed struct {
 
 pub const Combinator = enum(u8) { descendant, child, next_sibling, subsequent_sibling, column };
 
-pub const PseudoElement = enum { unrecognized };
+pub const PseudoElement = enum { unrecognized }; // TODO: Support more pseudo elements
 
-pub const PseudoClass = enum { root, unrecognized };
+pub const PseudoClass = enum { root, unrecognized }; // TODO: Support more pseudo classes
 
 pub const AttributeOperator = enum { equals, list_contains, equals_or_prefix_dash, starts_with, ends_with, contains };
 

@@ -82,6 +82,14 @@ pub const Document = struct {
     }
 };
 
+pub fn createDocumentFromTokenSource(allocator: Allocator, token_source: TokenSource, env: *Environment) !Document {
+    var parser = zss.syntax.Parser.init(token_source, allocator);
+    defer parser.deinit();
+    var ast, const zml_document_index = try parser.parseZmlDocument(allocator);
+    defer ast.deinit(allocator);
+    return createDocument(allocator, env, ast, token_source, zml_document_index);
+}
+
 pub fn createDocument(
     allocator: Allocator,
     env: *Environment,

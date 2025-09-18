@@ -483,24 +483,24 @@ fn parsePseudoElementSelector(parser: *Parser, code_list: CodeList) !?void {
     }
 }
 
-fn parsePseudo(comptime what: enum { element, class, legacy_element }, parser: *Parser) ?switch (what) {
+const Pseudo = enum { element, class, legacy_element };
+
+fn parsePseudo(comptime pseudo: Pseudo, parser: *Parser) ?switch (pseudo) {
     .element, .legacy_element => selectors.PseudoElement,
     .class => selectors.PseudoClass,
 } {
     const main_component_tag, const main_component_index = parser.next() orelse return null;
     switch (main_component_tag) {
         .token_ident => {
-            // TODO: Get the actual pseudo element/class name.
-            if (what == .class and parser.source.matchIdentifierEnum(main_component_index.location(parser.ast), selectors.PseudoClass) == .root) {
+            if (pseudo == .class and parser.source.matchIdentifierEnum(main_component_index.location(parser.ast), selectors.PseudoClass) == .root) {
                 return .root;
             }
-            return .unrecognized;
+            return unrecognizedPseudo(pseudo, parser, main_component_index);
         },
         .function => {
             var function_values = main_component_index.children(parser.ast);
             if (anyValue(parser.ast, &function_values)) {
-                // TODO: Get the actual pseudo element/class name.
-                return .unrecognized;
+                return unrecognizedPseudo(pseudo, parser, main_component_index);
             }
         },
         else => {},
@@ -518,4 +518,21 @@ fn anyValue(ast: Ast, sequence: *Ast.Sequence) bool {
         }
     }
     return true;
+}
+
+fn unrecognizedPseudo(comptime pseudo: Pseudo, parser: *Parser, main_component_index: Ast.Index) ?switch (pseudo) {
+    .element, .legacy_element => selectors.PseudoElement,
+    .class => selectors.PseudoClass,
+} {
+    const pseudo_name = parser.source.copyIdentifier(main_component_index.location(parser.ast), parser.specificities.allocator) catch
+        std.debug.panic("TODO: Unhandled allocation failure", .{});
+    defer parser.specificities.allocator.free(pseudo_name);
+    zss.log.warn("Ignoring unsupported pseudo {s}: {s}", .{
+        switch (pseudo) {
+            .element, .legacy_element => "element",
+            .class => "class",
+        },
+        pseudo_name,
+    });
+    return .unrecognized;
 }

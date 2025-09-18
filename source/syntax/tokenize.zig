@@ -83,8 +83,11 @@ pub const Source = struct {
         return UrlTokenIterator{ .location = location };
     }
 
+    // TODO: Make other `*Eql` functions, such as stringEql and urlEql.
+
     /// Given that `location` is the location of an <ident-token>, check if the identifier is equal to `ascii_string`
     /// using case-insensitive matching.
+    // TODO: Make it more clear that this only operates on 7-bit ASCII. Alternatively, remove that requirement.
     pub fn identifierEqlIgnoreCase(source: Source, location: Location, ascii_string: []const u8) bool {
         var it = identTokenIterator(source, location);
         for (ascii_string) |string_codepoint| {
@@ -261,7 +264,6 @@ pub fn stringIsIdentSequence(utf8_string: []const u8) bool {
 
 const NextCodepoint = struct { next_location: Source.Location, codepoint: u21 };
 
-// TODO: Make public?
 fn nextCodepoint(source: Source, location: Source.Location) !NextCodepoint {
     if (@intFromEnum(location) == source.data.len) return NextCodepoint{ .next_location = location, .codepoint = eof_codepoint };
 

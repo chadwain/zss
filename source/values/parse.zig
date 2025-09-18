@@ -347,7 +347,6 @@ pub fn hash(ctx: *Context) ?Location {
 ///         <color-base> = <hex-color> | <color-function> | <named-color> | transparent
 pub fn color(ctx: *Context) ?types.Color {
     // TODO: Named colors, system colors, color functions
-    const save_point = ctx.save();
     if (keyword(ctx, types.Color, &.{
         .{ "currentColor", .current_color },
         .{ "transparent", .transparent },
@@ -392,7 +391,6 @@ pub fn color(ctx: *Context) ?types.Color {
         return .{ .rgba = rgba };
     }
 
-    ctx.reset(save_point);
     return null;
 }
 
