@@ -6,6 +6,9 @@ pub const property = @import("property.zig");
 pub const render = @import("render.zig");
 pub const selectors = @import("selectors.zig");
 pub const syntax = @import("syntax.zig");
+pub const testing = struct {
+    pub const NodeTree = @import("testing/NodeTree.zig");
+};
 pub const unicode = @import("unicode.zig");
 pub const values = @import("values.zig");
 pub const zml = @import("zml.zig");
@@ -13,7 +16,6 @@ pub const zml = @import("zml.zig");
 pub const BoxTree = @import("BoxTree.zig");
 pub const CascadedValues = @import("CascadedValues.zig");
 pub const Declarations = @import("Declarations.zig");
-pub const ElementTree = @import("ElementTree.zig");
 pub const Environment = @import("Environment.zig");
 pub const Fonts = @import("Fonts.zig");
 pub const Images = @import("Images.zig");
@@ -27,6 +29,8 @@ pub const log = @import("std").log.scoped(.zss);
 
 comptime {
     if (@import("builtin").is_test) {
-        @import("std").testing.refAllDecls(@This());
+        const refAllDecls = @import("std").testing.refAllDecls;
+        refAllDecls(@This());
+        refAllDecls(testing);
     }
 }
