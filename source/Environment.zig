@@ -27,7 +27,7 @@ decls: Declarations,
 cascade_list: cascade.List,
 
 tree_interface: TreeInterface,
-next_document_id: ?std.meta.Tag(DocumentId),
+next_node_group: ?std.meta.Tag(NodeGroup),
 root_node: ?NodeId,
 node_properties: NodeProperties,
 ids_to_nodes: std.AutoHashMapUnmanaged(IdId, NodeId),
@@ -50,7 +50,7 @@ pub fn init(allocator: Allocator) Environment {
         .cascade_list = .{},
 
         .tree_interface = .default,
-        .next_document_id = 0,
+        .next_node_group = 0,
         .root_node = null,
         .node_properties = .{},
         .ids_to_nodes = .empty,
@@ -251,11 +251,11 @@ pub fn linkUrlToImage(env: *Environment, url: UrlId, image: zss.Images.Handle) !
     try env.urls_to_images.put(env.allocator, url, image);
 }
 
-pub const DocumentId = enum(usize) { _ };
+pub const NodeGroup = enum(usize) { _ };
 
-pub fn addDocument(env: *Environment) !DocumentId {
-    const int = if (env.next_document_id) |*int| int else return error.OutOfDocuments;
-    defer env.next_document_id = std.math.add(std.meta.Tag(DocumentId), int.*, 1) catch null;
+pub fn addNodeGroup(env: *Environment) !NodeGroup {
+    const int = if (env.next_node_group) |*int| int else return error.OutOfNodeGroups;
+    defer env.next_node_group = std.math.add(std.meta.Tag(NodeGroup), int.*, 1) catch null;
     return @enumFromInt(int.*);
 }
 
@@ -288,8 +288,9 @@ pub const TreeInterface = struct {
 };
 
 pub const NodeId = packed struct {
-    document: DocumentId,
+    group: NodeGroup,
     value: usize,
+    // TODO: generational nodes?
 
     pub fn parent(node: NodeId, env: *const Environment) ?NodeId {
         return env.tree_interface.vtable.node_edge(env.tree_interface.context, node, .parent);

@@ -189,8 +189,7 @@ fn createTest(
         .ua_cascade_node = undefined,
     };
 
-    const id = try t.env.addDocument();
-    t.document = try zss.zml.createDocument(allocator, &t.env, id, ast, token_source, zml_document_index);
+    t.document = try zss.zml.createDocument(allocator, &t.env, ast, token_source, zml_document_index);
     t.author_cascade_node = .{ .leaf = &t.document.cascade_source };
     try t.env.cascade_list.author.append(t.env.allocator, &t.author_cascade_node);
 
