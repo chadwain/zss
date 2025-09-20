@@ -197,7 +197,7 @@ fn createTest(
     t.ua_cascade_node = .{ .leaf = &t.stylesheet.cascade_source };
     try t.env.cascade_list.user_agent.append(t.env.allocator, &t.ua_cascade_node);
 
-    t.env.root_element = t.document.root_element;
+    t.document.setEnvTreeInterface(&t.env);
     try zss.cascade.run(&t.env);
 
     try loader.loadResourcesFromUrls(arena, t, images, token_source);

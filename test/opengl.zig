@@ -72,7 +72,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
         defer draw_list.deinit(allocator);
 
         setIcbBackgroundColor(&box_tree, zss.math.Color.fromRgbaInt(0x202020ff));
-        const root_block_size = rootBlockSize(&box_tree, t.env.root_element);
+        const root_block_size = rootBlockSize(&box_tree, t.env.root_node);
 
         const pages = try std.math.divCeil(u32, root_block_size.height, t.height);
         var image = try zigimg.Image.create(allocator, root_block_size.width, pages * t.height, .rgba32);
@@ -131,9 +131,9 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
     try stdout.print("opengl: all {} tests passed\n", .{tests.len});
 }
 
-fn rootBlockSize(box_tree: *BoxTree, root_element: zss.ElementTree.Element) struct { x: u32, y: u32, width: u32, height: u32 } {
-    if (root_element.eqlNull()) return .{ .x = 0, .y = 0, .width = 0, .height = 0 };
-    const generated_box = box_tree.element_to_generated_box.get(root_element) orelse return .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+fn rootBlockSize(box_tree: *BoxTree, root_element_or_null: ?zss.Environment.NodeId) struct { x: u32, y: u32, width: u32, height: u32 } {
+    const root_element = root_element_or_null orelse return .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+    const generated_box = box_tree.node_to_generated_box.get(root_element) orelse return .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     const ref = switch (generated_box) {
         .block_ref => |ref| ref,
         .text => |ifc_id| box_tree.getIfc(ifc_id).parent_block,

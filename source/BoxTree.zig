@@ -9,26 +9,16 @@ const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("zss.zig");
 const math = zss.math;
-const Element = zss.ElementTree.Element;
+const NodeId = zss.Environment.NodeId;
 
 subtrees: ArrayListUnmanaged(*Subtree) = .{},
 initial_containing_block: BlockRef = undefined, // TODO: make this `?BlockRef`
 ifcs: ArrayListUnmanaged(*InlineFormattingContext) = .{},
 sct: StackingContextTree = .{},
-element_to_generated_box: ElementHashMap(GeneratedBox) = .{},
+node_to_generated_box: std.AutoHashMapUnmanaged(NodeId, GeneratedBox) = .{},
 background_images: BackgroundImages = .{},
 allocator: Allocator,
 debug: Debug = .{},
-
-fn ElementHashMap(comptime V: type) type {
-    const Context = struct {
-        pub fn eql(_: @This(), lhs: Element, rhs: Element) bool {
-            return lhs.eql(rhs);
-        }
-        pub const hash = std.hash_map.getAutoHashFn(Element, @This());
-    };
-    return std.HashMapUnmanaged(Element, V, Context, std.hash_map.default_max_load_percentage);
-}
 
 pub fn deinit(box_tree: *BoxTree) void {
     for (box_tree.subtrees.items) |subtree| {
@@ -45,7 +35,7 @@ pub fn deinit(box_tree: *BoxTree) void {
         ifc_list.deinit(box_tree.allocator);
     }
     box_tree.sct.deinit(box_tree.allocator);
-    box_tree.element_to_generated_box.deinit(box_tree.allocator);
+    box_tree.node_to_generated_box.deinit(box_tree.allocator);
     box_tree.background_images.deinit(box_tree.allocator);
 }
 
@@ -158,7 +148,7 @@ pub const BackgroundImage = struct {
 
 pub const BlockType = union(enum) {
     /// An ordinary block box.
-    /// Additional active fields: element, insets, border_colors, background
+    /// Additional active fields: node, insets, border_colors, background
     block,
     /// A block box associated with an inline formatting context.
     /// A block of this type is created for every IFC, and it completely
@@ -233,8 +223,8 @@ pub const Subtree = struct {
         margins: Margins,
         /// If non-null, the stacking context that this block generates.
         stacking_context: ?StackingContextTree.Id,
-        /// If non-null, the element in the element tree that generated this block.
-        element: Element,
+        /// If non-null, the node in the document tree that generated this block.
+        node: ?NodeId,
         /// The offset given to this block by relative positioning.
         // TODO: rename to `relative_insets`, so it's not confused with absolute insets.
         insets: Insets,
@@ -308,7 +298,7 @@ pub const InlineFormattingContext = struct {
 
     pub const InlineBoxList = MultiArrayList(struct {
         skip: Size,
-        element: Element,
+        node: ?NodeId,
         inline_start: BoxProperties,
         inline_end: BoxProperties,
         block_start: BoxProperties,
@@ -459,13 +449,13 @@ pub const StackingContextTree = struct {
     };
 };
 
-/// The type of box(es) that an element generates.
+/// The type of box(es) that a node generates.
 pub const GeneratedBox = union(enum) {
-    /// The element generated a single block box.
+    /// The node generated a single block box.
     block_ref: BlockRef,
-    /// The element generated a single inline box.
+    /// The node generated a single inline box.
     inline_box: struct { ifc_id: InlineFormattingContext.Id, index: InlineFormattingContext.Size },
-    /// The element generated text.
+    /// The node generated text.
     text: InlineFormattingContext.Id,
 };
 

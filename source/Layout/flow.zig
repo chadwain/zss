@@ -7,8 +7,8 @@ const zss = @import("../zss.zig");
 const IsAutoOrPercentage = BlockUsedSizes.IsAutoOrPercentage;
 const BlockComputedSizes = zss.Layout.BlockComputedSizes;
 const BlockUsedSizes = zss.Layout.BlockUsedSizes;
-const Element = zss.ElementTree.Element;
 const Layout = zss.Layout;
+const NodeId = zss.Environment.NodeId;
 const SctBuilder = Layout.StackingContextTreeBuilder;
 const Stack = zss.Stack;
 const StyleComputer = Layout.StyleComputer;
@@ -59,16 +59,16 @@ pub const Context = struct {
     }
 };
 
-pub fn blockElement(layout: *Layout, element: Element, inner_block: BoxStyle.InnerBlock, position: BoxStyle.Position) !void {
+pub fn blockElement(layout: *Layout, node: NodeId, inner_block: BoxStyle.InnerBlock, position: BoxStyle.Position) !void {
     switch (inner_block) {
         .flow => {
             const containing_block_size = layout.containingBlockSize();
             const sizes = solveAllSizes(&layout.computer, position, .{ .Normal = containing_block_size.width }, containing_block_size.height);
             const stacking_context = solveStackingContext(&layout.computer, position);
-            layout.computer.commitElement(.box_gen);
+            layout.computer.commitNode(.box_gen);
 
             layout.flow_context.pushFlowBlock();
-            try pushBlock(layout, element, sizes, stacking_context);
+            try pushBlock(layout, node, sizes, stacking_context);
         },
     }
 }
@@ -101,20 +101,20 @@ fn pushMainBlock(layout: *Layout) void {
 
 fn pushBlock(
     layout: *Layout,
-    element: Element,
+    node: NodeId,
     sizes: BlockUsedSizes,
     stacking_context: SctBuilder.Type,
 ) !void {
     // The allocations here must have corresponding deallocations in popBlock.
-    const ref = try layout.pushFlowBlock(sizes, .Normal, stacking_context, element);
-    try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
-    try layout.pushElement();
+    const ref = try layout.pushFlowBlock(sizes, .Normal, stacking_context, node);
+    try layout.box_tree.setGeneratedBox(node, .{ .block_ref = ref });
+    try layout.pushNode();
 }
 
 fn popBlock(layout: *Layout) void {
     // The deallocations here must correspond to allocations in pushBlock.
     layout.popFlowBlock(.Normal);
-    layout.popElement();
+    layout.popNode();
 }
 
 pub const ContainingBlockWidth = union(Layout.SizeMode) {

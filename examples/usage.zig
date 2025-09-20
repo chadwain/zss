@@ -24,9 +24,14 @@ pub fn main() !void {
     var env = zss.Environment.init(allocator);
     defer env.deinit();
 
-    const root = try env.element_tree.allocateElement(env.allocator);
-    env.element_tree.initElement(root, .normal, .orphan);
-    env.root_element = root;
+    const node_group = try env.addNodeGroup();
+    env.root_node = .{ .group = node_group, .value = 0 };
+    env.tree_interface = .{
+        .context = &node_group,
+        .vtable = comptime &.{
+            .node_edge = nodeEdge,
+        },
+    };
 
     var stylesheet = try zss.Stylesheet.create(allocator, ast, rule_list_index, stylesheet_source, &env);
     defer stylesheet.deinit(allocator);
@@ -46,4 +51,11 @@ pub fn main() !void {
 
     var box_tree = try layout.run(allocator);
     defer box_tree.deinit();
+}
+
+fn nodeEdge(context: *const anyopaque, node: zss.Environment.NodeId, _: zss.Environment.TreeInterface.Edge) ?zss.Environment.NodeId {
+    const node_group: *const zss.Environment.NodeGroup = @alignCast(@ptrCast(context));
+    std.debug.assert(node.group == node_group.*);
+    std.debug.assert(node.value == 0);
+    return null;
 }

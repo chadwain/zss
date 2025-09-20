@@ -49,13 +49,17 @@ const ProgramState = struct {
         self.main_window_height = height;
         try self.relayout();
 
-        const box = if (self.box_tree.element_to_generated_box.get(self.env.root_element)) |generated_box|
-            switch (generated_box) {
-                .block_ref => |ref| ref,
-                .inline_box, .text => unreachable,
+        const box = box: {
+            if (self.env.root_node) |root_node| {
+                if (self.box_tree.node_to_generated_box.get(root_node)) |generated_box| {
+                    switch (generated_box) {
+                        .block_ref => |ref| break :box ref,
+                        .inline_box, .text => unreachable,
+                    }
+                }
             }
-        else
-            self.box_tree.initial_containing_block;
+            break :box self.box_tree.initial_containing_block;
+        };
         const max_height = blk: {
             const subtree = self.box_tree.getSubtree(box.subtree);
             const box_offsets = subtree.view().items(.box_offsets)[box.index];
@@ -181,28 +185,27 @@ pub fn main() !void {
     const zml_document_token_source = try zss.syntax.TokenSource.init(@embedFile("demo.zml"));
     var zml_document = try zss.zml.createDocumentFromTokenSource(allocator, zml_document_token_source, &env);
     defer zml_document.deinit(allocator);
+    zml_document.setEnvTreeInterface(&env);
 
     // Replace the text of the title and body nodes with the file name and file contents.
     if (zml_document.named_nodes.get("title")) |title_text| {
-        if (env.element_tree.category(title_text) == .text) {
-            env.element_tree.setText(title_text, try env.addTextFromString(file_path));
-        }
+        const title_text_zss_node = title_text.toZssNode(&zml_document);
+        try env.setNodeProperty(.category, title_text_zss_node, .text);
+        try env.setNodeProperty(.text, title_text_zss_node, try env.addTextFromString(file_path));
     }
     if (zml_document.named_nodes.get("body")) |body_text| {
-        if (env.element_tree.category(body_text) == .text) {
-            const text_id = switch (file_contents) {
-                .text => |text| try env.addTextFromString(text),
-                .open_error => |err| blk: {
-                    const string = try std.fmt.allocPrint(allocator, "(Unable to open file: {s})\n", .{@errorName(err)});
-                    defer allocator.free(string);
-                    break :blk try env.addTextFromString(string);
-                },
-            };
-            env.element_tree.setText(body_text, text_id);
-        }
+        const body_text_zss_node = body_text.toZssNode(&zml_document);
+        const text_id = switch (file_contents) {
+            .text => |text| try env.addTextFromString(text),
+            .open_error => |err| blk: {
+                const string = try std.fmt.allocPrint(allocator, "(Unable to open file: {s})\n", .{@errorName(err)});
+                defer allocator.free(string);
+                break :blk try env.addTextFromString(string);
+            },
+        };
+        try env.setNodeProperty(.category, body_text_zss_node, .text);
+        try env.setNodeProperty(.text, body_text_zss_node, text_id);
     }
-
-    env.root_element = zml_document.root_element;
 
     // Load the stylesheet.
     const stylesheet_token_source = try zss.syntax.TokenSource.init(@embedFile("demo.css"));
@@ -234,8 +237,10 @@ pub fn main() !void {
 
     // Perform an "empty" layout, just to initialize the box tree.
     var box_tree = blk: {
-        env.root_element = zss.ElementTree.Element.null_element;
-        defer env.root_element = zml_document.root_element;
+        const root_node = env.root_node;
+        env.root_node = null;
+        defer env.root_node = root_node;
+
         var layout = zss.Layout.init(&env, allocator, 0, 0, &images, &fonts);
         defer layout.deinit();
         break :blk try layout.run(allocator);

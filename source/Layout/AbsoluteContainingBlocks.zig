@@ -3,8 +3,8 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
 const BlockRef = zss.BoxTree.BlockRef;
-const Element = zss.ElementTree.Element;
 const BoxStyle = zss.BoxTree.BoxStyle;
+const NodeId = zss.Environment.NodeId;
 const Position = zss.values.types.Position;
 
 const Absolute = @This();
@@ -33,7 +33,7 @@ pub const ContainingBlock = struct {
 
 pub const Block = struct {
     containing_block: ContainingBlock.Id,
-    element: Element,
+    node: NodeId,
     inner_box_style: BoxStyle.InnerBlock,
 };
 
@@ -83,8 +83,8 @@ pub fn fixupContainingBlock(absolute: *Absolute, id: ContainingBlock.Id, ref: Bl
     slice.items(.ref)[index] = ref;
 }
 
-pub fn addBlock(absolute: *Absolute, allocator: Allocator, element: Element, inner_box_style: BoxStyle.InnerBlock) !void {
+pub fn addBlock(absolute: *Absolute, allocator: Allocator, node: NodeId, inner_box_style: BoxStyle.InnerBlock) !void {
     const index = absolute.current_containing_block_index;
     const id = absolute.containing_blocks.items[index].id;
-    try absolute.blocks.append(allocator, .{ .containing_block = id, .element = element, .inner_box_style = inner_box_style });
+    try absolute.blocks.append(allocator, .{ .containing_block = id, .node = node, .inner_box_style = inner_box_style });
 }

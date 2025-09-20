@@ -5,11 +5,10 @@ const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("zss.zig");
 const math = zss.math;
-const ElementTree = zss.ElementTree;
-const Element = ElementTree.Element;
 const Environment = zss.Environment;
 const Fonts = zss.Fonts;
 const Images = zss.Images;
+const NodeId = Environment.NodeId;
 const Stack = zss.Stack;
 
 const cosmetic = @import("Layout/cosmetic.zig");
@@ -49,7 +48,7 @@ stacks: Stacks,
 
 const Stacks = struct {
     mode: Stack(Mode),
-    element: Stack(Element),
+    node: Stack(?NodeId),
     subtree: Stack(struct {
         id: Subtree.Id,
         depth: Subtree.Size,
@@ -103,7 +102,7 @@ pub fn init(
         .stf_context = .{},
         .stacks = .{
             .mode = .{},
-            .element = .{},
+            .node = .{},
             .subtree = .{},
             .block = .{},
             .block_info = .{},
@@ -120,7 +119,7 @@ pub fn deinit(layout: *Layout) void {
     layout.inline_context.deinit(layout.allocator);
     layout.stf_context.deinit(layout.allocator);
     layout.stacks.mode.deinit(layout.allocator);
-    layout.stacks.element.deinit(layout.allocator);
+    layout.stacks.node.deinit(layout.allocator);
     layout.stacks.subtree.deinit(layout.allocator);
     layout.stacks.block.deinit(layout.allocator);
     layout.stacks.block_info.deinit(layout.allocator);
@@ -156,7 +155,7 @@ fn boxGeneration(layout: *Layout) !void {
     layout.computer.stage = .{ .box_gen = .{} };
     defer layout.computer.deinitStage(.box_gen);
 
-    layout.stacks.element.top = layout.inputs.env.root_element;
+    layout.stacks.node.top = layout.inputs.env.root_node;
 
     try initial.beginMode(layout);
     init: {
@@ -186,28 +185,27 @@ pub const IsRoot = enum {
 };
 
 const AnalyzeResult = struct {
-    element: Element,
+    node: NodeId,
     box_style: BoxTree.BoxStyle,
 };
 
 fn analyzeElement(layout: *Layout, comptime is_root: IsRoot) !?AnalyzeResult {
-    const element = layout.currentElement();
-    if (element.eqlNull()) return null;
-    try layout.computer.setCurrentElement(.box_gen, element);
+    const node = layout.currentNode() orelse return null;
+    try layout.computer.setCurrentNode(.box_gen, node);
 
-    switch (layout.computer.elementCategory(element)) {
+    switch (layout.inputs.env.getNodeProperty(.category, node)) {
         .text => {
             return .{
-                .element = element,
+                .node = node,
                 .box_style = .text,
             };
         },
-        .normal => {
+        .element => {
             const specified_box_style = layout.computer.getSpecifiedValue(.box_gen, .box_style);
             const computed_box_style, const used_box_style = solve.boxStyle(specified_box_style, is_root);
             layout.computer.setComputedValue(.box_gen, .box_style, computed_box_style);
             return .{
-                .element = element,
+                .node = node,
                 .box_style = used_box_style,
             };
         },
@@ -226,12 +224,12 @@ fn dispatch(
     analyze_result: AnalyzeResult,
 ) !void {
     switch (analyze_result.box_style.outer) {
-        .none => layout.advanceElement(),
+        .none => layout.advanceNode(),
         .block => |inner| switch (is_root) {
-            .Root => try initial.blockElement(layout, analyze_result.element, inner, analyze_result.box_style.position),
+            .Root => try initial.blockElement(layout, analyze_result.node, inner, analyze_result.box_style.position),
             .NonRoot => sw: switch (mode) {
-                .flow => try flow.blockElement(layout, analyze_result.element, inner, analyze_result.box_style.position),
-                .stf => try stf.blockElement(layout, analyze_result.element, inner, analyze_result.box_style.position),
+                .flow => try flow.blockElement(layout, analyze_result.node, inner, analyze_result.box_style.position),
+                .stf => try stf.blockElement(layout, analyze_result.node, inner, analyze_result.box_style.position),
                 .@"inline" => {
                     if (layout.inline_context.ifc.top.?.depth == 1) {
                         try layout.popInlineMode();
@@ -256,7 +254,7 @@ fn dispatch(
                 },
             }
             assert(layout.stacks.mode.top.? == .@"inline");
-            return @"inline".inlineElement(layout, analyze_result.element, inner, analyze_result.box_style.position);
+            return @"inline".inlineElement(layout, analyze_result.node, inner, analyze_result.box_style.position);
         },
         .absolute => std.debug.panic("TODO: Absolute blocks", .{}),
     }
@@ -266,7 +264,7 @@ fn cosmeticLayout(layout: *Layout) !void {
     layout.computer.stage = .{ .cosmetic = .{} };
     defer layout.computer.deinitStage(.cosmetic);
 
-    layout.stacks.element.top = layout.inputs.env.root_element;
+    layout.stacks.node.top = layout.inputs.env.root_node;
 
     try cosmetic.run(layout);
 }
@@ -336,24 +334,24 @@ pub fn popInlineMode(layout: *Layout) !void {
 
 pub const SizeMode = enum { Normal, ShrinkToFit };
 
-pub fn currentElement(layout: Layout) Element {
-    return layout.stacks.element.top.?;
+pub fn currentNode(layout: Layout) ?NodeId {
+    return layout.stacks.node.top.?;
 }
 
-pub fn pushElement(layout: *Layout) !void {
-    const element = &layout.stacks.element.top.?;
-    const child = layout.inputs.env.element_tree.firstChild(element.*);
-    element.* = layout.inputs.env.element_tree.nextSibling(element.*);
-    try layout.stacks.element.push(layout.allocator, child);
+pub fn pushNode(layout: *Layout) !void {
+    const node = &layout.stacks.node.top.?;
+    const child = node.*.?.firstChild(layout.inputs.env);
+    node.* = node.*.?.nextSibling(layout.inputs.env);
+    try layout.stacks.node.push(layout.allocator, child);
 }
 
-pub fn popElement(layout: *Layout) void {
-    _ = layout.stacks.element.pop();
+pub fn popNode(layout: *Layout) void {
+    _ = layout.stacks.node.pop();
 }
 
-pub fn advanceElement(layout: *Layout) void {
-    const element = &layout.stacks.element.top.?;
-    element.* = layout.inputs.env.element_tree.nextSibling(element.*);
+pub fn advanceNode(layout: *Layout) void {
+    const node = &layout.stacks.node.top.?;
+    node.* = node.*.?.nextSibling(layout.inputs.env);
 }
 
 pub fn currentSubtree(layout: *Layout) Subtree.Id {
@@ -396,7 +394,7 @@ const BlockInfo = struct {
     sizes: BlockUsedSizes,
     stacking_context_id: ?StackingContextTree.Id,
     // absolute_containing_block_id: ?Absolute.ContainingBlock.Id,
-    element: Element,
+    element: NodeId,
 };
 
 fn newBlock(layout: *Layout) !BlockRef {
@@ -443,7 +441,7 @@ pub fn pushInitialContainingBlock(layout: *Layout, size: math.Size) !BlockRef {
         .sizes = BlockUsedSizes.icb(size),
         .stacking_context_id = stacking_context_id,
         // .absolute_containing_block_id = absolute_containing_block_id,
-        .element = .null_element,
+        .element = undefined,
     };
     layout.stacks.containing_block_size.top = .{
         .width = size.w,
@@ -470,7 +468,7 @@ pub fn popInitialContainingBlock(layout: *Layout) void {
     subtree.items(.skip)[index] = block.skip;
     subtree.items(.type)[index] = .block;
     subtree.items(.stacking_context)[index] = block_info.stacking_context_id;
-    subtree.items(.element)[index] = .null_element;
+    subtree.items(.node)[index] = null;
     subtree.items(.box_offsets)[index] = .{
         .border_pos = .{ .x = 0, .y = 0 },
         .content_pos = .{ .x = 0, .y = 0 },
@@ -490,7 +488,7 @@ pub fn pushFlowBlock(
         ShrinkToFit: math.Unit,
     },
     stacking_context: StackingContextTreeBuilder.Type,
-    element: Element,
+    element: NodeId,
 ) !BlockRef {
     const ref = try layout.pushBlock();
 
@@ -568,7 +566,7 @@ pub fn popStfFlowBlock2(
     sizes: BlockUsedSizes,
     stacking_context_id: ?StackingContextTree.Id,
     // absolute_containing_block_id: ?Absolute.ContainingBlock.Id,
-    element: Element,
+    element: NodeId,
 ) void {
     const block = layout.popBlock();
 
@@ -628,7 +626,7 @@ pub fn fixupAbsoluteContainingBlock(layout: *Layout, id: Absolute.ContainingBloc
     return layout.absolute.fixupContainingBlock(id, ref);
 }
 
-pub fn addAbsoluteBlock(layout: *Layout, element: Element, inner_box_style: BoxTree.BoxStyle.InnerBlock) !void {
+pub fn addAbsoluteBlock(layout: *Layout, element: NodeId, inner_box_style: BoxTree.BoxStyle.InnerBlock) !void {
     return layout.absolute.addBlock(layout.allocator, element, inner_box_style);
 }
 
@@ -804,12 +802,12 @@ fn setDataBlock(
     width: math.Unit,
     height: math.Unit,
     stacking_context: ?StackingContextTree.Id,
-    element: Element,
+    node: NodeId,
 ) void {
     subtree.items(.skip)[index] = skip;
     subtree.items(.type)[index] = .block;
     subtree.items(.stacking_context)[index] = stacking_context;
-    subtree.items(.element)[index] = element;
+    subtree.items(.node)[index] = node;
 
     const box_offsets = &subtree.items(.box_offsets)[index];
     const borders = &subtree.items(.borders)[index];
