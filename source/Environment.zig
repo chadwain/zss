@@ -217,7 +217,7 @@ pub fn addTextFromStringToken(env: *Environment, string: TokenSource.Location, s
 }
 
 pub fn addTextFromString(env: *Environment, text: []const u8) !TextId {
-    if (text.len == 0) return .empty;
+    if (text.len == 0) return .empty_string;
     const id = std.math.cast(std.meta.Tag(TextId), try std.math.add(usize, 1, env.texts.list.items.len)) orelse return error.OutOfTexts;
 
     try env.texts.list.ensureUnusedCapacity(env.allocator, 1);

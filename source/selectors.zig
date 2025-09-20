@@ -582,70 +582,32 @@ test "complex selector matching" {
     var env = Environment.init(allocator);
     defer env.deinit();
 
-    const NodeTree = zss.testing.NodeTree;
-    var node_tree = try NodeTree.init(&env);
-    defer node_tree.deinit(allocator);
+    const token_source = try zss.syntax.TokenSource.init(
+        \\root #alice {
+        \\  first {}
+        \\  second {
+        \\    grandchild {}
+        \\  }
+        \\  ""
+        \\  third #bob {}
+        \\}
+    );
+    var document = try zss.zml.createDocumentFromTokenSource(allocator, token_source, &env);
+    defer document.deinit(allocator);
+    document.setEnvTreeInterface(&env);
+
+    const nodes = blk: {
+        const root = document.rootZssNode().?;
+        const first = root.firstChild(&env).?;
+        const second = first.nextSibling(&env).?;
+        const grandchild = second.firstChild(&env).?;
+        const third = second.nextSibling(&env).?.nextSibling(&env).?;
+        break :blk .{ .root = root, .first = first, .second = second, .grandchild = grandchild, .third = third };
+    };
 
     var codes: std.ArrayListUnmanaged(Code) = .empty;
     defer codes.deinit(allocator);
     const code_list: CodeList = .{ .list = &codes, .allocator = allocator };
-
-    const type_names = .{
-        .root = try env.addTypeOrAttributeNameString("root"),
-        .first = try env.addTypeOrAttributeNameString("first"),
-        .second = try env.addTypeOrAttributeNameString("second"),
-        .grandchild = try env.addTypeOrAttributeNameString("grandchild"),
-        .third = try env.addTypeOrAttributeNameString("third"),
-    };
-
-    const ids = .{
-        .alice = try env.addIdNameString("alice"),
-        .jeff = try env.addIdNameString("jeff"),
-    };
-
-    const nodes = blk: {
-        var nodes_buffer: [6]NodeTree.Node = undefined;
-        try node_tree.allocateNodes(env.allocator, &nodes_buffer);
-        const nodes = .{
-            .root = nodes_buffer[0],
-            .first = nodes_buffer[1],
-            .second = nodes_buffer[2],
-            .grandchild = nodes_buffer[3],
-            .text = nodes_buffer[4],
-            .third = nodes_buffer[5],
-        };
-
-        // zig fmt: off
-        try node_tree.initNode(nodes.root,       .orphan,                             &env, .element);
-        try node_tree.initNode(nodes.first,      .{ .last_child_of = nodes.root },    &env, .element);
-        try node_tree.initNode(nodes.second,     .{ .last_child_of = nodes.root },    &env, .element);
-        try node_tree.initNode(nodes.grandchild, .{ .first_child_of = nodes.second }, &env, .element);
-        try node_tree.initNode(nodes.text,       .{ .last_child_of = nodes.root },    &env, .text);
-        try node_tree.initNode(nodes.third,      .{ .last_child_of = nodes.root },    &env, .element);
-        // zig fmt: on
-
-        break :blk .{
-            .root = nodes.root.toZssNode(&node_tree),
-            .first = nodes.first.toZssNode(&node_tree),
-            .second = nodes.second.toZssNode(&node_tree),
-            .grandchild = nodes.grandchild.toZssNode(&node_tree),
-            .text = nodes.text.toZssNode(&node_tree),
-            .third = nodes.third.toZssNode(&node_tree),
-        };
-    };
-
-    // zig fmt: off
-    try env.setNodeProperty(.type, nodes.root,       .{ .namespace = .none, .name = type_names.root });
-    try env.setNodeProperty(.type, nodes.first,      .{ .namespace = .none, .name = type_names.first });
-    try env.setNodeProperty(.type, nodes.second,     .{ .namespace = .none, .name = type_names.second });
-    try env.setNodeProperty(.type, nodes.grandchild, .{ .namespace = .none, .name = type_names.grandchild });
-    try env.setNodeProperty(.type, nodes.third,      .{ .namespace = .none, .name = type_names.third });
-    // zig fmt: on
-
-    try env.registerId(ids.alice, nodes.root);
-    try env.registerId(ids.jeff, nodes.third);
-
-    node_tree.setTreeInterface(NodeTree.Node.fromZssNode(&node_tree, nodes.root), &env);
 
     const doTest = struct {
         fn f(selector_string: []const u8, en: *Environment, d: CodeList, ar: *ArenaAllocator, n: Environment.NodeId) !bool {
@@ -685,6 +647,6 @@ test "complex selector matching" {
     try expect(!try doTest("root > grandchild"    , &env, code_list, &arena, nodes.grandchild));
     try expect(try doTest("#alice"                , &env, code_list, &arena, nodes.root));
     try expect(!try doTest("#alice"               , &env, code_list, &arena, nodes.third));
-    try expect(try doTest("#alice > #jeff"        , &env, code_list, &arena, nodes.third));
+    try expect(try doTest("#alice > #bob"         , &env, code_list, &arena, nodes.third));
     // zig fmt: on
 }
