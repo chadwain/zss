@@ -4,6 +4,7 @@
     .fingerprint = 0x6b393e274b72e099,
     .paths = .{
         "demo/",
+        "docs/",
         "examples/",
         "source/",
         "test/",
