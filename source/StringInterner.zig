@@ -185,9 +185,9 @@ pub fn addFromString(interner: *StringInterner, allocator: Allocator, string: []
         return error.MaxSizeExceeded;
     }
 
-    const range = Range{ .position = interner.string.position, .len = string.len };
+    const position = interner.string.position;
     try interner.string.append(allocator, string);
-    gop.value_ptr.* = range;
+    gop.value_ptr.* = .{ .position = position, .len = @intCast(string.len) };
     return gop.index;
 }
 

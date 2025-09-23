@@ -1,9 +1,7 @@
 //! An append-only list data structure that holds a UTF-8 encoded string.
-//! The string is broken into segments, with each new segment being double the size of the previous one.
+//! The string is stored in segments, with each new segment being double the size of the previous one.
 //! The segments, once allocated, are never moved in memory.
 //! Care is taken such that a single codepoint is never split between two different segments.
-//!
-//! Like std.SegmentedList but way better.
 
 segments: [*]Segment,
 /// The position of the next place to append codepoints.
@@ -15,7 +13,8 @@ max_segments_len: SegmentsLen,
 debug: Debug,
 
 /// To ensure that codepoints are not split between two different segments, the last 1-3 bytes of a segment may not get used.
-/// For example, if a segment only has 3 bytes left, and you try to append a codepoint that takes up 4 bytes, it will instead create a new segment. Those last 3 bytes become unusable.
+/// For example, if a segment only has 3 bytes left, and you try to append a codepoint that takes up 4 bytes, the string will create a new segment and append it there instead.
+/// The last 3 bytes of the previous segment become unusable.
 /// Segments are allocated with an alignment of 4, so that the last 2 bits of the pointer address can be used to store the number of unusable bytes.
 /// Segments cannot be completely empty; they must always have a non-zero amount of either used or unusable bytes.
 const Segment = struct {
@@ -36,14 +35,17 @@ const Segment = struct {
     }
 };
 
-pub const Size = usize;
+pub const Size = u32;
+
+/// A type large enough to hold an index into the segments array.
 pub const SegmentIndex = std.math.Log2Int(Size);
+
+/// A type large enough to hold the maximum length of the segments array.
 pub const SegmentsLen = std.math.Log2IntCeil(Size);
 
 // TODO: Possible improvements:
 // - Statically allocate the segment array
 // - Choose a smaller integer index type
-// - Fix the edge case where all segments are full
 const SegmentedUtf8String = @This();
 
 const std = @import("std");
@@ -60,11 +62,12 @@ pub fn init(
     assert(std.math.isPowerOfTwo(first_segment_len));
     assert(std.math.isPowerOfTwo(last_segment_len));
     const first_segment_len_log2 = std.math.log2_int(Size, first_segment_len);
+    const last_segment_len_log2 = std.math.log2_int(Size, last_segment_len);
     return .{
         .segments = undefined,
         .position = 0,
         .first_segment_len_log2 = first_segment_len_log2,
-        .max_segments_len = @as(SegmentsLen, 1) + std.math.log2_int(Size, last_segment_len) - first_segment_len_log2,
+        .max_segments_len = @as(SegmentsLen, 1) + (last_segment_len_log2 - first_segment_len_log2),
         .debug = .{},
     };
 }
@@ -93,21 +96,29 @@ const Location = struct {
     byte_offset: Size,
 };
 
-fn locationToPosition(string: *const SegmentedUtf8String, location: Location) Size {
-    const complete_len = string.segmentCompleteLen(@intCast(location.segment_index));
-    return complete_len - (@as(Size, 1) << string.first_segment_len_log2) + location.byte_offset;
-}
-
 fn positionToLocation(string: *const SegmentedUtf8String, position: Size) Location {
-    const shifted = position + (@as(Size, 1) << string.first_segment_len_log2);
-    const segment_index_shifted = std.math.log2_int(Size, shifted);
-    const byte_offset = shifted - (@as(Size, 1) << segment_index_shifted);
+    const first_segment_len = @as(Size, 1) << string.first_segment_len_log2;
+    const max_position = max_position: {
+        const last_segment_len_log2: SegmentIndex = @intCast(string.max_segments_len - 1 + string.first_segment_len_log2);
+        const last_segment_len = @as(Size, 1) << last_segment_len_log2;
+        // Computes `2 * last_segment_len - first_segment_len` while avoiding overflow.
+        break :max_position last_segment_len - first_segment_len + last_segment_len;
+    };
+    if (position == max_position) return .{
+        .segment_index = string.max_segments_len,
+        .byte_offset = 0,
+    };
+
+    const normalized_position = position + first_segment_len;
+    const normalized_position_log2 = std.math.log2_int(Size, normalized_position);
+    const normalized_position_log2_remainder = normalized_position - (@as(Size, 1) << normalized_position_log2);
     return .{
-        .segment_index = segment_index_shifted - string.first_segment_len_log2,
-        .byte_offset = byte_offset,
+        .segment_index = normalized_position_log2 - string.first_segment_len_log2,
+        .byte_offset = normalized_position_log2_remainder,
     };
 }
 
+/// The new substring can be referred to via a tuple of `string.position` (before calling this function) and `items.len`.
 pub fn append(string: *SegmentedUtf8String, allocator: Allocator, items: []const u8) !void {
     var remaining_items = items;
     while (remaining_items.len > 0) {
@@ -117,9 +128,10 @@ pub fn append(string: *SegmentedUtf8String, allocator: Allocator, items: []const
         const complete_len = string.segmentCompleteLen(@intCast(location.segment_index));
         if (location.byte_offset == 0) {
             // `string.position` is the position where new codepoints are appended.
-            // Therefore, if `location.byte_offset == 0`, then `location` points to past the the end of the current segment.
+            // Therefore, if `location.byte_offset == 0`, then `location` points to past the end of the current segment.
             // In that case, a new segment needs to be allocated in order to append codepoints.
 
+            // TODO: Consider reserving all the new segments beforehand
             const segment = try allocator.alignedAlloc(u8, 4, complete_len);
             errdefer allocator.free(segment);
 
@@ -171,6 +183,7 @@ pub const Iterator = struct {
 
     pub fn next(it: *Iterator) ?[]const u8 {
         if (it.remaining == 0) return null;
+        assert(it.location.segment_index != it.string.max_segments_len);
 
         const segment = it.string.segments[it.location.segment_index];
         const complete_len = it.string.segmentCompleteLen(@intCast(it.location.segment_index));
@@ -187,11 +200,11 @@ pub const Iterator = struct {
     }
 };
 
+/// Returns an iterator over a substring.
 pub fn iterator(
     string: *const SegmentedUtf8String,
     position: Size,
     /// The length in bytes of the substring.
-    /// The substring MUST end on a valid codepoint boundary.
     len: Size,
 ) Iterator {
     return .{
@@ -253,27 +266,27 @@ test append {
     const allocator = std.testing.allocator;
 
     {
-        var string = SegmentedUtf8String.init(8, 8);
+        var string = init(8, 8);
         defer string.deinit(allocator);
         try string.append(allocator, "abcdefgh");
     }
     {
-        var string = SegmentedUtf8String.init(4, 8);
+        var string = init(4, 8);
         defer string.deinit(allocator);
         try string.append(allocator, "abcdefghwxyz");
     }
     {
-        var string = SegmentedUtf8String.init(8, 16);
+        var string = init(8, 16);
         defer string.deinit(allocator);
         try string.append(allocator, "あいうえお");
     }
     {
-        var string = SegmentedUtf8String.init(1, 16);
+        var string = init(1, 16);
         defer string.deinit(allocator);
         try string.append(allocator, "日月火水木金土");
     }
     {
-        var string = SegmentedUtf8String.init(1, 4);
+        var string = init(1, 4);
         defer string.deinit(allocator);
         try std.testing.expectError(error.OutOfSegments, string.append(allocator, "1234567890"));
     }
@@ -295,21 +308,21 @@ test iterator {
     };
 
     {
-        var string = SegmentedUtf8String.init(4, 8);
+        var string = init(4, 8);
         defer string.deinit(allocator);
         const pos = string.position;
         try string.append(allocator, "abcdefghwxyz");
         try ns.compareIterator(&string, pos, 12, "abcdefghwxyz");
     }
     {
-        var string = SegmentedUtf8String.init(4, 16);
+        var string = init(4, 16);
         defer string.deinit(allocator);
         const pos = string.position;
         try string.append(allocator, "日月火水木金土");
         try ns.compareIterator(&string, pos, 15, "日月火水木");
     }
     {
-        var string = SegmentedUtf8String.init(4, 8);
+        var string = init(4, 8);
         defer string.deinit(allocator);
         try string.append(allocator, "abcdef");
         const pos = string.position;
@@ -317,7 +330,7 @@ test iterator {
         try ns.compareIterator(&string, pos, 6, "ghwxyz");
     }
     {
-        var string = SegmentedUtf8String.init(4, 16);
+        var string = init(4, 16);
         defer string.deinit(allocator);
         const pos1 = string.position;
         try string.append(allocator, "日月");
