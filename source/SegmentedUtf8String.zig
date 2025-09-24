@@ -46,6 +46,7 @@ pub const SegmentsLen = std.math.Log2IntCeil(Size);
 // TODO: Possible improvements:
 // - Statically allocate the segment array
 // - Choose a smaller integer index type
+// - Rollback in case an error is returned
 const SegmentedUtf8String = @This();
 
 const std = @import("std");
@@ -153,17 +154,18 @@ pub fn append(string: *SegmentedUtf8String, allocator: Allocator, items: []const
             } else {
                 string.position += usable_len;
 
-                // Backtrack to find the start byte of the most recent codepoint within `remaining_items`.
-                for (0..@min(3, usable_len)) |i| {
-                    const index = usable_len - 1 - i;
-                    const byte = remaining_items[index];
-                    if (!isUtf8CodepointStartByte(byte)) continue;
+                const copyable_len = blk: {
+                    // Backtrack to find the start byte of the most recent codepoint within `remaining_items`.
+                    for (0..@min(3, usable_len)) |i| {
+                        const index = usable_len - 1 - i;
+                        const byte = remaining_items[index];
+                        const codepoint_len = std.unicode.utf8ByteSequenceLength(byte) catch continue;
+                        break :blk if (codepoint_len > usable_len - index) index else usable_len;
+                    } else unreachable; // Invalid UTF-8
+                };
 
-                    const codepoint_len = std.unicode.utf8ByteSequenceLength(byte) catch unreachable;
-                    const copyable_len = if (codepoint_len > usable_len - index) index else usable_len;
-                    segment.setUnusableLen(@intCast(usable_len - copyable_len));
-                    break :copyable_len copyable_len;
-                } else unreachable; // Invalid UTF-8
+                segment.setUnusableLen(@intCast(usable_len - copyable_len));
+                break :copyable_len copyable_len;
             }
         };
 
@@ -172,16 +174,12 @@ pub fn append(string: *SegmentedUtf8String, allocator: Allocator, items: []const
     }
 }
 
-fn isUtf8CodepointStartByte(byte: u8) bool {
-    return byte & 0b11000000 != 0b10000000;
-}
-
 pub const Iterator = struct {
     string: *const SegmentedUtf8String,
     remaining: Size,
     location: Location,
 
-    pub fn next(it: *Iterator) ?[]const u8 {
+    pub fn next(it: *Iterator) ?[]u8 {
         if (it.remaining == 0) return null;
         assert(it.location.segment_index != it.string.max_segments_len);
 

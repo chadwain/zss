@@ -6,7 +6,7 @@ const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
 const hexDigitToNumber = zss.unicode.hexDigitToNumber;
-const toLowercase = zss.unicode.toLowercase;
+const toLowercase = zss.unicode.latin1ToLowercase;
 const CheckedInt = zss.math.CheckedInt;
 const Token = zss.syntax.Token;
 

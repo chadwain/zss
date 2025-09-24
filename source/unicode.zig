@@ -1,5 +1,4 @@
-// TODO: rename to `asciiToLowercase`
-pub fn toLowercase(codepoint: u21) u21 {
+pub fn latin1ToLowercase(codepoint: u21) u21 {
     return switch (codepoint) {
         'A'...'Z' => codepoint - 'A' + 'a',
         else => codepoint,

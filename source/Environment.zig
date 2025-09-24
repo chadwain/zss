@@ -39,11 +39,27 @@ pub fn init(allocator: Allocator) Environment {
     return Environment{
         .allocator = allocator,
 
-        .type_or_attribute_names = .{ .max_size = NameId.max_value, .case = .insensitive },
-        // TODO: Case sensitivity depends on whether quirks mode is on
-        .id_or_class_names = .{ .max_size = IdId.max_value, .case = .sensitive },
+        .type_or_attribute_names = .{
+            .max_size = NameId.max_value,
+            // TODO: This is the wrong value. Case sensitivity of type names and attribute names depends on the document language.
+            //       See https://www.w3.org/TR/selectors-4/#case-sensitive
+            .case = .insensitive,
+        },
+        .id_or_class_names = .{
+            .max_size = IdId.max_value,
+            // TODO: This is the wrong value. Case sensitivity of IDs and class names depends on whether the document is in "quirks mode".
+            //       See https://www.w3.org/TR/selectors-4/#id-selectors
+            //       See https://www.w3.org/TR/selectors-4/#class-html
+            .case = .sensitive,
+        },
         .texts = .{},
-        .attribute_values = .init(.{ .max_size = AttributeValueId.num_unique_values }),
+        .attribute_values = .init(.{
+            .max_size = AttributeValueId.num_unique_values,
+            // TODO: This is the wrong value. Case sensitivity of attribute values depends on the document language.
+            //       Furthermore selectors can also choose their own sensitivity.
+            //       See https://www.w3.org/TR/selectors-4/#attribute-case
+            .case = .insensitive,
+        }),
         .namespaces = .{},
 
         .decls = .{},
