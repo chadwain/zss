@@ -13,11 +13,13 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [200]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     for (tests, 0..) |t, i| {
         try stdout.print("check: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
-        defer stdout.print("\n", .{}) catch {};
+        try stdout.flush();
 
         var layout = zss.Layout.init(
             &t.env,
@@ -37,10 +39,12 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
             try validateInline(ifc, allocator);
         }
 
-        try stdout.print("success", .{});
+        try stdout.writeAll("success\n");
+        try stdout.flush();
     }
 
     try stdout.print("check: all {} tests passed\n", .{tests.len});
+    try stdout.flush();
 }
 
 fn validateInline(inl: *BoxTree.InlineFormattingContext, allocator: Allocator) !void {
@@ -48,15 +52,15 @@ fn validateInline(inl: *BoxTree.InlineFormattingContext, allocator: Allocator) !
     const Index = BoxTree.InlineFormattingContext.Size;
     const glyphs = inl.glyphs.items(.index);
 
-    var stack = std.ArrayList(Index).init(allocator);
-    defer stack.deinit();
+    var stack = std.ArrayList(Index).empty;
+    defer stack.deinit(allocator);
     var i: usize = 0;
     while (i < glyphs.len) : (i += 1) {
         if (glyphs[i] == 0) {
             i += 1;
             const special = BoxTree.InlineFormattingContext.Special.decode(glyphs[i]);
             switch (special.kind) {
-                .BoxStart => stack.append(@as(Index, special.data)) catch unreachable,
+                .BoxStart => stack.append(allocator, @as(Index, special.data)) catch unreachable,
                 .BoxEnd => _ = stack.pop(),
                 else => {},
             }
@@ -75,11 +79,11 @@ fn validateStackingContexts(box_tree: *zss.BoxTree, allocator: Allocator) !void 
     const skips = view.items(.skip);
     const z_indeces = view.items(.z_index);
 
-    var stack = std.ArrayList(struct { current: Size, end: Size }).init(allocator);
-    defer stack.deinit();
+    var stack = std.ArrayList(struct { current: Size, end: Size }).empty;
+    defer stack.deinit(allocator);
 
     try expect(z_indeces[0] == 0);
-    stack.append(.{ .current = 0, .end = skips[0] }) catch unreachable;
+    stack.append(allocator, .{ .current = 0, .end = skips[0] }) catch unreachable;
     while (stack.items.len > 0) {
         const parent = stack.pop().?;
         var child = parent.current + 1;
@@ -88,7 +92,7 @@ fn validateStackingContexts(box_tree: *zss.BoxTree, allocator: Allocator) !void 
             const z_index = z_indeces[child];
             try expect(previous_z_index <= z_index);
             previous_z_index = z_index;
-            stack.append(.{ .current = child, .end = child + skips[child] }) catch unreachable;
+            stack.append(allocator, .{ .current = child, .end = child + skips[child] }) catch unreachable;
         }
     }
 }

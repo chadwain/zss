@@ -34,8 +34,8 @@ fn parseList(ctx: *Context, fba: *Fba, parse_fn: anytype) !?[]const ParseFnValue
     const save_point = ctx.enterTopLevelList() orelse return null;
 
     const Value = ParseFnValueType(parse_fn);
-    const list = try fba.allocator().create(std.BoundedArray(Value, max_list_len));
-    list.* = .{};
+    const list = try fba.allocator().alloc(Value, max_list_len);
+    var list_len: usize = 0;
 
     while (ctx.nextListItem()) |_| {
         const value_or_error = parse_fn(ctx);
@@ -47,9 +47,11 @@ fn parseList(ctx: *Context, fba: *Fba, parse_fn: anytype) !?[]const ParseFnValue
         const value = value_or_null orelse break;
 
         ctx.endListItem() orelse break;
-        list.append(value) catch break;
+        if (list_len == max_list_len) break;
+        list[list_len] = value;
+        list_len += 1;
     } else {
-        return list.constSlice();
+        return list[0..list_len];
     }
 
     ctx.resetState(save_point);

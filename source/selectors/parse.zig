@@ -29,6 +29,7 @@ pub const Parser = struct {
 
     sequence: Ast.Sequence = undefined,
     specificities: std.ArrayList(Specificity),
+    allocator: Allocator,
     valid: bool = undefined,
     specificity: Specificity = undefined,
 
@@ -46,12 +47,13 @@ pub const Parser = struct {
             .namespaces = namespaces,
             .default_namespace = namespaces.default orelse .any,
 
-            .specificities = .init(allocator),
+            .specificities = .empty,
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(parser: *Parser) void {
-        parser.specificities.deinit();
+        parser.specificities.deinit(parser.allocator);
     }
 
     pub fn parseComplexSelectorList(parser: *Parser, code_list: CodeList, sequence: Ast.Sequence) !void {
@@ -133,7 +135,7 @@ pub const Parser = struct {
 
 fn parseComplexSelector(parser: *Parser, code_list: CodeList) !?void {
     const complex_start = try code_list.beginComplexSelector();
-    try parser.specificities.ensureUnusedCapacity(1);
+    try parser.specificities.ensureUnusedCapacity(parser.allocator, 1);
     parser.specificity = .{};
     parser.valid = true;
 
@@ -312,9 +314,9 @@ fn parseName(parser: *Parser) ?QualifiedName.Name {
 }
 
 fn resolveNamespace(parser: *Parser, index: Ast.Index) NamespaceId {
-    const identifier = parser.source.copyIdentifier(index.location(parser.ast), parser.specificities.allocator) catch
+    const identifier = parser.source.copyIdentifier(index.location(parser.ast), parser.allocator) catch
         std.debug.panic("TODO: Unhandled allocation failure", .{});
-    defer parser.specificities.allocator.free(identifier);
+    defer parser.allocator.free(identifier);
     const namespace_index = parser.namespaces.indexer.getFromString(identifier) orelse {
         parser.valid = false;
         return undefined;
@@ -525,9 +527,9 @@ fn unrecognizedPseudo(comptime pseudo: Pseudo, parser: *Parser, main_component_i
     .element, .legacy_element => selectors.PseudoElement,
     .class => selectors.PseudoClass,
 } {
-    const pseudo_name = parser.source.copyIdentifier(main_component_index.location(parser.ast), parser.specificities.allocator) catch
+    const pseudo_name = parser.source.copyIdentifier(main_component_index.location(parser.ast), parser.allocator) catch
         std.debug.panic("TODO: Unhandled allocation failure", .{});
-    defer parser.specificities.allocator.free(pseudo_name);
+    defer parser.allocator.free(pseudo_name);
     zss.log.warn("Ignoring unsupported pseudo {s}: {s}", .{
         switch (pseudo) {
             .element, .legacy_element => "element",

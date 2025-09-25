@@ -49,14 +49,16 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
     };
     defer output_dir.close();
 
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [200]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     var renderer = zss.render.opengl.Renderer.init(allocator);
     defer renderer.deinit();
 
     for (tests, 0..) |t, ti| {
         try stdout.print("opengl: ({}/{}) \"{s}\" ... ", .{ ti + 1, tests.len, t.name });
-        defer stdout.writeAll("\n") catch {};
+        try stdout.flush();
 
         var layout = zss.Layout.init(&t.env, allocator, t.width, t.height, t.images, t.fonts);
         defer layout.deinit();
@@ -76,7 +78,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
 
         const pages = try std.math.divCeil(u32, root_block_size.height, t.height);
         var image = try zigimg.Image.create(allocator, root_block_size.width, pages * t.height, .rgba32);
-        defer image.deinit();
+        defer image.deinit(allocator);
         const image_pixels = image.pixels.asBytes();
 
         const temp_buffer = try allocator.alloc(u8, image_pixels.len);
@@ -114,7 +116,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
 
         if (image_pixels.len == 0) {
             // TODO: Delete the output file if it already exists
-            try stdout.writeAll("success, no file written");
+            try stdout.writeAll("success, no file written\n");
         } else {
             const image_path = try std.mem.concat(allocator, u8, &.{ t.name, ".png" });
             defer allocator.free(image_path);
@@ -123,12 +125,17 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
             }
             const image_file = try output_dir.createFile(image_path, .{});
             defer image_file.close();
-            try image.writeToFile(image_file, .{ .png = .{} });
-            try stdout.writeAll("success");
+            var write_buffer: [4096]u8 = undefined;
+            try image.writeToFile(allocator, image_file, &write_buffer, .{ .png = .{} });
+
+            try stdout.writeAll("success\n");
         }
+
+        try stdout.flush();
     }
 
     try stdout.print("opengl: all {} tests passed\n", .{tests.len});
+    try stdout.flush();
 }
 
 fn rootBlockSize(box_tree: *BoxTree, root_element_or_null: ?zss.Environment.NodeId) struct { x: u32, y: u32, width: u32, height: u32 } {

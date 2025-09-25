@@ -16,18 +16,28 @@ pub fn main() !u8 {
 
     if (args.len > 2) return 1;
 
-    var stdout = std.io.getStdOut().writer().any();
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
-    const string = try std.io.getStdIn().reader().readAllAlloc(allocator, 1_000_000);
-    defer allocator.free(string);
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    const stderr = &stderr_writer.interface;
 
-    const source = try TokenSource.init(string);
+    const input = blk: {
+        var stdin_buffer: [1024]u8 = undefined;
+        var stdin_reader = std.fs.File.stdin().readerStreaming(&stdin_buffer);
+        break :blk try stdin_reader.interface.allocRemaining(allocator, .limited(1_000_000));
+    };
+    defer allocator.free(input);
+    const source = try TokenSource.init(input);
+
     if (args.len == 1 or std.mem.eql(u8, args[1], "stylesheet")) {
-        try runParser(Parser.parseCssStylesheet, source, allocator, stdout);
+        try runParser(Parser.parseCssStylesheet, source, allocator, stdout, stderr);
     } else if (std.mem.eql(u8, args[1], "zml")) {
-        try runParser(Parser.parseZmlDocument, source, allocator, stdout);
+        try runParser(Parser.parseZmlDocument, source, allocator, stdout, stderr);
     } else if (std.mem.eql(u8, args[1], "components")) {
-        try runParser(Parser.parseListOfComponentValues, source, allocator, stdout);
+        try runParser(Parser.parseListOfComponentValues, source, allocator, stdout, stderr);
     } else if (std.mem.eql(u8, args[1], "tokens")) {
         var location: TokenSource.Location = @enumFromInt(0);
         var i: usize = 0;
@@ -37,6 +47,7 @@ pub fn main() !u8 {
             i += 1;
             if (token == .token_eof) break;
         }
+        try stdout.flush();
     } else {
         return 1;
     }
@@ -48,7 +59,8 @@ fn runParser(
     parse_fn: *const fn (*Parser, Allocator) Parser.Error!struct { Ast, Ast.Index },
     source: TokenSource,
     allocator: Allocator,
-    stdout: std.io.AnyWriter,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
 ) !void {
     var parser = zss.syntax.Parser.init(source, allocator);
     defer parser.deinit();
@@ -56,8 +68,8 @@ fn runParser(
     var ast, _ = parse_fn(&parser, allocator) catch |err| {
         switch (err) {
             error.ParseError => {
-                const stderr = std.io.getStdErr().writer();
                 try stderr.print("error at location {}: {s}\n", .{ @intFromEnum(parser.failure.location), parser.failure.cause.debugErrMsg() });
+                try stderr.flush();
             },
             else => {},
         }
@@ -66,4 +78,5 @@ fn runParser(
     defer ast.deinit(allocator);
 
     try ast.debug.print(allocator, stdout);
+    try stdout.flush();
 }

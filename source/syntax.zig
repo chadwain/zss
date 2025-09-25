@@ -440,7 +440,7 @@ pub const Ast = struct {
     }
 
     pub const Debug = struct {
-        pub fn print(debug: *const Debug, allocator: Allocator, writer: std.io.AnyWriter) !void {
+        pub fn print(debug: *const Debug, allocator: Allocator, writer: *std.Io.Writer) !void {
             const ast = @as(*const Ast, @alignCast(@fieldParentPtr("debug", debug))).*;
             try writer.print("Ast (index, component, location, extra), size = {}\n", .{ast.components.len});
             if (ast.components.len == 0) return;
@@ -458,7 +458,7 @@ pub const Ast = struct {
 
                 const component = ast.components.get(@intFromEnum(index));
                 const indent = stack.lenExcludingTop() * 4;
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.print("{} {s} {} ", .{ @intFromEnum(index), @tagName(component.tag), @intFromEnum(component.location) });
                 try printExtra(writer, component.tag, component.extra);
                 try writer.writeAll("\n");
@@ -470,7 +470,7 @@ pub const Ast = struct {
             }
         }
 
-        fn printExtra(writer: std.io.AnyWriter, component_tag: Component.Tag, component_extra: Component.Extra) !void {
+        fn printExtra(writer: *std.Io.Writer, component_tag: Component.Tag, component_extra: Component.Extra) !void {
             switch (component_tag) {
                 .token_delim => try writer.print("U+{X}", .{component_extra.codepoint}),
                 .token_integer => if (component_extra.integer) |integer| try writer.print("{}", .{integer}),
@@ -484,7 +484,7 @@ pub const Ast = struct {
                 .style_block,
                 .zml_styles,
                 .qualified_rule,
-                => try writer.print("{}", .{component_extra.index}),
+                => try writer.print("{}", .{@intFromEnum(component_extra.index)}),
                 .at_rule => if (component_extra.at_rule) |at_rule| try writer.print("@{s}", .{@tagName(at_rule)}),
                 else => {},
             }

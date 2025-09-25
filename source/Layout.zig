@@ -724,7 +724,7 @@ pub const BlockUsedSizes = struct {
     }
 
     pub fn GetReturnType(comptime field: Flags.Field) type {
-        return switch (std.meta.FieldType(Flags, field)) {
+        return switch (@FieldType(Flags, @tagName(field))) {
             IsAutoTag => ?math.Unit,
             IsAutoOrPercentageTag => IsAutoOrPercentage,
             else => comptime unreachable,
@@ -734,7 +734,7 @@ pub const BlockUsedSizes = struct {
     pub fn get(self: BlockUsedSizes, comptime field: Flags.Field) GetReturnType(field) {
         const flag = @field(self.flags, @tagName(field));
         const value = @field(self, @tagName(field) ++ "_untagged");
-        return switch (std.meta.FieldType(Flags, field)) {
+        return switch (@FieldType(Flags, @tagName(field))) {
             IsAutoTag => switch (flag) {
                 .value => value,
                 .auto => null,

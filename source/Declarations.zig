@@ -376,7 +376,7 @@ fn MultiValueHeader(comptime group: groups.Tag) type {
         break :blk result;
     };
     return struct {
-        data: std.ArrayListAlignedUnmanaged(u8, max_alignment) = .empty,
+        data: std.ArrayListAligned(u8, .fromByteUnits(max_alignment)) = .empty,
         normal_tags: Counts = default_counts,
         important_tags: Counts = default_counts,
 

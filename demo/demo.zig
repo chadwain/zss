@@ -112,9 +112,9 @@ pub fn main() !void {
     defer args.deinit(allocator);
 
     const file_path = args.filePath();
-    const file_contents = try readFile(allocator, file_path);
+    var file_contents = try readFile(allocator, file_path);
     defer switch (file_contents) {
-        .text => |text| allocator.free(text),
+        .text => |*text| text.deinit(allocator),
         .open_error => {},
     };
 
@@ -196,7 +196,7 @@ pub fn main() !void {
     if (zml_document.named_nodes.get("body")) |body_text| {
         const body_text_zss_node = body_text.toZssNode(&zml_document);
         const text_id = switch (file_contents) {
-            .text => |text| try env.addTextFromString(text),
+            .text => |text| try env.addTextFromString(text.items),
             .open_error => |err| blk: {
                 const string = try std.fmt.allocPrint(allocator, "(Unable to open file: {s})\n", .{@errorName(err)});
                 defer allocator.free(string);
@@ -214,7 +214,7 @@ pub fn main() !void {
 
     // Load the Zig logo image.
     var zig_logo_data, const zig_logo_image = try loadImage(@embedFile("zig.png"), allocator);
-    defer zig_logo_data.deinit();
+    defer zig_logo_data.deinit(allocator);
     const zig_logo_handle = try images.addImage(allocator, zig_logo_image);
     const resources = Resources{ .zig_logo = zig_logo_handle };
 
@@ -348,41 +348,35 @@ fn checkFtError(err: hb.FT_Error) error{FreeTypeError}!void {
 
 fn glfwError() error{GlfwError} {
     if (glfw.getError()) |glfw_error| {
-        std.debug.print("GLFWError({s}): {?s}\n", .{ @errorName(glfw_error.error_code), glfw_error.description });
+        std.debug.print("GLFWError({s}): {s}\n", .{ @errorName(glfw_error.error_code), glfw_error.description });
     }
     return error.GlfwError;
 }
 
 fn readFile(allocator: Allocator, file_path: []const u8) !union(enum) {
-    text: []const u8,
+    text: std.ArrayList(u8),
     open_error: std.fs.File.OpenError,
 } {
-    var list = std.ArrayList(u8).init(allocator);
-    errdefer list.deinit();
-
     const file = std.fs.cwd().openFile(file_path, .{}) catch |err| return .{ .open_error = err };
     defer file.close();
-    try file.reader().readAllArrayList(&list, 1024 * 1024);
+    var file_reader_buffer: [4096]u8 = undefined;
+    var file_reader = file.reader(&file_reader_buffer);
+    const bytes = try file_reader.interface.allocRemaining(allocator, .limited(1024 * 1024));
+    var list: std.ArrayList(u8) = .fromOwnedSlice(bytes);
 
     // Exclude a trailing newline.
-    if (list.items.len > 0) {
-        switch (list.items[list.items.len - 1]) {
-            '\n' => if (list.items.len > 1 and list.items[list.items.len - 2] == '\r') {
-                list.items.len -= 2;
-            } else {
-                list.items.len -= 1;
-            },
-            '\r' => list.items.len -= 1,
-            else => {},
-        }
+    if (std.mem.endsWith(u8, list.items, "\r\n")) {
+        list.items.len -= 2;
+    } else if (std.mem.endsWith(u8, list.items, "\n")) {
+        list.items.len -= 1;
     }
 
-    return .{ .text = try list.toOwnedSlice() };
+    return .{ .text = list };
 }
 
 fn loadImage(bytes: []const u8, allocator: Allocator) !struct { zigimg.Image, zss.Images.Description } {
     var zigimg_image = try zigimg.Image.fromMemory(allocator, bytes);
-    errdefer zigimg_image.deinit();
+    errdefer zigimg_image.deinit(allocator);
 
     const zss_image: zss.Images.Description = .{
         .dimensions = .{

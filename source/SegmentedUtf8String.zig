@@ -133,7 +133,7 @@ pub fn append(string: *SegmentedUtf8String, allocator: Allocator, items: []const
             // In that case, a new segment needs to be allocated in order to append codepoints.
 
             // TODO: Consider reserving all the new segments beforehand
-            const segment = try allocator.alignedAlloc(u8, 4, complete_len);
+            const segment = try allocator.alignedAlloc(u8, .fromByteUnits(4), complete_len);
             errdefer allocator.free(segment);
 
             const old_segments = string.segments[0..location.segment_index];

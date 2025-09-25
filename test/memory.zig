@@ -12,11 +12,13 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [200]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     for (tests, 0..) |t, i| {
         try stdout.print("memory: ({}/{}) \"{s}\" ... ", .{ i + 1, tests.len, t.name });
-        defer stdout.writeAll("\n") catch {};
+        try stdout.flush();
 
         try std.testing.checkAllAllocationFailures(allocator, testFn, .{
             &t.env,
@@ -26,10 +28,12 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
             t.fonts,
         });
 
-        try stdout.writeAll("success");
+        try stdout.writeAll("success\n");
+        try stdout.flush();
     }
 
     try stdout.print("memory: all {} tests passed\n", .{tests.len});
+    try stdout.flush();
 }
 
 fn testFn(

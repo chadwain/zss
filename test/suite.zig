@@ -30,28 +30,28 @@ const Args = struct {
             .filters = undefined,
         };
 
-        var filters = std.ArrayList([]const u8).init(allocator);
-        const stderr = std.io.getStdErr();
+        var filters = std.ArrayList([]const u8).empty;
+        var stderr = std.fs.File.stderr().writer(&.{});
         var i: usize = 4;
         while (i < argv.len) {
             const arg = argv[i];
             if (std.mem.eql(u8, arg, "--test-filter")) {
                 i += 1;
                 if (i == argv.len) {
-                    stderr.writeAll("Missing argument after '--test-filter'\n") catch {};
+                    stderr.interface.writeAll("Missing argument after '--test-filter'\n") catch {};
+                    stderr.interface.flush() catch {};
                     std.process.exit(1);
                 }
-                try filters.append(argv[i]);
+                try filters.append(allocator, argv[i]);
                 i += 1;
             } else {
-                stderr.writeAll("Unrecognized argument: ") catch {};
-                stderr.writeAll(arg) catch {};
-                stderr.writeAll("\n") catch {};
+                stderr.interface.print("Unrecognized argument: {s}\n", .{arg}) catch {};
+                stderr.interface.flush() catch {};
                 std.process.exit(1);
             }
         }
 
-        args.filters = try filters.toOwnedSlice();
+        args.filters = filters.items;
 
         return args;
     }
@@ -128,7 +128,7 @@ fn getAllTests(
     var walker = try cases_dir.walk(allocator);
     defer walker.deinit();
 
-    var list = std.ArrayList(*Test).init(allocator);
+    var list = std.ArrayList(*Test).empty;
 
     while (try walker.next()) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.basename, ".zml")) continue;
@@ -148,10 +148,10 @@ fn getAllTests(
         const name = try allocator.dupe(u8, entry.path[0 .. entry.path.len - ".zml".len]);
 
         const t = try createTest(arena, name, ast, token_source, zml_document_index, images, fonts, font_handle, &loader, ua_stylesheet);
-        try list.append(t);
+        try list.append(allocator, t);
     }
 
-    return list.toOwnedSlice();
+    return list.items;
 }
 
 const UaStylesheet = struct {
@@ -245,10 +245,11 @@ const ResourceLoader = struct {
                         continue;
                     }
 
-                    var file = try loader.res_dir.openFile(string, .{ .mode = .read_only });
+                    const file = try loader.res_dir.openFile(string, .{ .mode = .read_only });
                     defer file.close();
 
-                    const zigimg_image = try zigimg.Image.fromFile(allocator, &file);
+                    var read_buffer: [4096]u8 = undefined;
+                    const zigimg_image = try zigimg.Image.fromFile(allocator, file, &read_buffer);
                     const zss_image = try images.addImage(allocator, .{
                         .dimensions = .{
                             .width_px = @intCast(zigimg_image.width),

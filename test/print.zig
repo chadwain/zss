@@ -10,10 +10,13 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
-    const stdout = std.io.getStdOut().writer().any();
+    var stdout_buffer: [8192]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     for (tests, 0..) |t, i| {
         try stdout.print("print: ({}/{}) \"{s}\" ... \n", .{ i + 1, tests.len, t.name });
+        try stdout.flush();
 
         var layout = zss.Layout.init(
             &t.env,
@@ -30,7 +33,9 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
         try box_tree.debug.print(stdout, allocator);
 
         try stdout.writeAll("\n");
+        try stdout.flush();
     }
 
     try stdout.print("print: all {} tests passed\n", .{tests.len});
+    try stdout.flush();
 }

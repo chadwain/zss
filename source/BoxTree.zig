@@ -423,16 +423,16 @@ pub const StackingContextTree = struct {
     }
 
     pub const Debug = struct {
-        pub fn print(debug: *const StackingContextTree.Debug, writer: std.io.AnyWriter, allocator: Allocator) !void {
+        pub fn print(debug: *const StackingContextTree.Debug, writer: *std.Io.Writer, allocator: Allocator) !void {
             const sct: *const StackingContextTree = @alignCast(@fieldParentPtr("debug", debug));
             const Context = struct {
                 view: View,
-                writer: std.io.AnyWriter,
+                writer: *std.Io.Writer,
             };
             const callback = struct {
                 fn f(ctx: Context, index: Size, depth: Size) !void {
                     const item = ctx.view.get(index);
-                    try ctx.writer.writeByteNTimes(' ', depth * 4);
+                    try ctx.writer.splatByteAll(' ', depth * 4);
                     try ctx.writer.print(
                         "[{}, {}) id({}) z-index({}) ref({}) ifcs({any})\n",
                         .{ index, index + item.skip, @intFromEnum(item.id), item.z_index, item.ref, item.ifcs.items },
@@ -487,14 +487,14 @@ pub const BackgroundImages = struct {
 };
 
 pub const Debug = struct {
-    pub fn print(debug: *const Debug, writer: std.io.AnyWriter, allocator: Allocator) !void {
+    pub fn print(debug: *const Debug, writer: *std.Io.Writer, allocator: Allocator) !void {
         const box_tree: *const BoxTree = @alignCast(@fieldParentPtr("debug", debug));
         try box_tree.debug.printBlocks(writer, allocator);
         try writer.writeAll("\n");
         try box_tree.sct.debug.print(writer, allocator);
     }
 
-    pub fn printBlocks(debug: *const Debug, writer: std.io.AnyWriter, allocator: Allocator) !void {
+    pub fn printBlocks(debug: *const Debug, writer: *std.Io.Writer, allocator: Allocator) !void {
         const box_tree: *const BoxTree = @alignCast(@fieldParentPtr("debug", debug));
         var stack = zss.Stack(struct {
             iterator: Subtree.Iterator,
@@ -514,13 +514,13 @@ pub const Debug = struct {
                 _ = stack.pop();
                 continue;
             };
-            try writer.writeByteNTimes(' ', (stack.lenExcludingTop() + 1) * 4);
+            try writer.splatByteAll(' ', (stack.lenExcludingTop() + 1) * 4);
             try printBlock(top.view, index, writer);
 
             switch (top.view.items(.type)[index]) {
                 .subtree_proxy => |subtree_id| {
                     const view = box_tree.getSubtree(subtree_id).view();
-                    try writer.writeByteNTimes(' ', (stack.lenExcludingTop() + 1) * 4);
+                    try writer.splatByteAll(' ', (stack.lenExcludingTop() + 1) * 4);
                     try writer.print("Subtree({}) size({})\n", .{ @intFromEnum(subtree_id), view.len });
                     try stack.push(allocator, .{ .iterator = Subtree.root(view), .view = view });
                 },
@@ -529,7 +529,7 @@ pub const Debug = struct {
         }
     }
 
-    fn printBlock(subtree: Subtree.View, index: Subtree.Size, writer: std.io.AnyWriter) !void {
+    fn printBlock(subtree: Subtree.View, index: Subtree.Size, writer: *std.Io.Writer) !void {
         try writer.print("[{}, {}) ", .{ index, index + subtree.items(.skip)[index] });
 
         switch (subtree.items(.type)[index]) {

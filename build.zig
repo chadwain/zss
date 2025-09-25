@@ -126,12 +126,14 @@ fn addTestSuite(b: *Build, config: Config, zss: *Module) *Step.Run {
 
         const category_strings = b.option([]const []const u8, "test", "A test suite category to run (can be used multiple times)") orelse &.{};
         var category_set = std.enums.EnumSet(TestSuiteCategory).initEmpty();
-        var final_categories = std.BoundedArray([]const u8, std.meta.fields(TestSuiteCategory).len){};
+        var categories: [std.meta.fields(TestSuiteCategory).len][]const u8 = undefined;
+        var categories_len: usize = 0;
         for (category_strings) |in| {
             const val = std.meta.stringToEnum(TestSuiteCategory, in) orelse std.debug.panic("Invalid test suite category: {s}", .{in});
             if (!category_set.contains(val)) {
                 category_set.insert(val);
-                final_categories.appendAssumeCapacity(in);
+                categories[categories_len] = in;
+                categories_len += 1;
 
                 switch (val) {
                     .check, .memory, .print => {},
@@ -143,7 +145,7 @@ fn addTestSuite(b: *Build, config: Config, zss: *Module) *Step.Run {
         }
 
         const options_module = b.addOptions();
-        options_module.addOption([]const []const u8, "test_categories", final_categories.slice());
+        options_module.addOption([]const []const u8, "test_categories", categories[0..categories_len]);
         test_suite.root_module.addOptions("build-options", options_module);
     }
 
