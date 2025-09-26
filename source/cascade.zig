@@ -56,10 +56,10 @@ pub const Source = struct {
     /// Pairs of complex selectors and normal declaration blocks.
     /// This list must be sorted such that selectors with higher cascade order appear earlier.
     selectors_normal: std.MultiArrayList(SelectorBlock) = .empty,
-    selector_data: std.ArrayListUnmanaged(selectors.Code) = .empty,
+    selector_data: std.ArrayList(selectors.Data) = .empty,
 
     pub const SelectorBlock = struct {
-        selector: selectors.Size,
+        selector: selectors.Data.ListIndex,
         block: Block,
     };
 

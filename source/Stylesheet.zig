@@ -72,7 +72,7 @@ pub fn create(
     var selector_parser = selectors.Parser.init(env, allocator, token_source, ast, &stylesheet.namespaces);
     defer selector_parser.deinit();
 
-    var unsorted_selectors = std.MultiArrayList(struct { index: selectors.Size, specificity: Specificity }){};
+    var unsorted_selectors = std.MultiArrayList(struct { index: selectors.Data.ListIndex, specificity: Specificity }){};
     defer unsorted_selectors.deinit(allocator);
 
     assert(rule_list_index.tag(ast) == .rule_list);
@@ -103,21 +103,22 @@ pub fn create(
             .qualified_rule => {
                 // TODO: Handle invalid style rules
 
+                // Parse selectors
                 const selector_sequence = ast.qualifiedRulePrelude(index);
-                const selector_code_list = selectors.CodeList{ .list = &stylesheet.cascade_source.selector_data, .allocator = env.allocator };
-                const first_complex_selector = selector_code_list.len();
-                selector_parser.parseComplexSelectorList(selector_code_list, selector_sequence) catch |err| switch (err) {
+                const first_complex_selector: selectors.Data.ListIndex = @intCast(stylesheet.cascade_source.selector_data.items.len);
+                selector_parser.parseComplexSelectorList(&stylesheet.cascade_source.selector_data, allocator, selector_sequence) catch |err| switch (err) {
                     error.ParseError => continue,
                     else => |e| return e,
                 };
 
+                // Parse the style block
                 const last_declaration = selector_sequence.end.extra(ast).index;
                 var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
                 const decl_block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration, stylesheet.decl_urls.toManaged(allocator));
 
                 var index_of_complex_selector = first_complex_selector;
                 for (selector_parser.specificities.items) |specificity| {
-                    const selector_number: selectors.Size = @intCast(unsorted_selectors.len);
+                    const selector_number: selectors.Data.ListIndex = @intCast(unsorted_selectors.len);
                     try unsorted_selectors.append(allocator, .{ .index = index_of_complex_selector, .specificity = specificity });
 
                     for ([_]Importance{ .important, .normal }) |importance| {
@@ -127,16 +128,16 @@ pub fn create(
                         };
                         if (!env.decls.hasValues(decl_block, importance)) continue;
 
-                        try destination_list.append(env.allocator, .{
+                        try destination_list.append(allocator, .{
                             // Temporarily store the selector number; after sorting, this is replaced with the selector index.
                             .selector = selector_number,
                             .block = decl_block,
                         });
                     }
 
-                    index_of_complex_selector = selector_code_list.list.items[index_of_complex_selector].next_complex_selector;
+                    index_of_complex_selector = stylesheet.cascade_source.selector_data.items[index_of_complex_selector].next_complex_selector;
                 }
-                assert(index_of_complex_selector == selector_code_list.len());
+                assert(index_of_complex_selector == stylesheet.cascade_source.selector_data.items.len);
             },
             else => unreachable,
         }
@@ -153,7 +154,7 @@ pub fn create(
             .normal => &stylesheet.cascade_source.selectors_normal,
         };
         const SortContext = struct {
-            selector_number: []const selectors.Size,
+            selector_number: []const selectors.Data.ListIndex,
             blocks: []const Declarations.Block,
             specificities: []const Specificity,
 

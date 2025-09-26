@@ -303,6 +303,7 @@ pub const TreeInterface = struct {
     };
 };
 
+// TODO: Make this a normal struct
 pub const NodeId = packed struct {
     group: NodeGroup,
     value: usize,
@@ -332,6 +333,7 @@ pub const NodeId = packed struct {
 // TODO: Consider having a category for uninitialized nodes.
 pub const NodeCategory = enum { element, text };
 
+// TODO: Make this a normal struct
 pub const NodeType = packed struct {
     namespace: Namespaces.Id,
     name: NameId,

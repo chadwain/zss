@@ -20,12 +20,18 @@ const MultiArrayList = std.MultiArrayList;
 
 pub const Parser = @import("selectors/parse.zig").Parser;
 
-pub const Size = u24;
-
-pub const Code = union {
+/// A data component of a complex selector.
+/// Every complex selector is represented as a list of this data type.
+///
+/// When you have a list of this type, it should be laid out as follows:
+/// <list> = [ `next_complex_selector` <complex-selector> ]*
+/// <complex-selector> = [ <compound-selector> `trailing` ]+
+/// <compound-selector> = [ `simple_selector_tag` <simple-selector> ]+
+/// <simple-selector> = <variable data, depending on the previous `simple_selector_tag`>
+pub const Data = union {
     /// The index of the start of the next complex selector.
-    /// If this is the last complex selector within the code list, then this just points to the end of the code list.
-    next_complex_selector: Size,
+    /// If this is the last complex selector within the data list, then this just points to the end of the data list.
+    next_complex_selector: ListIndex,
     /// Found after every compound selector.
     trailing: Trailing,
     simple_selector_tag: SimpleSelectorTag,
@@ -37,28 +43,31 @@ pub const Code = union {
     pseudo_class_selector: PseudoClass,
     pseudo_element_selector: PseudoElement,
 
+    pub const ListIndex = u24;
+
+    // TODO: Make this an extern struct to avoid issues with undefined values within packed types.
     pub const Trailing = packed struct {
         /// The combinator applied to this compound selector (the left-hand side) and the compound selector after it (the right-hand side).
         /// If this is the last compound selector in a complex selector, this field is undefined and should not be used.
         combinator: Combinator,
         /// The index of the start of this compound selector (i.e. the first `simple_selector_tag` within this compound).
-        compound_selector_start: Size,
+        compound_selector_start: ListIndex,
     };
 
     // TODO: Put payloads into this union, fit it all into 4 bytes
     pub const SimpleSelectorTag = union(enum) {
-        /// The next Code is a `type_selector`
+        /// The next Data is a `type_selector`
         type,
-        /// The next Code is a `id_selector`
+        /// The next Data is a `id_selector`
         id,
-        /// The next Code is a `class_selector`
+        /// The next Data is a `class_selector`
         class,
-        /// The next Code is a `attribute_selector`
+        /// The next Data is a `attribute_selector`
         /// If non-null, then there is also an `attribute_selector_value` following the `attribute_selector`
         attribute: ?AttributeOperatorCase,
-        /// The next Code is a `pseudo_class_selector`
+        /// The next Data is a `pseudo_class_selector`
         pseudo_class,
-        /// The next Code is a `pseudo_element_selector`
+        /// The next Data is a `pseudo_element_selector`
         pseudo_element,
     };
 
@@ -69,7 +78,7 @@ pub const Code = union {
 };
 
 comptime {
-    if (!zss.debug.runtime_safety) assert(@sizeOf(Code) == 4);
+    if (!zss.debug.runtime_safety) assert(@sizeOf(Data) == 4);
 }
 
 pub const Combinator = enum(u8) { descendant, child, next_sibling, subsequent_sibling, column };
@@ -82,52 +91,8 @@ pub const AttributeOperator = enum { equals, list_contains, equals_or_prefix_das
 
 pub const AttributeCase = enum { default, same_case, ignore_case };
 
-/// A list of complex selectors.
-/// Each complex selector is represented as an array of `Code`.
-///
-/// Data layout (items in backticks represent fields of `Code`):
-/// <list> = [ `next_complex_selector` <complex-selector> ]*
-/// <complex-selector> = [ <compound-selector> `trailing` ]+
-/// <compound-selector> = [ `simple_selector_tag` <simple-selector> ]+
-/// <simple-selector> = <variable data, depending on the previous `simple_selector_tag`>
-
-// TODO: Make this non-public
-pub const CodeList = struct {
-    list: *std.ArrayListUnmanaged(Code),
-    allocator: Allocator,
-
-    pub fn len(code_list: CodeList) Size {
-        return @intCast(code_list.list.items.len);
-    }
-
-    pub fn append(code_list: CodeList, code: Code) !void {
-        if (code_list.list.items.len == std.math.maxInt(Size)) return error.OutOfMemory;
-        try code_list.list.append(code_list.allocator, code);
-    }
-
-    pub fn appendSlice(code_list: CodeList, codes: []const Code) !void {
-        if (codes.len > std.math.maxInt(Size) - code_list.list.items.len) return error.OutOfMemory;
-        try code_list.list.appendSlice(code_list.allocator, codes);
-    }
-
-    pub fn beginComplexSelector(code_list: CodeList) !Size {
-        const index = code_list.len();
-        try code_list.append(undefined);
-        return index;
-    }
-
-    /// `start` is the value previously returned by `beginComplexSelector`
-    pub fn endComplexSelector(code_list: CodeList, start: Size) void {
-        code_list.list.items[start] = .{ .next_complex_selector = code_list.len() };
-        code_list.list.items[code_list.len() - 1].trailing.combinator = undefined;
-    }
-
-    pub fn reset(code_list: CodeList, complex_selector_start: Size) void {
-        code_list.list.shrinkRetainingCapacity(complex_selector_start);
-    }
-};
-
 /// Represents the specificity of a complex selector.
+// TODO: Make this a normal struct
 pub const Specificity = packed struct {
     a: u8 = 0,
     b: u8 = 0,
@@ -163,8 +128,8 @@ test "Specificity.order" {
 /// Returns `true` if the complex selector matches `match_candidate`.
 /// Asserts that `match_candidate` is an element node.
 pub fn matchElement(
-    code: []const Code,
-    complex_selector_index: Size,
+    data: []const Data,
+    complex_selector_index: Data.ListIndex,
     env: *const Environment,
     match_candidate: NodeId,
 ) bool {
@@ -173,24 +138,24 @@ pub fn matchElement(
         .text => unreachable,
     }
 
-    const last_trailing = code[complex_selector_index].next_complex_selector - 1;
-    return matchComplexSelector(code, complex_selector_index + 1, last_trailing, env, match_candidate);
+    const last_trailing = data[complex_selector_index].next_complex_selector - 1;
+    return matchComplexSelector(data, complex_selector_index + 1, last_trailing, env, match_candidate);
 }
 
 fn matchComplexSelector(
-    codes: []const Code,
-    first_compound: Size,
-    last_trailing: Size,
+    data: []const Data,
+    first_compound: Data.ListIndex,
+    last_trailing: Data.ListIndex,
     env: *const Environment,
     match_candidate: NodeId,
 ) bool {
     var trailing_index = last_trailing;
-    var trailing = codes[trailing_index].trailing;
+    var trailing = data[trailing_index].trailing;
     var element: ?NodeId = match_candidate;
-    if (!matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element.?)) return false;
+    if (!matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, env, element.?)) return false;
     compound_loop: while (trailing.compound_selector_start != first_compound) {
         trailing_index = trailing.compound_selector_start - 1;
-        trailing = codes[trailing_index].trailing;
+        trailing = data[trailing_index].trailing;
         switch (trailing.combinator) {
             .descendant => {
                 element = element.?.parent(env);
@@ -199,7 +164,7 @@ fn matchComplexSelector(
                         .element => {},
                         .text => unreachable,
                     }
-                    if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, e)) continue :compound_loop;
+                    if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, env, e)) continue :compound_loop;
                 } else return false;
             },
             .child => {
@@ -210,7 +175,7 @@ fn matchComplexSelector(
                         .text => unreachable,
                     }
                 } else return false;
-                if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element.?)) continue :compound_loop;
+                if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, env, element.?)) continue :compound_loop;
                 return false;
             },
             .subsequent_sibling => {
@@ -218,7 +183,7 @@ fn matchComplexSelector(
                 while (element) |e| : (element = e.previousSibling(env)) {
                     switch (env.getNodeProperty(.category, e)) {
                         .element => {
-                            if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, e)) continue :compound_loop;
+                            if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, env, e)) continue :compound_loop;
                         },
                         .text => {},
                     }
@@ -232,7 +197,7 @@ fn matchComplexSelector(
                         .text => {},
                     }
                 } else return false;
-                if (matchCompoundSelector(codes, trailing.compound_selector_start, trailing_index, env, element.?)) continue :compound_loop;
+                if (matchCompoundSelector(data, trailing.compound_selector_start, trailing_index, env, element.?)) continue :compound_loop;
                 return false;
             },
             .column => panic("TODO: Unsupported selector combinator: {s}\n", .{@tagName(trailing.combinator)}),
@@ -242,33 +207,33 @@ fn matchComplexSelector(
 }
 
 fn matchCompoundSelector(
-    codes: []const Code,
-    start: Size,
-    end: Size,
+    data: []const Data,
+    start: Data.ListIndex,
+    end: Data.ListIndex,
     env: *const Environment,
     element: NodeId,
 ) bool {
     var index = start;
     while (index < end) : (index += 1) {
-        switch (codes[index].simple_selector_tag) {
+        switch (data[index].simple_selector_tag) {
             .type => {
                 index += 1;
-                const selector_type = codes[index].type_selector;
+                const selector_type = data[index].type_selector;
                 const element_type = env.getNodeProperty(.type, element);
                 if (!matchTypeSelector(selector_type, element_type)) return false;
             },
             .id => {
                 index += 1;
-                const id = codes[index].id_selector;
+                const id = data[index].id_selector;
                 const element_with_id = env.getElementById(id) orelse return false;
                 if (element != element_with_id) return false;
             },
             .class,
             .attribute,
-            => panic("TODO: Unsupported simple selector: {s}", .{@tagName(codes[index].simple_selector_tag)}),
+            => panic("TODO: Unsupported simple selector: {s}", .{@tagName(data[index].simple_selector_tag)}),
             .pseudo_class => {
                 index += 1;
-                const pseudo_class = codes[index].pseudo_class_selector;
+                const pseudo_class = data[index].pseudo_class_selector;
                 switch (pseudo_class) {
                     .root => {
                         if (element != env.root_node) return false;
@@ -278,7 +243,7 @@ fn matchCompoundSelector(
             },
             .pseudo_element => {
                 index += 1;
-                const pseudo_element = codes[index].pseudo_element_selector;
+                const pseudo_element = data[index].pseudo_element_selector;
                 switch (pseudo_element) {
                     .unrecognized => return false,
                 }
@@ -378,53 +343,53 @@ const TestParseSelectorListExpected = []const struct {
     },
 };
 
-fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, codes: []const Code, num_actual: Size) !void {
+fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, data: []const Data, num_actual: Data.ListIndex) !void {
     const expectEqual = std.testing.expectEqual;
 
     try expectEqual(expected.len, num_actual);
-    var index_of_complex: Size = 0;
+    var index_of_complex: Data.ListIndex = 0;
     for (expected) |expected_complex| {
         var index = index_of_complex + 1;
-        index_of_complex = codes[index_of_complex].next_complex_selector;
+        index_of_complex = data[index_of_complex].next_complex_selector;
 
         for (expected_complex.complex, 0..) |expected_item, compound_index| {
             const expected_compound = expected_item.compound;
 
             if (expected_compound.type) |expected_type| {
-                _ = codes[index].simple_selector_tag;
+                _ = data[index].simple_selector_tag;
                 index += 1;
-                const actual_type = codes[index].type_selector;
+                const actual_type = data[index].type_selector;
                 index += 1;
                 try expectEqual(expected_type.namespace, actual_type.namespace);
                 try expectEqual(expected_type.name, actual_type.name);
             }
 
             for (expected_compound.subclasses) |expected_subclass| {
-                const actual_tag = codes[index].simple_selector_tag;
+                const actual_tag = data[index].simple_selector_tag;
                 index += 1;
                 switch (expected_subclass) {
                     .id => |expected_id| {
-                        const actual_id = codes[index].id_selector;
+                        const actual_id = data[index].id_selector;
                         index += 1;
                         try expectEqual(expected_id, actual_id);
                     },
                     .class => |expected_class| {
-                        const actual_class = codes[index].class_selector;
+                        const actual_class = data[index].class_selector;
                         index += 1;
                         try expectEqual(expected_class, actual_class);
                     },
                     .pseudo_class => |expected_pseudo| {
-                        const actual_pseudo = codes[index].pseudo_class_selector;
+                        const actual_pseudo = data[index].pseudo_class_selector;
                         index += 1;
                         try expectEqual(expected_pseudo, actual_pseudo);
                     },
                     .attribute => |expected_attribute| {
-                        const actual_attribute = codes[index].attribute_selector;
+                        const actual_attribute = data[index].attribute_selector;
                         index += 1;
                         try expectEqual(expected_attribute.namespace, actual_attribute.namespace);
                         try expectEqual(expected_attribute.name, actual_attribute.name);
                         if (expected_attribute.value) |expected_value| {
-                            _ = codes[index].attribute_selector_value;
+                            _ = data[index].attribute_selector_value;
                             index += 1;
                             try expectEqual(expected_value.operator, actual_tag.attribute.?.operator);
                             try expectEqual(expected_value.case, actual_tag.attribute.?.case);
@@ -434,13 +399,13 @@ fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, code
             }
 
             for (expected_compound.pseudo_elements) |expected_element| {
-                _ = codes[index].simple_selector_tag;
+                _ = data[index].simple_selector_tag;
                 index += 1;
-                const actual_element = codes[index].pseudo_element_selector;
+                const actual_element = data[index].pseudo_element_selector;
                 index += 1;
                 try expectEqual(expected_element.element, actual_element);
                 for (expected_element.pseudo_classes) |expected_class| {
-                    const actual_class = codes[index].pseudo_class_selector;
+                    const actual_class = data[index].pseudo_class_selector;
                     index += 1;
                     try expectEqual(expected_class, actual_class);
                 }
@@ -448,17 +413,17 @@ fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, code
 
             if (compound_index != expected_complex.complex.len - 1) {
                 const expected_combinator = expected_item.combinator.?;
-                const actual_combinator = codes[index].trailing.combinator;
+                const actual_combinator = data[index].trailing.combinator;
                 index += 1;
                 try expectEqual(expected_combinator, actual_combinator);
             }
         }
     }
 
-    try expectEqual(codes.len, index_of_complex);
+    try expectEqual(data.len, index_of_complex);
 }
 
-fn stringToSelectorList(input: []const u8, env: *Environment, allocator: Allocator, code_list: CodeList) !Size {
+fn stringToSelectorList(input: []const u8, env: *Environment, allocator: Allocator, data_list: *std.ArrayList(Data)) !Data.ListIndex {
     const source = try TokenSource.init(input);
 
     var ast, const component_list_index = blk: {
@@ -471,7 +436,7 @@ fn stringToSelectorList(input: []const u8, env: *Environment, allocator: Allocat
     var parser = Parser.init(env, allocator, source, ast, &.{});
     defer parser.deinit();
 
-    try parser.parseComplexSelectorList(code_list, component_list_index.children(ast));
+    try parser.parseComplexSelectorList(data_list, allocator, component_list_index.children(ast));
     return @intCast(parser.specificities.items.len);
 }
 
@@ -481,11 +446,11 @@ fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpec
     var env = Environment.init(allocator);
     defer env.deinit();
 
-    var codes = std.ArrayListUnmanaged(Code){};
-    defer codes.deinit(allocator);
+    var data_list = std.ArrayList(Data){};
+    defer data_list.deinit(allocator);
 
-    const num_selectors = try stringToSelectorList(input, &env, allocator, .{ .list = &codes, .allocator = allocator });
-    try expectEqualComplexSelectorLists(expected, codes.items, num_selectors);
+    const num_selectors = try stringToSelectorList(input, &env, allocator, &data_list);
+    try expectEqualComplexSelectorLists(expected, data_list.items, num_selectors);
 }
 
 test "parsing selector lists" {
@@ -605,19 +570,16 @@ test "complex selector matching" {
         break :blk .{ .root = root, .first = first, .second = second, .grandchild = grandchild, .third = third };
     };
 
-    var codes: std.ArrayListUnmanaged(Code) = .empty;
-    defer codes.deinit(allocator);
-    const code_list: CodeList = .{ .list = &codes, .allocator = allocator };
-
     const doTest = struct {
-        fn f(selector_string: []const u8, en: *Environment, d: CodeList, ar: *ArenaAllocator, n: Environment.NodeId) !bool {
-            const complex_start = d.len();
-            const num_selectors = stringToSelectorList(selector_string, en, ar.allocator(), d) catch |err| switch (err) {
+        fn f(selector_string: []const u8, en: *Environment, ar: *ArenaAllocator, n: Environment.NodeId) !bool {
+            var data_list: std.ArrayList(Data) = .empty;
+            const complex_start: Data.ListIndex = @intCast(data_list.items.len);
+            const num_selectors = stringToSelectorList(selector_string, en, ar.allocator(), &data_list) catch |err| switch (err) {
                 error.ParseError => return false,
                 else => |er| return er,
             };
             assert(num_selectors == 1);
-            return matchElement(d.list.items, complex_start, en, n);
+            return matchElement(data_list.items, complex_start, en, n);
         }
     }.f;
     const expect = std.testing.expect;
@@ -626,27 +588,27 @@ test "complex selector matching" {
     defer arena.deinit();
 
     // zig fmt: off
-    try expect(try doTest("root"                  , &env, code_list, &arena, nodes.root));
-    try expect(try doTest(":root"                 , &env, code_list, &arena, nodes.root));
-    try expect(try doTest("first"                 , &env, code_list, &arena, nodes.first));
-    try expect(try doTest("root > first"          , &env, code_list, &arena, nodes.first));
-    try expect(try doTest("root first"            , &env, code_list, &arena, nodes.first));
-    try expect(try doTest("second"                , &env, code_list, &arena, nodes.second));
-    try expect(try doTest("first + second"        , &env, code_list, &arena, nodes.second));
-    try expect(try doTest("first ~ second"        , &env, code_list, &arena, nodes.second));
-    try expect(try doTest("third"                 , &env, code_list, &arena, nodes.third));
-    try expect(try doTest("second + third"        , &env, code_list, &arena, nodes.third));
-    try expect(try doTest("second ~ third"        , &env, code_list, &arena, nodes.third));
-    try expect(!try doTest("first + third"        , &env, code_list, &arena, nodes.third));
-    try expect(try doTest("first ~ third"         , &env, code_list, &arena, nodes.third));
-    try expect(try doTest("grandchild"            , &env, code_list, &arena, nodes.grandchild));
-    try expect(try doTest("second > grandchild"   , &env, code_list, &arena, nodes.grandchild));
-    try expect(try doTest("second grandchild"     , &env, code_list, &arena, nodes.grandchild));
-    try expect(try doTest("root grandchild"       , &env, code_list, &arena, nodes.grandchild));
-    try expect(try doTest("root second grandchild", &env, code_list, &arena, nodes.grandchild));
-    try expect(!try doTest("root > grandchild"    , &env, code_list, &arena, nodes.grandchild));
-    try expect(try doTest("#alice"                , &env, code_list, &arena, nodes.root));
-    try expect(!try doTest("#alice"               , &env, code_list, &arena, nodes.third));
-    try expect(try doTest("#alice > #bob"         , &env, code_list, &arena, nodes.third));
+    try expect(try doTest("root"                  , &env, &arena, nodes.root));
+    try expect(try doTest(":root"                 , &env, &arena, nodes.root));
+    try expect(try doTest("first"                 , &env, &arena, nodes.first));
+    try expect(try doTest("root > first"          , &env, &arena, nodes.first));
+    try expect(try doTest("root first"            , &env, &arena, nodes.first));
+    try expect(try doTest("second"                , &env, &arena, nodes.second));
+    try expect(try doTest("first + second"        , &env, &arena, nodes.second));
+    try expect(try doTest("first ~ second"        , &env, &arena, nodes.second));
+    try expect(try doTest("third"                 , &env, &arena, nodes.third));
+    try expect(try doTest("second + third"        , &env, &arena, nodes.third));
+    try expect(try doTest("second ~ third"        , &env, &arena, nodes.third));
+    try expect(!try doTest("first + third"        , &env, &arena, nodes.third));
+    try expect(try doTest("first ~ third"         , &env, &arena, nodes.third));
+    try expect(try doTest("grandchild"            , &env, &arena, nodes.grandchild));
+    try expect(try doTest("second > grandchild"   , &env, &arena, nodes.grandchild));
+    try expect(try doTest("second grandchild"     , &env, &arena, nodes.grandchild));
+    try expect(try doTest("root grandchild"       , &env, &arena, nodes.grandchild));
+    try expect(try doTest("root second grandchild", &env, &arena, nodes.grandchild));
+    try expect(!try doTest("root > grandchild"    , &env, &arena, nodes.grandchild));
+    try expect(try doTest("#alice"                , &env, &arena, nodes.root));
+    try expect(!try doTest("#alice"               , &env, &arena, nodes.third));
+    try expect(try doTest("#alice > #bob"         , &env, &arena, nodes.third));
     // zig fmt: on
 }

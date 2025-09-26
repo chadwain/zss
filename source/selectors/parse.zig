@@ -2,9 +2,7 @@ const zss = @import("../zss.zig");
 const Stylesheet = zss.Stylesheet;
 
 const selectors = zss.selectors;
-const ComplexSelector = selectors.ComplexSelector;
-const ComplexSelectorList = selectors.ComplexSelectorList;
-const CodeList = selectors.CodeList;
+const Data = selectors.Data;
 const Specificity = selectors.Specificity;
 
 const Environment = zss.Environment;
@@ -56,30 +54,40 @@ pub const Parser = struct {
         parser.specificities.deinit(parser.allocator);
     }
 
-    pub fn parseComplexSelectorList(parser: *Parser, code_list: CodeList, sequence: Ast.Sequence) !void {
+    /// Attempts to parse a <complex-selector-list> from `sequence`, and append the selector data to `data_list`.
+    /// If any one of the complex selectors fails to parse, then the entire parse fails, and `data_list` is reverted to its original state.
+    /// Each complex selector will have its specificity found in `parser.specificities.items`.
+    pub fn parseComplexSelectorList(
+        parser: *Parser,
+        data_list: *std.ArrayList(Data),
+        data_list_allocator: Allocator,
+        sequence: Ast.Sequence,
+    ) !void {
         parser.sequence = sequence;
         parser.specificities.clearRetainingCapacity();
-        const old_len = code_list.len();
 
-        (try parseComplexSelector(parser, code_list)) orelse {
-            code_list.reset(old_len);
+        const managed = DataListManaged{ .list = data_list, .allocator = data_list_allocator };
+        const old_len = managed.len();
+
+        (try parseComplexSelector(parser, managed)) orelse {
+            managed.reset(old_len);
             return parser.fail();
         };
         while (true) {
             _ = parser.skipSpaces();
             const comma_tag, _ = parser.next() orelse break;
             if (comma_tag != .token_comma) {
-                code_list.reset(old_len);
+                managed.reset(old_len);
                 return parser.fail();
             }
-            (try parseComplexSelector(parser, code_list)) orelse {
-                code_list.reset(old_len);
+            (try parseComplexSelector(parser, managed)) orelse {
+                managed.reset(old_len);
                 return parser.fail();
             };
         }
 
         if (parser.specificities.items.len == 0) {
-            code_list.reset(old_len);
+            managed.reset(old_len);
             return parser.fail();
         }
     }
@@ -133,26 +141,61 @@ pub const Parser = struct {
     }
 };
 
-fn parseComplexSelector(parser: *Parser, code_list: CodeList) !?void {
-    const complex_start = try code_list.beginComplexSelector();
+const DataListManaged = struct {
+    list: *std.ArrayList(Data),
+    allocator: Allocator,
+
+    fn len(data_list: DataListManaged) Data.ListIndex {
+        return @intCast(data_list.list.items.len);
+    }
+
+    fn append(data_list: DataListManaged, code: Data) !void {
+        if (data_list.list.items.len == std.math.maxInt(Data.ListIndex)) return error.OutOfMemory;
+        try data_list.list.append(data_list.allocator, code);
+    }
+
+    fn appendSlice(data_list: DataListManaged, codes: []const Data) !void {
+        if (codes.len > std.math.maxInt(Data.ListIndex) - data_list.list.items.len) return error.OutOfMemory;
+        try data_list.list.appendSlice(data_list.allocator, codes);
+    }
+
+    fn beginComplexSelector(data_list: DataListManaged) !Data.ListIndex {
+        const index = data_list.len();
+        try data_list.append(undefined);
+        return index;
+    }
+
+    /// `start` is the value previously returned by `beginComplexSelector`
+    fn endComplexSelector(data_list: DataListManaged, start: Data.ListIndex) void {
+        data_list.list.items[start] = .{ .next_complex_selector = data_list.len() };
+        data_list.list.items[data_list.len() - 1].trailing.combinator = undefined;
+    }
+
+    fn reset(data_list: DataListManaged, complex_selector_start: Data.ListIndex) void {
+        data_list.list.shrinkRetainingCapacity(complex_selector_start);
+    }
+};
+
+fn parseComplexSelector(parser: *Parser, data_list: DataListManaged) !?void {
+    const complex_start = try data_list.beginComplexSelector();
     try parser.specificities.ensureUnusedCapacity(parser.allocator, 1);
     parser.specificity = .{};
     parser.valid = true;
 
     var compound_start = complex_start + 1;
     _ = parser.skipSpaces();
-    (try parseCompoundSelector(parser, code_list)) orelse return parser.fail();
+    (try parseCompoundSelector(parser, data_list)) orelse return parser.fail();
 
     while (true) {
         const combinator = parseCombinator(parser) orelse {
-            try code_list.append(.{ .trailing = .{ .combinator = undefined, .compound_selector_start = compound_start } });
+            try data_list.append(.{ .trailing = .{ .combinator = undefined, .compound_selector_start = compound_start } });
             break;
         };
-        try code_list.append(.{ .trailing = .{ .combinator = combinator, .compound_selector_start = compound_start } });
+        try data_list.append(.{ .trailing = .{ .combinator = combinator, .compound_selector_start = compound_start } });
 
-        compound_start = code_list.len();
+        compound_start = data_list.len();
         _ = parser.skipSpaces();
-        (try parseCompoundSelector(parser, code_list)) orelse {
+        (try parseCompoundSelector(parser, data_list)) orelse {
             if (combinator == .descendant) {
                 break;
             } else {
@@ -162,10 +205,10 @@ fn parseComplexSelector(parser: *Parser, code_list: CodeList) !?void {
     }
 
     if (!parser.valid) {
-        code_list.reset(complex_start);
+        data_list.reset(complex_start);
         return null;
     }
-    code_list.endComplexSelector(complex_start);
+    data_list.endComplexSelector(complex_start);
     parser.specificities.appendAssumeCapacity(parser.specificity);
 }
 
@@ -189,25 +232,25 @@ fn parseCombinator(parser: *Parser) ?selectors.Combinator {
     return if (has_space) .descendant else null;
 }
 
-fn parseCompoundSelector(parser: *Parser, code_list: CodeList) !?void {
+fn parseCompoundSelector(parser: *Parser, data_list: DataListManaged) !?void {
     var parsed_any_selectors = false;
 
-    if (try parseTypeSelector(parser, code_list)) |_| {
+    if (try parseTypeSelector(parser, data_list)) |_| {
         parsed_any_selectors = true;
     }
 
-    while (try parseSubclassSelector(parser, code_list)) |_| {
+    while (try parseSubclassSelector(parser, data_list)) |_| {
         parsed_any_selectors = true;
     }
 
-    while (try parsePseudoElementSelector(parser, code_list)) |_| {
+    while (try parsePseudoElementSelector(parser, data_list)) |_| {
         parsed_any_selectors = true;
     }
 
     if (!parsed_any_selectors) return null;
 }
 
-fn parseTypeSelector(parser: *Parser, code_list: CodeList) !?void {
+fn parseTypeSelector(parser: *Parser, data_list: DataListManaged) !?void {
     const qn = parseQualifiedName(parser) orelse return null;
     const type_selector: NodeType = .{
         .namespace = switch (qn.namespace) {
@@ -221,7 +264,7 @@ fn parseTypeSelector(parser: *Parser, code_list: CodeList) !?void {
             .any => .any,
         },
     };
-    try code_list.appendSlice(&.{
+    try data_list.appendSlice(&.{
         .{ .simple_selector_tag = .type },
         .{ .type_selector = type_selector },
     });
@@ -324,13 +367,13 @@ fn resolveNamespace(parser: *Parser, index: Ast.Index) NamespaceId {
     return parser.namespaces.ids.items[namespace_index];
 }
 
-fn parseSubclassSelector(parser: *Parser, code_list: CodeList) !?void {
+fn parseSubclassSelector(parser: *Parser, data_list: DataListManaged) !?void {
     const first_component_tag, const first_component_index = parser.next() orelse return null;
     switch (first_component_tag) {
         .token_hash_id => {
             const location = first_component_index.location(parser.ast);
             const name = try parser.env.addIdName(location, parser.source);
-            try code_list.appendSlice(&.{
+            try data_list.appendSlice(&.{
                 .{ .simple_selector_tag = .id },
                 .{ .id_selector = name },
             });
@@ -342,7 +385,7 @@ fn parseSubclassSelector(parser: *Parser, code_list: CodeList) !?void {
             const class_name_index = parser.accept(.token_ident) orelse break :class_selector;
             const location = class_name_index.location(parser.ast);
             const name = try parser.env.addClassName(location, parser.source);
-            try code_list.appendSlice(&.{
+            try data_list.appendSlice(&.{
                 .{ .simple_selector_tag = .class },
                 .{ .class_selector = name },
             });
@@ -350,13 +393,13 @@ fn parseSubclassSelector(parser: *Parser, code_list: CodeList) !?void {
             return;
         },
         .simple_block_square => {
-            try parseAttributeSelector(parser, code_list, first_component_index);
+            try parseAttributeSelector(parser, data_list, first_component_index);
             parser.addSpecificity(.attribute);
             return;
         },
         .token_colon => pseudo_class_selector: {
             const pseudo_class = parsePseudo(.class, parser) orelse break :pseudo_class_selector;
-            try code_list.appendSlice(&.{
+            try data_list.appendSlice(&.{
                 .{ .simple_selector_tag = .pseudo_class },
                 .{ .pseudo_class_selector = pseudo_class },
             });
@@ -370,7 +413,7 @@ fn parseSubclassSelector(parser: *Parser, code_list: CodeList) !?void {
     return null;
 }
 
-fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast.Index) !void {
+fn parseAttributeSelector(parser: *Parser, data_list: DataListManaged, block_index: Ast.Index) !void {
     const sequence = parser.sequence;
     defer parser.sequence = sequence;
     parser.sequence = block_index.children(parser.ast);
@@ -393,7 +436,7 @@ fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast
 
     _ = parser.skipSpaces();
     const after_qn_tag, const after_qn_index = parser.next() orelse {
-        try code_list.appendSlice(&.{
+        try data_list.appendSlice(&.{
             .{ .simple_selector_tag = .{ .attribute = null } },
             .{ .attribute_selector = attribute_selector },
         });
@@ -447,14 +490,14 @@ fn parseAttributeSelector(parser: *Parser, code_list: CodeList, block_index: Ast
 
     _ = parser.skipSpaces();
     try parser.expectEof();
-    try code_list.appendSlice(&.{
+    try data_list.appendSlice(&.{
         .{ .simple_selector_tag = .{ .attribute = .{ .operator = operator, .case = case } } },
         .{ .attribute_selector = attribute_selector },
         .{ .attribute_selector_value = attribute_value },
     });
 }
 
-fn parsePseudoElementSelector(parser: *Parser, code_list: CodeList) !?void {
+fn parsePseudoElementSelector(parser: *Parser, data_list: DataListManaged) !?void {
     const element_index = parser.accept(.token_colon) orelse return null;
     const pseudo_element: selectors.PseudoElement = blk: {
         if (parser.accept(.token_colon)) |_| {
@@ -466,7 +509,7 @@ fn parsePseudoElementSelector(parser: *Parser, code_list: CodeList) !?void {
         parser.sequence.reset(element_index);
         return null;
     };
-    try code_list.appendSlice(&.{
+    try data_list.appendSlice(&.{
         .{ .simple_selector_tag = .pseudo_element },
         .{ .pseudo_element_selector = pseudo_element },
     });
@@ -478,7 +521,7 @@ fn parsePseudoElementSelector(parser: *Parser, code_list: CodeList) !?void {
             parser.sequence.reset(class_index);
             break;
         };
-        try code_list.appendSlice(&.{
+        try data_list.appendSlice(&.{
             .{ .simple_selector_tag = .pseudo_class },
             .{ .pseudo_class_selector = pseudo_class },
         });
