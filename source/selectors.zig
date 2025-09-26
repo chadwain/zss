@@ -1,15 +1,18 @@
 const zss = @import("zss.zig");
 const Ast = zss.syntax.Ast;
-const AttributeValueId = Environment.AttributeValueId;
-const ClassId = Environment.ClassId;
-const Environment = zss.Environment;
-const IdId = Environment.IdId;
-const NamespaceId = Environment.Namespaces.Id;
-const NameId = Environment.NameId;
-const NodeId = Environment.NodeId;
-const NodeType = Environment.NodeType;
 const Stylesheet = zss.Stylesheet;
 const TokenSource = zss.syntax.TokenSource;
+
+const Environment = zss.Environment;
+const AttributeName = Environment.AttributeName;
+const AttributeValueId = Environment.AttributeValueId;
+const ClassName = Environment.ClassName;
+const ElementAttribute = Environment.ElementAttribute;
+const ElementType = Environment.ElementType;
+const IdName = Environment.IdName;
+const NamespaceId = Environment.Namespaces.Id;
+const NodeId = Environment.NodeId;
+const TypeName = Environment.TypeName;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -35,10 +38,10 @@ pub const Data = union {
     /// Found after every compound selector.
     trailing: Trailing,
     simple_selector_tag: SimpleSelectorTag,
-    type_selector: NodeType,
-    id_selector: IdId,
-    class_selector: ClassId,
-    attribute_selector: NodeType,
+    type_selector: ElementType,
+    id_selector: IdName,
+    class_selector: ClassName,
+    attribute_selector: ElementAttribute,
     attribute_selector_value: AttributeValueId,
     pseudo_class_selector: PseudoClass,
     pseudo_element_selector: PseudoElement,
@@ -253,7 +256,7 @@ fn matchCompoundSelector(
     return true;
 }
 
-fn matchTypeSelector(selector_type: NodeType, element_type: NodeType) bool {
+fn matchTypeSelector(selector_type: ElementType, element_type: ElementType) bool {
     assert(element_type.namespace != .any);
     assert(element_type.name != .any);
 
@@ -273,12 +276,12 @@ fn matchTypeSelector(selector_type: NodeType, element_type: NodeType) bool {
 
 test "matching type selectors" {
     const some_namespace = @as(NamespaceId, @enumFromInt(24));
-    const some_name = @as(NameId, @enumFromInt(42));
+    const some_name = @as(TypeName, @enumFromInt(42));
 
-    const e1 = NodeType{ .namespace = .none, .name = .anonymous };
-    const e2 = NodeType{ .namespace = .none, .name = some_name };
-    const e3 = NodeType{ .namespace = some_namespace, .name = .anonymous };
-    const e4 = NodeType{ .namespace = some_namespace, .name = some_name };
+    const e1 = ElementType{ .namespace = .none, .name = .anonymous };
+    const e2 = ElementType{ .namespace = .none, .name = some_name };
+    const e3 = ElementType{ .namespace = some_namespace, .name = .anonymous };
+    const e4 = ElementType{ .namespace = some_namespace, .name = some_name };
 
     const expect = std.testing.expect;
     const matches = matchTypeSelector;
@@ -319,15 +322,15 @@ const TestParseSelectorListExpected = []const struct {
         compound: struct {
             type: ?struct {
                 namespace: NamespaceId = .any,
-                name: NameId,
+                name: TypeName,
             } = null,
             subclasses: []const union(enum) {
-                id: IdId,
-                class: ClassId,
+                id: IdName,
+                class: ClassName,
                 pseudo_class: PseudoClass,
                 attribute: struct {
                     namespace: NamespaceId = .none,
-                    name: NameId,
+                    name: AttributeName,
                     value: ?struct {
                         operator: AttributeOperator,
                         case: AttributeCase,
@@ -455,18 +458,23 @@ fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpec
 
 test "parsing selector lists" {
     const n = struct {
-        fn f(x: u24) NameId {
-            return @as(NameId, @enumFromInt(x));
+        fn f(x: u24) TypeName {
+            return @as(TypeName, @enumFromInt(x));
+        }
+    }.f;
+    const en = struct {
+        fn f(x: u24) AttributeName {
+            return @as(AttributeName, @enumFromInt(x));
         }
     }.f;
     const i = struct {
-        fn f(x: u24) IdId {
-            return @as(IdId, @enumFromInt(x));
+        fn f(x: u24) IdName {
+            return @as(IdName, @enumFromInt(x));
         }
     }.f;
     const c = struct {
-        fn f(x: u24) ClassId {
-            return @as(ClassId, @enumFromInt(x));
+        fn f(x: u24) ClassName {
+            return @as(ClassName, @enumFromInt(x));
         }
     }.f;
 
@@ -482,9 +490,9 @@ test "parsing selector lists" {
             .compound = .{
                 .type = .{ .name = n(0) },
                 .subclasses = &.{
-                    .{ .attribute = .{ .name = n(1) } },
+                    .{ .attribute = .{ .name = en(0) } },
                     .{ .class = c(0) },
-                    .{ .id = i(1) },
+                    .{ .id = i(0) },
                 },
             },
         }},

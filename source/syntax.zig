@@ -8,7 +8,6 @@ const tokenize = @import("syntax/tokenize.zig");
 const parse = @import("syntax/parse.zig");
 
 pub const Parser = parse.Parser;
-pub const IdentifierSet = @import("syntax/IdentifierSet.zig");
 
 comptime {
     if (@import("builtin").is_test) {

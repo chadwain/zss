@@ -5,7 +5,7 @@ decl_urls: Urls,
 cascade_source: cascade.Source,
 
 pub const Namespaces = struct {
-    indexer: IdentifierSet = .{ .case = .sensitive, .max_size = std.math.maxInt(std.meta.Tag(NamespaceId)) },
+    indexer: zss.StringInterner = .init(.{ .max_size = NamespaceId.max_unique_values, .case = .sensitive }),
     /// Maps namespace prefixes to namespace ids.
     ids: std.ArrayListUnmanaged(NamespaceId) = .empty,
     /// The default namespace, or `null` if there is no default namespace.
@@ -25,7 +25,6 @@ const Ast = zss.syntax.Ast;
 const AtRule = zss.syntax.Token.AtRule;
 const Declarations = zss.Declarations;
 const Environment = zss.Environment;
-const IdentifierSet = zss.syntax.IdentifierSet;
 const Importance = Declarations.Importance;
 const NamespaceId = Environment.Namespaces.Id;
 const TokenSource = zss.syntax.TokenSource;
@@ -223,8 +222,7 @@ fn atRule(
 
             const id = try env.addNamespace(ast, token_source, namespace);
             if (prefix_opt) |prefix| {
-                const it = token_source.identTokenIterator(prefix.location(ast));
-                const index = try namespaces.indexer.getOrPutFromSource(allocator, token_source, it);
+                const index = try namespaces.indexer.addFromIdentTokenSensitive(allocator, prefix.location(ast), token_source);
                 if (index == namespaces.ids.items.len) {
                     try namespaces.ids.append(allocator, id);
                 } else {

@@ -355,7 +355,7 @@ pub fn color(ctx: *Context) ?types.Color {
     } else if (hash(ctx)) |location| blk: {
         var digits: @Vector(8, u8) = undefined;
         const len = len: {
-            var iterator = ctx.token_source.hashTokenIterator(location);
+            var iterator = ctx.token_source.hashIdTokenIterator(location);
             var index: u4 = 0;
             while (iterator.next(ctx.token_source)) |codepoint| : (index += 1) {
                 if (index == 8) break :blk;

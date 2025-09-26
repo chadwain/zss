@@ -7,7 +7,8 @@ const Specificity = selectors.Specificity;
 
 const Environment = zss.Environment;
 const NamespaceId = Environment.Namespaces.Id;
-const NodeType = Environment.NodeType;
+const ElementType = Environment.ElementType;
+const ElementAttribute = Environment.ElementAttribute;
 
 const syntax = zss.syntax;
 const Ast = syntax.Ast;
@@ -252,7 +253,7 @@ fn parseCompoundSelector(parser: *Parser, data_list: DataListManaged) !?void {
 
 fn parseTypeSelector(parser: *Parser, data_list: DataListManaged) !?void {
     const qn = parseQualifiedName(parser) orelse return null;
-    const type_selector: NodeType = .{
+    const type_selector: ElementType = .{
         .namespace = switch (qn.namespace) {
             .identifier => |identifier| resolveNamespace(parser, identifier),
             .none => .none,
@@ -260,7 +261,7 @@ fn parseTypeSelector(parser: *Parser, data_list: DataListManaged) !?void {
             .default => parser.default_namespace,
         },
         .name = switch (qn.name) {
-            .identifier => |identifier| try parser.env.addTypeOrAttributeName(identifier.location(parser.ast), parser.source),
+            .identifier => |identifier| try parser.env.addTypeName(identifier.location(parser.ast), parser.source),
             .any => .any,
         },
     };
@@ -357,10 +358,7 @@ fn parseName(parser: *Parser) ?QualifiedName.Name {
 }
 
 fn resolveNamespace(parser: *Parser, index: Ast.Index) NamespaceId {
-    const identifier = parser.source.copyIdentifier(index.location(parser.ast), parser.allocator) catch
-        std.debug.panic("TODO: Unhandled allocation failure", .{});
-    defer parser.allocator.free(identifier);
-    const namespace_index = parser.namespaces.indexer.getFromString(identifier) orelse {
+    const namespace_index = parser.namespaces.indexer.getFromIdentTokenSensitive(index.location(parser.ast), parser.source) orelse {
         parser.valid = false;
         return undefined;
     };
@@ -421,7 +419,7 @@ fn parseAttributeSelector(parser: *Parser, data_list: DataListManaged, block_ind
     // Parse the attribute namespace and name
     _ = parser.skipSpaces();
     const qn = parseQualifiedName(parser) orelse return parser.fail();
-    const attribute_selector: NodeType = .{
+    const attribute_selector: ElementAttribute = .{
         .namespace = switch (qn.namespace) {
             .identifier => |identifier| resolveNamespace(parser, identifier),
             .none => .none,
@@ -429,7 +427,7 @@ fn parseAttributeSelector(parser: *Parser, data_list: DataListManaged, block_ind
             .default => .none,
         },
         .name = switch (qn.name) {
-            .identifier => |identifier| try parser.env.addTypeOrAttributeName(identifier.location(parser.ast), parser.source),
+            .identifier => |identifier| try parser.env.addAttributeName(identifier.location(parser.ast), parser.source),
             .any => return parser.fail(),
         },
     };

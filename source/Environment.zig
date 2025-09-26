@@ -5,7 +5,6 @@ const cascade = zss.cascade;
 const syntax = zss.syntax;
 const Ast = syntax.Ast;
 const Declarations = zss.Declarations;
-const IdentifierSet = syntax.IdentifierSet;
 const TokenSource = syntax.TokenSource;
 const Stylesheet = zss.Stylesheet;
 
@@ -17,11 +16,14 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const MultiArrayList = std.MultiArrayList;
 
 allocator: Allocator,
-type_or_attribute_names: IdentifierSet,
-id_or_class_names: IdentifierSet,
-texts: Texts,
+
+type_names: zss.StringInterner,
+attribute_names: zss.StringInterner,
+id_names: zss.StringInterner,
+class_names: zss.StringInterner,
 attribute_values: zss.StringInterner,
 namespaces: Namespaces,
+texts: Texts,
 
 decls: Declarations,
 cascade_list: cascade.List,
@@ -30,37 +32,50 @@ tree_interface: TreeInterface,
 next_node_group: ?std.meta.Tag(NodeGroup),
 root_node: ?NodeId,
 node_properties: NodeProperties,
-ids_to_nodes: std.AutoHashMapUnmanaged(IdId, NodeId),
+ids_to_nodes: std.AutoHashMapUnmanaged(IdName, NodeId),
 
 next_url_id: ?UrlId.Int,
 urls_to_images: std.AutoArrayHashMapUnmanaged(UrlId, zss.Images.Handle),
+
+testing: Testing,
 
 pub fn init(allocator: Allocator) Environment {
     return Environment{
         .allocator = allocator,
 
-        .type_or_attribute_names = .{
-            .max_size = NameId.max_value,
-            // TODO: This is the wrong value. Case sensitivity of type names and attribute names depends on the document language.
+        .type_names = .init(.{
+            .max_size = TypeName.max_unique_values,
+            // TODO: This is the wrong value. Case sensitivity of type names depends on the document language.
             //       See https://www.w3.org/TR/selectors-4/#case-sensitive
             .case = .insensitive,
-        },
-        .id_or_class_names = .{
-            .max_size = IdId.max_value,
-            // TODO: This is the wrong value. Case sensitivity of IDs and class names depends on whether the document is in "quirks mode".
+        }),
+        .attribute_names = .init(.{
+            .max_size = AttributeName.max_unique_values,
+            // TODO: This is the wrong value. Case sensitivity of attribute names depends on the document language.
+            //       See https://www.w3.org/TR/selectors-4/#case-sensitive
+            .case = .insensitive,
+        }),
+        .id_names = .init(.{
+            .max_size = IdName.max_unique_values,
+            // TODO: This is the wrong value. Case sensitivity of IDs depends on whether the document is in "quirks mode".
             //       See https://www.w3.org/TR/selectors-4/#id-selectors
+            .case = .sensitive,
+        }),
+        .class_names = .init(.{
+            .max_size = ClassName.max_unique_values,
+            // TODO: This is the wrong value. Case sensitivity of class names depends on whether the document is in "quirks mode".
             //       See https://www.w3.org/TR/selectors-4/#class-html
             .case = .sensitive,
-        },
-        .texts = .{},
+        }),
         .attribute_values = .init(.{
-            .max_size = AttributeValueId.num_unique_values,
+            .max_size = AttributeValueId.max_unique_values,
             // TODO: This is the wrong value. Case sensitivity of attribute values depends on the document language.
             //       Furthermore selectors can also choose their own sensitivity.
             //       See https://www.w3.org/TR/selectors-4/#attribute-case
             .case = .insensitive,
         }),
         .namespaces = .{},
+        .texts = .{},
 
         .decls = .{},
         .cascade_list = .{},
@@ -73,31 +88,42 @@ pub fn init(allocator: Allocator) Environment {
 
         .next_url_id = 0,
         .urls_to_images = .empty,
+
+        .testing = .{},
     };
 }
 
 pub fn deinit(env: *Environment) void {
-    env.type_or_attribute_names.deinit(env.allocator);
-    env.id_or_class_names.deinit(env.allocator);
-    env.texts.deinit(env.allocator);
+    env.type_names.deinit(env.allocator);
+    env.attribute_names.deinit(env.allocator);
+    env.id_names.deinit(env.allocator);
+    env.class_names.deinit(env.allocator);
+    env.attribute_values.deinit(env.allocator);
     env.namespaces.deinit(env.allocator);
+    env.texts.deinit(env.allocator);
+
     env.decls.deinit(env.allocator);
+
     env.cascade_list.deinit(env.allocator);
     env.node_properties.deinit(env.allocator);
     env.ids_to_nodes.deinit(env.allocator);
+
     env.urls_to_images.deinit(env.allocator);
 }
 
-// TODO: consider making an `IdentifierMap` structure for this use case
 pub const Namespaces = struct {
+    // TODO: Consider using zss.StringInterner
     map: std.StringArrayHashMapUnmanaged(void) = .empty,
 
+    /// A handle to an interned namespace string.
     pub const Id = enum(u8) {
         /// Represents the null namespace, a.k.a. no namespace.
-        none = 254,
-        /// Not a valid namespace id. It represents a match on any namespace (in e.g. a type selector).
-        any = 255,
+        none = max_unique_values,
+        /// Not a valid namespace id. This value is used in selectors to represent any namespace.
+        any = max_unique_values + 1,
         _,
+
+        pub const max_unique_values = (1 << 8) - 2;
     };
 
     pub fn deinit(namespaces: *Namespaces, allocator: Allocator) void {
@@ -108,6 +134,7 @@ pub const Namespaces = struct {
     }
 };
 
+// TODO: Make this look similar to the other add functions
 pub fn addNamespace(env: *Environment, ast: Ast, source: TokenSource, index: Ast.Index) !Namespaces.Id {
     try env.namespaces.map.ensureUnusedCapacity(env.allocator, 1);
     const location = index.location(ast);
@@ -133,71 +160,104 @@ pub fn addNamespace(env: *Environment, ast: Ast, source: TokenSource, index: Ast
     return @enumFromInt(gop_result.index);
 }
 
-pub const NameId = enum(u24) {
-    pub const Value = u24;
-    const max_value = std.math.maxInt(Value) - 1;
-
-    anonymous = max_value,
-    any = max_value + 1,
+/// A handle to an interned type name string.
+pub const TypeName = enum(u20) {
+    /// A type name that compares as not equal to any other type name (including other anonymous type names).
+    anonymous = max_unique_values,
+    /// Not a valid type name. This value is used in selectors to represent the '*' type name selector.
+    any = max_unique_values + 1,
     _,
+
+    pub const max_unique_values = (1 << 20) - 2;
 };
 
-pub fn addTypeOrAttributeName(env: *Environment, identifier: TokenSource.Location, source: TokenSource) !NameId {
-    const index = try env.type_or_attribute_names.getOrPutFromSource(env.allocator, source, source.identTokenIterator(identifier));
-    return @enumFromInt(@as(NameId.Value, @intCast(index)));
+pub fn addTypeName(
+    env: *Environment,
+    /// The location of an <ident-token>.
+    identifier: TokenSource.Location,
+    source: TokenSource,
+) !TypeName {
+    const index = try env.type_names.addFromIdentToken(env.allocator, identifier, source);
+    const type_name: TypeName = @enumFromInt(index);
+    assert(type_name != .anonymous);
+    assert(type_name != .any);
+    return type_name;
 }
 
-// TODO: This is only used in tests
-pub fn addTypeOrAttributeNameString(env: *Environment, string: []const u8) !NameId {
-    const index = try env.type_or_attribute_names.getOrPutFromString(env.allocator, string);
-    return @enumFromInt(@as(NameId.Value, @intCast(index)));
-}
-
-pub const IdId = enum(u32) {
-    pub const Value = u32;
-    const max_value = std.math.maxInt(Value);
-
+/// A handle to an interned attribute name string.
+pub const AttributeName = enum(u20) {
+    /// An attribute name that compares as not equal to any other attribute name (including other anonymous attribute names).
+    anonymous = max_unique_values,
     _,
+
+    pub const max_unique_values = (1 << 20) - 1;
 };
 
-pub const ClassId = enum(u32) {
-    pub const Value = u32;
-    const max_value = std.math.maxInt(Value);
+pub fn addAttributeName(
+    env: *Environment,
+    /// The location of an <ident-token>.
+    identifier: TokenSource.Location,
+    source: TokenSource,
+) !AttributeName {
+    const index = try env.attribute_names.addFromIdentToken(env.allocator, identifier, source);
+    const attribute_name: AttributeName = @enumFromInt(index);
+    assert(attribute_name != .anonymous);
+    return attribute_name;
+}
 
+/// A handle to an interned ID string.
+pub const IdName = enum(u32) {
     _,
+    pub const max_unique_values = 1 << 32;
 };
 
-comptime {
-    assert(IdId.max_value == ClassId.max_value);
+pub fn addIdName(
+    env: *Environment,
+    /// The location of an ID <hash-token>.
+    hash_id: TokenSource.Location,
+    source: TokenSource,
+) !IdName {
+    const index = try env.id_names.addFromHashIdTokenSensitive(env.allocator, hash_id, source);
+    return @enumFromInt(index);
 }
 
-pub fn addIdName(env: *Environment, hash_id: TokenSource.Location, source: TokenSource) !IdId {
-    const index = try env.id_or_class_names.getOrPutFromSource(env.allocator, source, source.hashTokenIterator(hash_id));
-    return @enumFromInt(@as(IdId.Value, @intCast(index)));
-}
+/// A handle to an interned class name string.
+pub const ClassName = enum(u32) {
+    _,
+    pub const max_unique_values = 1 << 32;
+};
 
-// TODO: This is only used in tests
-pub fn addIdNameString(env: *Environment, string: []const u8) !IdId {
-    const index = try env.id_or_class_names.getOrPutFromString(env.allocator, string);
-    return @enumFromInt(@as(IdId.Value, @intCast(index)));
-}
-
-pub fn addClassName(env: *Environment, identifier: TokenSource.Location, source: TokenSource) !ClassId {
-    const index = try env.id_or_class_names.getOrPutFromSource(env.allocator, source, source.identTokenIterator(identifier));
-    return @enumFromInt(@as(ClassId.Value, @intCast(index)));
+pub fn addClassName(
+    env: *Environment,
+    /// The location of an <ident-token>.
+    identifier: TokenSource.Location,
+    source: TokenSource,
+) !ClassName {
+    const index = try env.class_names.addFromIdentTokenSensitive(env.allocator, identifier, source);
+    return @enumFromInt(index);
 }
 
 pub const AttributeValueId = enum(u32) {
     _,
-    const num_unique_values = 1 << 32;
+    const max_unique_values = 1 << 32;
 };
 
-pub fn addAttributeValueIdent(env: *Environment, identifier: TokenSource.Location, source: TokenSource) !AttributeValueId {
+pub fn addAttributeValueIdent(
+    env: *Environment,
+    /// The location of an <ident-token>.
+    identifier: TokenSource.Location,
+    source: TokenSource,
+) !AttributeValueId {
     const index = try env.attribute_values.addFromIdentToken(env.allocator, identifier, source);
     return @enumFromInt(index);
 }
 
-pub fn addAttributeValueString(env: *Environment, string: TokenSource.Location, source: TokenSource) !AttributeValueId {
+pub fn addAttributeValueString(
+    env: *Environment,
+    /// The location of a <string-token>.
+    string: TokenSource.Location,
+    source: TokenSource,
+) !AttributeValueId {
     const index = try env.attribute_values.addFromStringToken(env.allocator, string, source);
     return @enumFromInt(index);
 }
@@ -334,14 +394,19 @@ pub const NodeId = packed struct {
 pub const NodeCategory = enum { element, text };
 
 // TODO: Make this a normal struct
-pub const NodeType = packed struct {
+pub const ElementType = packed struct {
     namespace: Namespaces.Id,
-    name: NameId,
+    name: TypeName,
+};
+
+pub const ElementAttribute = packed struct {
+    namespace: Namespaces.Id,
+    name: AttributeName,
 };
 
 pub const NodeProperty = struct {
     category: NodeCategory = .text,
-    type: NodeType = .{ .namespace = .none, .name = .anonymous },
+    type: ElementType = .{ .namespace = .none, .name = .anonymous },
     cascaded_values: zss.CascadedValues = .{},
     text: TextId = .empty_string,
 };
@@ -396,14 +461,22 @@ pub fn getNodePropertyPtr(
 }
 
 /// Returns `error.IdAlreadyExists` if `id` was already registered.
-pub fn registerId(env: *Environment, id: IdId, node: NodeId) !void {
+pub fn registerId(env: *Environment, id: IdName, node: NodeId) !void {
     const gop = try env.ids_to_nodes.getOrPut(env.allocator, id);
     // TODO: If `gop.found_existing == true`, the existing element may have been destroyed, so consider allowing the Id to be reused.
     if (gop.found_existing and gop.value_ptr.* != node) return error.IdAlreadyExists;
     gop.value_ptr.* = node;
 }
 
-pub fn getElementById(env: *const Environment, id: IdId) ?NodeId {
+pub fn getElementById(env: *const Environment, id: IdName) ?NodeId {
     // TODO: Even if an element was returned, it could have been destroyed.
     return env.ids_to_nodes.get(id);
 }
+
+pub const Testing = struct {
+    pub fn expectEqualTypeNames(testing: *const Testing, expected: []const u8, type_name: TypeName) !void {
+        const env: *const Environment = @alignCast(@fieldParentPtr("testing", testing));
+        var iterator = env.type_names.iterator(@intFromEnum(type_name));
+        try std.testing.expect(iterator.eql(expected));
+    }
+};

@@ -15,15 +15,39 @@ const Allocator = std.mem.Allocator;
 indexer: std.AutoArrayHashMapUnmanaged(void, Range),
 string: zss.SegmentedUtf8String,
 max_size: usize,
+debug: Debug,
 
 const Range = struct {
     position: zss.SegmentedUtf8String.Size,
     len: zss.SegmentedUtf8String.Size,
 };
 
+const Debug = switch (zss.debug.runtime_safety) {
+    true => struct {
+        case: Options.Case,
+
+        fn init(case: Options.Case) Debug {
+            return .{ .case = case };
+        }
+
+        fn assertCase(debug: *const Debug, case: Options.Case) void {
+            assert(debug.case == case);
+        }
+    },
+    false => struct {
+        fn init(_: Options.Case) Debug {
+            return .{};
+        }
+
+        fn assertCase(_: *const Debug, _: Options.Case) void {}
+    },
+};
+
 pub const Options = struct {
     /// The maximum amount of unique strings that can be held.
     max_size: usize,
+    /// If equal to `.sensitive`, you must only use functions ending with "Sensitive".
+    /// If equal to `.insensitive`, you must only use function not ending with "Sensitive".
     case: Case,
 
     pub const Case = enum {
@@ -38,6 +62,7 @@ pub fn init(options: Options) StringInterner {
         .indexer = .empty,
         .string = .init(1 << 10, 1 << 31),
         .max_size = options.max_size - @intFromBool(options.max_size +% 1 == 0),
+        .debug = .init(options.case),
     };
 }
 
@@ -97,6 +122,12 @@ fn adjustCase(interner: *const StringInterner, comptime case: Options.Case, rang
     }
 }
 
+/// Returns an iterator for the string represented by `index`.
+pub fn iterator(interner: *const StringInterner, index: usize) zss.SegmentedUtf8String.Iterator {
+    const range = interner.indexer.values()[index];
+    return interner.string.iterator(range.position, range.len);
+}
+
 pub fn addFromIdentToken(
     interner: *StringInterner,
     allocator: Allocator,
@@ -107,7 +138,7 @@ pub fn addFromIdentToken(
     return addFromGenericTokenIterator(interner, allocator, token_source, token_source.identTokenIterator(location), .insensitive);
 }
 
-pub fn addFromIdentTokenKeepCase(
+pub fn addFromIdentTokenSensitive(
     interner: *StringInterner,
     allocator: Allocator,
     /// Must be the location of an <ident-token>.
@@ -127,19 +158,35 @@ pub fn addFromStringToken(
     return addFromGenericTokenIterator(interner, allocator, token_source, token_source.stringTokenIterator(location), .insensitive);
 }
 
-fn addFromGenericTokenIterator(
+pub fn addFromHashIdTokenSensitive(
     interner: *StringInterner,
     allocator: Allocator,
+    /// Must be the location of an ID <hash-token>.
+    location: Location,
     token_source: TokenSource,
-    token_iterator: anytype,
-    comptime case: Options.Case,
 ) !usize {
-    const Key = struct {
-        source: TokenSource,
-        it: @TypeOf(token_iterator),
-    };
+    return addFromGenericTokenIterator(interner, allocator, token_source, token_source.hashIdTokenIterator(location), .sensitive);
+}
 
-    const Adapter = struct {
+pub fn getFromIdentTokenSensitive(
+    interner: *const StringInterner,
+    /// Must be the location of an <ident-token>.
+    location: Location,
+    token_source: TokenSource,
+) ?usize {
+    return getFromGenericTokenIterator(interner, token_source, token_source.identTokenIterator(location), .sensitive);
+}
+
+fn GenericTokenIteratorKey(comptime TokenIterator: type) type {
+    return struct {
+        source: TokenSource,
+        it: TokenIterator,
+    };
+}
+
+fn GenericTokenIteratorAdapter(comptime TokenIterator: type, comptime case: Options.Case) type {
+    const Key = GenericTokenIteratorKey(TokenIterator);
+    return struct {
         interner: *const StringInterner,
 
         pub fn hash(_: @This(), key: Key) u32 {
@@ -173,7 +220,37 @@ fn addFromGenericTokenIterator(
             return key_it.next(key.source) == null;
         }
     };
+}
 
+fn getFromGenericTokenIterator(
+    interner: *const StringInterner,
+    token_source: TokenSource,
+    token_iterator: anytype,
+    comptime case: Options.Case,
+) ?usize {
+    const TokenIterator = @TypeOf(token_iterator);
+    const Key = GenericTokenIteratorKey(TokenIterator);
+    const Adapter = GenericTokenIteratorAdapter(TokenIterator, case);
+
+    interner.debug.assertCase(case);
+    return interner.indexer.getIndexAdapted(
+        Key{ .source = token_source, .it = token_iterator },
+        Adapter{ .interner = interner },
+    );
+}
+
+fn addFromGenericTokenIterator(
+    interner: *StringInterner,
+    allocator: Allocator,
+    token_source: TokenSource,
+    token_iterator: anytype,
+    comptime case: Options.Case,
+) !usize {
+    const TokenIterator = @TypeOf(token_iterator);
+    const Key = GenericTokenIteratorKey(TokenIterator);
+    const Adapter = GenericTokenIteratorAdapter(TokenIterator, case);
+
+    interner.debug.assertCase(case);
     const gop = try interner.indexer.getOrPutAdapted(
         allocator,
         Key{ .source = token_source, .it = token_iterator },
@@ -227,6 +304,7 @@ pub fn addFromString(interner: *StringInterner, allocator: Allocator, string: []
         }
     };
 
+    interner.debug.assertCase(.insensitive);
     const gop = try interner.indexer.getOrPutAdapted(allocator, string, Adapter{ .interner = interner });
     if (gop.found_existing) return gop.index;
     if (gop.index == interner.max_size) {
@@ -288,8 +366,8 @@ test "StringInterner" {
         var interner = init(.{ .max_size = 2, .case = .sensitive });
         defer interner.deinit(allocator);
         const indeces = .{
-            .cucumber_lowercase = try interner.addFromIdentTokenKeepCase(allocator, ast_nodes.cucumber.location(ast), token_source),
-            .cucumber_uppercase = try interner.addFromIdentTokenKeepCase(allocator, ast_nodes.cucumber_uppercase.location(ast), token_source),
+            .cucumber_lowercase = try interner.addFromIdentTokenSensitive(allocator, ast_nodes.cucumber.location(ast), token_source),
+            .cucumber_uppercase = try interner.addFromIdentTokenSensitive(allocator, ast_nodes.cucumber_uppercase.location(ast), token_source),
         };
         try std.testing.expectEqual(@as(usize, 0), indeces.cucumber_lowercase);
         try std.testing.expectEqual(@as(usize, 1), indeces.cucumber_uppercase);

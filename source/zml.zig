@@ -117,7 +117,7 @@ pub const Document = struct {
 
     pub const tree_interface_fns = struct {
         pub fn node_edge(context: *const anyopaque, zss_node: Environment.NodeId, edge: Environment.TreeInterface.Edge) ?Environment.NodeId {
-            const document: *const Document = @alignCast(@ptrCast(context));
+            const document: *const Document = @ptrCast(@alignCast(context));
             assert(zss_node.group == document.node_group);
 
             const node: Node = @enumFromInt(zss_node.value);
@@ -350,7 +350,7 @@ fn analyzeElement(
     while (features_child_sequence.nextSkipSpaces(ast)) |index| {
         switch (index.tag(ast)) {
             .zml_type => {
-                const type_name = try env.addTypeOrAttributeName(index.location(ast), token_source);
+                const type_name = try env.addTypeName(index.location(ast), token_source);
                 try env.setNodeProperty(.type, zss_node_id, .{ .namespace = .none, .name = type_name });
             },
             .zml_id => {
@@ -439,9 +439,6 @@ test "create a zml document" {
     var env = Environment.init(allocator);
     defer env.deinit();
 
-    const type1 = try env.addTypeOrAttributeNameString("type1");
-    const type2 = try env.addTypeOrAttributeNameString("type2");
-
     var document = try createDocument(allocator, &env, ast, token_source, zml_document_index);
     defer document.deinit(allocator);
 
@@ -468,7 +465,8 @@ test "create a zml document" {
         const node = document.rootNode().?.firstChild(&document) orelse return error.TestFailure;
         const zss_node = node.toZssNode(&document);
         assert(Document.Node.fromZssNode(&document, zss_node) == node);
-        try std.testing.expectEqual(type1, env.getNodeProperty(.type, zss_node).name);
+        const type_name = env.getNodeProperty(.type, zss_node).name;
+        try env.testing.expectEqualTypeNames("type1", type_name);
         const cascaded_values = env.getNodeProperty(.cascaded_values, zss_node);
         const all = cascaded_values.all orelse return error.TestFailure;
         try std.testing.expectEqual(types.CssWideKeyword.unset, all);
@@ -478,7 +476,8 @@ test "create a zml document" {
         const node = document.rootNode().?.lastChild(&document) orelse return error.TestFailure;
         const zss_node = node.toZssNode(&document);
         assert(Document.Node.fromZssNode(&document, zss_node) == node);
-        try std.testing.expectEqual(type2, env.getNodeProperty(.type, zss_node).name);
+        const type_name = env.getNodeProperty(.type, zss_node).name;
+        try env.testing.expectEqualTypeNames("type2", type_name);
         const cascaded_values = env.getNodeProperty(.cascaded_values, zss_node);
         const all = cascaded_values.all orelse return error.TestFailure;
         try std.testing.expect(cascaded_values.getPtr(.box_style) == null);

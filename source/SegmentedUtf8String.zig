@@ -196,6 +196,16 @@ pub const Iterator = struct {
 
         return segment.ptr()[it.location.byte_offset..][0..used_len];
     }
+
+    pub fn eql(it: *Iterator, string: []const u8) bool {
+        if (it.remaining != string.len) return false;
+        var remaining = string;
+        while (it.next()) |segment| {
+            if (!std.mem.eql(u8, remaining[0..segment.len], segment)) return false;
+            remaining = remaining[segment.len..];
+        }
+        return true;
+    }
 };
 
 /// Returns an iterator over a substring.

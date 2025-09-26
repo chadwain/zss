@@ -53,8 +53,8 @@ pub const Source = struct {
         return IdentSequenceIterator{ .location = start };
     }
 
-    /// Asserts that `start` is the location of the start of a hash token.
-    pub fn hashTokenIterator(source: Source, start: Location) IdentSequenceIterator {
+    /// Asserts that `start` is the location of the start of an ID hash token.
+    pub fn hashIdTokenIterator(source: Source, start: Location) IdentSequenceIterator {
         const hash = nextCodepoint(source, start) catch unreachable;
         assert(hash.codepoint == '#');
         return IdentSequenceIterator{ .location = hash.next_location };
@@ -116,9 +116,9 @@ pub const Source = struct {
         return copyTokenGeneric(source, &iterator, allocator);
     }
 
-    /// Given that `location` is the location of a <hash-token>, copy that hash's identifier
-    pub fn copyHash(source: Source, location: Location, allocator: Allocator) ![]const u8 {
-        var iterator = hashTokenIterator(source, location);
+    /// Given that `location` is the location of an ID <hash-token>, copy that hash's identifier
+    pub fn copyHashId(source: Source, location: Location, allocator: Allocator) ![]const u8 {
+        var iterator = hashIdTokenIterator(source, location);
         return copyTokenGeneric(source, &iterator, allocator);
     }
 
