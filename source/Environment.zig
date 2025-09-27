@@ -103,8 +103,8 @@ pub fn deinit(env: *Environment) void {
     env.texts.deinit(env.allocator);
 
     env.decls.deinit(env.allocator);
-
     env.cascade_list.deinit(env.allocator);
+
     env.node_properties.deinit(env.allocator);
     env.ids_to_nodes.deinit(env.allocator);
 
@@ -276,13 +276,12 @@ pub const Texts = struct {
 
 pub const TextId = enum(u32) {
     _,
-
     pub const empty_string: TextId = @enumFromInt(0);
 };
 
 pub fn addTextFromStringToken(env: *Environment, string: TokenSource.Location, source: TokenSource) !TextId {
     var iterator = source.stringTokenIterator(string);
-    if (iterator.next(source) == null) return .empty_string;
+    if (iterator.next() == null) return .empty_string;
     const id = std.math.cast(std.meta.Tag(TextId), try std.math.add(usize, 1, env.texts.list.items.len)) orelse return error.OutOfTexts;
 
     try env.texts.list.ensureUnusedCapacity(env.allocator, 1);
@@ -292,14 +291,14 @@ pub fn addTextFromStringToken(env: *Environment, string: TokenSource.Location, s
     return @enumFromInt(id);
 }
 
-pub fn addTextFromString(env: *Environment, text: []const u8) !TextId {
-    if (text.len == 0) return .empty_string;
+pub fn addTextFromString(env: *Environment, string: []const u8) !TextId {
+    if (string.len == 0) return .empty_string;
     const id = std.math.cast(std.meta.Tag(TextId), try std.math.add(usize, 1, env.texts.list.items.len)) orelse return error.OutOfTexts;
 
     try env.texts.list.ensureUnusedCapacity(env.allocator, 1);
     var arena = env.texts.arena.promote(env.allocator);
     defer env.texts.arena = arena.state;
-    env.texts.list.appendAssumeCapacity(try arena.allocator().dupe(u8, text));
+    env.texts.list.appendAssumeCapacity(try arena.allocator().dupe(u8, string));
     return @enumFromInt(id);
 }
 
@@ -312,7 +311,6 @@ pub fn getText(env: *const Environment, id: TextId) []const u8 {
 /// A unique identifier for each URL.
 pub const UrlId = enum(u16) {
     _,
-
     pub const Int = std.meta.Tag(@This());
 };
 

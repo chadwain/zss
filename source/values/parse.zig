@@ -357,7 +357,7 @@ pub fn color(ctx: *Context) ?types.Color {
         const len = len: {
             var iterator = ctx.token_source.hashIdTokenIterator(location);
             var index: u4 = 0;
-            while (iterator.next(ctx.token_source)) |codepoint| : (index += 1) {
+            while (iterator.next()) |codepoint| : (index += 1) {
                 if (index == 8) break :blk;
                 digits[index] = zss.unicode.hexDigitToNumber(codepoint) catch break :blk;
             }

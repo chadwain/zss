@@ -1,6 +1,6 @@
 //! Assigns index numbers to UTF-8 strings.
 //! Indeces start from 0 and increase by 1 for every unique string.
-//! Unicode normalization is not taken into account.
+//! Equality is determined by codepoints alone. Unicode normalization forms don't apply.
 
 const StringInterner = @This();
 
@@ -47,7 +47,7 @@ pub const Options = struct {
     /// The maximum amount of unique strings that can be held.
     max_size: usize,
     /// If equal to `.sensitive`, you must only use functions ending with "Sensitive".
-    /// If equal to `.insensitive`, you must only use function not ending with "Sensitive".
+    /// If equal to `.insensitive`, you must only use functions not ending with "Sensitive".
     case: Case,
 
     pub const Case = enum {
@@ -135,7 +135,7 @@ pub fn addFromIdentToken(
     location: Location,
     token_source: TokenSource,
 ) !usize {
-    return addFromGenericTokenIterator(interner, allocator, token_source, token_source.identTokenIterator(location), .insensitive);
+    return addFromTokenIterator(interner, allocator, token_source.identTokenIterator(location), .insensitive);
 }
 
 pub fn addFromIdentTokenSensitive(
@@ -145,7 +145,7 @@ pub fn addFromIdentTokenSensitive(
     location: Location,
     token_source: TokenSource,
 ) !usize {
-    return addFromGenericTokenIterator(interner, allocator, token_source, token_source.identTokenIterator(location), .sensitive);
+    return addFromTokenIterator(interner, allocator, token_source.identTokenIterator(location), .sensitive);
 }
 
 pub fn addFromStringToken(
@@ -155,7 +155,7 @@ pub fn addFromStringToken(
     location: Location,
     token_source: TokenSource,
 ) !usize {
-    return addFromGenericTokenIterator(interner, allocator, token_source, token_source.stringTokenIterator(location), .insensitive);
+    return addFromTokenIterator(interner, allocator, token_source.stringTokenIterator(location), .insensitive);
 }
 
 pub fn addFromHashIdTokenSensitive(
@@ -165,7 +165,7 @@ pub fn addFromHashIdTokenSensitive(
     location: Location,
     token_source: TokenSource,
 ) !usize {
-    return addFromGenericTokenIterator(interner, allocator, token_source, token_source.hashIdTokenIterator(location), .sensitive);
+    return addFromTokenIterator(interner, allocator, token_source.hashIdTokenIterator(location), .sensitive);
 }
 
 pub fn getFromIdentTokenSensitive(
@@ -174,39 +174,31 @@ pub fn getFromIdentTokenSensitive(
     location: Location,
     token_source: TokenSource,
 ) ?usize {
-    return getFromGenericTokenIterator(interner, token_source, token_source.identTokenIterator(location), .sensitive);
+    return getFromTokenIterator(interner, token_source.identTokenIterator(location), .sensitive);
 }
 
-fn GenericTokenIteratorKey(comptime TokenIterator: type) type {
-    return struct {
-        source: TokenSource,
-        it: TokenIterator,
-    };
-}
-
-fn GenericTokenIteratorAdapter(comptime TokenIterator: type, comptime case: Options.Case) type {
-    const Key = GenericTokenIteratorKey(TokenIterator);
+fn TokenIteratorAdapter(comptime TokenIterator: type, comptime case: Options.Case) type {
     return struct {
         interner: *const StringInterner,
 
-        pub fn hash(_: @This(), key: Key) u32 {
+        pub fn hash(_: @This(), key: TokenIterator) u32 {
             var hasher = Hasher{};
-            var it = key.it;
-            while (it.next(key.source)) |codepoint| {
+            var it = key;
+            while (it.next()) |codepoint| {
                 if (hasher.full()) break;
                 hasher.addCodepoint(codepoint);
             }
             return hasher.end(case);
         }
 
-        pub fn eql(adapter: @This(), key: Key, _: void, index: usize) bool {
-            var key_it = key.it;
+        pub fn eql(adapter: @This(), key: TokenIterator, _: void, index: usize) bool {
+            var key_it = key;
             const range = adapter.interner.indexer.values()[index];
             var string_it = adapter.interner.string.iterator(range.position, range.len);
             while (string_it.next()) |segment| {
                 var string_index: usize = 0;
                 while (string_index < segment.len) {
-                    const key_codepoint = key_it.next(key.source) orelse return false;
+                    const key_codepoint = key_it.next() orelse return false;
                     const key_codepoint_adjusted = switch (case) {
                         .sensitive => key_codepoint,
                         .insensitive => zss.unicode.latin1ToLowercase(key_codepoint),
@@ -217,43 +209,36 @@ fn GenericTokenIteratorAdapter(comptime TokenIterator: type, comptime case: Opti
                     string_index += string_codepoint_len;
                 }
             }
-            return key_it.next(key.source) == null;
+            return key_it.next() == null;
         }
     };
 }
 
-fn getFromGenericTokenIterator(
+fn getFromTokenIterator(
     interner: *const StringInterner,
-    token_source: TokenSource,
     token_iterator: anytype,
     comptime case: Options.Case,
 ) ?usize {
-    const TokenIterator = @TypeOf(token_iterator);
-    const Key = GenericTokenIteratorKey(TokenIterator);
-    const Adapter = GenericTokenIteratorAdapter(TokenIterator, case);
-
+    const Adapter = TokenIteratorAdapter(@TypeOf(token_iterator), case);
     interner.debug.assertCase(case);
     return interner.indexer.getIndexAdapted(
-        Key{ .source = token_source, .it = token_iterator },
+        token_iterator,
         Adapter{ .interner = interner },
     );
 }
 
-fn addFromGenericTokenIterator(
+fn addFromTokenIterator(
     interner: *StringInterner,
     allocator: Allocator,
-    token_source: TokenSource,
     token_iterator: anytype,
     comptime case: Options.Case,
 ) !usize {
-    const TokenIterator = @TypeOf(token_iterator);
-    const Key = GenericTokenIteratorKey(TokenIterator);
-    const Adapter = GenericTokenIteratorAdapter(TokenIterator, case);
+    const Adapter = TokenIteratorAdapter(@TypeOf(token_iterator), case);
 
     interner.debug.assertCase(case);
     const gop = try interner.indexer.getOrPutAdapted(
         allocator,
-        Key{ .source = token_source, .it = token_iterator },
+        token_iterator,
         Adapter{ .interner = interner },
     );
     if (gop.found_existing) return gop.index;
@@ -266,7 +251,7 @@ fn addFromGenericTokenIterator(
     var range = Range{ .position = interner.string.position, .len = 0 };
     var it = token_iterator;
     var buffer: [4]u8 = undefined;
-    while (it.next(token_source)) |codepoint| {
+    while (it.next()) |codepoint| {
         const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
         try interner.string.append(allocator, buffer[0..len]);
         range.len += len;

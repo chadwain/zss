@@ -50,14 +50,14 @@ pub const Source = struct {
         var next_3: [3]u21 = undefined;
         _ = readCodepoints(source, start, &next_3) catch unreachable;
         assert(codepointsStartAnIdentSequence(next_3));
-        return IdentSequenceIterator{ .location = start };
+        return IdentSequenceIterator{ .source = source, .location = start };
     }
 
     /// Asserts that `start` is the location of the start of an ID hash token.
     pub fn hashIdTokenIterator(source: Source, start: Location) IdentSequenceIterator {
         const hash = nextCodepoint(source, start) catch unreachable;
         assert(hash.codepoint == '#');
-        return IdentSequenceIterator{ .location = hash.next_location };
+        return IdentSequenceIterator{ .source = source, .location = hash.next_location };
     }
 
     /// Asserts that `start` is the location of the start of a at-keyword token.
@@ -71,7 +71,7 @@ pub const Source = struct {
     pub fn stringTokenIterator(source: Source, start: Location) StringTokenIterator {
         const quote = nextCodepoint(source, start) catch unreachable;
         assert(quote.codepoint == '"' or quote.codepoint == '\'');
-        return StringTokenIterator{ .location = quote.next_location, .ending_codepoint = quote.codepoint };
+        return StringTokenIterator{ .source = source, .location = quote.next_location, .ending_codepoint = quote.codepoint };
     }
 
     /// `start` must be the location of a `token_url`.
@@ -80,7 +80,7 @@ pub const Source = struct {
         var location = readCodepoints(source, start, &next_4) catch unreachable;
         assert(std.mem.eql(u21, &next_4, &[4]u21{ 'u', 'r', 'l', '(' }));
         location = consumeWhitespace(source, location) catch unreachable;
-        return UrlTokenIterator{ .location = location };
+        return UrlTokenIterator{ .source = source, .location = location };
     }
 
     // TODO: Make other `*Eql` functions, such as stringEql and urlEql.
@@ -92,49 +92,49 @@ pub const Source = struct {
         var it = identTokenIterator(source, location);
         for (ascii_string) |string_codepoint| {
             assert(string_codepoint <= 0x7F);
-            const it_codepoint = it.next(source) orelse return false;
+            const it_codepoint = it.next() orelse return false;
             if (toLowercase(string_codepoint) != toLowercase(it_codepoint)) return false;
         }
-        return it.next(source) == null;
+        return it.next() == null;
     }
 
     /// Given that `location` is the location of a <ident-token>, copy that identifier
     pub fn copyIdentifier(source: Source, location: Location, allocator: Allocator) ![]const u8 {
         var iterator = identTokenIterator(source, location);
-        return copyTokenGeneric(source, &iterator, allocator);
+        return copyTokenGeneric(&iterator, allocator);
     }
 
     /// Given that `location` is the location of a <string-token>, copy that string
     pub fn copyString(source: Source, location: Location, allocator: Allocator) ![]const u8 {
         var iterator = stringTokenIterator(source, location);
-        return copyTokenGeneric(source, &iterator, allocator);
+        return copyTokenGeneric(&iterator, allocator);
     }
 
     /// Given that `location` is the location of a <at-keyword-token>, copy that keyword
     pub fn copyAtKeyword(source: Source, location: Location, allocator: Allocator) ![]const u8 {
         var iterator = atKeywordTokenIterator(source, location);
-        return copyTokenGeneric(source, &iterator, allocator);
+        return copyTokenGeneric(&iterator, allocator);
     }
 
     /// Given that `location` is the location of an ID <hash-token>, copy that hash's identifier
     pub fn copyHashId(source: Source, location: Location, allocator: Allocator) ![]const u8 {
         var iterator = hashIdTokenIterator(source, location);
-        return copyTokenGeneric(source, &iterator, allocator);
+        return copyTokenGeneric(&iterator, allocator);
     }
 
     /// Given that `location` is the location of a <url-token>, copy that URL
     pub fn copyUrl(source: Source, location: Location, allocator: Allocator) ![]const u8 {
         var iterator = urlTokenIterator(source, location);
-        return copyTokenGeneric(source, &iterator, allocator);
+        return copyTokenGeneric(&iterator, allocator);
     }
 
     // TODO: Provide the option to use a buffer instead of a heap allocation
-    fn copyTokenGeneric(source: Source, iterator: anytype, allocator: Allocator) ![]const u8 {
+    fn copyTokenGeneric(iterator: anytype, allocator: Allocator) ![]const u8 {
         var list = std.ArrayListUnmanaged(u8){};
         defer list.deinit(allocator);
 
         var buffer: [4]u8 = undefined;
-        while (iterator.next(source)) |codepoint| {
+        while (iterator.next()) |codepoint| {
             // TODO: Get a UTF-8 encoded buffer directly from the tokenizer
             const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
             try list.appendSlice(allocator, buffer[0..len]);
@@ -170,97 +170,34 @@ pub const Source = struct {
     }
 };
 
-// TODO: (IdentSequenceIterator, StringTokenIterator, UrlTokenIterator, stringIsIdentSequence)
-// These methods are nothing more than copy-pastes of the actual tokenizing functions.
-// Can they be implemented without duplicating code?
-
 pub const IdentSequenceIterator = struct {
+    source: Source,
     location: Source.Location,
 
-    pub fn next(it: *IdentSequenceIterator, source: Source) ?u21 {
-        const next_ = (consumeIdentSequenceCodepoint(source, it.location) catch unreachable) orelse return null;
-        it.location = next_.next_location;
-        return next_.codepoint;
+    pub fn next(it: *IdentSequenceIterator) ?u21 {
+        return consumeIdentSequenceCodepoint(it.source, &it.location) catch unreachable;
     }
 };
 
 pub const StringTokenIterator = struct {
+    source: Source,
     location: Source.Location,
     ending_codepoint: u21,
 
-    pub fn next(it: *StringTokenIterator, source: Source) ?u21 {
-        const next_ = nextCodepoint(source, it.location) catch unreachable;
-        switch (next_.codepoint) {
-            '\n' => unreachable,
-            '\\' => {
-                const first_escaped = nextCodepoint(source, next_.next_location) catch unreachable;
-                if (first_escaped.codepoint == '\n') {
-                    it.location = first_escaped.next_location;
-                    return '\n';
-                } else if (first_escaped.codepoint == eof_codepoint) {
-                    it.location = next_.next_location;
-                    return null;
-                } else {
-                    const escaped = consumeEscapedCodepoint(source, first_escaped) catch unreachable;
-                    it.location = escaped.next_location;
-                    return escaped.codepoint;
-                }
-            },
-            eof_codepoint => return null,
-            else => {
-                if (next_.codepoint == it.ending_codepoint) {
-                    return null;
-                } else {
-                    it.location = next_.next_location;
-                    return next_.codepoint;
-                }
-            },
-        }
+    pub fn next(it: *StringTokenIterator) ?u21 {
+        return consumeStringTokenCodepoint(it.source, &it.location, it.ending_codepoint) catch unreachable;
     }
 };
 
 /// Used to iterate over <url-token>s (and NOT <bad-url-token>s)
 pub const UrlTokenIterator = struct {
+    source: Source,
     location: Source.Location,
 
-    pub fn next(it: *UrlTokenIterator, source: Source) ?u21 {
-        const next_ = nextCodepoint(source, it.location) catch unreachable;
-        switch (next_.codepoint) {
-            ')', eof_codepoint => return null,
-            '\n', '\t', ' ' => {
-                it.location = consumeWhitespace(source, next_.next_location) catch unreachable;
-                const right_paren_or_eof = nextCodepoint(source, it.location) catch unreachable;
-                switch (right_paren_or_eof.codepoint) {
-                    ')', eof_codepoint => return null,
-                    else => unreachable,
-                }
-            },
-            '"', '\'', '(', 0x00...0x08, 0x0B, 0x0E...0x1F, 0x7F => unreachable,
-            '\\' => {
-                const first_escaped = nextCodepoint(source, next_.next_location) catch unreachable;
-                assert(isValidFirstEscapedCodepoint(first_escaped.codepoint));
-                const escaped = consumeEscapedCodepoint(source, first_escaped) catch unreachable;
-                it.location = escaped.next_location;
-                return escaped.codepoint;
-            },
-            else => {
-                it.location = next_.next_location;
-                return next_.codepoint;
-            },
-        }
+    pub fn next(it: *UrlTokenIterator) ?u21 {
+        return consumeUrlTokenCodepoint(it.source, &it.location) catch unreachable;
     }
 };
-
-pub fn stringIsIdentSequence(utf8_string: []const u8) bool {
-    const source = Source.init(utf8_string) catch return false;
-    var location: Source.Location = @enumFromInt(0);
-    var first_3: [3]u21 = undefined;
-    _ = readCodepoints(source, location, &first_3) catch return false;
-    if (!codepointsStartAnIdentSequence(first_3)) return false;
-    location = consumeIdentSequence(source, location) catch return false;
-    const final = nextCodepoint(source, location) catch return false;
-    return final.codepoint == eof_codepoint;
-}
 
 const NextCodepoint = struct { next_location: Source.Location, codepoint: u21 };
 
@@ -497,37 +434,48 @@ fn consumeWhitespace(source: Source, start: Source.Location) !Source.Location {
 
 fn consumeStringToken(source: Source, after_quote: Source.Location, ending_codepoint: u21) !NextToken {
     var location = after_quote;
-    while (true) {
-        const next = try nextCodepoint(source, location);
-        switch (next.codepoint) {
-            '\n' => {
-                // NOTE: Parse error
-                return NextToken{ .token = .token_bad_string, .next_location = location };
-            },
-            '\\' => {
-                const first_escaped = try nextCodepoint(source, next.next_location);
-                if (first_escaped.codepoint == '\n') {
-                    location = first_escaped.next_location;
-                } else if (first_escaped.codepoint == eof_codepoint) {
-                    location = next.next_location;
-                } else {
-                    location = (try consumeEscapedCodepoint(source, first_escaped)).next_location;
-                }
-            },
-            eof_codepoint => {
-                // NOTE: Parse error
-                break;
-            },
-            else => {
-                location = next.next_location;
-                if (next.codepoint == ending_codepoint) {
-                    break;
-                }
-            },
-        }
-    }
+    while (consumeStringTokenCodepoint(source, &location, ending_codepoint) catch |err| switch (err) {
+        error.BadStringToken => return .{ .token = .token_bad_string, .next_location = location },
+        else => |e| return e,
+    }) |_| {}
 
-    return NextToken{ .token = .token_string, .next_location = location };
+    return NextToken{ .token = .token_string, .next_location = (nextCodepoint(source, location) catch unreachable).next_location };
+}
+
+fn consumeStringTokenCodepoint(source: Source, location: *Source.Location, ending_codepoint: u21) !?u21 {
+    const next = try nextCodepoint(source, location.*);
+    sw: switch (next.codepoint) {
+        '\n' => {
+            // NOTE: Parse error
+            return error.BadStringToken;
+        },
+        '\\' => {
+            const first_escaped = try nextCodepoint(source, next.next_location);
+            if (first_escaped.codepoint == '\n') {
+                location.* = first_escaped.next_location;
+                return '\n';
+            } else if (first_escaped.codepoint == eof_codepoint) {
+                location.* = next.next_location;
+                continue :sw eof_codepoint;
+            } else {
+                const escaped = (try consumeEscapedCodepoint(source, first_escaped));
+                location.* = escaped.next_location;
+                return escaped.codepoint;
+            }
+        },
+        eof_codepoint => {
+            // NOTE: Parse error
+            return null;
+        },
+        else => {
+            if (next.codepoint == ending_codepoint) {
+                return null;
+            } else {
+                location.* = next.next_location;
+                return next.codepoint;
+            }
+        },
+    }
 }
 
 fn consumeEscapedCodepoint(source: Source, first_escaped: NextCodepoint) !NextCodepoint {
@@ -745,15 +693,18 @@ fn consumeDigits(source: Source, start: Source.Location, buffer: *NumberBuffer) 
     }
 }
 
-fn consumeIdentSequenceCodepoint(source: Source, location: Source.Location) !?NextCodepoint {
-    const next = try nextCodepoint(source, location);
+fn consumeIdentSequenceCodepoint(source: Source, location: *Source.Location) !?u21 {
+    const next = try nextCodepoint(source, location.*);
     switch (next.codepoint) {
         '\\' => {
             const first_escaped = try nextCodepoint(source, next.next_location);
-            if (!isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
+            if (isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
+                const escaped = try consumeEscapedCodepoint(source, first_escaped);
+                location.* = escaped.next_location;
+                return escaped.codepoint;
+            } else {
                 return null;
             }
-            return try consumeEscapedCodepoint(source, first_escaped);
         },
         '0'...'9',
         'A'...'Z',
@@ -761,16 +712,17 @@ fn consumeIdentSequenceCodepoint(source: Source, location: Source.Location) !?Ne
         '-',
         '_',
         0x80...0x10FFFF,
-        => return next,
+        => {
+            location.* = next.next_location;
+            return next.codepoint;
+        },
         else => return null,
     }
 }
 
 fn consumeIdentSequence(source: Source, start: Source.Location) !Source.Location {
     var location = start;
-    while (try consumeIdentSequenceCodepoint(source, location)) |next| {
-        location = next.next_location;
-    }
+    while (try consumeIdentSequenceCodepoint(source, &location)) |_| {}
     return location;
 }
 
@@ -935,9 +887,8 @@ fn consumeIdentSequenceWithMatch(
 ) !struct { ?Enum, Source.Location } {
     var location = start;
     var prefix_tree = ComptimePrefixTree(Enum){};
-    while (try consumeIdentSequenceCodepoint(source, location)) |next| {
-        location = next.next_location;
-        prefix_tree.nextCodepoint(next.codepoint);
+    while (try consumeIdentSequenceCodepoint(source, &location)) |codepoint| {
+        prefix_tree.nextCodepoint(codepoint);
     }
     return .{ prefix_tree.findMatch(), location };
 }
@@ -979,48 +930,57 @@ fn consumeIdentLikeToken(source: Source, start: Source.Location) !NextToken {
 
 fn consumeUrlToken(source: Source, start: Source.Location) !NextToken {
     var location = try consumeWhitespace(source, start);
-    while (true) {
-        const next = try nextCodepoint(source, location);
-        switch (next.codepoint) {
-            ')' => {
-                location = next.next_location;
-                break;
-            },
-            '\n', '\t', ' ' => {
-                location = try consumeWhitespace(source, next.next_location);
-                const right_paren = try nextCodepoint(source, location);
-                if (right_paren.codepoint == eof_codepoint) {
-                    // NOTE: Parse error
-                    break;
-                } else if (right_paren.codepoint == ')') {
-                    location = right_paren.next_location;
-                    break;
-                } else {
-                    return consumeBadUrl(source, next.next_location);
-                }
-            },
-            '"', '\'', '(', 0x00...0x08, 0x0B, 0x0E...0x1F, 0x7F => {
-                // NOTE: Parse error
-                return consumeBadUrl(source, next.next_location);
-            },
-            '\\' => {
-                const first_escaped = try nextCodepoint(source, location);
-                if (isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
-                    location = (try consumeEscapedCodepoint(source, first_escaped)).next_location;
-                } else {
-                    // NOTE: Parse error
-                    return consumeBadUrl(source, next.next_location);
-                }
-            },
-            eof_codepoint => {
-                // NOTE: Parse error
-                break;
-            },
-            else => location = next.next_location,
-        }
-    }
+    while (consumeUrlTokenCodepoint(source, &location) catch |err| switch (err) {
+        error.BadUrlToken => return consumeBadUrl(source, location),
+        else => |e| return e,
+    }) |_| {}
 
-    return NextToken{ .token = .token_url, .next_location = location };
+    return NextToken{ .token = .token_url, .next_location = (nextCodepoint(source, location) catch unreachable).next_location };
+}
+
+fn consumeUrlTokenCodepoint(source: Source, location: *Source.Location) !?u21 {
+    const next = try nextCodepoint(source, location.*);
+    switch (next.codepoint) {
+        ')' => return null,
+        '\n', '\t', ' ' => {
+            location.* = try consumeWhitespace(source, next.next_location);
+            const right_paren_or_eof = try nextCodepoint(source, location.*);
+            if (right_paren_or_eof.codepoint == eof_codepoint) {
+                // NOTE: Parse error
+                return null;
+            } else if (right_paren_or_eof.codepoint == ')') {
+                return null;
+            } else {
+                location.* = next.next_location;
+                return error.BadUrlToken;
+            }
+        },
+        '"', '\'', '(', 0x00...0x08, 0x0B, 0x0E...0x1F, 0x7F => {
+            // NOTE: Parse error
+            location.* = next.next_location;
+            return error.BadUrlToken;
+        },
+        '\\' => {
+            const first_escaped = try nextCodepoint(source, next.next_location);
+            if (isValidFirstEscapedCodepoint(first_escaped.codepoint)) {
+                const escaped = (try consumeEscapedCodepoint(source, first_escaped));
+                location.* = escaped.next_location;
+                return escaped.codepoint;
+            } else {
+                // NOTE: Parse error
+                location.* = next.next_location;
+                return error.BadUrlToken;
+            }
+        },
+        eof_codepoint => {
+            // NOTE: Parse error
+            return null;
+        },
+        else => {
+            location.* = next.next_location;
+            return next.codepoint;
+        },
+    }
 }
 
 fn consumeBadUrl(source: Source, start: Source.Location) !NextToken {
@@ -1073,6 +1033,7 @@ fn numberSign(source: Source, after_number_sign: Source.Location) !NextToken {
     return NextToken{ .token = token, .next_location = after_ident };
 }
 
+// TODO: Replace with fuzz test
 test "tokenization" {
     const input =
         \\@charset "utf-8";
