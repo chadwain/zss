@@ -177,6 +177,10 @@ pub const IdentSequenceIterator = struct {
     pub fn next(it: *IdentSequenceIterator) ?u21 {
         return consumeIdentSequenceCodepoint(it.source, &it.location) catch unreachable;
     }
+
+    pub fn format(it: *IdentSequenceIterator, writer: *std.io.Writer) std.io.Writer.Error!void {
+        while (it.next()) |codepoint| try writer.print("{u}", .{codepoint});
+    }
 };
 
 pub const StringTokenIterator = struct {
@@ -187,6 +191,10 @@ pub const StringTokenIterator = struct {
     pub fn next(it: *StringTokenIterator) ?u21 {
         return consumeStringTokenCodepoint(it.source, &it.location, it.ending_codepoint) catch unreachable;
     }
+
+    pub fn format(it: *StringTokenIterator, writer: *std.io.Writer) std.io.Writer.Error!void {
+        while (it.next()) |codepoint| try writer.print("{u}", .{codepoint});
+    }
 };
 
 /// Used to iterate over <url-token>s (and NOT <bad-url-token>s)
@@ -196,6 +204,10 @@ pub const UrlTokenIterator = struct {
 
     pub fn next(it: *UrlTokenIterator) ?u21 {
         return consumeUrlTokenCodepoint(it.source, &it.location) catch unreachable;
+    }
+
+    pub fn format(it: *UrlTokenIterator, writer: *std.io.Writer) std.io.Writer.Error!void {
+        while (it.next()) |codepoint| try writer.print("{u}", .{codepoint});
     }
 };
 

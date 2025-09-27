@@ -568,15 +568,13 @@ fn unrecognizedPseudo(comptime pseudo: Pseudo, parser: *Parser, main_component_i
     .element, .legacy_element => selectors.PseudoElement,
     .class => selectors.PseudoClass,
 } {
-    const pseudo_name = parser.source.copyIdentifier(main_component_index.location(parser.ast), parser.allocator) catch
-        std.debug.panic("TODO: Unhandled allocation failure", .{});
-    defer parser.allocator.free(pseudo_name);
-    zss.log.warn("Ignoring unsupported pseudo {s}: {s}", .{
+    var iterator = parser.source.identTokenIterator(main_component_index.location(parser.ast));
+    zss.log.warn("Ignoring unsupported pseudo {s}: {f}", .{
         switch (pseudo) {
             .element, .legacy_element => "element",
             .class => "class",
         },
-        pseudo_name,
+        &iterator,
     });
     return .unrecognized;
 }
