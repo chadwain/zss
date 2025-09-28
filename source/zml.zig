@@ -301,8 +301,9 @@ fn analyzeDirectives(
     while (zml_node_child_sequence.nextSkipSpaces(ast)) |node_child_index| {
         switch (node_child_index.tag(ast)) {
             .zml_directive => {
-                const directive_name = try token_source.copyAtKeyword(node_child_index.location(ast), allocator); // TODO: Avoid heap allocation
-                defer allocator.free(directive_name);
+                var directive_name_buffer: [4]u8 = undefined;
+                const directive_name = token_source.copyAtKeyword(node_child_index.location(ast), .{ .buffer = &directive_name_buffer }) catch
+                    return error.UnrecognizedZmlDirective;
                 if (std.mem.eql(u8, directive_name, "name")) {
                     var directive_child_sequence = node_child_index.children(ast);
                     const name_index = directive_child_sequence.nextSkipSpaces(ast) orelse return error.InvalidZmlDirective;
@@ -310,9 +311,9 @@ fn analyzeDirectives(
                     if (!directive_child_sequence.emptySkipSpaces(ast)) return error.InvalidZmlDirective;
 
                     try document.named_nodes.ensureUnusedCapacity(allocator, 1);
-                    const name = try token_source.copyIdentifier(name_index.location(ast), allocator);
-                    errdefer allocator.free(name);
-                    const gop = document.named_nodes.getOrPutAssumeCapacity(name);
+                    const node_name = try token_source.copyIdentifier(name_index.location(ast), .{ .allocator = allocator });
+                    errdefer allocator.free(node_name);
+                    const gop = document.named_nodes.getOrPutAssumeCapacity(node_name);
                     if (gop.found_existing) return error.DuplicateZmlNamedNode;
                     gop.value_ptr.* = @enumFromInt(node_index);
                 } else {

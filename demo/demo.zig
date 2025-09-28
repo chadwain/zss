@@ -221,11 +221,11 @@ pub fn main() !void {
     // Resolve URLs in both the document and the stylesheet.
     for (0..zml_document.urls.len) |index| {
         const url = zml_document.urls.get(index);
-        try linkResource(resources, allocator, &env, url.id, url.type, url.src_loc, zml_document_token_source);
+        try linkResource(resources, &env, url.id, url.type, url.src_loc, zml_document_token_source);
     }
     var stylesheet_urls_it = stylesheet.decl_urls.iterator();
     while (stylesheet_urls_it.next()) |url| {
-        try linkResource(resources, allocator, &env, url.id, url.desc.type, url.desc.src_loc, stylesheet_token_source);
+        try linkResource(resources, &env, url.id, url.desc.type, url.desc.src_loc, stylesheet_token_source);
     }
 
     // Run the CSS cascade.
@@ -399,18 +399,17 @@ const Resources = struct {
 
 fn linkResource(
     resources: Resources,
-    allocator: Allocator,
     env: *zss.Environment,
     id: zss.Environment.UrlId,
     @"type": zss.values.parse.Urls.Type,
     src_loc: zss.values.parse.Urls.SourceLocation,
     token_source: zss.syntax.TokenSource,
 ) !void {
+    var url_buffer: [16]u8 = undefined;
     const url_string = switch (src_loc) {
-        .url_token => |location| try token_source.copyUrl(location, allocator),
-        .string_token => |location| try token_source.copyString(location, allocator),
+        .url_token => |location| token_source.copyUrl(location, .{ .buffer = &url_buffer }) catch return,
+        .string_token => |location| token_source.copyString(location, .{ .buffer = &url_buffer }) catch return,
     };
-    defer allocator.free(url_string);
     switch (@"type") {
         .background_image => {
             if (std.mem.eql(u8, url_string, "zig.png")) {

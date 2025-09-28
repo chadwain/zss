@@ -233,8 +233,8 @@ const ResourceLoader = struct {
         for (0..t.document.urls.len) |index| {
             const url = t.document.urls.get(index);
             const string = switch (url.src_loc) {
-                .url_token => |location| try token_source.copyUrl(location, allocator),
-                .string_token => |location| try token_source.copyString(location, allocator),
+                .url_token => |location| try token_source.copyUrl(location, .{ .allocator = allocator }),
+                .string_token => |location| try token_source.copyString(location, .{ .allocator = allocator }),
             };
 
             switch (url.type) {

@@ -138,8 +138,8 @@ pub const Namespaces = struct {
 pub fn addNamespace(env: *Environment, ast: Ast, source: TokenSource, index: Ast.Index) !Namespaces.Id {
     try env.namespaces.map.ensureUnusedCapacity(env.allocator, 1);
     const location = index.location(ast);
-    const namespace = try switch (index.tag(ast)) {
-        .token_string => source.copyString(location, env.allocator),
+    const namespace = switch (index.tag(ast)) {
+        .token_string => try source.copyString(location, .{ .allocator = env.allocator }),
         .token_url, .token_bad_url => panic("TODO: addNamespace with a URL", .{}),
         else => unreachable,
     };
@@ -287,7 +287,7 @@ pub fn addTextFromStringToken(env: *Environment, string: TokenSource.Location, s
     try env.texts.list.ensureUnusedCapacity(env.allocator, 1);
     var arena = env.texts.arena.promote(env.allocator);
     defer env.texts.arena = arena.state;
-    env.texts.list.appendAssumeCapacity(try source.copyString(string, arena.allocator())); // TODO: Arena allocation wastes memory here
+    env.texts.list.appendAssumeCapacity(try source.copyString(string, .{ .allocator = arena.allocator() })); // TODO: Arena allocation wastes memory here
     return @enumFromInt(id);
 }
 

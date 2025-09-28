@@ -21,9 +21,7 @@ const eof_codepoint = u21_max;
 pub const Source = struct {
     data: []const u8,
 
-    pub const Location = enum(u32) {
-        _,
-    };
+    pub const Location = enum(u32) { _ };
 
     pub fn init(utf8_string: []const u8) !Source {
         if (utf8_string.len > std.math.maxInt(std.meta.Tag(Location))) return error.SourceDataTooLong;
@@ -39,7 +37,7 @@ pub const Source = struct {
         Utf8CodepointTruncated,
     };
 
-    pub fn next(source: Source, location: *Location) !Token {
+    pub fn next(source: Source, location: *Location) Error!Token {
         const next_token = try nextToken(source, location.*);
         location.* = next_token.next_location;
         return next_token.token;
@@ -83,6 +81,97 @@ pub const Source = struct {
         return UrlTokenIterator{ .source = source, .location = location };
     }
 
+    pub const CopyMode = union(enum) {
+        buffer: []u8,
+        allocator: Allocator,
+    };
+
+    /// Given that `location` is the location of a <ident-token>, copy that identifier
+    pub fn copyIdentifier(source: Source, location: Location, copy_mode: CopyMode) ![]u8 {
+        var iterator = identTokenIterator(source, location);
+        return copyTokenGeneric(&iterator, copy_mode);
+    }
+
+    /// Given that `location` is the location of a <string-token>, copy that string
+    pub fn copyString(source: Source, location: Location, copy_mode: CopyMode) ![]u8 {
+        var iterator = stringTokenIterator(source, location);
+        return copyTokenGeneric(&iterator, copy_mode);
+    }
+
+    /// Given that `location` is the location of a <at-keyword-token>, copy that keyword
+    pub fn copyAtKeyword(source: Source, location: Location, copy_mode: CopyMode) ![]u8 {
+        var iterator = atKeywordTokenIterator(source, location);
+        return copyTokenGeneric(&iterator, copy_mode);
+    }
+
+    /// Given that `location` is the location of an ID <hash-token>, copy that hash's identifier
+    pub fn copyHashId(source: Source, location: Location, copy_mode: CopyMode) ![]u8 {
+        var iterator = hashIdTokenIterator(source, location);
+        return copyTokenGeneric(&iterator, copy_mode);
+    }
+
+    /// Given that `location` is the location of a <url-token>, copy that URL
+    pub fn copyUrl(source: Source, location: Location, copy_mode: CopyMode) ![]u8 {
+        var iterator = urlTokenIterator(source, location);
+        return copyTokenGeneric(&iterator, copy_mode);
+    }
+
+    /// A wrapper over std.ArrayList that abstracts over bounded vs. dynamic allocation.
+    const ArrayListManaged = struct {
+        array_list: std.ArrayList(u8),
+        mode: union(enum) {
+            bounded,
+            dynamic: Allocator,
+        },
+
+        fn init(copy_mode: CopyMode) ArrayListManaged {
+            return switch (copy_mode) {
+                .buffer => |buffer| .{
+                    .array_list = .initBuffer(buffer),
+                    .mode = .bounded,
+                },
+                .allocator => |allocator| .{
+                    .array_list = .empty,
+                    .mode = .{ .dynamic = allocator },
+                },
+            };
+        }
+
+        fn deinit(list: *ArrayListManaged) void {
+            switch (list.mode) {
+                .bounded => {},
+                .dynamic => |allocator| list.array_list.deinit(allocator),
+            }
+        }
+
+        fn appendSlice(list: *ArrayListManaged, slice: []const u8) !void {
+            switch (list.mode) {
+                .bounded => try list.array_list.appendSliceBounded(slice),
+                .dynamic => |allocator| try list.array_list.appendSlice(allocator, slice),
+            }
+        }
+
+        fn toOwnedSlice(list: *ArrayListManaged) ![]u8 {
+            switch (list.mode) {
+                .bounded => return list.array_list.items,
+                .dynamic => |allocator| return try list.array_list.toOwnedSlice(allocator),
+            }
+        }
+    };
+
+    fn copyTokenGeneric(iterator: anytype, copy_mode: CopyMode) error{OutOfMemory}![]u8 {
+        var list = ArrayListManaged.init(copy_mode);
+        defer list.deinit();
+
+        var buffer: [4]u8 = undefined;
+        while (iterator.next()) |codepoint| {
+            const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
+            try list.appendSlice(buffer[0..len]);
+        }
+
+        return try list.toOwnedSlice();
+    }
+
     // TODO: Make other `*Eql` functions, such as stringEql and urlEql.
 
     /// Given that `location` is the location of an <ident-token>, check if the identifier is equal to `ascii_string`
@@ -96,52 +185,6 @@ pub const Source = struct {
             if (toLowercase(string_codepoint) != toLowercase(it_codepoint)) return false;
         }
         return it.next() == null;
-    }
-
-    /// Given that `location` is the location of a <ident-token>, copy that identifier
-    pub fn copyIdentifier(source: Source, location: Location, allocator: Allocator) ![]const u8 {
-        var iterator = identTokenIterator(source, location);
-        return copyTokenGeneric(&iterator, allocator);
-    }
-
-    /// Given that `location` is the location of a <string-token>, copy that string
-    pub fn copyString(source: Source, location: Location, allocator: Allocator) ![]const u8 {
-        var iterator = stringTokenIterator(source, location);
-        return copyTokenGeneric(&iterator, allocator);
-    }
-
-    /// Given that `location` is the location of a <at-keyword-token>, copy that keyword
-    pub fn copyAtKeyword(source: Source, location: Location, allocator: Allocator) ![]const u8 {
-        var iterator = atKeywordTokenIterator(source, location);
-        return copyTokenGeneric(&iterator, allocator);
-    }
-
-    /// Given that `location` is the location of an ID <hash-token>, copy that hash's identifier
-    pub fn copyHashId(source: Source, location: Location, allocator: Allocator) ![]const u8 {
-        var iterator = hashIdTokenIterator(source, location);
-        return copyTokenGeneric(&iterator, allocator);
-    }
-
-    /// Given that `location` is the location of a <url-token>, copy that URL
-    pub fn copyUrl(source: Source, location: Location, allocator: Allocator) ![]const u8 {
-        var iterator = urlTokenIterator(source, location);
-        return copyTokenGeneric(&iterator, allocator);
-    }
-
-    // TODO: Provide the option to use a buffer instead of a heap allocation
-    fn copyTokenGeneric(iterator: anytype, allocator: Allocator) ![]const u8 {
-        var list = std.ArrayListUnmanaged(u8){};
-        defer list.deinit(allocator);
-
-        var buffer: [4]u8 = undefined;
-        while (iterator.next()) |codepoint| {
-            // TODO: Get a UTF-8 encoded buffer directly from the tokenizer
-            const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
-            try list.appendSlice(allocator, buffer[0..len]);
-        }
-
-        const bytes = try list.toOwnedSlice(allocator);
-        return bytes;
     }
 
     pub fn KV(comptime Type: type) type {
