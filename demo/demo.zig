@@ -115,7 +115,7 @@ pub fn main() !void {
     var file_contents = try readFile(allocator, file_path);
     defer switch (file_contents) {
         .text => |*text| text.deinit(allocator),
-        .open_error => {},
+        .read_error => {},
     };
 
     // Setup GLFW
@@ -197,7 +197,7 @@ pub fn main() !void {
         const body_text_zss_node = body_text.toZssNode(&zml_document);
         const text_id = switch (file_contents) {
             .text => |text| try env.addTextFromString(text.items),
-            .open_error => |err| blk: {
+            .read_error => |err| blk: {
                 const string = try std.fmt.allocPrint(allocator, "(Unable to open file: {s})\n", .{@errorName(err)});
                 defer allocator.free(string);
                 break :blk try env.addTextFromString(string);
@@ -355,13 +355,9 @@ fn glfwError() error{GlfwError} {
 
 fn readFile(allocator: Allocator, file_path: []const u8) !union(enum) {
     text: std.ArrayList(u8),
-    open_error: std.fs.File.OpenError,
+    read_error: anyerror,
 } {
-    const file = std.fs.cwd().openFile(file_path, .{}) catch |err| return .{ .open_error = err };
-    defer file.close();
-    var file_reader_buffer: [4096]u8 = undefined;
-    var file_reader = file.reader(&file_reader_buffer);
-    const bytes = try file_reader.interface.allocRemaining(allocator, .limited(1024 * 1024));
+    const bytes = std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024) catch |err| return .{ .read_error = err };
     var list: std.ArrayList(u8) = .fromOwnedSlice(bytes);
 
     // Exclude a trailing newline.
