@@ -247,9 +247,8 @@ fn parseDeclaration(
 ) !void {
     // TODO: If this property has already been declared, skip parsing a value entirely.
     const location = declaration_index.location(ctx.ast);
-    const property = ctx.token_source.matchIdentifierEnum(location, Property) orelse {
-        var decl_name_iterator = ctx.token_source.identTokenIterator(location);
-        zss.log.warn("Ignoring unsupported declaration: {f}", .{&decl_name_iterator});
+    const property = ctx.token_source.mapIdentifierEnum(location, Property) orelse {
+        zss.log.warn("Ignoring unsupported declaration: {f}", .{ctx.token_source.formatIdentToken(location)});
         return;
     };
     // zss.log.debug("Parsing declaration '{s}'", .{@tagName(property)});

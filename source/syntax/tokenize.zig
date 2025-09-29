@@ -23,7 +23,7 @@ pub const Source = struct {
 
     pub const Location = enum(u32) { _ };
 
-    pub fn init(utf8_string: []const u8) !Source {
+    pub fn init(utf8_string: []const u8) error{SourceDataTooLong}!Source {
         if (utf8_string.len > std.math.maxInt(std.meta.Tag(Location))) return error.SourceDataTooLong;
         return Source{ .data = utf8_string };
     }
@@ -58,7 +58,7 @@ pub const Source = struct {
         return IdentSequenceIterator{ .source = source, .location = hash.next_location };
     }
 
-    /// Asserts that `start` is the location of the start of a at-keyword token.
+    /// Asserts that `start` is the location of the start of an at-keyword token.
     pub fn atKeywordTokenIterator(source: Source, start: Location) IdentSequenceIterator {
         const at = nextCodepoint(source, start) catch unreachable;
         assert(at.codepoint == '@');
@@ -72,7 +72,7 @@ pub const Source = struct {
         return StringTokenIterator{ .source = source, .location = quote.next_location, .ending_codepoint = quote.codepoint };
     }
 
-    /// `start` must be the location of a `token_url`.
+    /// Asserts that `start` is the location of the start of a url token.
     pub fn urlTokenIterator(source: Source, start: Location) UrlTokenIterator {
         var next_4: [4]u21 = undefined;
         var location = readCodepoints(source, start, &next_4) catch unreachable;
@@ -87,31 +87,31 @@ pub const Source = struct {
     };
 
     /// Given that `location` is the location of a <ident-token>, copy that identifier
-    pub fn copyIdentifier(source: Source, location: Location, copy_mode: CopyMode) ![]u8 {
+    pub fn copyIdentifier(source: Source, location: Location, copy_mode: CopyMode) error{OutOfMemory}![]u8 {
         var iterator = identTokenIterator(source, location);
         return copyTokenGeneric(&iterator, copy_mode);
     }
 
     /// Given that `location` is the location of a <string-token>, copy that string
-    pub fn copyString(source: Source, location: Location, copy_mode: CopyMode) ![]u8 {
+    pub fn copyString(source: Source, location: Location, copy_mode: CopyMode) error{OutOfMemory}![]u8 {
         var iterator = stringTokenIterator(source, location);
         return copyTokenGeneric(&iterator, copy_mode);
     }
 
     /// Given that `location` is the location of a <at-keyword-token>, copy that keyword
-    pub fn copyAtKeyword(source: Source, location: Location, copy_mode: CopyMode) ![]u8 {
+    pub fn copyAtKeyword(source: Source, location: Location, copy_mode: CopyMode) error{OutOfMemory}![]u8 {
         var iterator = atKeywordTokenIterator(source, location);
         return copyTokenGeneric(&iterator, copy_mode);
     }
 
     /// Given that `location` is the location of an ID <hash-token>, copy that hash's identifier
-    pub fn copyHashId(source: Source, location: Location, copy_mode: CopyMode) ![]u8 {
+    pub fn copyHashId(source: Source, location: Location, copy_mode: CopyMode) error{OutOfMemory}![]u8 {
         var iterator = hashIdTokenIterator(source, location);
         return copyTokenGeneric(&iterator, copy_mode);
     }
 
     /// Given that `location` is the location of a <url-token>, copy that URL
-    pub fn copyUrl(source: Source, location: Location, copy_mode: CopyMode) ![]u8 {
+    pub fn copyUrl(source: Source, location: Location, copy_mode: CopyMode) error{OutOfMemory}![]u8 {
         var iterator = urlTokenIterator(source, location);
         return copyTokenGeneric(&iterator, copy_mode);
     }
@@ -172,6 +172,47 @@ pub const Source = struct {
         return try list.toOwnedSlice();
     }
 
+    /// Asserts that `start` is the location of the start of an ident token.
+    pub fn formatIdentToken(source: Source, start: Location) TokenFormatter(identTokenIterator) {
+        return formatTokenGeneric(identTokenIterator, source, start);
+    }
+
+    /// Asserts that `start` is the location of the start of an ID hash token.
+    pub fn formatHashIdToken(source: Source, start: Location) TokenFormatter(hashIdTokenIterator) {
+        return formatTokenGeneric(hashIdTokenIterator, source, start);
+    }
+
+    /// Asserts that `start` is the location of the start of an at-keyword token.
+    pub fn formatAtKeywordToken(source: Source, start: Location) TokenFormatter(atKeywordTokenIterator) {
+        return formatTokenGeneric(atKeywordTokenIterator, source, start);
+    }
+
+    /// Asserts that `start` is the location of the start of a string token.
+    pub fn formatStringToken(source: Source, start: Location) TokenFormatter(stringTokenIterator) {
+        return formatTokenGeneric(stringTokenIterator, source, start);
+    }
+
+    /// Asserts that `start` is the location of the start of a url token.
+    pub fn formatUrlToken(source: Source, start: Location) TokenFormatter(urlTokenIterator) {
+        return formatTokenGeneric(urlTokenIterator, source, start);
+    }
+
+    fn TokenFormatter(comptime createIterator: anytype) type {
+        return struct {
+            source: Source,
+            location: Location,
+
+            pub fn format(self: @This(), writer: *std.Io.Writer) !void {
+                var it = createIterator(self.source, self.location);
+                while (it.next()) |codepoint| try writer.print("{u}", .{codepoint});
+            }
+        };
+    }
+
+    fn formatTokenGeneric(comptime createIterator: anytype, source: Source, location: Location) TokenFormatter(createIterator) {
+        return TokenFormatter(createIterator){ .source = source, .location = location };
+    }
+
     // TODO: Make other `*Eql` functions, such as stringEql and urlEql.
 
     /// Given that `location` is the location of an <ident-token>, check if the identifier is equal to `ascii_string`
@@ -187,6 +228,7 @@ pub const Source = struct {
         return it.next() == null;
     }
 
+    /// A key-value pair.
     pub fn KV(comptime Type: type) type {
         return struct {
             /// This must be an ASCII string.
@@ -195,9 +237,9 @@ pub const Source = struct {
         };
     }
 
-    /// Given that `location` is the location of an <ident-token>, map the identifier at that location
-    /// to the value given in `kvs`, using case-insensitive matching. If there was no match, null is returned.
-    pub fn mapIdentifier(source: Source, location: Location, comptime Type: type, kvs: []const KV(Type)) ?Type {
+    /// Given that `location` is the location of an <ident-token>, if the identifier matches any of the
+    /// key strings in `kvs` using case-insensitive matching, returns the corresponding value. If there was no match, null is returned.
+    pub fn mapIdentifierValue(source: Source, location: Location, comptime Type: type, kvs: []const KV(Type)) ?Type {
         // TODO: Use a hash map/trie or something
         for (kvs) |kv| {
             if (identifierEqlIgnoreCase(source, location, kv[0])) return kv[1];
@@ -207,7 +249,7 @@ pub const Source = struct {
 
     /// Given that `location` is the location of an <ident-token>, if the identifier matches any of the
     /// fields of `Enum` using case-insensitive matching, returns that enum field. If there was no match, null is returned.
-    pub fn matchIdentifierEnum(source: Source, location: Location, comptime Enum: type) ?Enum {
+    pub fn mapIdentifierEnum(source: Source, location: Location, comptime Enum: type) ?Enum {
         const result, _ = consumeIdentSequenceWithMatch(source, location, Enum) catch unreachable;
         return result;
     }
@@ -220,10 +262,6 @@ pub const IdentSequenceIterator = struct {
     pub fn next(it: *IdentSequenceIterator) ?u21 {
         return consumeIdentSequenceCodepoint(it.source, &it.location) catch unreachable;
     }
-
-    pub fn format(it: *IdentSequenceIterator, writer: *std.io.Writer) std.io.Writer.Error!void {
-        while (it.next()) |codepoint| try writer.print("{u}", .{codepoint});
-    }
 };
 
 pub const StringTokenIterator = struct {
@@ -234,10 +272,6 @@ pub const StringTokenIterator = struct {
     pub fn next(it: *StringTokenIterator) ?u21 {
         return consumeStringTokenCodepoint(it.source, &it.location, it.ending_codepoint) catch unreachable;
     }
-
-    pub fn format(it: *StringTokenIterator, writer: *std.io.Writer) std.io.Writer.Error!void {
-        while (it.next()) |codepoint| try writer.print("{u}", .{codepoint});
-    }
 };
 
 /// Used to iterate over <url-token>s (and NOT <bad-url-token>s)
@@ -247,10 +281,6 @@ pub const UrlTokenIterator = struct {
 
     pub fn next(it: *UrlTokenIterator) ?u21 {
         return consumeUrlTokenCodepoint(it.source, &it.location) catch unreachable;
-    }
-
-    pub fn format(it: *UrlTokenIterator, writer: *std.io.Writer) std.io.Writer.Error!void {
-        while (it.next()) |codepoint| try writer.print("{u}", .{codepoint});
     }
 };
 

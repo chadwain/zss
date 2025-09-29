@@ -80,8 +80,7 @@ pub fn create(
         switch (index.tag(ast)) {
             .at_rule => {
                 const at_rule = index.extra(ast).at_rule orelse {
-                    var keyword_iterator = token_source.atKeywordTokenIterator(index.location(ast));
-                    zss.log.warn("Ignoring unknown at-rule: @{f}", .{&keyword_iterator});
+                    zss.log.warn("Ignoring unknown at-rule: @{f}", .{token_source.formatAtKeywordToken(index.location(ast))});
                     continue;
                 };
                 atRule(&stylesheet.namespaces, allocator, ast, token_source, env, at_rule, index) catch |err| switch (err) {

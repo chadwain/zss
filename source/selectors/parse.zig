@@ -476,7 +476,7 @@ fn parseAttributeSelector(parser: *Parser, data_list: DataListManaged, block_ind
     const case: selectors.AttributeCase = case: {
         if (parser.accept(.token_ident)) |case_index| {
             const location = case_index.location(parser.ast);
-            const case = parser.source.mapIdentifier(location, selectors.AttributeCase, &.{
+            const case = parser.source.mapIdentifierValue(location, selectors.AttributeCase, &.{
                 .{ "i", .ignore_case },
                 .{ "s", .same_case },
             }) orelse return parser.fail();
@@ -536,7 +536,7 @@ fn parsePseudo(comptime pseudo: Pseudo, parser: *Parser) ?switch (pseudo) {
     const main_component_tag, const main_component_index = parser.next() orelse return null;
     switch (main_component_tag) {
         .token_ident => {
-            if (pseudo == .class and parser.source.matchIdentifierEnum(main_component_index.location(parser.ast), selectors.PseudoClass) == .root) {
+            if (pseudo == .class and parser.source.mapIdentifierEnum(main_component_index.location(parser.ast), selectors.PseudoClass) == .root) {
                 return .root;
             }
             return unrecognizedPseudo(pseudo, parser, main_component_index);
@@ -568,13 +568,12 @@ fn unrecognizedPseudo(comptime pseudo: Pseudo, parser: *Parser, main_component_i
     .element, .legacy_element => selectors.PseudoElement,
     .class => selectors.PseudoClass,
 } {
-    var iterator = parser.source.identTokenIterator(main_component_index.location(parser.ast));
     zss.log.warn("Ignoring unsupported pseudo {s}: {f}", .{
         switch (pseudo) {
             .element, .legacy_element => "element",
             .class => "class",
         },
-        &iterator,
+        parser.source.formatIdentToken(main_component_index.location(parser.ast)),
     });
     return .unrecognized;
 }

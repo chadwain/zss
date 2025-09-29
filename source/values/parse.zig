@@ -263,7 +263,7 @@ pub fn keyword(ctx: *Context, comptime Type: type, kvs: []const TokenSource.KV(T
     const item = ctx.next() orelse return null;
     if (item.tag == .token_ident) {
         const location = item.index.location(ctx.ast);
-        if (ctx.token_source.mapIdentifier(location, Type, kvs)) |result| return result;
+        if (ctx.token_source.mapIdentifierValue(location, Type, kvs)) |result| return result;
     }
 
     ctx.reset(item.index);
@@ -404,7 +404,7 @@ pub fn url(ctx: *Context) ?Urls.SourceLocation {
         .token_url => return .{ .url_token = item.index.location(ctx.ast) },
         .function => blk: {
             const location = item.index.location(ctx.ast);
-            _ = ctx.token_source.mapIdentifier(location, void, &.{
+            _ = ctx.token_source.mapIdentifierValue(location, void, &.{
                 .{ "url", {} },
                 .{ "src", {} },
             }) orelse break :blk;
