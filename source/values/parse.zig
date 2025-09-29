@@ -16,8 +16,15 @@ pub const Context = struct {
     state: State,
 
     pub const State = struct {
+        mode: Mode,
         sequence: Ast.Sequence,
-        mode: enum { normal, list }, // TODO: Introduce a new mode for parsing declarations
+
+        pub const Mode = enum {
+            /// For parsing CSS declarations.
+            decl,
+            /// For parsing comma-separated lists within a CSS declaration.
+            decl_list,
+        };
     };
 
     pub fn init(ast: Ast, token_source: TokenSource) Context {
@@ -26,6 +33,33 @@ pub const Context = struct {
             .token_source = token_source,
             .state = undefined,
         };
+    }
+
+    /// Sets the children of `declaration_index` as the current node sequence to iterate over.
+    pub fn initDecl(ctx: *Context, declaration_index: Ast.Index) void {
+        switch (declaration_index.tag(ctx.ast)) {
+            .declaration_normal, .declaration_important => {},
+            else => unreachable,
+        }
+        ctx.state = .{
+            .mode = .decl,
+            .sequence = declaration_index.children(ctx.ast),
+        };
+    }
+
+    /// Sets the children of `declaration_index` as the current node sequence to iterate over.
+    /// In addition, it treats the sequence as a comma-separated list.
+    /// A return value of `null` represents a parse error.
+    pub fn initDeclList(ctx: *Context, declaration_index: Ast.Index) ?void {
+        switch (declaration_index.tag(ctx.ast)) {
+            .declaration_normal, .declaration_important => {},
+            else => unreachable,
+        }
+        ctx.state = .{
+            .mode = .decl_list,
+            .sequence = declaration_index.children(ctx.ast),
+        };
+        return ctx.beginList();
     }
 
     pub const Item = struct {
@@ -39,10 +73,11 @@ pub const Context = struct {
         return .{ .index = index, .tag = tag };
     }
 
+    /// Returns the next item in the current sequence or list item.
     pub fn next(ctx: *Context) ?Item {
         switch (ctx.state.mode) {
-            .normal => return ctx.rawNext(),
-            .list => {
+            .decl => return ctx.rawNext(),
+            .decl_list => {
                 const item = ctx.rawNext() orelse return null;
                 if (item.tag == .token_comma) {
                     ctx.state.sequence.reset(item.index);
@@ -54,55 +89,59 @@ pub const Context = struct {
         }
     }
 
-    pub fn save(ctx: *Context) Ast.Index {
+    /// Checks if the current sequence or list item is empty.
+    pub fn empty(ctx: *Context) bool {
+        switch (ctx.state.mode) {
+            .decl => return ctx.state.sequence.emptySkipSpaces(ctx.ast),
+            .decl_list => {
+                const item = ctx.rawNext() orelse return true;
+                ctx.state.sequence.reset(item.index);
+                return item.tag == .token_comma;
+            },
+        }
+    }
+
+    /// Save the current point in the current sequence or list item.
+    pub fn savePoint(ctx: *Context) Ast.Index {
         return ctx.state.sequence.start;
     }
 
-    pub fn reset(ctx: *Context, save_point: Ast.Index) void {
+    pub fn resetPoint(ctx: *Context, save_point: Ast.Index) void {
         ctx.state.sequence.reset(save_point);
     }
 
     /// Sets the children of the Ast node `index` as the current node sequence to iterate over.
     pub fn enterSequence(ctx: *Context, index: Ast.Index) State {
-        defer ctx.state = .{
+        const new_state: State = .{
             .sequence = index.children(ctx.ast),
-            .mode = .normal,
+            .mode = switch (ctx.state.mode) {
+                .decl, .decl_list => .decl,
+            },
         };
+        defer ctx.state = new_state;
         return ctx.state;
     }
 
-    /// Sets the children of the Ast node `index` as the current node sequence to iterate over.
-    /// In addition, it treats the new sequence as a comma-separated list.
-    /// A return value of `null` represents a parse error.
-    pub fn enterList(ctx: *Context, index: Ast.Index) ?State {
-        return ctx.beginList(index.children(ctx.ast));
+    pub fn resetState(ctx: *Context, previous_state: State) void {
+        ctx.state = previous_state;
     }
 
-    /// Treat the current Ast node sequence as a comma-separated list.
+    /// Checks for the beginning of a valid comma-separated list.
     /// A return value of `null` represents a parse error.
-    pub fn enterTopLevelList(ctx: *Context) ?State {
-        return ctx.beginList(ctx.state.sequence);
-    }
-
-    fn beginList(ctx: *Context, new_sequence: Ast.Sequence) ?State {
-        const previous_state = ctx.state;
-        ctx.state = .{
-            .sequence = new_sequence,
-            .mode = .list,
-        };
-        const item = ctx.rawNext() orelse return previous_state;
+    fn beginList(ctx: *Context) ?void {
+        assert(ctx.state.mode == .decl_list);
+        const item = ctx.rawNext() orelse return;
         ctx.state.sequence.reset(item.index);
         if (item.tag == .token_comma) {
-            ctx.state = previous_state;
             return null; // Leading comma
         }
-        return previous_state;
     }
 
     /// Checks that a list item in a comma-separated list has been fully consumed, and
     /// advances to the next list item.
     /// A return value of `null` represents a parse error.
     pub fn endListItem(ctx: *Context) ?void {
+        assert(ctx.state.mode == .decl_list);
         const comma = ctx.rawNext() orelse return;
         if (comma.tag != .token_comma) return null; // List item not fully consumed
         const item = ctx.rawNext() orelse return null; // Trailing comma
@@ -113,23 +152,9 @@ pub const Context = struct {
     /// Checks for the presence of a next list item in a comma-separated list.
     /// A return value of `null` represents the end of the list.
     pub fn nextListItem(ctx: *Context) ?void {
+        assert(ctx.state.mode == .decl_list);
         const item = ctx.rawNext() orelse return null;
         ctx.state.sequence.reset(item.index);
-    }
-
-    pub fn resetState(ctx: *Context, previous_state: State) void {
-        ctx.state = previous_state;
-    }
-
-    pub fn empty(ctx: *Context) bool {
-        switch (ctx.state.mode) {
-            .normal => return ctx.state.sequence.emptySkipSpaces(ctx.ast),
-            .list => {
-                const item = ctx.rawNext() orelse return true;
-                ctx.state.sequence.reset(item.index);
-                return item.tag == .token_comma;
-            },
-        }
     }
 };
 
@@ -266,7 +291,7 @@ pub fn keyword(ctx: *Context, comptime Type: type, kvs: []const TokenSource.KV(T
         if (ctx.token_source.mapIdentifierValue(location, Type, kvs)) |result| return result;
     }
 
-    ctx.reset(item.index);
+    ctx.resetPoint(item.index);
     return null;
 }
 
@@ -276,7 +301,7 @@ pub fn integer(ctx: *Context) ?i32 {
         if (item.index.extra(ctx.ast).integer) |value| return value;
     }
 
-    ctx.reset(item.index);
+    ctx.resetPoint(item.index);
     return null;
 }
 
@@ -288,7 +313,7 @@ pub fn length(ctx: *Context, comptime Type: type) ?Type {
         if (genericLength(ctx, Type, item.index)) |result| return result;
     }
 
-    ctx.reset(item.index);
+    ctx.resetPoint(item.index);
     return null;
 }
 
@@ -300,7 +325,7 @@ pub fn percentage(ctx: *Context, comptime Type: type) ?Type {
         if (genericPercentage(ctx, Type, item.index)) |value| return value;
     }
 
-    ctx.reset(item.index);
+    ctx.resetPoint(item.index);
     return null;
 }
 
@@ -328,7 +353,7 @@ pub fn string(ctx: *Context) ?Location {
         return item.index.location(ctx.ast);
     }
 
-    ctx.reset(item.index);
+    ctx.resetPoint(item.index);
     return null;
 }
 
@@ -338,7 +363,7 @@ pub fn hash(ctx: *Context) ?Location {
         .token_hash_id, .token_hash_unrestricted => return item.index.location(ctx.ast),
         else => {},
     }
-    ctx.reset(item.index);
+    ctx.resetPoint(item.index);
     return null;
 }
 
@@ -423,7 +448,7 @@ pub fn url(ctx: *Context) ?Urls.SourceLocation {
         else => {},
     }
 
-    ctx.reset(item.index);
+    ctx.resetPoint(item.index);
     return null;
 }
 
@@ -570,6 +595,24 @@ test "value parsers" {
                 else => comptime unreachable,
             };
         }
+
+        const LengthPercentage = union(enum) { px: f32, percentage: f32 };
+
+        fn lengthPercentage(ctx: *Context) ?LengthPercentage {
+            return zss.values.parse.lengthPercentage(ctx, LengthPercentage);
+        }
+
+        const LengthPercentageAuto = union(enum) { px: f32, percentage: f32, auto };
+
+        fn lengthPercentageAuto(ctx: *Context) ?LengthPercentageAuto {
+            return zss.values.parse.lengthPercentageAuto(ctx, LengthPercentageAuto);
+        }
+
+        const LengthPercentageNone = union(enum) { px: f32, percentage: f32, none };
+
+        fn lengthPercentageNone(ctx: *Context) ?LengthPercentageNone {
+            return zss.values.parse.lengthPercentageNone(ctx, LengthPercentageNone);
+        }
     };
 
     try ns.expectValue(display, "block", .block);
@@ -587,21 +630,21 @@ test "value parsers" {
     try ns.expectValue(zIndex, "9999999999999999", null);
     try ns.expectValue(zIndex, "-9999999999999999", null);
 
-    // try testParser(lengthPercentage, "5px", .{ .px = 5 });
-    // try testParser(lengthPercentage, "5%", .{ .percentage = 5 });
-    // try testParser(lengthPercentage, "5", null);
-    // try testParser(lengthPercentage, "auto", null);
+    try ns.expectValue(ns.lengthPercentage, "5px", .{ .px = 5 });
+    try ns.expectValue(ns.lengthPercentage, "5%", .{ .percentage = 0.05 });
+    try ns.expectValue(ns.lengthPercentage, "5", null);
+    try ns.expectValue(ns.lengthPercentage, "auto", null);
 
-    // try testParser(lengthPercentageAuto, "5px", .{ .px = 5 });
-    // try testParser(lengthPercentageAuto, "5%", .{ .percentage = 5 });
-    // try testParser(lengthPercentageAuto, "5", null);
-    // try testParser(lengthPercentageAuto, "auto", .auto);
+    try ns.expectValue(ns.lengthPercentageAuto, "5px", .{ .px = 5 });
+    try ns.expectValue(ns.lengthPercentageAuto, "5%", .{ .percentage = 0.05 });
+    try ns.expectValue(ns.lengthPercentageAuto, "5", null);
+    try ns.expectValue(ns.lengthPercentageAuto, "auto", .auto);
 
-    // try testParser(lengthPercentageNone, "5px", .{ .px = 5 });
-    // try testParser(lengthPercentageNone, "5%", .{ .percentage = 5 });
-    // try testParser(lengthPercentageNone, "5", null);
-    // try testParser(lengthPercentageNone, "auto", null);
-    // try testParser(lengthPercentageNone, "none", .none);
+    try ns.expectValue(ns.lengthPercentageNone, "5px", .{ .px = 5 });
+    try ns.expectValue(ns.lengthPercentageNone, "5%", .{ .percentage = 0.05 });
+    try ns.expectValue(ns.lengthPercentageNone, "5", null);
+    try ns.expectValue(ns.lengthPercentageNone, "auto", null);
+    try ns.expectValue(ns.lengthPercentageNone, "none", .none);
 
     try ns.expectValue(borderWidth, "5px", .{ .px = 5 });
     try ns.expectValue(borderWidth, "thin", .thin);

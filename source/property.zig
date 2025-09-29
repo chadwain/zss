@@ -253,41 +253,32 @@ fn parseDeclaration(
     };
     // zss.log.debug("Parsing declaration '{s}'", .{@tagName(property)});
 
-    _ = ctx.enterSequence(declaration_index);
-
     switch (property) {
         .all => {
-            const cwk = zss.values.parse.cssWideKeyword(ctx) orelse return;
-            if (!ctx.empty()) {
-                return;
-            }
+            const cwk = parse.all(ctx, declaration_index) orelse return;
             env.decls.addAll(importance, cwk);
         },
         inline else => |comptime_property| {
             const parse_fn = @field(parse, @tagName(comptime_property));
             const value_or_null = switch (comptime std.meta.ArgsTuple(@TypeOf(parse_fn))) {
-                struct { *ValueContext } => parse_fn(ctx),
-                struct { *ValueContext, *std.heap.FixedBufferAllocator } => blk: {
+                struct { *ValueContext, Ast.Index } => parse_fn(ctx, declaration_index),
+                struct { *ValueContext, Ast.Index, *std.heap.FixedBufferAllocator } => blk: {
                     fba.reset();
-                    break :blk try parse_fn(ctx, fba);
+                    break :blk try parse_fn(ctx, declaration_index, fba);
                 },
-                struct { *ValueContext, *std.heap.FixedBufferAllocator, Urls.Managed } => blk: {
+                struct { *ValueContext, Ast.Index, *std.heap.FixedBufferAllocator, Urls.Managed } => blk: {
                     fba.reset();
-                    break :blk try parse_fn(ctx, fba, urls);
+                    break :blk try parse_fn(ctx, declaration_index, fba, urls);
                 },
                 else => |T| @compileError(@typeName(T) ++ " is not a supported argument list for a property parser"),
             };
 
             const value = if (value_or_null) |parsed_value|
                 parsed_value
-            else if (zss.values.parse.cssWideKeyword(ctx)) |cwk|
+            else if (parse.all(ctx, declaration_index)) |cwk|
                 comptime_property.declaredValueFromCwk(cwk)
             else
                 return;
-
-            if (!ctx.empty()) {
-                return;
-            }
 
             try env.decls.addValues(env.allocator, importance, value);
         },

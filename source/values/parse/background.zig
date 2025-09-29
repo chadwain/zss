@@ -95,9 +95,9 @@ const bg_position = struct {
 ///                         [ center | [ left | right ] <length-percentage>? ] &&
 ///                         [ center | [ top | bottom ] <length-percentage>? ]
 pub fn position(ctx: *Context) ?types.BackgroundPosition {
-    const save_point = ctx.save();
+    const save_point = ctx.savePoint();
     return backgroundPosition3Or4Values(ctx) orelse blk: {
-        ctx.reset(save_point);
+        ctx.resetPoint(save_point);
         break :blk backgroundPosition1Or2Values(ctx);
     };
 }
@@ -178,10 +178,10 @@ fn backgroundPosition1Or2Values(ctx: *Context) ?types.BackgroundPosition {
     const first = backgroundPosition1Or2ValuesInfo(ctx) orelse return null;
     twoValues: {
         if (first.axis == .y) break :twoValues;
-        const save_point = ctx.save();
+        const save_point = ctx.savePoint();
         const second = backgroundPosition1Or2ValuesInfo(ctx) orelse break :twoValues;
         if (second.axis == .x) {
-            ctx.reset(save_point);
+            ctx.resetPoint(save_point);
             break :twoValues;
         }
 
@@ -251,13 +251,13 @@ pub fn size(ctx: *Context) ?types.BackgroundSize {
         .{ "contain", .contain },
     })) |value| return value;
 
-    const save_point = ctx.save();
+    const save_point = ctx.savePoint();
     // TODO: Range checking?
     if (values.parse.lengthPercentageAuto(ctx, types.BackgroundSize.SizeType)) |width| {
         const height = values.parse.lengthPercentageAuto(ctx, types.BackgroundSize.SizeType) orelse width;
         return types.BackgroundSize{ .size = .{ .width = width, .height = height } };
     }
 
-    ctx.reset(save_point);
+    ctx.resetPoint(save_point);
     return null;
 }
