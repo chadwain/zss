@@ -191,35 +191,36 @@ fn atRule(
     at_rule: AtRule,
     at_rule_index: Ast.Index,
 ) !void {
-
     // TODO: There are rules involving how some at-rules must be ordered
     //       Example 1: @namespace rules must come after @charset and @import
     //       Example 2: @import and @namespace must come before any other non-ignored at-rules and style rules
+
+    const parse = zss.values.parse;
+    var parse_ctx: parse.Context = .init(ast, token_source);
     switch (at_rule) {
         .import => return error.UnrecognizedAtRule,
         .namespace => {
-            var sequence = at_rule_index.children(ast);
-            const prefix_opt: ?Ast.Index = prefix: {
-                const index = sequence.nextSkipSpaces(ast) orelse break :prefix null;
-                if (index.tag(ast) != .token_ident) {
-                    sequence.reset(index);
-                    break :prefix null;
-                }
-                break :prefix index;
-            };
-            // TODO: The namespace must match the grammar of <url>.
-            const namespace: Ast.Index = namespace: {
-                const index = sequence.nextSkipSpaces(ast) orelse return error.InvalidAtRule;
-                switch (index.tag(ast)) {
-                    .token_string, .token_url, .token_bad_url => break :namespace index,
-                    else => return error.InvalidAtRule,
-                }
-            };
-            if (sequence.nextSkipSpaces(ast)) |_| return error.InvalidAtRule;
+            // Spec: CSS Namespaces Level 3 Editor's Draft
+            // Syntax: <namespace-prefix>? [ <string> | <url> ]
+            //         <namespace-prefix> = <ident>
 
-            const id = try env.addNamespace(ast, token_source, namespace);
-            if (prefix_opt) |prefix| {
-                const index = try namespaces.indexer.addFromIdentTokenSensitive(allocator, prefix.location(ast), token_source);
+            parse_ctx.initSequence(at_rule_index.children(ast));
+            const prefix_or_null = parse.identifier(&parse_ctx);
+            const namespace: Environment.NamespaceLocation =
+                if (parse.string(&parse_ctx)) |location|
+                    .{ .string_token = location }
+                else if (parse.url(&parse_ctx)) |url|
+                    switch (url) {
+                        .string_token => |location| .{ .string_token = location },
+                        .url_token => |location| .{ .url_token = location },
+                    }
+                else
+                    return error.InvalidAtRule;
+            if (!parse_ctx.empty()) return error.InvalidAtRule;
+
+            const id = try env.addNamespace(namespace, token_source);
+            if (prefix_or_null) |prefix| {
+                const index = try namespaces.indexer.addFromIdentTokenSensitive(allocator, prefix, token_source);
                 if (index == namespaces.ids.items.len) {
                     try namespaces.ids.append(allocator, id);
                 } else {
@@ -241,7 +242,10 @@ test "create a stylesheet" {
         \\@charset "utf-8";
         \\@import "import.css";
         \\@namespace test "example.com";
-        \\@namespace test "foo.bar";
+        \\@namespace test src("foo.bar");
+        \\@namespace src("xyz");
+        \\@namespace url(xyz);
+        \\@namespace url("xyz");
         \\test {display: block}
     ;
     const token_source = try zss.syntax.TokenSource.init(input);

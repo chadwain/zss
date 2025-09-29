@@ -134,14 +134,16 @@ pub const Namespaces = struct {
     }
 };
 
-// TODO: Make this look similar to the other add functions
-pub fn addNamespace(env: *Environment, ast: Ast, source: TokenSource, index: Ast.Index) !Namespaces.Id {
+pub const NamespaceLocation = union(enum) {
+    string_token: TokenSource.Location,
+    url_token: TokenSource.Location,
+};
+
+pub fn addNamespace(env: *Environment, src_loc: NamespaceLocation, source: TokenSource) !Namespaces.Id {
     try env.namespaces.map.ensureUnusedCapacity(env.allocator, 1);
-    const location = index.location(ast);
-    const namespace = switch (index.tag(ast)) {
-        .token_string => try source.copyString(location, .{ .allocator = env.allocator }),
-        .token_url, .token_bad_url => panic("TODO: addNamespace with a URL", .{}),
-        else => unreachable,
+    const namespace = switch (src_loc) {
+        .string_token => |location| try source.copyString(location, .{ .allocator = env.allocator }),
+        .url_token => |location| try source.copyUrl(location, .{ .allocator = env.allocator }),
     };
     if (namespace.len == 0) {
         env.allocator.free(namespace);

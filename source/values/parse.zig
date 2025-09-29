@@ -20,6 +20,8 @@ pub const Context = struct {
         sequence: Ast.Sequence,
 
         pub const Mode = enum {
+            /// For parsing a general sequence of Ast nodes.
+            normal,
             /// For parsing CSS declarations.
             decl,
             /// For parsing comma-separated lists within a CSS declaration.
@@ -32,6 +34,14 @@ pub const Context = struct {
             .ast = ast,
             .token_source = token_source,
             .state = undefined,
+        };
+    }
+
+    /// Sets `sequence` as the current node sequence to iterate over.
+    pub fn initSequence(ctx: *Context, sequence: Ast.Sequence) void {
+        ctx.state = .{
+            .mode = .normal,
+            .sequence = sequence,
         };
     }
 
@@ -76,6 +86,7 @@ pub const Context = struct {
     /// Returns the next item in the current sequence or list item.
     pub fn next(ctx: *Context) ?Item {
         switch (ctx.state.mode) {
+            .normal => return ctx.rawNext(),
             .decl => return ctx.rawNext(),
             .decl_list => {
                 const item = ctx.rawNext() orelse return null;
@@ -92,6 +103,7 @@ pub const Context = struct {
     /// Checks if the current sequence or list item is empty.
     pub fn empty(ctx: *Context) bool {
         switch (ctx.state.mode) {
+            .normal => return ctx.state.sequence.emptySkipSpaces(ctx.ast),
             .decl => return ctx.state.sequence.emptySkipSpaces(ctx.ast),
             .decl_list => {
                 const item = ctx.rawNext() orelse return true;
@@ -115,6 +127,7 @@ pub const Context = struct {
         const new_state: State = .{
             .sequence = index.children(ctx.ast),
             .mode = switch (ctx.state.mode) {
+                .normal => .normal,
                 .decl, .decl_list => .decl,
             },
         };
@@ -129,7 +142,7 @@ pub const Context = struct {
     /// Checks for the beginning of a valid comma-separated list.
     /// A return value of `null` represents a parse error.
     fn beginList(ctx: *Context) ?void {
-        assert(ctx.state.mode == .decl_list);
+        ctx.assertIsList();
         const item = ctx.rawNext() orelse return;
         ctx.state.sequence.reset(item.index);
         if (item.tag == .token_comma) {
@@ -141,7 +154,7 @@ pub const Context = struct {
     /// advances to the next list item.
     /// A return value of `null` represents a parse error.
     pub fn endListItem(ctx: *Context) ?void {
-        assert(ctx.state.mode == .decl_list);
+        ctx.assertIsList();
         const comma = ctx.rawNext() orelse return;
         if (comma.tag != .token_comma) return null; // List item not fully consumed
         const item = ctx.rawNext() orelse return null; // Trailing comma
@@ -152,9 +165,16 @@ pub const Context = struct {
     /// Checks for the presence of a next list item in a comma-separated list.
     /// A return value of `null` represents the end of the list.
     pub fn nextListItem(ctx: *Context) ?void {
-        assert(ctx.state.mode == .decl_list);
+        ctx.assertIsList();
         const item = ctx.rawNext() orelse return null;
         ctx.state.sequence.reset(item.index);
+    }
+
+    fn assertIsList(ctx: *const Context) void {
+        switch (ctx.state.mode) {
+            .normal, .decl => unreachable,
+            .decl_list => {},
+        }
     }
 };
 
@@ -284,15 +304,23 @@ fn genericPercentage(ctx: *const Context, comptime Type: type, index: Ast.Index)
     return .{ .percentage = value };
 }
 
-pub fn keyword(ctx: *Context, comptime Type: type, kvs: []const TokenSource.KV(Type)) ?Type {
+pub fn identifier(ctx: *Context) ?Location {
     const item = ctx.next() orelse return null;
-    if (item.tag == .token_ident) {
-        const location = item.index.location(ctx.ast);
-        if (ctx.token_source.mapIdentifierValue(location, Type, kvs)) |result| return result;
-    }
+    if (item.tag == .token_ident) return item.index.location(ctx.ast);
 
     ctx.resetPoint(item.index);
     return null;
+}
+
+pub fn keyword(ctx: *Context, comptime Type: type, kvs: []const TokenSource.KV(Type)) ?Type {
+    const save_point = ctx.savePoint();
+    const ident = identifier(ctx) orelse return null;
+    if (ctx.token_source.mapIdentifierValue(ident, Type, kvs)) |result| {
+        return result;
+    } else {
+        ctx.resetPoint(save_point);
+        return null;
+    }
 }
 
 pub fn integer(ctx: *Context) ?i32 {
