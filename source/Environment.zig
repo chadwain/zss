@@ -7,6 +7,7 @@ const Ast = syntax.Ast;
 const Declarations = zss.Declarations;
 const TokenSource = syntax.TokenSource;
 const Stylesheet = zss.Stylesheet;
+const Utf8StringInterner = zss.Utf8StringInterner;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -17,13 +18,17 @@ const MultiArrayList = std.MultiArrayList;
 
 allocator: Allocator,
 
-type_names: zss.StringInterner,
-attribute_names: zss.StringInterner,
-id_names: zss.StringInterner,
-class_names: zss.StringInterner,
-attribute_values: zss.StringInterner,
+type_names: Utf8StringInterner,
+attribute_names: Utf8StringInterner,
+id_names: Utf8StringInterner,
+class_names: Utf8StringInterner,
+attribute_values_insensitive: Utf8StringInterner,
+attribute_values_sensitive: Utf8StringInterner,
+attribute_values_sensitive_to_insensitive: std.ArrayList(usize),
 namespaces: Namespaces,
 texts: Texts,
+case_options: CaseOptions,
+id_class_sensitivity: Utf8StringInterner.Case,
 
 decls: Declarations,
 cascade_list: cascade.List,
@@ -39,43 +44,69 @@ urls_to_images: std.AutoArrayHashMapUnmanaged(UrlId, zss.Images.Handle),
 
 testing: Testing,
 
-pub fn init(allocator: Allocator) Environment {
+pub const CaseOptions = struct {
+    type_names: Utf8StringInterner.Case,
+    attribute_names: Utf8StringInterner.Case,
+    attribute_values: Utf8StringInterner.Case,
+
+    /// TODO: This is just for convenience and must eventually be deleted.
+    pub const temp_default: CaseOptions = .{
+        .type_names = .insensitive,
+        .attribute_names = .insensitive,
+        .attribute_values = .insensitive,
+    };
+};
+
+/// Corresponds to the DOM concept of a [document's mode](https://dom.spec.whatwg.org/#concept-document-quirks).
+pub const DomQuirksMode = enum {
+    no_quirks,
+    quirks,
+    limited_quirks,
+};
+
+pub fn init(
+    allocator: Allocator,
+    case_options: CaseOptions,
+    /// If the document is not a DOM document, set to `no_quirks`.
+    dom_quirks_mode: DomQuirksMode,
+) Environment {
+    const id_class_sensitivity: Utf8StringInterner.Case = switch (dom_quirks_mode) {
+        .no_quirks, .limited_quirks => .sensitive,
+        .quirks => .insensitive,
+    };
+
     return Environment{
         .allocator = allocator,
 
         .type_names = .init(.{
             .max_size = TypeName.max_unique_values,
-            // TODO: This is the wrong value. Case sensitivity of type names depends on the document language.
-            //       See https://www.w3.org/TR/selectors-4/#case-sensitive
-            .case = .insensitive,
+            .case = case_options.type_names,
         }),
         .attribute_names = .init(.{
             .max_size = AttributeName.max_unique_values,
-            // TODO: This is the wrong value. Case sensitivity of attribute names depends on the document language.
-            //       See https://www.w3.org/TR/selectors-4/#case-sensitive
-            .case = .insensitive,
+            .case = case_options.attribute_names,
         }),
         .id_names = .init(.{
             .max_size = IdName.max_unique_values,
-            // TODO: This is the wrong value. Case sensitivity of IDs depends on whether the document is in "quirks mode".
-            //       See https://www.w3.org/TR/selectors-4/#id-selectors
-            .case = .sensitive,
+            .case = id_class_sensitivity,
         }),
         .class_names = .init(.{
             .max_size = ClassName.max_unique_values,
-            // TODO: This is the wrong value. Case sensitivity of class names depends on whether the document is in "quirks mode".
-            //       See https://www.w3.org/TR/selectors-4/#class-html
-            .case = .sensitive,
+            .case = id_class_sensitivity,
         }),
-        .attribute_values = .init(.{
+        .attribute_values_insensitive = .init(.{
             .max_size = AttributeValueId.max_unique_values,
-            // TODO: This is the wrong value. Case sensitivity of attribute values depends on the document language.
-            //       Furthermore selectors can also choose their own sensitivity.
-            //       See https://www.w3.org/TR/selectors-4/#attribute-case
             .case = .insensitive,
         }),
+        .attribute_values_sensitive = .init(.{
+            .max_size = AttributeValueId.max_unique_values,
+            .case = .sensitive,
+        }),
+        .attribute_values_sensitive_to_insensitive = .empty,
         .namespaces = .{},
         .texts = .{},
+        .case_options = case_options,
+        .id_class_sensitivity = id_class_sensitivity,
 
         .decls = .{},
         .cascade_list = .{},
@@ -98,7 +129,9 @@ pub fn deinit(env: *Environment) void {
     env.attribute_names.deinit(env.allocator);
     env.id_names.deinit(env.allocator);
     env.class_names.deinit(env.allocator);
-    env.attribute_values.deinit(env.allocator);
+    env.attribute_values_insensitive.deinit(env.allocator);
+    env.attribute_values_sensitive.deinit(env.allocator);
+    env.attribute_values_sensitive_to_insensitive.deinit(env.allocator);
     env.namespaces.deinit(env.allocator);
     env.texts.deinit(env.allocator);
 
@@ -112,7 +145,7 @@ pub fn deinit(env: *Environment) void {
 }
 
 pub const Namespaces = struct {
-    // TODO: Consider using zss.StringInterner
+    // TODO: Consider using zss.Utf8StringInterner
     map: std.StringArrayHashMapUnmanaged(void) = .empty,
 
     /// A handle to an interned namespace string.
@@ -139,9 +172,9 @@ pub const NamespaceLocation = union(enum) {
     url_token: TokenSource.Location,
 };
 
-pub fn addNamespace(env: *Environment, src_loc: NamespaceLocation, source: TokenSource) !Namespaces.Id {
+pub fn addNamespaceFromToken(env: *Environment, ns_location: NamespaceLocation, source: TokenSource) !Namespaces.Id {
     try env.namespaces.map.ensureUnusedCapacity(env.allocator, 1);
-    const namespace = switch (src_loc) {
+    const namespace = switch (ns_location) {
         .string_token => |location| try source.copyString(location, .{ .allocator = env.allocator }),
         .url_token => |location| try source.copyUrl(location, .{ .allocator = env.allocator }),
     };
@@ -179,7 +212,9 @@ pub fn addTypeName(
     identifier: TokenSource.Location,
     source: TokenSource,
 ) !TypeName {
-    const index = try env.type_names.addFromIdentToken(env.allocator, identifier, source);
+    const index = switch (env.case_options.type_names) {
+        inline else => |case| try env.type_names.addFromIdentToken(case, env.allocator, identifier, source),
+    };
     const type_name: TypeName = @enumFromInt(index);
     assert(type_name != .anonymous);
     assert(type_name != .any);
@@ -201,7 +236,9 @@ pub fn addAttributeName(
     identifier: TokenSource.Location,
     source: TokenSource,
 ) !AttributeName {
-    const index = try env.attribute_names.addFromIdentToken(env.allocator, identifier, source);
+    const index = switch (env.case_options.type_names) {
+        inline else => |case| try env.attribute_names.addFromIdentToken(case, env.allocator, identifier, source),
+    };
     const attribute_name: AttributeName = @enumFromInt(index);
     assert(attribute_name != .anonymous);
     return attribute_name;
@@ -219,7 +256,9 @@ pub fn addIdName(
     hash_id: TokenSource.Location,
     source: TokenSource,
 ) !IdName {
-    const index = try env.id_names.addFromHashIdTokenSensitive(env.allocator, hash_id, source);
+    const index = switch (env.id_class_sensitivity) {
+        inline else => |case| try env.id_names.addFromHashIdToken(case, env.allocator, hash_id, source),
+    };
     return @enumFromInt(index);
 }
 
@@ -235,7 +274,9 @@ pub fn addClassName(
     identifier: TokenSource.Location,
     source: TokenSource,
 ) !ClassName {
-    const index = try env.class_names.addFromIdentTokenSensitive(env.allocator, identifier, source);
+    const index = switch (env.id_class_sensitivity) {
+        inline else => |case| try env.class_names.addFromIdentToken(case, env.allocator, identifier, source),
+    };
     return @enumFromInt(index);
 }
 
@@ -244,24 +285,60 @@ pub const AttributeValueId = enum(u32) {
     const max_unique_values = 1 << 32;
 };
 
-pub fn addAttributeValueIdent(
+pub fn addAttributeValueFromIdentToken(
     env: *Environment,
     /// The location of an <ident-token>.
     identifier: TokenSource.Location,
     source: TokenSource,
 ) !AttributeValueId {
-    const index = try env.attribute_values.addFromIdentToken(env.allocator, identifier, source);
-    return @enumFromInt(index);
+    return env.addAttributeValueFromToken(Utf8StringInterner.addFromIdentToken, identifier, source);
 }
 
-pub fn addAttributeValueString(
+pub fn addAttributeValueFromStringToken(
     env: *Environment,
     /// The location of a <string-token>.
     string: TokenSource.Location,
     source: TokenSource,
 ) !AttributeValueId {
-    const index = try env.attribute_values.addFromStringToken(env.allocator, string, source);
-    return @enumFromInt(index);
+    return env.addAttributeValueFromToken(Utf8StringInterner.addFromStringToken, string, source);
+}
+
+fn addAttributeValueFromToken(
+    env: *Environment,
+    comptime addFromToken: anytype,
+    location: TokenSource.Location,
+    token_source: TokenSource,
+) !AttributeValueId {
+    switch (env.case_options.attribute_values) {
+        .insensitive => {
+            const index = try addFromToken(&env.attribute_values_insensitive, .insensitive, env.allocator, location, token_source);
+            return @enumFromInt(index);
+        },
+        .sensitive => {
+            const index = try addFromToken(&env.attribute_values_sensitive, .sensitive, env.allocator, location, token_source);
+            if (index == env.attribute_values_sensitive_to_insensitive.items.len) {
+                const index_insensitive = try addFromToken(&env.attribute_values_insensitive, .insensitive, env.allocator, location, token_source);
+                try env.attribute_values_sensitive_to_insensitive.append(env.allocator, index_insensitive);
+            }
+            return @enumFromInt(index);
+        },
+    }
+}
+
+pub fn eqlAttributeValues(env: *const Environment, case: Utf8StringInterner.Case, lhs: AttributeValueId, rhs: AttributeValueId) bool {
+    switch (env.case_options.attribute_values) {
+        .insensitive => return lhs == rhs,
+        .sensitive => {
+            switch (case) {
+                .insensitive => {
+                    const lhs_insensitive = env.attribute_values_sensitive_to_insensitive.items[@intFromEnum(lhs)];
+                    const rhs_insensitive = env.attribute_values_sensitive_to_insensitive.items[@intFromEnum(rhs)];
+                    return lhs_insensitive == rhs_insensitive;
+                },
+                .sensitive => return lhs == rhs,
+            }
+        },
+    }
 }
 
 pub const Texts = struct {
@@ -317,7 +394,7 @@ pub const UrlId = enum(u16) {
 };
 
 /// Create a new URL value.
-pub fn createUrl(env: *Environment) !UrlId {
+pub fn addUrl(env: *Environment) !UrlId {
     const int = if (env.next_url_id) |*int| int else return error.OutOfUrls;
     defer env.next_url_id = std.math.add(UrlId.Int, int.*, 1) catch null;
     return int.*;

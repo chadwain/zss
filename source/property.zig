@@ -381,7 +381,7 @@ test "parsing properties from a stylesheet" {
         }
     };
 
-    var env = zss.Environment.init(allocator);
+    var env = zss.Environment.init(allocator, .temp_default, .no_quirks);
     defer env.deinit();
 
     var urls = Urls.init(&env);

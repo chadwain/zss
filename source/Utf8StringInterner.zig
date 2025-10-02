@@ -2,7 +2,7 @@
 //! Indeces start from 0 and increase by 1 for every unique string.
 //! Equality is determined by codepoints alone. Unicode normalization forms don't apply.
 
-const StringInterner = @This();
+const Utf8StringInterner = @This();
 
 const zss = @import("zss.zig");
 const Location = TokenSource.Location;
@@ -24,40 +24,39 @@ const Range = struct {
 
 const Debug = switch (zss.debug.runtime_safety) {
     true => struct {
-        case: Options.Case,
+        case: Case,
 
-        fn init(case: Options.Case) Debug {
+        fn init(case: Case) Debug {
             return .{ .case = case };
         }
 
-        fn assertCase(debug: *const Debug, case: Options.Case) void {
+        fn assertCase(debug: *const Debug, case: Case) void {
             assert(debug.case == case);
         }
     },
     false => struct {
-        fn init(_: Options.Case) Debug {
+        fn init(_: Case) Debug {
             return .{};
         }
 
-        fn assertCase(_: *const Debug, _: Options.Case) void {}
+        fn assertCase(_: *const Debug, _: Case) void {}
     },
+};
+
+pub const Case = enum {
+    sensitive,
+    insensitive,
 };
 
 pub const Options = struct {
     /// The maximum amount of unique strings that can be held.
     max_size: usize,
-    /// If equal to `.sensitive`, you must only use functions ending with "Sensitive".
-    /// If equal to `.insensitive`, you must only use functions not ending with "Sensitive".
+    /// Whether strings are compared case-sensitively or not.
+    /// You must always pass the same value that you passed to `init` to all functions that accept a case as a parameter.
     case: Case,
-
-    pub const Case = enum {
-        sensitive,
-        insensitive,
-    };
 };
 
-pub fn init(options: Options) StringInterner {
-    // TODO: use options.case
+pub fn init(options: Options) Utf8StringInterner {
     return .{
         .indexer = .empty,
         .string = .init(1 << 10, 1 << 31),
@@ -66,7 +65,7 @@ pub fn init(options: Options) StringInterner {
     };
 }
 
-pub fn deinit(interner: *StringInterner, allocator: Allocator) void {
+pub fn deinit(interner: *Utf8StringInterner, allocator: Allocator) void {
     interner.indexer.deinit(allocator);
     interner.string.deinit(allocator);
 }
@@ -79,7 +78,7 @@ const Hasher = struct {
         return hasher.len == hasher.buffer.len;
     }
 
-    fn end(hasher: *Hasher, comptime case: Options.Case) u32 {
+    fn end(hasher: *Hasher, comptime case: Utf8StringInterner.Case) u32 {
         const slice = hasher.buffer[0..hasher.len];
         switch (case) {
             .sensitive => {},
@@ -110,7 +109,7 @@ const Hasher = struct {
     }
 };
 
-fn adjustCase(interner: *const StringInterner, comptime case: Options.Case, range: Range) void {
+fn adjustCase(interner: *const Utf8StringInterner, comptime case: Case, range: Range) void {
     switch (case) {
         .sensitive => {},
         .insensitive => {
@@ -123,63 +122,57 @@ fn adjustCase(interner: *const StringInterner, comptime case: Options.Case, rang
 }
 
 /// Returns an iterator for the string represented by `index`.
-pub fn iterator(interner: *const StringInterner, index: usize) zss.SegmentedUtf8String.Iterator {
+pub fn iterator(interner: *const Utf8StringInterner, index: usize) zss.SegmentedUtf8String.Iterator {
     const range = interner.indexer.values()[index];
     return interner.string.iterator(range.position, range.len);
 }
 
 pub fn addFromIdentToken(
-    interner: *StringInterner,
+    interner: *Utf8StringInterner,
+    comptime case: Case,
     allocator: Allocator,
     /// Must be the location of an <ident-token>.
     location: Location,
     token_source: TokenSource,
 ) !usize {
-    return addFromTokenIterator(interner, allocator, token_source.identTokenIterator(location), .insensitive);
-}
-
-pub fn addFromIdentTokenSensitive(
-    interner: *StringInterner,
-    allocator: Allocator,
-    /// Must be the location of an <ident-token>.
-    location: Location,
-    token_source: TokenSource,
-) !usize {
-    return addFromTokenIterator(interner, allocator, token_source.identTokenIterator(location), .sensitive);
+    return addFromTokenIterator(interner, case, allocator, token_source.identTokenIterator(location));
 }
 
 pub fn addFromStringToken(
-    interner: *StringInterner,
+    interner: *Utf8StringInterner,
+    comptime case: Case,
     allocator: Allocator,
     /// Must be the location of a <string-token>.
     location: Location,
     token_source: TokenSource,
 ) !usize {
-    return addFromTokenIterator(interner, allocator, token_source.stringTokenIterator(location), .insensitive);
+    return addFromTokenIterator(interner, case, allocator, token_source.stringTokenIterator(location));
 }
 
-pub fn addFromHashIdTokenSensitive(
-    interner: *StringInterner,
+pub fn addFromHashIdToken(
+    interner: *Utf8StringInterner,
+    comptime case: Case,
     allocator: Allocator,
     /// Must be the location of an ID <hash-token>.
     location: Location,
     token_source: TokenSource,
 ) !usize {
-    return addFromTokenIterator(interner, allocator, token_source.hashIdTokenIterator(location), .sensitive);
+    return addFromTokenIterator(interner, case, allocator, token_source.hashIdTokenIterator(location));
 }
 
-pub fn getFromIdentTokenSensitive(
-    interner: *const StringInterner,
+pub fn getFromIdentToken(
+    interner: *const Utf8StringInterner,
+    comptime case: Case,
     /// Must be the location of an <ident-token>.
     location: Location,
     token_source: TokenSource,
 ) ?usize {
-    return getFromTokenIterator(interner, token_source.identTokenIterator(location), .sensitive);
+    return getFromTokenIterator(interner, case, token_source.identTokenIterator(location));
 }
 
-fn TokenIteratorAdapter(comptime TokenIterator: type, comptime case: Options.Case) type {
+fn TokenIteratorAdapter(comptime TokenIterator: type, comptime case: Case) type {
     return struct {
-        interner: *const StringInterner,
+        interner: *const Utf8StringInterner,
 
         pub fn hash(_: @This(), key: TokenIterator) u32 {
             var hasher = Hasher{};
@@ -215,9 +208,9 @@ fn TokenIteratorAdapter(comptime TokenIterator: type, comptime case: Options.Cas
 }
 
 fn getFromTokenIterator(
-    interner: *const StringInterner,
+    interner: *const Utf8StringInterner,
+    comptime case: Case,
     token_iterator: anytype,
-    comptime case: Options.Case,
 ) ?usize {
     const Adapter = TokenIteratorAdapter(@TypeOf(token_iterator), case);
     interner.debug.assertCase(case);
@@ -228,10 +221,10 @@ fn getFromTokenIterator(
 }
 
 fn addFromTokenIterator(
-    interner: *StringInterner,
+    interner: *Utf8StringInterner,
+    comptime case: Case,
     allocator: Allocator,
     token_iterator: anytype,
-    comptime case: Options.Case,
 ) !usize {
     const Adapter = TokenIteratorAdapter(@TypeOf(token_iterator), case);
 
@@ -262,9 +255,14 @@ fn addFromTokenIterator(
     return gop.index;
 }
 
-pub fn addFromString(interner: *StringInterner, allocator: Allocator, string: []const u8) !usize {
+pub fn addFromString(interner: *Utf8StringInterner, comptime case: Case, allocator: Allocator, string: []const u8) !usize {
+    switch (case) {
+        .sensitive => @compileError("addFromString not implemented for case sensitive strings"),
+        .insensitive => {},
+    }
+
     const Adapter = struct {
-        interner: *const StringInterner,
+        interner: *const Utf8StringInterner,
 
         pub fn hash(_: @This(), key: []const u8) u32 {
             var hasher = Hasher{};
@@ -305,7 +303,7 @@ pub fn addFromString(interner: *StringInterner, allocator: Allocator, string: []
     return gop.index;
 }
 
-test "StringInterner" {
+test "Utf8StringInterner" {
     const allocator = std.testing.allocator;
     const token_source = try TokenSource.init("apple banana cucumber durian \"apple\" CUCUMBER");
     var ast, const component_list_index = ast: {
@@ -328,16 +326,16 @@ test "StringInterner" {
         var interner = init(.{ .max_size = 3, .case = .insensitive });
         defer interner.deinit(allocator);
         const indeces = .{
-            .apple_ident = try interner.addFromIdentToken(allocator, ast_nodes.apple_ident.location(ast), token_source),
-            .banana = try interner.addFromIdentToken(allocator, ast_nodes.banana.location(ast), token_source),
-            .cucumber = try interner.addFromIdentToken(allocator, ast_nodes.cucumber.location(ast), token_source),
+            .apple_ident = try interner.addFromIdentToken(.insensitive, allocator, ast_nodes.apple_ident.location(ast), token_source),
+            .banana = try interner.addFromIdentToken(.insensitive, allocator, ast_nodes.banana.location(ast), token_source),
+            .cucumber = try interner.addFromIdentToken(.insensitive, allocator, ast_nodes.cucumber.location(ast), token_source),
             .durian = durian: {
-                try std.testing.expectError(error.MaxSizeExceeded, interner.addFromIdentToken(allocator, ast_nodes.durian.location(ast), token_source));
+                try std.testing.expectError(error.MaxSizeExceeded, interner.addFromIdentToken(.insensitive, allocator, ast_nodes.durian.location(ast), token_source));
                 break :durian undefined;
             },
-            .apple_string = try interner.addFromStringToken(allocator, ast_nodes.apple_string.location(ast), token_source),
-            .banana_string = try interner.addFromString(allocator, "banana"),
-            .cucumber_uppercase = try interner.addFromIdentToken(allocator, ast_nodes.cucumber_uppercase.location(ast), token_source),
+            .apple_string = try interner.addFromStringToken(.insensitive, allocator, ast_nodes.apple_string.location(ast), token_source),
+            .banana_string = try interner.addFromString(.insensitive, allocator, "banana"),
+            .cucumber_uppercase = try interner.addFromIdentToken(.insensitive, allocator, ast_nodes.cucumber_uppercase.location(ast), token_source),
         };
         try std.testing.expectEqual(@as(usize, 0), indeces.apple_ident);
         try std.testing.expectEqual(@as(usize, 1), indeces.banana);
@@ -351,8 +349,8 @@ test "StringInterner" {
         var interner = init(.{ .max_size = 2, .case = .sensitive });
         defer interner.deinit(allocator);
         const indeces = .{
-            .cucumber_lowercase = try interner.addFromIdentTokenSensitive(allocator, ast_nodes.cucumber.location(ast), token_source),
-            .cucumber_uppercase = try interner.addFromIdentTokenSensitive(allocator, ast_nodes.cucumber_uppercase.location(ast), token_source),
+            .cucumber_lowercase = try interner.addFromIdentToken(.sensitive, allocator, ast_nodes.cucumber.location(ast), token_source),
+            .cucumber_uppercase = try interner.addFromIdentToken(.sensitive, allocator, ast_nodes.cucumber_uppercase.location(ast), token_source),
         };
         try std.testing.expectEqual(@as(usize, 0), indeces.cucumber_lowercase);
         try std.testing.expectEqual(@as(usize, 1), indeces.cucumber_uppercase);

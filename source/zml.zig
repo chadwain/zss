@@ -437,7 +437,7 @@ test "create a zml document" {
     };
     defer ast.deinit(allocator);
 
-    var env = Environment.init(allocator);
+    var env = Environment.init(allocator, .temp_default, .no_quirks);
     defer env.deinit();
 
     var document = try createDocument(allocator, &env, ast, token_source, zml_document_index);
@@ -509,7 +509,7 @@ test "create a zml document 2" {
     };
     defer ast.deinit(allocator);
 
-    var env = Environment.init(allocator);
+    var env = Environment.init(allocator, .temp_default, .no_quirks);
     defer env.deinit();
 
     var document = try createDocument(allocator, &env, ast, token_source, zml_document_index);

@@ -358,7 +358,7 @@ fn parseName(parser: *Parser) ?QualifiedName.Name {
 }
 
 fn resolveNamespace(parser: *Parser, index: Ast.Index) NamespaceId {
-    const namespace_index = parser.namespaces.indexer.getFromIdentTokenSensitive(index.location(parser.ast), parser.source) orelse {
+    const namespace_index = parser.namespaces.indexer.getFromIdentToken(.sensitive, index.location(parser.ast), parser.source) orelse {
         parser.valid = false;
         return undefined;
     };
@@ -465,9 +465,8 @@ fn parseAttributeSelector(parser: *Parser, data_list: DataListManaged, block_ind
     _ = parser.skipSpaces();
     const value_tag, const value_index = parser.next() orelse return parser.fail();
     const attribute_value = switch (value_tag) {
-        .token_ident => try parser.env.addAttributeValueIdent(value_index.location(parser.ast), parser.source),
-        .token_string,
-        => try parser.env.addAttributeValueString(value_index.location(parser.ast), parser.source),
+        .token_ident => try parser.env.addAttributeValueFromIdentToken(value_index.location(parser.ast), parser.source),
+        .token_string => try parser.env.addAttributeValueFromStringToken(value_index.location(parser.ast), parser.source),
         else => return parser.fail(),
     };
 

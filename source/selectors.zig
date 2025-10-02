@@ -446,7 +446,7 @@ fn stringToSelectorList(input: []const u8, env: *Environment, allocator: Allocat
 fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpected) !void {
     const allocator = std.testing.allocator;
 
-    var env = Environment.init(allocator);
+    var env = Environment.init(allocator, .temp_default, .no_quirks);
     defer env.deinit();
 
     var data_list = std.ArrayList(Data){};
@@ -552,7 +552,7 @@ test "parsing selector lists" {
 test "complex selector matching" {
     const allocator = std.testing.allocator;
 
-    var env = Environment.init(allocator);
+    var env = Environment.init(allocator, .temp_default, .no_quirks);
     defer env.deinit();
 
     const token_source = try zss.syntax.TokenSource.init(

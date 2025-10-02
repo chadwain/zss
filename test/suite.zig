@@ -181,7 +181,7 @@ fn createTest(
         .fonts = fonts,
         .font_handle = font_handle,
 
-        .env = .init(allocator),
+        .env = .init(allocator, .temp_default, .no_quirks),
 
         .document = undefined,
         .stylesheet = undefined,

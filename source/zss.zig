@@ -19,8 +19,8 @@ pub const Images = @import("Images.zig");
 pub const Layout = @import("Layout.zig");
 pub const Stack = @import("stack.zig").Stack;
 pub const SegmentedUtf8String = @import("SegmentedUtf8String.zig");
-pub const StringInterner = @import("StringInterner.zig");
 pub const Stylesheet = @import("Stylesheet.zig");
+pub const Utf8StringInterner = @import("Utf8StringInterner.zig");
 
 pub const log = @import("std").log.scoped(.zss);
 

@@ -5,7 +5,7 @@ decl_urls: Urls,
 cascade_source: cascade.Source,
 
 pub const Namespaces = struct {
-    indexer: zss.StringInterner = .init(.{ .max_size = NamespaceId.max_unique_values, .case = .sensitive }),
+    indexer: zss.Utf8StringInterner = .init(.{ .max_size = NamespaceId.max_unique_values, .case = .sensitive }),
     /// Maps namespace prefixes to namespace ids.
     ids: std.ArrayListUnmanaged(NamespaceId) = .empty,
     /// The default namespace, or `null` if there is no default namespace.
@@ -218,9 +218,9 @@ fn atRule(
                     return error.InvalidAtRule;
             if (!parse_ctx.empty()) return error.InvalidAtRule;
 
-            const id = try env.addNamespace(namespace, token_source);
+            const id = try env.addNamespaceFromToken(namespace, token_source);
             if (prefix_or_null) |prefix| {
-                const index = try namespaces.indexer.addFromIdentTokenSensitive(allocator, prefix, token_source);
+                const index = try namespaces.indexer.addFromIdentToken(.sensitive, allocator, prefix, token_source);
                 if (index == namespaces.ids.items.len) {
                     try namespaces.ids.append(allocator, id);
                 } else {
@@ -257,7 +257,7 @@ test "create a stylesheet" {
     };
     defer ast.deinit(allocator);
 
-    var env = Environment.init(allocator);
+    var env = Environment.init(allocator, .temp_default, .no_quirks);
     defer env.deinit();
 
     var stylesheet = try create(allocator, ast, rule_list_index, token_source, &env);

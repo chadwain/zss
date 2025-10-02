@@ -171,7 +171,7 @@ pub fn main() !void {
 
     // Setup zss
 
-    var env = zss.Environment.init(allocator);
+    var env = zss.Environment.init(allocator, .temp_default, .no_quirks);
     defer env.deinit();
 
     var images = zss.Images.init();

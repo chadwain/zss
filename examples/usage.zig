@@ -21,7 +21,7 @@ pub fn main() !void {
     };
     defer ast.deinit(allocator);
 
-    var env = zss.Environment.init(allocator);
+    var env = zss.Environment.init(allocator, .temp_default, .no_quirks);
     defer env.deinit();
 
     const node_group = try env.addNodeGroup();
@@ -54,7 +54,7 @@ pub fn main() !void {
 }
 
 fn nodeEdge(context: *const anyopaque, node: zss.Environment.NodeId, _: zss.Environment.TreeInterface.Edge) ?zss.Environment.NodeId {
-    const node_group: *const zss.Environment.NodeGroup = @alignCast(@ptrCast(context));
+    const node_group: *const zss.Environment.NodeGroup = @ptrCast(@alignCast(context));
     std.debug.assert(node.group == node_group.*);
     std.debug.assert(node.value == 0);
     return null;
