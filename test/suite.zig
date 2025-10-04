@@ -185,20 +185,17 @@ fn createTest(
 
         .document = undefined,
         .stylesheet = undefined,
-        .author_cascade_node = undefined,
-        .ua_cascade_node = undefined,
     };
 
     t.document = try zss.zml.createDocument(allocator, &t.env, ast, token_source, zml_document_index);
-    t.author_cascade_node = .{ .leaf = &t.document.cascade_source };
-    try t.env.cascade_list.author.append(t.env.allocator, &t.author_cascade_node);
-
-    t.stylesheet = try zss.Stylesheet.create(allocator, ua_stylesheet.ast, ua_stylesheet.rule_list, ua_stylesheet.token_source, &t.env);
-    t.ua_cascade_node = .{ .leaf = &t.stylesheet.cascade_source };
-    try t.env.cascade_list.user_agent.append(t.env.allocator, &t.ua_cascade_node);
-
     t.document.setEnvTreeInterface(&t.env);
-    try zss.cascade.run(&t.env);
+    t.stylesheet = try zss.Stylesheet.create(allocator, ua_stylesheet.ast, ua_stylesheet.rule_list, ua_stylesheet.token_source, &t.env);
+
+    const cascade_list = zss.cascade.List{
+        .author = &.{&.{ .leaf = &t.document.cascade_source }},
+        .user_agent = &.{&.{ .leaf = &t.stylesheet.cascade_source }},
+    };
+    try zss.cascade.run(&cascade_list, &t.env, allocator);
 
     try loader.loadResourcesFromUrls(arena, t, images, token_source);
 

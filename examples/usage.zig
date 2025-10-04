@@ -36,9 +36,10 @@ pub fn main() !void {
     var stylesheet = try zss.Stylesheet.create(allocator, ast, rule_list_index, stylesheet_source, &env);
     defer stylesheet.deinit(allocator);
 
-    const cascade_node: zss.cascade.Node = .{ .leaf = &stylesheet.cascade_source };
-    try env.cascade_list.author.append(env.allocator, &cascade_node);
-    try zss.cascade.run(&env);
+    const cascade_list: zss.cascade.List = .{
+        .author = &.{&.{ .leaf = &stylesheet.cascade_source }},
+    };
+    try zss.cascade.run(&cascade_list, &env, allocator);
 
     var images = zss.Images.init();
     defer images.deinit(allocator);

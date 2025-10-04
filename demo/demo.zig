@@ -230,10 +230,10 @@ pub fn main() !void {
 
     // Run the CSS cascade.
     // This gives style information to every node in the document tree.
-    const zml_document_cascade_node = zss.cascade.Node{ .leaf = &zml_document.cascade_source };
-    const stylesheet_cascade_node = zss.cascade.Node{ .leaf = &stylesheet.cascade_source };
-    try env.cascade_list.author.appendSlice(env.allocator, &.{ &zml_document_cascade_node, &stylesheet_cascade_node });
-    try zss.cascade.run(&env);
+    const cascade_list: zss.cascade.List = .{
+        .author = &.{ &.{ .leaf = &zml_document.cascade_source }, &.{ .leaf = &stylesheet.cascade_source } },
+    };
+    try zss.cascade.run(&cascade_list, &env, allocator);
 
     // Perform an "empty" layout, just to initialize the box tree.
     var box_tree = blk: {

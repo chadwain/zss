@@ -31,7 +31,6 @@ case_options: CaseOptions,
 id_class_sensitivity: Utf8StringInterner.Case,
 
 decls: Declarations,
-cascade_list: cascade.List,
 
 tree_interface: TreeInterface,
 next_node_group: ?std.meta.Tag(NodeGroup),
@@ -109,7 +108,6 @@ pub fn init(
         .id_class_sensitivity = id_class_sensitivity,
 
         .decls = .{},
-        .cascade_list = .{},
 
         .tree_interface = .default,
         .next_node_group = 0,
@@ -136,7 +134,6 @@ pub fn deinit(env: *Environment) void {
     env.texts.deinit(env.allocator);
 
     env.decls.deinit(env.allocator);
-    env.cascade_list.deinit(env.allocator);
 
     env.node_properties.deinit(env.allocator);
     env.ids_to_nodes.deinit(env.allocator);

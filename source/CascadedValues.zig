@@ -17,6 +17,11 @@ all: ?CssWideKeyword = null,
 
 const Map = AutoArrayHashMapUnmanaged(groups.Tag, usize);
 
+pub fn clear(cascaded: *CascadedValues) void {
+    cascaded.map.clearRetainingCapacity();
+    cascaded.all = null;
+}
+
 pub fn applyDeclBlock(
     cascaded: *CascadedValues,
     arena: *ArenaAllocator,

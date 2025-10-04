@@ -447,9 +447,10 @@ test "create a zml document" {
 
     document.setEnvTreeInterface(&env);
 
-    const cascade_node = zss.cascade.Node{ .leaf = &document.cascade_source };
-    try env.cascade_list.author.append(env.allocator, &cascade_node);
-    try cascade.run(&env);
+    const cascade_list: zss.cascade.List = .{
+        .author = &.{&.{ .leaf = &document.cascade_source }},
+    };
+    try cascade.run(&cascade_list, &env, allocator);
 
     const types = zss.values.types;
 
