@@ -11,10 +11,11 @@ const TokenSource = zss.syntax.TokenSource;
 
 pub const Document = struct {
     tree: NodeTree.Slice,
+    named_nodes: std.StringArrayHashMapUnmanaged(Node),
+    env: Environment,
     urls: std.MultiArrayList(Url),
     cascade_source: cascade.Source,
     node_group: Environment.NodeGroup,
-    named_nodes: std.StringArrayHashMapUnmanaged(Node),
 
     pub const Size = u32;
 
@@ -89,10 +90,11 @@ pub const Document = struct {
 
     pub fn deinit(document: *Document, allocator: Allocator) void {
         document.tree.deinit(allocator);
-        document.urls.deinit(allocator);
-        document.cascade_source.deinit(allocator);
         for (document.named_nodes.keys()) |key| allocator.free(key);
         document.named_nodes.deinit(allocator);
+        document.env.deinit();
+        document.urls.deinit(allocator);
+        document.cascade_source.deinit(allocator);
     }
 
     pub fn rootNode(document: *const Document) ?Node {
@@ -100,28 +102,13 @@ pub const Document = struct {
         return @enumFromInt(0);
     }
 
-    pub fn rootZssNode(document: *const Document) ?Environment.NodeId {
-        if (document.tree.len == 0) return null;
-        return .{ .group = document.node_group, .value = 0 };
-    }
-
-    pub fn setEnvTreeInterface(document: *const Document, env: *Environment) void {
-        env.root_node = document.rootZssNode();
-        env.tree_interface = .{
-            .context = document,
-            .vtable = comptime &.{
-                .node_edge = tree_interface_fns.node_edge,
-            },
-        };
-    }
-
-    pub const tree_interface_fns = struct {
-        pub fn node_edge(context: *const anyopaque, zss_node: Environment.NodeId, edge: Environment.TreeInterface.Edge) ?Environment.NodeId {
-            const document: *const Document = @ptrCast(@alignCast(context));
+    pub const tree_vtable_fns = struct {
+        pub fn nodeRelative(env: *const Environment, zss_node: Environment.NodeId, relative: Environment.NodeRelative) ?Environment.NodeId {
+            const document: *const Document = @fieldParentPtr("env", env);
             assert(zss_node.group == document.node_group);
 
             const node: Node = @enumFromInt(zss_node.value);
-            const result_node = switch (edge) {
+            const result_node = switch (relative) {
                 .parent => node.parent(document),
                 .previous_sibling => node.previousSibling(document),
                 .next_sibling => node.nextSibling(document),
@@ -133,17 +120,16 @@ pub const Document = struct {
     };
 };
 
-pub fn createDocumentFromTokenSource(allocator: Allocator, token_source: TokenSource, env: *Environment) !Document {
+pub fn parseAndCreateDocument(allocator: Allocator, token_source: TokenSource) !Document {
     var parser = zss.syntax.Parser.init(token_source, allocator);
     defer parser.deinit();
     var ast, const zml_document_index = try parser.parseZmlDocument(allocator);
     defer ast.deinit(allocator);
-    return createDocument(allocator, env, ast, token_source, zml_document_index);
+    return createDocument(allocator, ast, token_source, zml_document_index);
 }
 
 pub fn createDocument(
     allocator: Allocator,
-    env: *Environment,
     ast: Ast,
     token_source: TokenSource,
     zml_document_index: Ast.Index,
@@ -152,12 +138,25 @@ pub fn createDocument(
 
     var document: Document = .{
         .tree = .empty,
+        .named_nodes = .empty,
+        .env = .init(
+            allocator,
+            comptime &.{
+                .nodeRelative = Document.tree_vtable_fns.nodeRelative,
+            },
+            .{
+                .type_names = .insensitive,
+                .attribute_names = .insensitive,
+                .attribute_values = .sensitive,
+            },
+            .no_quirks,
+        ),
         .urls = .empty,
         .cascade_source = .{},
-        .node_group = try env.addNodeGroup(),
-        .named_nodes = .empty,
+        .node_group = undefined,
     };
     errdefer document.deinit(allocator);
+    document.node_group = try document.env.addNodeGroup();
 
     const root_zml_node_index = blk: {
         var document_children = zml_document_index.children(ast);
@@ -212,7 +211,8 @@ pub fn createDocument(
     defer stack.deinit(allocator);
 
     const root_node_index, const root_zml_children_index =
-        try analyzeNode(&document, allocator, &tree, env, ast, token_source, root_zml_node_index);
+        try analyzeNode(&document, allocator, &tree, ast, token_source, root_zml_node_index);
+    document.env.root_node = .{ .group = document.node_group, .value = root_node_index };
 
     ns.init(&tree.slice(), root_node_index, root_node_index, 0);
 
@@ -236,7 +236,7 @@ pub fn createDocument(
         };
 
         const node_index, const zml_children_index =
-            try analyzeNode(&document, allocator, &tree, env, ast, token_source, zml_node_index);
+            try analyzeNode(&document, allocator, &tree, ast, token_source, zml_node_index);
 
         ns.init(&tree.slice(), node_index, top.parent_node_index, top.previous_sibling_node_index);
         top.previous_sibling_node_index = node_index;
@@ -263,7 +263,6 @@ fn analyzeNode(
     document: *Document,
     allocator: Allocator,
     tree: *Document.NodeTree,
-    env: *Environment,
     ast: Ast,
     token_source: TokenSource,
     zml_node_index: Ast.Index,
@@ -278,12 +277,12 @@ fn analyzeNode(
     assert(zml_node_child_sequence.emptySkipSpaces(ast));
     switch (zml_node_last_child_index.tag(ast)) {
         .zml_element => {
-            const zml_children_index = try analyzeElement(document, allocator, node_index, zss_node_id, env, ast, token_source, zml_node_last_child_index);
+            const zml_children_index = try analyzeElement(document, allocator, node_index, zss_node_id, ast, token_source, zml_node_last_child_index);
             return .{ node_index, zml_children_index };
         },
         .zml_text => {
             assert(zml_node_child_sequence.emptySkipSpaces(ast));
-            try analyzeText(zss_node_id, env, ast, token_source, zml_node_last_child_index);
+            try analyzeText(document, zss_node_id, ast, token_source, zml_node_last_child_index);
             return .{ node_index, null };
         },
         else => unreachable,
@@ -334,13 +333,12 @@ fn analyzeElement(
     allocator: Allocator,
     node_index: Document.Size,
     zss_node_id: Environment.NodeId,
-    env: *Environment,
     ast: Ast,
     token_source: TokenSource,
     zml_element_index: Ast.Index,
 ) !Ast.Index {
     assert(zml_element_index.tag(ast) == .zml_element);
-    try env.setNodeProperty(.category, zss_node_id, .element);
+    try document.env.setNodeProperty(.category, zss_node_id, .element);
 
     var element_child_sequence = zml_element_index.children(ast);
 
@@ -351,12 +349,12 @@ fn analyzeElement(
     while (features_child_sequence.nextSkipSpaces(ast)) |index| {
         switch (index.tag(ast)) {
             .zml_type => {
-                const type_name = try env.addTypeName(index.location(ast), token_source);
-                try env.setNodeProperty(.type, zss_node_id, .{ .namespace = .none, .name = type_name });
+                const type_name = try document.env.addTypeName(index.location(ast), token_source);
+                try document.env.setNodeProperty(.type, zss_node_id, .{ .namespace = .none, .name = type_name });
             },
             .zml_id => {
-                const id = try env.addIdName(index.location(ast), token_source);
-                try env.registerId(id, zss_node_id);
+                const id = try document.env.addIdName(index.location(ast), token_source);
+                try document.env.registerId(id, zss_node_id);
             },
             .zml_class => std.debug.panic("TODO: parse zml element: class feature", .{}),
             .zml_attribute => std.debug.panic("TODO: parse zml element: attribute feature", .{}),
@@ -368,7 +366,7 @@ fn analyzeElement(
     const has_style_block = (zml_styles_index.tag(ast) == .zml_styles);
     if (has_style_block) {
         const last_declaration = zml_styles_index.extra(ast).index;
-        try analyzeInlineStyleBlock(document, allocator, node_index, zss_node_id, env, ast, token_source, last_declaration);
+        try analyzeInlineStyleBlock(document, allocator, node_index, zss_node_id, ast, token_source, last_declaration);
     }
 
     const zml_children_index = if (has_style_block)
@@ -382,17 +380,17 @@ fn analyzeElement(
 }
 
 fn analyzeText(
+    document: *Document,
     zss_node_id: Environment.NodeId,
-    env: *Environment,
     ast: Ast,
     token_source: TokenSource,
     zml_text_index: Ast.Index,
 ) !void {
     assert(zml_text_index.tag(ast) == .zml_text);
-    try env.setNodeProperty(.category, zss_node_id, .text);
+    try document.env.setNodeProperty(.category, zss_node_id, .text);
 
-    const text_id = try env.addTextFromStringToken(zml_text_index.location(ast), token_source);
-    try env.setNodeProperty(.text, zss_node_id, text_id);
+    const text_id = try document.env.addTextFromStringToken(zml_text_index.location(ast), token_source);
+    try document.env.setNodeProperty(.text, zss_node_id, text_id);
 }
 
 fn analyzeInlineStyleBlock(
@@ -400,20 +398,19 @@ fn analyzeInlineStyleBlock(
     allocator: Allocator,
     node_index: Document.Size,
     zss_node_id: Environment.NodeId,
-    env: *Environment,
     ast: Ast,
     token_source: TokenSource,
     last_declaration_index: Ast.Index,
 ) !void {
-    var urls = zss.values.parse.Urls.init(env);
+    var urls = zss.values.parse.Urls.init(&document.env);
     defer urls.deinit(allocator);
 
     var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
-    const block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration_index, urls.toManaged(allocator));
-    if (env.decls.hasValues(block, .important)) try document.cascade_source.style_attrs_important.putNoClobber(env.allocator, zss_node_id, block);
-    if (env.decls.hasValues(block, .normal)) try document.cascade_source.style_attrs_normal.putNoClobber(env.allocator, zss_node_id, block);
+    const block = try zss.property.parseDeclarationsFromAst(&document.env, ast, token_source, &buffer, last_declaration_index, urls.toManaged(allocator));
+    if (document.env.decls.hasValues(block, .important)) try document.cascade_source.style_attrs_important.putNoClobber(document.env.allocator, zss_node_id, block);
+    if (document.env.decls.hasValues(block, .normal)) try document.cascade_source.style_attrs_normal.putNoClobber(document.env.allocator, zss_node_id, block);
 
-    urls.commit(env);
+    urls.commit(&document.env);
     var iterator = urls.iterator();
     while (iterator.next()) |url| {
         try document.urls.append(allocator, .{ .id = url.id, .node = @enumFromInt(node_index), .type = url.desc.type, .src_loc = url.desc.src_loc });
@@ -437,20 +434,15 @@ test "create a zml document" {
     };
     defer ast.deinit(allocator);
 
-    var env = Environment.init(allocator, .temp_default, .no_quirks);
-    defer env.deinit();
-
-    var document = try createDocument(allocator, &env, ast, token_source, zml_document_index);
+    var document = try createDocument(allocator, ast, token_source, zml_document_index);
     defer document.deinit(allocator);
 
     try std.testing.expectEqual(document.rootNode(), document.named_nodes.get("the-root-element"));
 
-    document.setEnvTreeInterface(&env);
-
     const cascade_list: zss.cascade.List = .{
         .author = &.{&.{ .leaf = &document.cascade_source }},
     };
-    try cascade.run(&cascade_list, &env, allocator);
+    try cascade.run(&cascade_list, &document.env, allocator);
 
     const types = zss.values.types;
 
@@ -458,7 +450,7 @@ test "create a zml document" {
         const node = document.rootNode() orelse return error.TestFailure;
         const zss_node = node.toZssNode(&document);
         assert(Document.Node.fromZssNode(&document, zss_node) == node);
-        const cascaded_values = env.getNodeProperty(.cascaded_values, zss_node);
+        const cascaded_values = document.env.getNodeProperty(.cascaded_values, zss_node);
         const box_style = cascaded_values.getPtr(.box_style) orelse return error.TestFailure;
         try box_style.display.expectEqual(.{ .declared = .block });
     }
@@ -467,9 +459,9 @@ test "create a zml document" {
         const node = document.rootNode().?.firstChild(&document) orelse return error.TestFailure;
         const zss_node = node.toZssNode(&document);
         assert(Document.Node.fromZssNode(&document, zss_node) == node);
-        const type_name = env.getNodeProperty(.type, zss_node).name;
-        try env.testing.expectEqualTypeNames("type1", type_name);
-        const cascaded_values = env.getNodeProperty(.cascaded_values, zss_node);
+        const type_name = document.env.getNodeProperty(.type, zss_node).name;
+        try document.env.testing.expectEqualTypeNames("type1", type_name);
+        const cascaded_values = document.env.getNodeProperty(.cascaded_values, zss_node);
         const all = cascaded_values.all orelse return error.TestFailure;
         try std.testing.expectEqual(types.CssWideKeyword.unset, all);
     }
@@ -478,9 +470,9 @@ test "create a zml document" {
         const node = document.rootNode().?.lastChild(&document) orelse return error.TestFailure;
         const zss_node = node.toZssNode(&document);
         assert(Document.Node.fromZssNode(&document, zss_node) == node);
-        const type_name = env.getNodeProperty(.type, zss_node).name;
-        try env.testing.expectEqualTypeNames("type2", type_name);
-        const cascaded_values = env.getNodeProperty(.cascaded_values, zss_node);
+        const type_name = document.env.getNodeProperty(.type, zss_node).name;
+        try document.env.testing.expectEqualTypeNames("type2", type_name);
+        const cascaded_values = document.env.getNodeProperty(.cascaded_values, zss_node);
         const all = cascaded_values.all orelse return error.TestFailure;
         try std.testing.expect(cascaded_values.getPtr(.box_style) == null);
         try std.testing.expectEqual(types.CssWideKeyword.inherit, all);
@@ -503,16 +495,6 @@ test "create a zml document 2" {
     const token_source = try TokenSource.init(input);
     const allocator = std.testing.allocator;
 
-    var ast, const zml_document_index = blk: {
-        var parser = zss.syntax.Parser.init(token_source, allocator);
-        defer parser.deinit();
-        break :blk try parser.parseZmlDocument(allocator);
-    };
-    defer ast.deinit(allocator);
-
-    var env = Environment.init(allocator, .temp_default, .no_quirks);
-    defer env.deinit();
-
-    var document = try createDocument(allocator, &env, ast, token_source, zml_document_index);
+    var document = try parseAndCreateDocument(allocator, token_source);
     defer document.deinit(allocator);
 }

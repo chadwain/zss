@@ -22,7 +22,7 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
         try stdout.flush();
 
         var layout = zss.Layout.init(
-            &t.env,
+            &t.document.env,
             allocator,
             t.width,
             t.height,

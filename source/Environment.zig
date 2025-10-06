@@ -32,7 +32,7 @@ id_class_sensitivity: Utf8StringInterner.Case,
 
 decls: Declarations,
 
-tree_interface: TreeInterface,
+document_tree_vtable: *const DocumentTreeVtable,
 next_node_group: ?std.meta.Tag(NodeGroup),
 root_node: ?NodeId,
 node_properties: NodeProperties,
@@ -48,8 +48,7 @@ pub const CaseOptions = struct {
     attribute_names: Utf8StringInterner.Case,
     attribute_values: Utf8StringInterner.Case,
 
-    /// TODO: This is just for convenience and must eventually be deleted.
-    pub const temp_default: CaseOptions = .{
+    pub const all_insensitive: CaseOptions = .{
         .type_names = .insensitive,
         .attribute_names = .insensitive,
         .attribute_values = .insensitive,
@@ -65,6 +64,7 @@ pub const DomQuirksMode = enum {
 
 pub fn init(
     allocator: Allocator,
+    document_tree_vtable: *const DocumentTreeVtable,
     case_options: CaseOptions,
     /// If the document is not a DOM document, set to `no_quirks`.
     dom_quirks_mode: DomQuirksMode,
@@ -94,11 +94,11 @@ pub fn init(
             .case = id_class_sensitivity,
         }),
         .attribute_values_insensitive = .init(.{
-            .max_size = AttributeValueId.max_unique_values,
+            .max_size = AttributeValue.max_unique_values,
             .case = .insensitive,
         }),
         .attribute_values_sensitive = .init(.{
-            .max_size = AttributeValueId.max_unique_values,
+            .max_size = AttributeValue.max_unique_values,
             .case = .sensitive,
         }),
         .attribute_values_sensitive_to_insensitive = .empty,
@@ -109,7 +109,7 @@ pub fn init(
 
         .decls = .{},
 
-        .tree_interface = .default,
+        .document_tree_vtable = document_tree_vtable,
         .next_node_group = 0,
         .root_node = null,
         .node_properties = .{},
@@ -277,7 +277,7 @@ pub fn addClassName(
     return @enumFromInt(index);
 }
 
-pub const AttributeValueId = enum(u32) {
+pub const AttributeValue = enum(u32) {
     _,
     const max_unique_values = 1 << 32;
 };
@@ -287,7 +287,7 @@ pub fn addAttributeValueFromIdentToken(
     /// The location of an <ident-token>.
     identifier: TokenSource.Location,
     source: TokenSource,
-) !AttributeValueId {
+) !AttributeValue {
     return env.addAttributeValueFromToken(Utf8StringInterner.addFromIdentToken, identifier, source);
 }
 
@@ -296,7 +296,7 @@ pub fn addAttributeValueFromStringToken(
     /// The location of a <string-token>.
     string: TokenSource.Location,
     source: TokenSource,
-) !AttributeValueId {
+) !AttributeValue {
     return env.addAttributeValueFromToken(Utf8StringInterner.addFromStringToken, string, source);
 }
 
@@ -305,7 +305,7 @@ fn addAttributeValueFromToken(
     comptime addFromToken: anytype,
     location: TokenSource.Location,
     token_source: TokenSource,
-) !AttributeValueId {
+) !AttributeValue {
     switch (env.case_options.attribute_values) {
         .insensitive => {
             const index = try addFromToken(&env.attribute_values_insensitive, .insensitive, env.allocator, location, token_source);
@@ -322,7 +322,7 @@ fn addAttributeValueFromToken(
     }
 }
 
-pub fn eqlAttributeValues(env: *const Environment, case: Utf8StringInterner.Case, lhs: AttributeValueId, rhs: AttributeValueId) bool {
+pub fn eqlAttributeValues(env: *const Environment, case: Utf8StringInterner.Case, lhs: AttributeValue, rhs: AttributeValue) bool {
     switch (env.case_options.attribute_values) {
         .insensitive => return lhs == rhs,
         .sensitive => {
@@ -409,31 +409,27 @@ pub fn addNodeGroup(env: *Environment) !NodeGroup {
     return @enumFromInt(int.*);
 }
 
-pub const TreeInterface = struct {
-    context: *const anyopaque,
-    vtable: *const VTable,
+pub const NodeRelative = enum {
+    parent,
+    previous_sibling,
+    next_sibling,
+    first_child,
+    last_child,
+};
 
-    pub const default: TreeInterface = .{
-        .context = undefined,
-        .vtable = &.{
-            .node_edge = VTable.defaultNodeEdge,
-        },
+pub const DocumentTreeVtable = struct {
+    /// Returns the node that has the relationship to `node` corresponding to `relative`, or
+    /// `null` if no such node exists.
+    nodeRelative: *const fn (env: *const Environment, node: NodeId, relative: NodeRelative) ?NodeId,
+
+    pub const empty_document: DocumentTreeVtable = .{
+        .nodeRelative = &empty_document_fns.nodeRelative,
     };
 
-    pub const VTable = struct {
-        node_edge: *const fn (context: *const anyopaque, node: NodeId, edge: Edge) ?NodeId,
-
-        pub fn defaultNodeEdge(_: *const anyopaque, _: NodeId, _: Edge) ?NodeId {
+    const empty_document_fns = struct {
+        fn nodeRelative(_: *const Environment, _: NodeId, _: NodeRelative) ?NodeId {
             unreachable;
         }
-    };
-
-    pub const Edge = enum {
-        parent,
-        previous_sibling,
-        next_sibling,
-        first_child,
-        last_child,
     };
 };
 
@@ -444,23 +440,23 @@ pub const NodeId = packed struct {
     // TODO: generational nodes?
 
     pub fn parent(node: NodeId, env: *const Environment) ?NodeId {
-        return env.tree_interface.vtable.node_edge(env.tree_interface.context, node, .parent);
+        return env.document_tree_vtable.nodeRelative(env, node, .parent);
     }
 
     pub fn previousSibling(node: NodeId, env: *const Environment) ?NodeId {
-        return env.tree_interface.vtable.node_edge(env.tree_interface.context, node, .previous_sibling);
+        return env.document_tree_vtable.nodeRelative(env, node, .previous_sibling);
     }
 
     pub fn nextSibling(node: NodeId, env: *const Environment) ?NodeId {
-        return env.tree_interface.vtable.node_edge(env.tree_interface.context, node, .next_sibling);
+        return env.document_tree_vtable.nodeRelative(env, node, .next_sibling);
     }
 
     pub fn firstChild(node: NodeId, env: *const Environment) ?NodeId {
-        return env.tree_interface.vtable.node_edge(env.tree_interface.context, node, .first_child);
+        return env.document_tree_vtable.nodeRelative(env, node, .first_child);
     }
 
     pub fn lastChild(node: NodeId, env: *const Environment) ?NodeId {
-        return env.tree_interface.vtable.node_edge(env.tree_interface.context, node, .last_child);
+        return env.document_tree_vtable.nodeRelative(env, node, .last_child);
     }
 };
 

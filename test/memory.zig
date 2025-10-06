@@ -21,7 +21,7 @@ pub fn run(tests: []const *Test, _: []const u8) !void {
         try stdout.flush();
 
         try std.testing.checkAllAllocationFailures(allocator, testFn, .{
-            &t.env,
+            &t.document.env,
             t.width,
             t.height,
             t.images,

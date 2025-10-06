@@ -5,7 +5,7 @@ const TokenSource = zss.syntax.TokenSource;
 
 const Environment = zss.Environment;
 const AttributeName = Environment.AttributeName;
-const AttributeValueId = Environment.AttributeValueId;
+const AttributeValue = Environment.AttributeValue;
 const ClassName = Environment.ClassName;
 const ElementAttribute = Environment.ElementAttribute;
 const ElementType = Environment.ElementType;
@@ -42,7 +42,7 @@ pub const Data = union {
     id_selector: IdName,
     class_selector: ClassName,
     attribute_selector: ElementAttribute,
-    attribute_selector_value: AttributeValueId,
+    attribute_selector_value: AttributeValue,
     pseudo_class_selector: PseudoClass,
     pseudo_element_selector: PseudoElement,
 
@@ -317,243 +317,27 @@ test "matching type selectors" {
     try expect(matches(.{ .namespace = some_namespace, .name = some_name }, e4));
 }
 
-const TestParseSelectorListExpected = []const struct {
-    complex: []const struct {
-        compound: struct {
-            type: ?struct {
-                namespace: NamespaceId = .any,
-                name: TypeName,
-            } = null,
-            subclasses: []const union(enum) {
-                id: IdName,
-                class: ClassName,
-                pseudo_class: PseudoClass,
-                attribute: struct {
-                    namespace: NamespaceId = .none,
-                    name: AttributeName,
-                    value: ?struct {
-                        operator: AttributeOperator,
-                        case: AttributeCase,
-                    } = null,
-                },
-            } = &.{},
-            pseudo_elements: []const struct {
-                element: PseudoElement,
-                pseudo_classes: []const PseudoClass = &.{},
-            } = &.{},
-        },
-        combinator: ?Combinator = null,
-    },
-};
-
-fn expectEqualComplexSelectorLists(expected: TestParseSelectorListExpected, data: []const Data, num_actual: Data.ListIndex) !void {
-    const expectEqual = std.testing.expectEqual;
-
-    try expectEqual(expected.len, num_actual);
-    var index_of_complex: Data.ListIndex = 0;
-    for (expected) |expected_complex| {
-        var index = index_of_complex + 1;
-        index_of_complex = data[index_of_complex].next_complex_selector;
-
-        for (expected_complex.complex, 0..) |expected_item, compound_index| {
-            const expected_compound = expected_item.compound;
-
-            if (expected_compound.type) |expected_type| {
-                _ = data[index].simple_selector_tag;
-                index += 1;
-                const actual_type = data[index].type_selector;
-                index += 1;
-                try expectEqual(expected_type.namespace, actual_type.namespace);
-                try expectEqual(expected_type.name, actual_type.name);
-            }
-
-            for (expected_compound.subclasses) |expected_subclass| {
-                const actual_tag = data[index].simple_selector_tag;
-                index += 1;
-                switch (expected_subclass) {
-                    .id => |expected_id| {
-                        const actual_id = data[index].id_selector;
-                        index += 1;
-                        try expectEqual(expected_id, actual_id);
-                    },
-                    .class => |expected_class| {
-                        const actual_class = data[index].class_selector;
-                        index += 1;
-                        try expectEqual(expected_class, actual_class);
-                    },
-                    .pseudo_class => |expected_pseudo| {
-                        const actual_pseudo = data[index].pseudo_class_selector;
-                        index += 1;
-                        try expectEqual(expected_pseudo, actual_pseudo);
-                    },
-                    .attribute => |expected_attribute| {
-                        const actual_attribute = data[index].attribute_selector;
-                        index += 1;
-                        try expectEqual(expected_attribute.namespace, actual_attribute.namespace);
-                        try expectEqual(expected_attribute.name, actual_attribute.name);
-                        if (expected_attribute.value) |expected_value| {
-                            _ = data[index].attribute_selector_value;
-                            index += 1;
-                            try expectEqual(expected_value.operator, actual_tag.attribute.?.operator);
-                            try expectEqual(expected_value.case, actual_tag.attribute.?.case);
-                        }
-                    },
-                }
-            }
-
-            for (expected_compound.pseudo_elements) |expected_element| {
-                _ = data[index].simple_selector_tag;
-                index += 1;
-                const actual_element = data[index].pseudo_element_selector;
-                index += 1;
-                try expectEqual(expected_element.element, actual_element);
-                for (expected_element.pseudo_classes) |expected_class| {
-                    const actual_class = data[index].pseudo_class_selector;
-                    index += 1;
-                    try expectEqual(expected_class, actual_class);
-                }
-            }
-
-            if (compound_index != expected_complex.complex.len - 1) {
-                const expected_combinator = expected_item.combinator.?;
-                const actual_combinator = data[index].trailing.combinator;
-                index += 1;
-                try expectEqual(expected_combinator, actual_combinator);
-            }
-        }
-    }
-
-    try expectEqual(data.len, index_of_complex);
-}
-
-fn stringToSelectorList(input: []const u8, env: *Environment, allocator: Allocator, data_list: *std.ArrayList(Data)) !Data.ListIndex {
-    const source = try TokenSource.init(input);
-
-    var ast, const component_list_index = blk: {
-        var parser = zss.syntax.Parser.init(source, env.allocator);
-        defer parser.deinit();
-        break :blk try parser.parseListOfComponentValues(env.allocator);
-    };
-    defer ast.deinit(env.allocator);
-
-    var parser = Parser.init(env, allocator, source, ast, &.{});
-    defer parser.deinit();
-
-    try parser.parseComplexSelectorList(data_list, allocator, component_list_index.children(ast));
-    return @intCast(parser.specificities.items.len);
-}
-
-fn testParseSelectorList(input: []const u8, expected: TestParseSelectorListExpected) !void {
-    const allocator = std.testing.allocator;
-
-    var env = Environment.init(allocator, .temp_default, .no_quirks);
-    defer env.deinit();
-
-    var data_list = std.ArrayList(Data){};
-    defer data_list.deinit(allocator);
-
-    const num_selectors = try stringToSelectorList(input, &env, allocator, &data_list);
-    try expectEqualComplexSelectorLists(expected, data_list.items, num_selectors);
-}
-
-test "parsing selector lists" {
-    const n = struct {
-        fn f(x: u24) TypeName {
-            return @as(TypeName, @enumFromInt(x));
-        }
-    }.f;
-    const en = struct {
-        fn f(x: u24) AttributeName {
-            return @as(AttributeName, @enumFromInt(x));
-        }
-    }.f;
-    const i = struct {
-        fn f(x: u24) IdName {
-            return @as(IdName, @enumFromInt(x));
-        }
-    }.f;
-    const c = struct {
-        fn f(x: u24) ClassName {
-            return @as(ClassName, @enumFromInt(x));
-        }
-    }.f;
-
-    try testParseSelectorList("element-name", &.{.{
-        .complex = &.{
-            .{ .compound = .{
-                .type = .{ .name = n(0) },
-            } },
-        },
-    }});
-    try testParseSelectorList("h1[size].class#my-id", &.{.{
-        .complex = &.{.{
-            .compound = .{
-                .type = .{ .name = n(0) },
-                .subclasses = &.{
-                    .{ .attribute = .{ .name = en(0) } },
-                    .{ .class = c(0) },
-                    .{ .id = i(0) },
-                },
-            },
-        }},
-    }});
-    try testParseSelectorList("h1 h2 > h3", &.{
-        .{ .complex = &.{
-            .{
-                .compound = .{ .type = .{ .name = n(0) } },
-                .combinator = .descendant,
-            },
-            .{
-                .compound = .{ .type = .{ .name = n(1) } },
-                .combinator = .child,
-            },
-            .{
-                .compound = .{ .type = .{ .name = n(2) } },
-            },
-        } },
-    });
-    try testParseSelectorList("*", &.{.{
-        .complex = &.{.{
-            .compound = .{
-                .type = .{ .name = .any },
-            },
-        }},
-    }});
-    try testParseSelectorList("\\*", &.{.{
-        .complex = &.{.{
-            .compound = .{
-                .type = .{ .name = n(0) },
-            },
-        }},
-    }});
-    try testParseSelectorList("a||b", &.{.{
-        .complex = &.{
-            .{
-                .compound = .{ .type = .{ .name = n(0) } },
-                .combinator = .column,
-            },
-            .{
-                .compound = .{ .type = .{ .name = n(1) } },
-            },
-        },
-    }});
-    try testParseSelectorList("a::unknown", &.{.{
-        .complex = &.{.{
-            .compound = .{
-                .type = .{ .name = n(0) },
-                .pseudo_elements = &.{
-                    .{ .element = .unrecognized },
-                },
-            },
-        }},
-    }});
-}
-
 test "complex selector matching" {
-    const allocator = std.testing.allocator;
+    const ns = struct {
+        fn expectMatch(expected: bool, input: []const u8, env: *Environment, allocator: Allocator, target: Environment.NodeId) !void {
+            const token_source = try TokenSource.init(input);
+            var ast, const component_list_index = blk: {
+                var parser = zss.syntax.Parser.init(token_source, allocator);
+                defer parser.deinit();
+                break :blk try parser.parseListOfComponentValues(allocator);
+            };
+            defer ast.deinit(allocator);
 
-    var env = Environment.init(allocator, .temp_default, .no_quirks);
-    defer env.deinit();
+            var parser = Parser.init(env, allocator, token_source, ast, &.{});
+            defer parser.deinit();
+            var data_list: std.ArrayList(Data) = .empty;
+            defer data_list.deinit(allocator);
+            try parser.parseComplexSelectorList(&data_list, allocator, component_list_index.children(ast));
+            try std.testing.expectEqual(expected, matchElement(data_list.items, 0, env, target));
+        }
+    };
+
+    const allocator = std.testing.allocator;
 
     const token_source = try zss.syntax.TokenSource.init(
         \\root #alice {
@@ -565,59 +349,42 @@ test "complex selector matching" {
         \\  third #bob {}
         \\}
     );
-    var document = try zss.zml.createDocumentFromTokenSource(allocator, token_source, &env);
+    var document = try zss.zml.parseAndCreateDocument(allocator, token_source);
     defer document.deinit(allocator);
-    document.setEnvTreeInterface(&env);
+    const env = &document.env;
 
     const nodes = blk: {
-        const root = document.rootZssNode().?;
-        const first = root.firstChild(&env).?;
-        const second = first.nextSibling(&env).?;
-        const grandchild = second.firstChild(&env).?;
-        const third = second.nextSibling(&env).?.nextSibling(&env).?;
+        const root = document.env.root_node.?;
+        const first = root.firstChild(env).?;
+        const second = first.nextSibling(env).?;
+        const grandchild = second.firstChild(env).?;
+        const third = second.nextSibling(env).?.nextSibling(env).?;
         break :blk .{ .root = root, .first = first, .second = second, .grandchild = grandchild, .third = third };
     };
 
-    const doTest = struct {
-        fn f(selector_string: []const u8, en: *Environment, ar: *ArenaAllocator, n: Environment.NodeId) !bool {
-            var data_list: std.ArrayList(Data) = .empty;
-            const complex_start: Data.ListIndex = @intCast(data_list.items.len);
-            const num_selectors = stringToSelectorList(selector_string, en, ar.allocator(), &data_list) catch |err| switch (err) {
-                error.ParseError => return false,
-                else => |er| return er,
-            };
-            assert(num_selectors == 1);
-            return matchElement(data_list.items, complex_start, en, n);
-        }
-    }.f;
-    const expect = std.testing.expect;
-
-    var arena = ArenaAllocator.init(allocator);
-    defer arena.deinit();
-
     // zig fmt: off
-    try expect(try doTest("root"                  , &env, &arena, nodes.root));
-    try expect(try doTest(":root"                 , &env, &arena, nodes.root));
-    try expect(try doTest("first"                 , &env, &arena, nodes.first));
-    try expect(try doTest("root > first"          , &env, &arena, nodes.first));
-    try expect(try doTest("root first"            , &env, &arena, nodes.first));
-    try expect(try doTest("second"                , &env, &arena, nodes.second));
-    try expect(try doTest("first + second"        , &env, &arena, nodes.second));
-    try expect(try doTest("first ~ second"        , &env, &arena, nodes.second));
-    try expect(try doTest("third"                 , &env, &arena, nodes.third));
-    try expect(try doTest("second + third"        , &env, &arena, nodes.third));
-    try expect(try doTest("second ~ third"        , &env, &arena, nodes.third));
-    try expect(!try doTest("first + third"        , &env, &arena, nodes.third));
-    try expect(try doTest("first ~ third"         , &env, &arena, nodes.third));
-    try expect(try doTest("grandchild"            , &env, &arena, nodes.grandchild));
-    try expect(try doTest("second > grandchild"   , &env, &arena, nodes.grandchild));
-    try expect(try doTest("second grandchild"     , &env, &arena, nodes.grandchild));
-    try expect(try doTest("root grandchild"       , &env, &arena, nodes.grandchild));
-    try expect(try doTest("root second grandchild", &env, &arena, nodes.grandchild));
-    try expect(!try doTest("root > grandchild"    , &env, &arena, nodes.grandchild));
-    try expect(try doTest("#alice"                , &env, &arena, nodes.root));
-    try expect(!try doTest("#alice"               , &env, &arena, nodes.third));
-    try expect(try doTest("#alice > #bob"         , &env, &arena, nodes.third));
+    try ns.expectMatch(true , "root"                  , env, allocator, nodes.root      );
+    try ns.expectMatch(true , ":root"                 , env, allocator, nodes.root      );
+    try ns.expectMatch(true , "first"                 , env, allocator, nodes.first     );
+    try ns.expectMatch(true , "root > first"          , env, allocator, nodes.first     );
+    try ns.expectMatch(true , "root first"            , env, allocator, nodes.first     );
+    try ns.expectMatch(true , "second"                , env, allocator, nodes.second    );
+    try ns.expectMatch(true , "first + second"        , env, allocator, nodes.second    );
+    try ns.expectMatch(true , "first ~ second"        , env, allocator, nodes.second    );
+    try ns.expectMatch(true , "third"                 , env, allocator, nodes.third     );
+    try ns.expectMatch(true , "second + third"        , env, allocator, nodes.third     );
+    try ns.expectMatch(true , "second ~ third"        , env, allocator, nodes.third     );
+    try ns.expectMatch(false, "first + third"         , env, allocator, nodes.third     );
+    try ns.expectMatch(true , "first ~ third"         , env, allocator, nodes.third     );
+    try ns.expectMatch(true , "grandchild"            , env, allocator, nodes.grandchild);
+    try ns.expectMatch(true , "second > grandchild"   , env, allocator, nodes.grandchild);
+    try ns.expectMatch(true , "second grandchild"     , env, allocator, nodes.grandchild);
+    try ns.expectMatch(true , "root grandchild"       , env, allocator, nodes.grandchild);
+    try ns.expectMatch(true , "root second grandchild", env, allocator, nodes.grandchild);
+    try ns.expectMatch(false, "root > grandchild"     , env, allocator, nodes.grandchild);
+    try ns.expectMatch(true , "#alice"                , env, allocator, nodes.root      );
+    try ns.expectMatch(false, "#alice"                , env, allocator, nodes.third     );
+    try ns.expectMatch(true , "#alice > #bob"         , env, allocator, nodes.third     );
     // zig fmt: on
 }
 

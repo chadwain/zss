@@ -181,21 +181,18 @@ fn createTest(
         .fonts = fonts,
         .font_handle = font_handle,
 
-        .env = .init(allocator, .temp_default, .no_quirks),
-
         .document = undefined,
         .stylesheet = undefined,
     };
 
-    t.document = try zss.zml.createDocument(allocator, &t.env, ast, token_source, zml_document_index);
-    t.document.setEnvTreeInterface(&t.env);
-    t.stylesheet = try zss.Stylesheet.create(allocator, ua_stylesheet.ast, ua_stylesheet.rule_list, ua_stylesheet.token_source, &t.env);
+    t.document = try zss.zml.createDocument(allocator, ast, token_source, zml_document_index);
+    t.stylesheet = try zss.Stylesheet.create(allocator, ua_stylesheet.ast, ua_stylesheet.rule_list, ua_stylesheet.token_source, &t.document.env);
 
     const cascade_list = zss.cascade.List{
         .author = &.{&.{ .leaf = &t.document.cascade_source }},
         .user_agent = &.{&.{ .leaf = &t.stylesheet.cascade_source }},
     };
-    try zss.cascade.run(&cascade_list, &t.env, allocator);
+    try zss.cascade.run(&cascade_list, &t.document.env, allocator);
 
     try loader.loadResourcesFromUrls(arena, t, images, token_source);
 
@@ -238,7 +235,7 @@ const ResourceLoader = struct {
                 .background_image => {
                     const gop = try loader.seen_images.getOrPut(allocator, string);
                     if (gop.found_existing) {
-                        try t.env.linkUrlToImage(url.id, gop.value_ptr.*);
+                        try t.document.env.linkUrlToImage(url.id, gop.value_ptr.*);
                         continue;
                     }
 
@@ -260,7 +257,7 @@ const ResourceLoader = struct {
                     });
 
                     gop.value_ptr.* = zss_image;
-                    try t.env.linkUrlToImage(url.id, zss_image);
+                    try t.document.env.linkUrlToImage(url.id, zss_image);
                 },
             }
         }

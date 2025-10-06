@@ -60,7 +60,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
         try stdout.print("opengl: ({}/{}) \"{s}\" ... ", .{ ti + 1, tests.len, t.name });
         try stdout.flush();
 
-        var layout = zss.Layout.init(&t.env, allocator, t.width, t.height, t.images, t.fonts);
+        var layout = zss.Layout.init(&t.document.env, allocator, t.width, t.height, t.images, t.fonts);
         defer layout.deinit();
 
         var box_tree = try layout.run(allocator);
@@ -74,7 +74,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
         defer draw_list.deinit(allocator);
 
         setIcbBackgroundColor(&box_tree, zss.math.Color.fromRgbaInt(0x202020ff));
-        const root_block_size = rootBlockSize(&box_tree, t.env.root_node);
+        const root_block_size = rootBlockSize(&box_tree, t.document.env.root_node);
 
         const pages = try std.math.divCeil(u32, root_block_size.height, t.height);
         var image = try zigimg.Image.create(allocator, root_block_size.width, pages * t.height, .rgba32);

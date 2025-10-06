@@ -44,7 +44,7 @@ pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
     stylesheet.cascade_source.deinit(allocator);
 }
 
-pub fn createFromTokenSource(allocator: Allocator, token_source: TokenSource, env: *Environment) !Stylesheet {
+pub fn parseAndCreate(allocator: Allocator, token_source: TokenSource, env: *Environment) !Stylesheet {
     var parser = zss.syntax.Parser.init(token_source, allocator);
     defer parser.deinit();
     var ast, const rule_list_index = try parser.parseCssStylesheet(allocator);
@@ -257,7 +257,7 @@ test "create a stylesheet" {
     };
     defer ast.deinit(allocator);
 
-    var env = Environment.init(allocator, .temp_default, .no_quirks);
+    var env = Environment.init(allocator, &.empty_document, .all_insensitive, .no_quirks);
     defer env.deinit();
 
     var stylesheet = try create(allocator, ast, rule_list_index, token_source, &env);

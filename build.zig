@@ -195,7 +195,6 @@ fn addDemo(b: *Build, config: Config, zss: *Module) void {
 
 fn addExamples(b: *Build, config: Config, zss: *Module) void {
     addExample(b, config, zss, "parse", "examples/parse.zig", "Run an example parser program");
-    addExample(b, config, zss, "usage", "examples/usage.zig", "Run an example usage program");
 }
 
 fn addExample(

@@ -603,7 +603,7 @@ test "value parsers" {
             switch (std.meta.ArgsTuple(@TypeOf(parser))) {
                 struct { *Context } => return parser(&ctx),
                 struct { *Context, Urls.Managed } => {
-                    var env = Environment.init(allocator, .temp_default, .no_quirks);
+                    var env = Environment.init(allocator, &.empty_document, .all_insensitive, .no_quirks);
                     defer env.deinit();
                     var urls = Urls.init(&env);
                     defer urls.deinit(allocator);
