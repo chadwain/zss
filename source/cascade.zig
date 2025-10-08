@@ -152,7 +152,13 @@ fn applySource(ctx: *RunContext, source: *const Source, env: *const Environment,
         };
         var it = style_attrs.iterator();
         while (it.next()) |entry| {
-            try ctx.appendDeclBlock(entry.key_ptr.*, entry.value_ptr.*, importance);
+            const node = entry.key_ptr.*;
+            switch (env.getNodeProperty(.category, node)) {
+                .text => unreachable,
+                .element => {},
+            }
+            const block = entry.value_ptr.*;
+            try ctx.appendDeclBlock(node, block, importance);
         }
     }
 
