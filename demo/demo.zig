@@ -32,7 +32,7 @@ const ProgramState = struct {
     fonts: *const zss.Fonts,
 
     box_tree: *zss.BoxTree,
-    draw_list: *zss.render.DrawList,
+    renderer: *zss.OpenGlRenderer,
 
     fn resize(self: *ProgramState) !void {
         if (self.resize_timer.read() < std.time.ns_per_ms * 250) return;
@@ -95,16 +95,14 @@ const ProgramState = struct {
         var box_tree = try layout.run(self.allocator);
         defer box_tree.deinit();
 
-        var draw_list = try zss.render.DrawList.create(&box_tree, self.allocator);
-        defer draw_list.deinit(self.allocator);
+        try self.renderer.updateBoxTree(&box_tree);
 
         std.mem.swap(zss.BoxTree, self.box_tree, &box_tree);
-        std.mem.swap(zss.render.DrawList, self.draw_list, &draw_list);
     }
 };
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
@@ -233,6 +231,7 @@ pub fn main() !void {
     try zss.cascade.run(&cascade_list, env, allocator);
 
     // Perform an "empty" layout, just to initialize the box tree.
+    // TODO: Provide a default value for BoxTree
     var box_tree = blk: {
         const root_node = env.root_node;
         env.root_node = null;
@@ -244,8 +243,8 @@ pub fn main() !void {
     };
     defer box_tree.deinit();
 
-    var draw_list = try zss.render.DrawList.create(&box_tree, allocator);
-    defer draw_list.deinit(allocator);
+    var renderer = try zss.OpenGlRenderer.init(allocator, &fonts);
+    defer renderer.deinit();
 
     var resize_timer = try std.time.Timer.start();
 
@@ -264,7 +263,7 @@ pub fn main() !void {
         .fonts = &fonts,
 
         .box_tree = &box_tree,
-        .draw_list = &draw_list,
+        .renderer = &renderer,
     };
 
     window.setUserPointer(&program_state);
@@ -275,13 +274,7 @@ pub fn main() !void {
     // This causes layout to be performed again, this time with the correct window width and height.
     try program_state.changeMainWindowSize(initial_width, initial_height);
 
-    var renderer = zss.render.opengl.Renderer.init(allocator);
-    defer renderer.deinit();
-
-    try renderer.initGlyphs(font);
-    defer renderer.deinitGlyphs();
-
-    while (!window.shouldClose()) {
+    while (!program_state.main_window.shouldClose()) {
         try program_state.resize();
 
         zgl.clearColor(0, 0, 0, 0);
@@ -293,22 +286,20 @@ pub fn main() !void {
             .w = @intCast(program_state.main_window_width * zss_units_per_pixel),
             .h = @intCast(program_state.main_window_height * zss_units_per_pixel),
         };
-        try zss.render.opengl.drawBoxTree(
-            &renderer,
+        try program_state.renderer.drawBoxTree(
             program_state.images,
             program_state.box_tree,
-            program_state.draw_list,
-            allocator,
+            program_state.allocator,
             viewport_rect,
         );
 
         // zgl.clearColor(0, 0, 0, 0);
         // zgl.clear(.{ .color = true });
-        // try renderer.showGlyphs(viewport_rect);
+        // try renderer.displayAllGlyphs(viewport_rect);
 
         zgl.flush();
 
-        window.swapBuffers();
+        program_state.main_window.swapBuffers();
         glfw.waitEventsTimeout(0.25);
     }
 }

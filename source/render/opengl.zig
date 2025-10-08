@@ -4,6 +4,7 @@ const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 
 const zss = @import("../zss.zig");
+const Fonts = zss.Fonts;
 const Images = zss.Images;
 const DrawList = @import("./DrawList.zig");
 const QuadTree = @import("./QuadTree.zig");
@@ -33,7 +34,7 @@ const hb = @import("harfbuzz").c;
 // TODO: Potentially lossy casts from integers to floats
 
 pub const Renderer = struct {
-    mode: Mode = .init,
+    mode: Mode,
 
     vao: zgl.VertexArray,
     ib: zgl.Buffer,
@@ -43,18 +44,13 @@ pub const Renderer = struct {
     fragment_shader: zgl.Shader,
     one_pixel_texture: zgl.Texture,
 
-    glyphs: struct {
-        texture: zgl.Texture,
-        max_width_px: u32,
-        max_height_px: u32,
-        exists: [max_glyphs]bool,
-        metrics: [max_glyphs]GlyphMetrics,
-    },
+    glyphs: Glyphs,
+    draw_list: ?DrawList, // TODO: instead of null, have a default value
 
-    textures: std.AutoHashMapUnmanaged(Images.Handle, zgl.Texture) = .{},
+    textures: std.AutoHashMapUnmanaged(Images.Handle, zgl.Texture),
 
-    vertices: std.ArrayListUnmanaged(Vertex) = .{},
-    indeces: std.ArrayListUnmanaged(u32) = .{},
+    vertices: std.ArrayListUnmanaged(Vertex),
+    indeces: std.ArrayListUnmanaged(u32),
 
     allocator: Allocator,
 
@@ -70,21 +66,50 @@ pub const Renderer = struct {
     const glyphs_per_column = 16;
     const max_glyphs = glyphs_per_row * glyphs_per_column;
 
+    const Glyphs = struct {
+        font_exists: bool,
+        texture: zgl.Texture,
+        max_width_px: u32,
+        max_height_px: u32,
+        exists: [max_glyphs]bool,
+        metrics: [max_glyphs]GlyphMetrics,
+    };
+
     const GlyphMetrics = struct {
         width_px: u32,
         height_px: u32,
         ascender_px: i32,
     };
 
-    pub fn init(allocator: Allocator) Renderer {
-        const vao = zgl.genVertexArray();
-        zgl.bindVertexArray(vao);
+    pub fn init(allocator: Allocator, fonts: *const Fonts) !Renderer {
+        var renderer: Renderer = .{
+            .mode = .init,
+
+            .vao = undefined,
+            .ib = undefined,
+            .vb = undefined,
+            .program = undefined,
+            .vertex_shader = undefined,
+            .fragment_shader = undefined,
+            .one_pixel_texture = undefined,
+
+            .glyphs = undefined,
+            .draw_list = null,
+
+            .textures = .empty,
+            .vertices = .empty,
+            .indeces = .empty,
+            .allocator = allocator,
+        };
+
+        renderer.vao = zgl.genVertexArray();
+        zgl.bindVertexArray(renderer.vao);
 
         var buffer_names: [2]zgl.Buffer = undefined;
         zgl.genBuffers(&buffer_names);
-        const ib, const vb = .{ buffer_names[0], buffer_names[1] };
+        renderer.ib, renderer.vb = .{ buffer_names[0], buffer_names[1] };
 
-        zgl.bindBuffer(vb, .array_buffer);
+        zgl.bindBuffer(renderer.vb, .array_buffer);
         zgl.enableVertexAttribArray(0);
         zgl.vertexAttribIPointer(0, 2, .int, @sizeOf(Vertex), @offsetOf(Vertex, "pos"));
         zgl.enableVertexAttribArray(1);
@@ -92,64 +117,16 @@ pub const Renderer = struct {
         zgl.enableVertexAttribArray(2);
         zgl.vertexAttribPointer(2, 2, .float, false, @sizeOf(Vertex), @offsetOf(Vertex, "tex_coords"));
 
-        const program = zgl.createProgram();
-        const vertex_shader = attachShader(program, .vertex,
-            \\#version 330 core
-            \\
-            \\layout(location = 0) in ivec2 position;
-            \\layout(location = 1) in vec4 color;
-            \\layout(location = 2) in vec2 tex_coords;
-            \\
-            \\uniform ivec2 viewport;
-            \\uniform ivec2 translation;
-            \\
-            \\const mat4 projection = mat4(
-            \\  vec4(2.0,  0.0,  0.0, -1.0),
-            \\  vec4(0.0, -2.0,  0.0,  1.0),
-            \\  vec4(0.0,  0.0,  0.0,  0.0),
-            \\  vec4(0.0,  0.0,  0.0,  1.0)
-            \\);
-            \\
-            \\flat out vec4 Color;
-            \\out vec2 TexCoords;
-            \\
-            \\void main()
-            \\{
-            \\    gl_Position = vec4(vec2(position + translation) / vec2(viewport), 0.0, 1.0) * projection;
-            \\    Color = color;
-            \\    TexCoords = tex_coords;
-            \\}
-        );
-        const fragment_shader = attachShader(program, .fragment,
-            \\#version 330 core
-            \\
-            \\uniform sampler2D Texture;
-            \\
-            \\flat in vec4 Color;
-            \\in vec2 TexCoords;
-            \\
-            \\layout(location = 0) out vec4 color;
-            \\
-            \\void main()
-            \\{
-            \\    color = texture(Texture, TexCoords) * Color;
-            \\}
-        );
-        zgl.linkProgram(program);
+        renderer.program = zgl.createProgram();
+        renderer.vertex_shader = attachShader(renderer.program, .vertex, @embedFile("vertex.glsl"));
+        renderer.fragment_shader = attachShader(renderer.program, .fragment, @embedFile("fragment.glsl"));
+        zgl.linkProgram(renderer.program);
 
-        const one_pixel_texture = createOnePixelTexture();
+        renderer.one_pixel_texture = createOnePixelTexture();
 
-        return Renderer{
-            .vao = vao,
-            .ib = ib,
-            .vb = vb,
-            .program = program,
-            .vertex_shader = vertex_shader,
-            .fragment_shader = fragment_shader,
-            .allocator = allocator,
-            .one_pixel_texture = one_pixel_texture,
-            .glyphs = undefined,
-        };
+        try createGlyphs(&renderer, fonts);
+
+        return renderer;
     }
 
     fn attachShader(program: zgl.Program, shader_type: zgl.ShaderType, source: []const u8) zgl.Shader {
@@ -177,29 +154,22 @@ pub const Renderer = struct {
         return texture;
     }
 
-    pub fn deinit(renderer: *Renderer) void {
-        zgl.deleteBuffers(&.{ renderer.ib, renderer.vb });
-        zgl.deleteVertexArray(renderer.vao);
-        zgl.deleteShader(renderer.vertex_shader);
-        zgl.deleteShader(renderer.fragment_shader);
-        zgl.deleteProgram(renderer.program);
-        zgl.deleteTexture(renderer.one_pixel_texture);
-
-        var it = renderer.textures.valueIterator();
-        while (it.next()) |texture| {
-            zgl.deleteTexture(texture.*);
-        }
-        renderer.textures.deinit(renderer.allocator);
-
-        renderer.vertices.deinit(renderer.allocator);
-        renderer.indeces.deinit(renderer.allocator);
-    }
-
-    pub fn initGlyphs(renderer: *Renderer, font: *hb.hb_font_t) !void {
+    fn createGlyphs(renderer: *Renderer, fonts: *const Fonts) !void {
+        const font = fonts.get(fonts.query()) orelse {
+            renderer.glyphs = .{
+                .font_exists = false,
+                .texture = renderer.one_pixel_texture,
+                .max_width_px = 1,
+                .max_height_px = 1,
+                .exists = @splat(false),
+                .metrics = undefined,
+            };
+            return;
+        };
         const face = hb.hb_ft_font_get_face(font);
         if (hb.FT_Select_Charmap(face, hb.FT_ENCODING_UNICODE) != hb.FT_Err_Ok) return error.SelectCharmapFail;
 
-        const max_width, const max_height = blk: {
+        const max_width_px, const max_height_px = blk: {
             const max_bbox = face.*.bbox;
             const metrics = face.*.size.*.metrics;
             break :blk .{
@@ -208,9 +178,9 @@ pub const Renderer = struct {
             };
         };
 
-        const buffer_width = max_width * glyphs_per_row;
+        const buffer_width = max_width_px * glyphs_per_row;
         const buffer_stride = buffer_width;
-        const buffer_rows = max_height * glyphs_per_column;
+        const buffer_rows = max_height_px * glyphs_per_column;
         const buffer = try renderer.allocator.alloc(u8, buffer_stride * buffer_rows);
         defer renderer.allocator.free(buffer);
 
@@ -240,7 +210,7 @@ pub const Renderer = struct {
                 const glyph_x = glyph_index % glyphs_per_row;
                 const glyph_y = glyph_index / glyphs_per_row;
 
-                const dest_index = (glyph_x * max_width) + (glyph_y * max_height * buffer_stride);
+                const dest_index = (glyph_x * max_width_px) + (glyph_y * max_height_px * buffer_stride);
 
                 const src_width = bitmap.width;
                 const src_height = bitmap.rows;
@@ -264,35 +234,106 @@ pub const Renderer = struct {
         zgl.texSubImage2D(.@"2d", 0, 0, 0, buffer_width, buffer_rows, .red, .unsigned_byte, buffer.ptr);
 
         renderer.glyphs = .{
+            .font_exists = true,
             .texture = texture,
-            .max_width_px = max_width,
-            .max_height_px = max_height,
+            .max_width_px = max_width_px,
+            .max_height_px = max_height_px,
             .exists = exists,
             .metrics = metrics,
         };
     }
 
-    pub fn deinitGlyphs(renderer: *Renderer) void {
-        zgl.deleteTexture(renderer.glyphs.texture);
-    }
+    pub fn deinit(renderer: *Renderer) void {
+        zgl.deleteBuffers(&.{ renderer.ib, renderer.vb });
+        zgl.deleteVertexArray(renderer.vao);
+        zgl.deleteShader(renderer.vertex_shader);
+        zgl.deleteShader(renderer.fragment_shader);
+        zgl.deleteProgram(renderer.program);
+        zgl.deleteTexture(renderer.one_pixel_texture);
 
-    pub fn showGlyphs(renderer: *Renderer, viewport: Rect) !void {
-        try renderer.beginDraw(viewport, 1);
-        defer renderer.endDraw();
-        renderer.setMode(.textured, renderer.glyphs.texture);
-
-        var rect = Rect{ .x = 0, .y = 0, .w = undefined, .h = undefined };
-        const texture_width: i32 = @intCast(renderer.glyphs.max_width_px * glyphs_per_row);
-        const texture_height: i32 = @intCast(renderer.glyphs.max_height_px * glyphs_per_column);
-        if (texture_width >= texture_height) {
-            rect.w = viewport.w;
-            rect.h = @divFloor(texture_height * viewport.w, texture_width);
-        } else {
-            rect.w = @divFloor(texture_width * viewport.h, texture_height);
-            rect.h = viewport.h;
+        if (renderer.glyphs.font_exists) {
+            zgl.deleteTexture(renderer.glyphs.texture);
         }
-        try renderer.addTexturedRect(rect, Color.white, .{ 0.0, 1.0 }, .{ 0.0, 1.0 });
+
+        if (renderer.draw_list) |*draw_list| {
+            draw_list.deinit(renderer.allocator);
+        }
+
+        var it = renderer.textures.valueIterator();
+        while (it.next()) |texture| {
+            zgl.deleteTexture(texture.*);
+        }
+        renderer.textures.deinit(renderer.allocator);
+
+        renderer.vertices.deinit(renderer.allocator);
+        renderer.indeces.deinit(renderer.allocator);
     }
+
+    pub fn updateBoxTree(renderer: *Renderer, box_tree: *const BoxTree) !void {
+        const new_draw_list = try DrawList.create(box_tree, renderer.allocator);
+        if (renderer.draw_list) |*draw_list| draw_list.deinit(renderer.allocator);
+        renderer.draw_list = new_draw_list;
+    }
+
+    pub fn drawBoxTree(
+        renderer: *Renderer,
+        images: *const Images,
+        box_tree: *const BoxTree,
+        allocator: Allocator,
+        viewport: Rect,
+    ) !void {
+        const draw_list = if (renderer.draw_list) |*draw_list| draw_list else return;
+        const objects = try getObjectsOnScreenInDrawOrder(draw_list, allocator, viewport);
+        defer allocator.free(objects);
+
+        try renderer.beginDraw(viewport, objects.len);
+        defer renderer.endDraw();
+
+        for (objects) |object| {
+            const entry = draw_list.getEntry(object);
+            switch (entry) {
+                .block_box => |block_box| {
+                    const border_top_left = block_box.border_top_left;
+
+                    const subtree = box_tree.getSubtree(block_box.ref.subtree).view();
+                    const index = block_box.ref.index;
+
+                    const box_offsets = subtree.items(.box_offsets)[index];
+                    const borders = subtree.items(.borders)[index];
+                    const background = subtree.items(.background)[index];
+                    const border_colors = subtree.items(.border_colors)[index];
+                    const boxes = getThreeBoxes(border_top_left, box_offsets, borders);
+
+                    try drawBlockContainer(renderer, box_tree, images, boxes, background, border_colors);
+                },
+                .line_box => |line_box_info| {
+                    const origin = line_box_info.origin;
+                    const ifc = box_tree.getIfc(line_box_info.ifc_id);
+                    const line_box = ifc.line_boxes.items[line_box_info.line_box_index];
+
+                    try drawLineBox(renderer, ifc, line_box, origin, allocator);
+                },
+            }
+        }
+    }
+
+    // pub fn displayAllGlyphs(renderer: *Renderer, viewport: Rect) !void {
+    //     try renderer.beginDraw(viewport, 1);
+    //     defer renderer.endDraw();
+    //     renderer.setMode(.textured, renderer.glyphs.texture);
+
+    //     var rect = Rect{ .x = 0, .y = 0, .w = undefined, .h = undefined };
+    //     const texture_width: i32 = @intCast(renderer.glyphs.max_width_px * glyphs_per_row);
+    //     const texture_height: i32 = @intCast(renderer.glyphs.max_height_px * glyphs_per_column);
+    //     if (texture_width >= texture_height) {
+    //         rect.w = viewport.w;
+    //         rect.h = @divFloor(texture_height * viewport.w, texture_width);
+    //     } else {
+    //         rect.w = @divFloor(texture_width * viewport.h, texture_height);
+    //         rect.h = viewport.h;
+    //     }
+    //     try renderer.addTexturedRect(rect, Color.white, .{ 0.0, 1.0 }, .{ 0.0, 1.0 });
+    // }
 
     const GlyphInfo = struct {
         metrics: GlyphMetrics,
@@ -484,48 +525,6 @@ pub const Renderer = struct {
         return renderer.addQuadFull(zssRectToVertices(rect), tint, tex_coords);
     }
 };
-
-pub fn drawBoxTree(
-    renderer: *Renderer,
-    images: *const Images,
-    box_tree: *const BoxTree,
-    draw_list: *const DrawList,
-    allocator: Allocator,
-    viewport: Rect,
-) !void {
-    const objects = try getObjectsOnScreenInDrawOrder(draw_list, allocator, viewport);
-    defer allocator.free(objects);
-
-    try renderer.beginDraw(viewport, objects.len);
-    defer renderer.endDraw();
-
-    for (objects) |object| {
-        const entry = draw_list.getEntry(object);
-        switch (entry) {
-            .block_box => |block_box| {
-                const border_top_left = block_box.border_top_left;
-
-                const subtree = box_tree.getSubtree(block_box.ref.subtree).view();
-                const index = block_box.ref.index;
-
-                const box_offsets = subtree.items(.box_offsets)[index];
-                const borders = subtree.items(.borders)[index];
-                const background = subtree.items(.background)[index];
-                const border_colors = subtree.items(.border_colors)[index];
-                const boxes = getThreeBoxes(border_top_left, box_offsets, borders);
-
-                try drawBlockContainer(renderer, box_tree, images, boxes, background, border_colors);
-            },
-            .line_box => |line_box_info| {
-                const origin = line_box_info.origin;
-                const ifc = box_tree.getIfc(line_box_info.ifc_id);
-                const line_box = ifc.line_boxes.items[line_box_info.line_box_index];
-
-                try drawLineBox(renderer, ifc, line_box, origin, allocator);
-            },
-        }
-    }
-}
 
 fn getObjectsOnScreenInDrawOrder(draw_list: *const DrawList, allocator: Allocator, viewport: Rect) ![]QuadTree.Object {
     const objects = try draw_list.quad_tree.findObjectsInRect(viewport, allocator);

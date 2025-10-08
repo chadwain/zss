@@ -418,6 +418,9 @@ pub const NodeRelative = enum {
 };
 
 pub const DocumentTreeVtable = struct {
+    // TODO: Make these functions "restricted function types"
+    //       https://github.com/ziglang/zig/issues/23367
+
     /// Returns the node that has the relationship to `node` corresponding to `relative`, or
     /// `null` if no such node exists.
     nodeRelative: *const fn (env: *const Environment, node: NodeId, relative: NodeRelative) ?NodeId,

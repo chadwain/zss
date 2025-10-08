@@ -1,6 +1,5 @@
 const zss = @import("zss");
 const BoxTree = zss.BoxTree;
-const DrawList = zss.render.DrawList;
 const units_per_pixel = zss.math.units_per_pixel;
 
 const std = @import("std");
@@ -53,9 +52,6 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
     var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout = &stdout_writer.interface;
 
-    var renderer = zss.render.opengl.Renderer.init(allocator);
-    defer renderer.deinit();
-
     for (tests, 0..) |t, ti| {
         try stdout.print("opengl: ({}/{}) \"{s}\" ... ", .{ ti + 1, tests.len, t.name });
         try stdout.flush();
@@ -66,12 +62,9 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
         var box_tree = try layout.run(allocator);
         defer box_tree.deinit();
 
-        const font_opt = t.fonts.get(t.font_handle);
-        if (font_opt) |font| try renderer.initGlyphs(font);
-        defer if (font_opt) |_| renderer.deinitGlyphs();
-
-        var draw_list = try DrawList.create(&box_tree, allocator);
-        defer draw_list.deinit(allocator);
+        var renderer = try zss.OpenGlRenderer.init(allocator, t.fonts);
+        defer renderer.deinit();
+        try renderer.updateBoxTree(&box_tree);
 
         setIcbBackgroundColor(&box_tree, zss.math.Color.fromRgbaInt(0x202020ff));
         const root_block_size = rootBlockSize(&box_tree, t.document.env.root_node);
@@ -96,7 +89,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
                 .w = @intCast(t.width * units_per_pixel),
                 .h = @intCast(t.height * units_per_pixel),
             };
-            try zss.render.opengl.drawBoxTree(&renderer, t.images, &box_tree, &draw_list, allocator, viewport);
+            try renderer.drawBoxTree(t.images, &box_tree, allocator, viewport);
             zgl.flush();
 
             const y: u32 = @intCast(i * t.height);
