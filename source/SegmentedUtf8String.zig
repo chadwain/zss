@@ -156,7 +156,7 @@ pub fn append(string: *SegmentedUtf8String, allocator: Allocator, items: []const
 
                 const copyable_len = blk: {
                     // Backtrack to find the start byte of the most recent codepoint within `remaining_items`.
-                    for (0..@min(3, usable_len)) |i| {
+                    for (0..@min(4, usable_len)) |i| {
                         const index = usable_len - 1 - i;
                         const byte = remaining_items[index];
                         const codepoint_len = std.unicode.utf8ByteSequenceLength(byte) catch continue;
@@ -294,6 +294,11 @@ test append {
         var string = init(1, 16);
         defer string.deinit(allocator);
         try string.append(allocator, "日月火水木金土");
+    }
+    {
+        var string = init(4, 8);
+        defer string.deinit(allocator);
+        try string.append(allocator, "🙂abc");
     }
     {
         var string = init(1, 4);
