@@ -1,7 +1,6 @@
 const zss = @import("zss.zig");
 const Ast = zss.syntax.Ast;
 const Stylesheet = zss.Stylesheet;
-const TokenSource = zss.syntax.TokenSource;
 
 const Environment = zss.Environment;
 const AttributeName = Environment.AttributeName;
@@ -320,15 +319,15 @@ test "matching type selectors" {
 test "complex selector matching" {
     const ns = struct {
         fn expectMatch(expected: bool, input: []const u8, env: *Environment, allocator: Allocator, target: Environment.NodeId) !void {
-            const token_source = try TokenSource.init(input);
+            const source_code = try zss.syntax.SourceCode.init(input);
             var ast, const component_list_index = blk: {
-                var parser = zss.syntax.Parser.init(token_source, allocator);
+                var parser = zss.syntax.Parser.init(source_code, allocator);
                 defer parser.deinit();
                 break :blk try parser.parseListOfComponentValues(allocator);
             };
             defer ast.deinit(allocator);
 
-            var parser = Parser.init(env, allocator, token_source, ast, &.{});
+            var parser = Parser.init(env, allocator, source_code, ast, &.{});
             defer parser.deinit();
             var data_list: std.ArrayList(Data) = .empty;
             defer data_list.deinit(allocator);
@@ -339,7 +338,7 @@ test "complex selector matching" {
 
     const allocator = std.testing.allocator;
 
-    const token_source = try zss.syntax.TokenSource.init(
+    const source_code = try zss.syntax.SourceCode.init(
         \\root #alice {
         \\  first {}
         \\  second {
@@ -349,7 +348,7 @@ test "complex selector matching" {
         \\  third #bob {}
         \\}
     );
-    var document = try zss.zml.parseAndCreateDocument(allocator, token_source);
+    var document = try zss.zml.parseAndCreateDocument(allocator, source_code);
     defer document.deinit(allocator);
     const env = &document.env;
 

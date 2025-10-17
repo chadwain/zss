@@ -13,15 +13,14 @@ const ElementAttribute = Environment.ElementAttribute;
 const syntax = zss.syntax;
 const Ast = syntax.Ast;
 const Component = syntax.Component;
-const TokenSource = syntax.TokenSource;
+const SourceCode = syntax.SourceCode;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const MultiArrayList = std.MultiArrayList;
 
 pub const Parser = struct {
     env: *Environment,
-    source: TokenSource,
+    source_code: SourceCode,
     ast: Ast,
     namespaces: *const Stylesheet.Namespaces,
     default_namespace: NamespaceId,
@@ -35,13 +34,13 @@ pub const Parser = struct {
     pub fn init(
         env: *Environment,
         allocator: Allocator,
-        source: TokenSource,
+        source_code: SourceCode,
         ast: Ast,
         namespaces: *const Stylesheet.Namespaces,
     ) Parser {
         return Parser{
             .env = env,
-            .source = source,
+            .source_code = source_code,
             .ast = ast,
             .namespaces = namespaces,
             .default_namespace = namespaces.default orelse .any,
@@ -261,7 +260,7 @@ fn parseTypeSelector(parser: *Parser, data_list: DataListManaged) !?void {
             .default => parser.default_namespace,
         },
         .name = switch (qn.name) {
-            .identifier => |identifier| try parser.env.addTypeName(identifier.location(parser.ast), parser.source),
+            .identifier => |identifier| try parser.env.addTypeName(identifier.location(parser.ast), parser.source_code),
             .any => .any,
         },
     };
@@ -358,7 +357,7 @@ fn parseName(parser: *Parser) ?QualifiedName.Name {
 }
 
 fn resolveNamespace(parser: *Parser, index: Ast.Index) NamespaceId {
-    const namespace_index = parser.namespaces.indexer.getFromIdentToken(.sensitive, index.location(parser.ast), parser.source) orelse {
+    const namespace_index = parser.namespaces.indexer.getFromIdentToken(.sensitive, index.location(parser.ast), parser.source_code) orelse {
         parser.valid = false;
         return undefined;
     };
@@ -370,7 +369,7 @@ fn parseSubclassSelector(parser: *Parser, data_list: DataListManaged) !?void {
     switch (first_component_tag) {
         .token_hash_id => {
             const location = first_component_index.location(parser.ast);
-            const name = try parser.env.addIdName(location, parser.source);
+            const name = try parser.env.addIdName(location, parser.source_code);
             try data_list.appendSlice(&.{
                 .{ .simple_selector_tag = .id },
                 .{ .id_selector = name },
@@ -382,7 +381,7 @@ fn parseSubclassSelector(parser: *Parser, data_list: DataListManaged) !?void {
             if (first_component_index.extra(parser.ast).codepoint != '.') break :class_selector;
             const class_name_index = parser.accept(.token_ident) orelse break :class_selector;
             const location = class_name_index.location(parser.ast);
-            const name = try parser.env.addClassName(location, parser.source);
+            const name = try parser.env.addClassName(location, parser.source_code);
             try data_list.appendSlice(&.{
                 .{ .simple_selector_tag = .class },
                 .{ .class_selector = name },
@@ -427,7 +426,7 @@ fn parseAttributeSelector(parser: *Parser, data_list: DataListManaged, block_ind
             .default => .none,
         },
         .name = switch (qn.name) {
-            .identifier => |identifier| try parser.env.addAttributeName(identifier.location(parser.ast), parser.source),
+            .identifier => |identifier| try parser.env.addAttributeName(identifier.location(parser.ast), parser.source_code),
             .any => return parser.fail(),
         },
     };
@@ -465,8 +464,8 @@ fn parseAttributeSelector(parser: *Parser, data_list: DataListManaged, block_ind
     _ = parser.skipSpaces();
     const value_tag, const value_index = parser.next() orelse return parser.fail();
     const attribute_value = switch (value_tag) {
-        .token_ident => try parser.env.addAttributeValueFromIdentToken(value_index.location(parser.ast), parser.source),
-        .token_string => try parser.env.addAttributeValueFromStringToken(value_index.location(parser.ast), parser.source),
+        .token_ident => try parser.env.addAttributeValueFromIdentToken(value_index.location(parser.ast), parser.source_code),
+        .token_string => try parser.env.addAttributeValueFromStringToken(value_index.location(parser.ast), parser.source_code),
         else => return parser.fail(),
     };
 
@@ -475,7 +474,7 @@ fn parseAttributeSelector(parser: *Parser, data_list: DataListManaged, block_ind
     const case: selectors.AttributeCase = case: {
         if (parser.accept(.token_ident)) |case_index| {
             const location = case_index.location(parser.ast);
-            const case = parser.source.mapIdentifierValue(location, selectors.AttributeCase, &.{
+            const case = parser.source_code.mapIdentifierValue(location, selectors.AttributeCase, &.{
                 .{ "i", .ignore_case },
                 .{ "s", .same_case },
             }) orelse return parser.fail();
@@ -535,7 +534,7 @@ fn parsePseudo(comptime pseudo: Pseudo, parser: *Parser) ?switch (pseudo) {
     const main_component_tag, const main_component_index = parser.next() orelse return null;
     switch (main_component_tag) {
         .token_ident => {
-            if (pseudo == .class and parser.source.mapIdentifierEnum(main_component_index.location(parser.ast), selectors.PseudoClass) == .root) {
+            if (pseudo == .class and parser.source_code.mapIdentifierEnum(main_component_index.location(parser.ast), selectors.PseudoClass) == .root) {
                 return .root;
             }
             return unrecognizedPseudo(pseudo, parser, main_component_index);
@@ -572,7 +571,7 @@ fn unrecognizedPseudo(comptime pseudo: Pseudo, parser: *Parser, main_component_i
             .element, .legacy_element => "element",
             .class => "class",
         },
-        parser.source.formatIdentToken(main_component_index.location(parser.ast)),
+        parser.source_code.formatIdentToken(main_component_index.location(parser.ast)),
     });
     return .unrecognized;
 }

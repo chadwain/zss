@@ -5,7 +5,7 @@ const CascadedValues = zss.CascadedValues;
 const Declarations = zss.Declarations;
 const Environment = zss.Environment;
 const Importance = Declarations.Importance;
-const TokenSource = zss.syntax.TokenSource;
+const SourceCode = zss.syntax.SourceCode;
 const Urls = zss.values.parse.Urls;
 const ValueContext = zss.values.parse.Context;
 
@@ -208,7 +208,7 @@ pub const recommended_buffer_size = Declarations.max_list_len * 32;
 pub fn parseDeclarationsFromAst(
     env: *Environment,
     ast: Ast,
-    token_source: TokenSource,
+    source_code: SourceCode,
     /// A byte buffer that will be used for temporary dynamic allocations.
     /// See also: `recommended_buffer_size`.
     buffer: []u8,
@@ -216,7 +216,7 @@ pub fn parseDeclarationsFromAst(
     last_declaration_index: Ast.Index,
     urls: Urls.Managed,
 ) !Declarations.Block {
-    var ctx = ValueContext.init(ast, token_source);
+    var ctx = ValueContext.init(ast, source_code);
     var fba = std.heap.FixedBufferAllocator.init(buffer);
     const block = try env.decls.openBlock(env.allocator);
 
@@ -247,8 +247,8 @@ fn parseDeclaration(
 ) !void {
     // TODO: If this property has already been declared, skip parsing a value entirely.
     const location = declaration_index.location(ctx.ast);
-    const property = ctx.token_source.mapIdentifierEnum(location, Property) orelse {
-        zss.log.warn("Ignoring unsupported declaration: {f}", .{ctx.token_source.formatIdentToken(location)});
+    const property = ctx.source_code.mapIdentifierEnum(location, Property) orelse {
+        zss.log.warn("Ignoring unsupported declaration: {f}", .{ctx.source_code.formatIdentToken(location)});
         return;
     };
     // zss.log.debug("Parsing declaration '{s}'", .{@tagName(property)});
@@ -347,7 +347,7 @@ test "parsing properties from a stylesheet" {
         \\  border-bottom-style: outset;
         \\}
     ;
-    const source = try TokenSource.init(input);
+    const source = try SourceCode.init(input);
     var ast, const rule_list_index = blk: {
         var parser = zss.syntax.Parser.init(source, allocator);
         defer parser.deinit();

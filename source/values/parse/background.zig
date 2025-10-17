@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const zss = @import("../../zss.zig");
-const TokenSource = zss.syntax.TokenSource;
+const SourceCode = zss.syntax.SourceCode;
 
 const values = zss.values;
 const types = values.types;
@@ -34,7 +34,7 @@ pub fn repeat(ctx: *Context) ?types.BackgroundRepeat {
     }
 
     const Style = types.BackgroundRepeat.Style;
-    const map = comptime &[_]TokenSource.KV(Style){
+    const map = comptime &[_]SourceCode.KV(Style){
         .{ "repeat", .repeat },
         .{ "space", .space },
         .{ "round", .round },
@@ -65,7 +65,7 @@ const bg_position = struct {
 
     const KeywordMapValue = struct { axis: Axis, side: Side };
     // zig fmt: off
-    const keyword_map = &[_]TokenSource.KV(KeywordMapValue){
+    const keyword_map = &[_]SourceCode.KV(KeywordMapValue){
         .{ "center", .{ .axis = .either, .side = .center } },
         .{ "left",   .{ .axis = .x,      .side = .start  } },
         .{ "right",  .{ .axis = .x,      .side = .end    } },

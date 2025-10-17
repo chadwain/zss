@@ -12,7 +12,6 @@ const zss = @import("../zss.zig");
 const max_list_len = zss.Declarations.max_list_len;
 const Ast = zss.syntax.Ast;
 const ReturnType = zss.property.Property.ParseFnReturnType;
-const TokenSource = zss.syntax.TokenSource;
 
 const values = zss.values;
 const types = values.types;

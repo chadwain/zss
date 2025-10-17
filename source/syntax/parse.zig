@@ -1,22 +1,20 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
+const tokenize = @import("tokenize.zig");
+
 const syntax = zss.syntax;
-const tokenize = syntax.tokenize;
 const Ast = syntax.Ast;
 const Component = syntax.Component;
 const Extra = Component.Extra;
-const Location = TokenSource.Location;
-const Stack = zss.Stack;
+const Location = SourceCode.Location;
+const SourceCode = syntax.SourceCode;
 const Token = syntax.Token;
-const TokenSource = syntax.TokenSource;
 
 const AstManaged = struct {
-    components: MultiArrayList(Component) = .{},
+    components: std.MultiArrayList(Component) = .{},
     allocator: Allocator,
 
     fn deinit(ast: *AstManaged) void {
@@ -41,7 +39,7 @@ const AstManaged = struct {
     }
 
     fn addBasicComponent(ast: *AstManaged, tag: Component.Tag, location: Location) !Ast.Size {
-        return ast.addBasicComponentExtra(tag, location, .undef);
+        return ast.addBasicComponentExtra(tag, location, .{ .undef = {} });
     }
 
     fn addBasicComponentExtra(ast: *AstManaged, tag: Component.Tag, location: Location, extra: Extra) !Ast.Size {
@@ -64,7 +62,7 @@ const AstManaged = struct {
     }
 
     fn finishComplexComponent(ast: *AstManaged, component_index: Ast.Size) void {
-        ast.finishComplexComponentExtra(component_index, .undef);
+        ast.finishComplexComponentExtra(component_index, .{ .undef = {} });
     }
 
     fn finishComplexComponentExtra(ast: *AstManaged, component_index: Ast.Size, extra: Extra) void {
@@ -109,13 +107,13 @@ const AstManaged = struct {
             .next_sibling = next_sibling,
             .tag = .zml_attribute,
             .location = main_location,
-            .extra = .undef,
+            .extra = .{ .undef = {} },
         });
         _ = try ast.createComponent(.{
             .next_sibling = next_sibling,
             .tag = .token_ident,
             .location = name_location,
-            .extra = .undef,
+            .extra = .{ .undef = {} },
         });
     }
 
@@ -131,19 +129,19 @@ const AstManaged = struct {
             .next_sibling = next_sibling,
             .tag = .zml_attribute,
             .location = main_location,
-            .extra = .undef,
+            .extra = .{ .undef = {} },
         });
         _ = try ast.createComponent(.{
             .next_sibling = next_sibling - 1,
             .tag = .token_ident,
             .location = name_location,
-            .extra = .undef,
+            .extra = .{ .undef = {} },
         });
         _ = try ast.createComponent(.{
             .next_sibling = next_sibling,
             .tag = value_tag,
             .location = value_location,
-            .extra = .undef,
+            .extra = .{ .undef = {} },
         });
     }
 
@@ -162,7 +160,7 @@ const AstManaged = struct {
         });
     }
 
-    fn finishDeclaration(ast: *AstManaged, token_source: TokenSource, declaration_index: Ast.Size, last_3: Last3NonWhitespaceComponents) bool {
+    fn finishDeclaration(ast: *AstManaged, source_code: SourceCode, declaration_index: Ast.Size, last_3: Last3NonWhitespaceComponents) bool {
         const components = ast.components.slice();
         const is_important = blk: {
             if (last_3.len < 2) break :blk false;
@@ -171,7 +169,7 @@ const AstManaged = struct {
             break :blk components.items(.tag)[exclamation] == .token_delim and
                 components.items(.extra)[exclamation].codepoint == '!' and
                 components.items(.tag)[important_string] == .token_ident and
-                token_source.identifierEqlIgnoreCase(components.items(.location)[important_string], "important");
+                source_code.identifierEqlIgnoreCase(components.items(.location)[important_string], "important");
         };
 
         const tag: Component.Tag, const min_required_components: u2 = switch (is_important) {
@@ -217,10 +215,10 @@ const Last3NonWhitespaceComponents = struct {
 const DocumentType = enum { css, zml };
 
 pub const Parser = struct {
-    rule_stack: Stack(QualifiedRule),
-    element_stack: ArrayListUnmanaged(struct { node_index: Ast.Size, element_index: Ast.Size, block_index: Ast.Size }),
-    block_stack: Stack(struct { ending_tag: Component.Tag, index: Ast.Size }),
-    token_source: TokenSource,
+    rule_stack: zss.Stack(QualifiedRule),
+    element_stack: std.ArrayList(struct { node_index: Ast.Size, element_index: Ast.Size, block_index: Ast.Size }),
+    block_stack: zss.Stack(struct { ending_tag: Component.Tag, index: Ast.Size }),
+    source_code: SourceCode,
     allocator: Allocator,
     location: Location,
     depth: u8,
@@ -283,12 +281,12 @@ pub const Parser = struct {
 
     pub const depth_limit = 128;
 
-    pub fn init(token_source: TokenSource, allocator: Allocator) Parser {
+    pub fn init(source_code: SourceCode, allocator: Allocator) Parser {
         return .{
             .rule_stack = .{},
             .element_stack = .empty,
             .block_stack = .{},
-            .token_source = token_source,
+            .source_code = source_code,
             .allocator = allocator,
             .location = @enumFromInt(0),
             .depth = 0,
@@ -305,7 +303,7 @@ pub const Parser = struct {
     // TODO: Allow the Parser to be re-usable?
     // TODO: Implement more parser entry functions
 
-    pub const Error = error{ParseError} || AstManaged.AddComponentError || TokenSource.Error || Allocator.Error;
+    pub const Error = error{ParseError} || AstManaged.AddComponentError || tokenize.Error || Allocator.Error;
 
     /// Creates an Ast with a root node with tag `rule_list`
     /// Implements CSS Syntax Level 3 Section 9 "Parse a CSS stylesheet"
@@ -363,13 +361,13 @@ pub const Parser = struct {
 
     fn nextTokenAllowEof(parser: *Parser) !struct { Token, Location } {
         const location = parser.location;
-        const token = try parser.token_source.next(&parser.location);
+        const token = try tokenize.nextToken(parser.source_code, &parser.location);
         return .{ token, location };
     }
 
     fn nextToken(parser: *Parser) !struct { Token, Location } {
         const location = parser.location;
-        const token = try parser.token_source.next(&parser.location);
+        const token = try tokenize.nextToken(parser.source_code, &parser.location);
         if (token == .token_eof) return parser.fail(.unexpected_eof, location);
         return .{ token, location };
     }
@@ -658,7 +656,7 @@ fn consumeDeclaration(
         }
     }
 
-    _ = ast.finishDeclaration(parser.token_source, index, last_3);
+    _ = ast.finishDeclaration(parser.source_code, index, last_3);
     return index;
 }
 
@@ -971,10 +969,10 @@ test "parser fuzz test" {
             };
             const ns2 = struct {
                 fn fuzzOne(_: void, input: []const u8) !void {
-                    const token_source = try TokenSource.init(input);
+                    const source_code = try SourceCode.init(input);
                     const allocator = std.testing.allocator;
 
-                    var parser = Parser.init(token_source, allocator);
+                    var parser = Parser.init(source_code, allocator);
                     defer parser.deinit();
 
                     var ast, _ = parse_fn(&parser, allocator) catch |err| switch (err) {

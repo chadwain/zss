@@ -1,7 +1,5 @@
 const std = @import("std");
-
 const zss = @import("../zss.zig");
-const SourceLocation = zss.syntax.TokenSource.Location;
 
 pub const CssWideKeyword = enum(u2) {
     initial = 1,

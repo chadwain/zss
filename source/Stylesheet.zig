@@ -27,7 +27,7 @@ const Declarations = zss.Declarations;
 const Environment = zss.Environment;
 const Importance = Declarations.Importance;
 const NamespaceId = Environment.Namespaces.Id;
-const TokenSource = zss.syntax.TokenSource;
+const SourceCode = zss.syntax.SourceCode;
 const Urls = zss.values.parse.Urls;
 
 const selectors = zss.selectors;
@@ -44,12 +44,12 @@ pub fn deinit(stylesheet: *Stylesheet, allocator: Allocator) void {
     stylesheet.cascade_source.deinit(allocator);
 }
 
-pub fn parseAndCreate(allocator: Allocator, token_source: TokenSource, env: *Environment) !Stylesheet {
-    var parser = zss.syntax.Parser.init(token_source, allocator);
+pub fn parseAndCreate(allocator: Allocator, source_code: SourceCode, env: *Environment) !Stylesheet {
+    var parser = zss.syntax.Parser.init(source_code, allocator);
     defer parser.deinit();
     var ast, const rule_list_index = try parser.parseCssStylesheet(allocator);
     defer ast.deinit(allocator);
-    return create(allocator, ast, rule_list_index, token_source, env);
+    return create(allocator, ast, rule_list_index, source_code, env);
 }
 
 /// Create a `Stylesheet` from an Ast `rule_list` node.
@@ -58,7 +58,7 @@ pub fn create(
     allocator: Allocator,
     ast: Ast,
     rule_list_index: Ast.Index,
-    token_source: TokenSource,
+    source_code: SourceCode,
     env: *Environment,
 ) !Stylesheet {
     var stylesheet = Stylesheet{
@@ -68,7 +68,7 @@ pub fn create(
     };
     errdefer stylesheet.deinit(allocator);
 
-    var selector_parser = selectors.Parser.init(env, allocator, token_source, ast, &stylesheet.namespaces);
+    var selector_parser = selectors.Parser.init(env, allocator, source_code, ast, &stylesheet.namespaces);
     defer selector_parser.deinit();
 
     var unsorted_selectors = std.MultiArrayList(struct { index: selectors.Data.ListIndex, specificity: Specificity }){};
@@ -80,10 +80,10 @@ pub fn create(
         switch (index.tag(ast)) {
             .at_rule => {
                 const at_rule = index.extra(ast).at_rule orelse {
-                    zss.log.warn("Ignoring unknown at-rule: @{f}", .{token_source.formatAtKeywordToken(index.location(ast))});
+                    zss.log.warn("Ignoring unknown at-rule: @{f}", .{source_code.formatAtKeywordToken(index.location(ast))});
                     continue;
                 };
-                atRule(&stylesheet.namespaces, allocator, ast, token_source, env, at_rule, index) catch |err| switch (err) {
+                atRule(&stylesheet.namespaces, allocator, ast, source_code, env, at_rule, index) catch |err| switch (err) {
                     error.InvalidAtRule => {
                         // NOTE: This is no longer a valid style sheet.
                         zss.log.warn("Ignoring invalid @{s} at-rule", .{@tagName(at_rule)});
@@ -110,7 +110,7 @@ pub fn create(
                 // Parse the style block
                 const last_declaration = selector_sequence.end.extra(ast).index;
                 var buffer: [zss.property.recommended_buffer_size]u8 = undefined;
-                const decl_block = try zss.property.parseDeclarationsFromAst(env, ast, token_source, &buffer, last_declaration, stylesheet.decl_urls.toManaged(allocator));
+                const decl_block = try zss.property.parseDeclarationsFromAst(env, ast, source_code, &buffer, last_declaration, stylesheet.decl_urls.toManaged(allocator));
 
                 var index_of_complex_selector = first_complex_selector;
                 for (selector_parser.specificities.items) |specificity| {
@@ -186,7 +186,7 @@ fn atRule(
     namespaces: *Namespaces,
     allocator: Allocator,
     ast: Ast,
-    token_source: TokenSource,
+    source_code: SourceCode,
     env: *Environment,
     at_rule: AtRule,
     at_rule_index: Ast.Index,
@@ -196,7 +196,7 @@ fn atRule(
     //       Example 2: @import and @namespace must come before any other non-ignored at-rules and style rules
 
     const parse = zss.values.parse;
-    var parse_ctx: parse.Context = .init(ast, token_source);
+    var parse_ctx: parse.Context = .init(ast, source_code);
     switch (at_rule) {
         .import => return error.UnrecognizedAtRule,
         .namespace => {
@@ -218,9 +218,9 @@ fn atRule(
                     return error.InvalidAtRule;
             if (!parse_ctx.empty()) return error.InvalidAtRule;
 
-            const id = try env.addNamespaceFromToken(namespace, token_source);
+            const id = try env.addNamespaceFromToken(namespace, source_code);
             if (prefix_or_null) |prefix| {
-                const index = try namespaces.indexer.addFromIdentToken(.sensitive, allocator, prefix, token_source);
+                const index = try namespaces.indexer.addFromIdentToken(.sensitive, allocator, prefix, source_code);
                 if (index == namespaces.ids.items.len) {
                     try namespaces.ids.append(allocator, id);
                 } else {
@@ -248,10 +248,10 @@ test "create a stylesheet" {
         \\@namespace url("xyz");
         \\test {display: block}
     ;
-    const token_source = try zss.syntax.TokenSource.init(input);
+    const source_code = try SourceCode.init(input);
 
     var ast, const rule_list_index = blk: {
-        var parser = zss.syntax.Parser.init(token_source, allocator);
+        var parser = zss.syntax.Parser.init(source_code, allocator);
         defer parser.deinit();
         break :blk try parser.parseCssStylesheet(allocator);
     };
@@ -260,6 +260,6 @@ test "create a stylesheet" {
     var env = Environment.init(allocator, &.empty_document, .all_insensitive, .no_quirks);
     defer env.deinit();
 
-    var stylesheet = try create(allocator, ast, rule_list_index, token_source, &env);
+    var stylesheet = try create(allocator, ast, rule_list_index, source_code, &env);
     defer stylesheet.deinit(allocator);
 }

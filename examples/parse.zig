@@ -1,7 +1,7 @@
 const zss = @import("zss");
 const Ast = zss.syntax.Ast;
 const Parser = zss.syntax.Parser;
-const TokenSource = zss.syntax.TokenSource;
+const SourceCode = zss.syntax.SourceCode;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -30,22 +30,20 @@ pub fn main() !u8 {
         break :blk try stdin_reader.interface.allocRemaining(allocator, .limited(1_000_000));
     };
     defer allocator.free(input);
-    const source = try TokenSource.init(input);
+    const source_code = try SourceCode.init(input);
 
     if (args.len == 1 or std.mem.eql(u8, args[1], "stylesheet")) {
-        try runParser(Parser.parseCssStylesheet, source, allocator, stdout, stderr);
+        try runParser(Parser.parseCssStylesheet, source_code, allocator, stdout, stderr);
     } else if (std.mem.eql(u8, args[1], "zml")) {
-        try runParser(Parser.parseZmlDocument, source, allocator, stdout, stderr);
+        try runParser(Parser.parseZmlDocument, source_code, allocator, stdout, stderr);
     } else if (std.mem.eql(u8, args[1], "components")) {
-        try runParser(Parser.parseListOfComponentValues, source, allocator, stdout, stderr);
+        try runParser(Parser.parseListOfComponentValues, source_code, allocator, stdout, stderr);
     } else if (std.mem.eql(u8, args[1], "tokens")) {
-        var location: TokenSource.Location = @enumFromInt(0);
-        var i: usize = 0;
-        while (true) {
-            const token = try source.next(&location);
-            try stdout.print("{}: {s}\n", .{ i, @tagName(token) });
-            i += 1;
-            if (token == .token_eof) break;
+        var tokenizer = zss.syntax.Tokenizer.init(source_code);
+        var index: usize = 0;
+        while (try tokenizer.next()) |item| : (index += 1) {
+            const token, _ = item;
+            try stdout.print("{}: {s}\n", .{ index, @tagName(token) });
         }
         try stdout.flush();
     } else {
@@ -57,12 +55,12 @@ pub fn main() !u8 {
 
 fn runParser(
     parse_fn: *const fn (*Parser, Allocator) Parser.Error!struct { Ast, Ast.Index },
-    source: TokenSource,
+    source_code: SourceCode,
     allocator: Allocator,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
 ) !void {
-    var parser = zss.syntax.Parser.init(source, allocator);
+    var parser = zss.syntax.Parser.init(source_code, allocator);
     defer parser.deinit();
 
     var ast, _ = parse_fn(&parser, allocator) catch |err| {

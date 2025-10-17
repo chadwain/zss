@@ -114,7 +114,7 @@ pub const Token = union(enum) {
     pub const Dimension = struct {
         number: ?Float,
         unit: ?Unit,
-        unit_location: TokenSource.Location,
+        unit_location: SourceCode.Location,
     };
 
     pub const AtRule = enum {
@@ -127,31 +127,300 @@ pub const Token = union(enum) {
     }
 };
 
-pub const TokenSource = tokenize.Source;
-pub const IdentSequenceIterator = tokenize.IdentSequenceIterator;
-pub const StringSequenceIterator = tokenize.StringSequenceIterator;
-pub const UrlSequenceIterator = tokenize.UrlSequenceIterator;
-pub const stringIsIdentSequence = tokenize.stringIsIdentSequence;
+/// A simple wrapper around a UTF-8 encoded text buffer.
+/// The text buffer has a length limit of `Source.max_input_len`.
+/// If there is any invalid UTF-8 in the text buffer, it will be detected during tokenization.
+/// Outside of tokenization and parsing, it is generally illegal behavior to use this if the text buffer contains invalid UTF-8.
+pub const SourceCode = struct {
+    // TODO: Consider making keeping source code unnecessary, by copying some source code text into Ast
+
+    text: []const u8,
+
+    /// A byte-offset into the source code text.
+    pub const Location = enum(u32) { _ };
+    pub const max_input_len = std.math.maxInt(std.meta.Tag(Location));
+
+    pub fn init(text: []const u8) error{SourceCodeTooLong}!SourceCode {
+        if (text.len > max_input_len) return error.SourceCodeTooLong;
+        return SourceCode{ .text = text };
+    }
+
+    /// Asserts that `start` is the location of the start of an ident token.
+    pub fn identTokenIterator(source_code: SourceCode, start: Location) IdentSequenceIterator {
+        const next_3, _ = tokenize.peekCodepoints(3, source_code, start) catch unreachable;
+        assert(tokenize.codepointsStartAnIdentSequence(next_3));
+        return IdentSequenceIterator{ .source_code = source_code, .location = start };
+    }
+
+    /// Asserts that `start` is the location of the start of an ID hash token.
+    pub fn hashIdTokenIterator(source_code: SourceCode, start: Location) IdentSequenceIterator {
+        const hash, const location = tokenize.peekCodepoint(source_code, start) catch unreachable;
+        assert(hash == '#');
+        return IdentSequenceIterator{ .source_code = source_code, .location = location };
+    }
+
+    /// Asserts that `start` is the location of the start of an at-keyword token.
+    pub fn atKeywordTokenIterator(source_code: SourceCode, start: Location) IdentSequenceIterator {
+        const at, const location = tokenize.peekCodepoint(source_code, start) catch unreachable;
+        assert(at == '@');
+        return identTokenIterator(source_code, location);
+    }
+
+    /// Asserts that `start` is the location of the start of a string token.
+    pub fn stringTokenIterator(source_code: SourceCode, start: Location) StringTokenIterator {
+        const quote, const location = tokenize.peekCodepoint(source_code, start) catch unreachable;
+        assert(quote == '"' or quote == '\'');
+        return StringTokenIterator{ .source_code = source_code, .location = location, .ending_codepoint = quote };
+    }
+
+    /// Asserts that `start` is the location of the start of a url token.
+    pub fn urlTokenIterator(source_code: SourceCode, start: Location) UrlTokenIterator {
+        const url, var location = tokenize.peekCodepoints(4, source_code, start) catch unreachable;
+        assert(std.mem.eql(u21, &url, &[4]u21{ 'u', 'r', 'l', '(' }));
+        tokenize.consumeWhitespace(source_code, &location) catch unreachable;
+        return UrlTokenIterator{ .source_code = source_code, .location = location };
+    }
+
+    pub const CopyMode = union(enum) {
+        buffer: []u8,
+        allocator: Allocator,
+    };
+
+    /// Given that `location` is the location of a <ident-token>, copy that identifier
+    pub fn copyIdentifier(source_code: SourceCode, location: Location, copy_mode: CopyMode) error{OutOfMemory}![]u8 {
+        var iterator = identTokenIterator(source_code, location);
+        return copyTokenGeneric(&iterator, copy_mode);
+    }
+
+    /// Given that `location` is the location of a <string-token>, copy that string
+    pub fn copyString(source_code: SourceCode, location: Location, copy_mode: CopyMode) error{OutOfMemory}![]u8 {
+        var iterator = stringTokenIterator(source_code, location);
+        return copyTokenGeneric(&iterator, copy_mode);
+    }
+
+    /// Given that `location` is the location of a <at-keyword-token>, copy that keyword
+    pub fn copyAtKeyword(source_code: SourceCode, location: Location, copy_mode: CopyMode) error{OutOfMemory}![]u8 {
+        var iterator = atKeywordTokenIterator(source_code, location);
+        return copyTokenGeneric(&iterator, copy_mode);
+    }
+
+    /// Given that `location` is the location of an ID <hash-token>, copy that hash's identifier
+    pub fn copyHashId(source_code: SourceCode, location: Location, copy_mode: CopyMode) error{OutOfMemory}![]u8 {
+        var iterator = hashIdTokenIterator(source_code, location);
+        return copyTokenGeneric(&iterator, copy_mode);
+    }
+
+    /// Given that `location` is the location of a <url-token>, copy that URL
+    pub fn copyUrl(source_code: SourceCode, location: Location, copy_mode: CopyMode) error{OutOfMemory}![]u8 {
+        var iterator = urlTokenIterator(source_code, location);
+        return copyTokenGeneric(&iterator, copy_mode);
+    }
+
+    /// A wrapper over std.ArrayList that abstracts over bounded vs. dynamic allocation.
+    const ArrayListManaged = struct {
+        array_list: std.ArrayList(u8),
+        mode: union(enum) {
+            bounded,
+            dynamic: Allocator,
+        },
+
+        fn init(copy_mode: CopyMode) ArrayListManaged {
+            return switch (copy_mode) {
+                .buffer => |buffer| .{
+                    .array_list = .initBuffer(buffer),
+                    .mode = .bounded,
+                },
+                .allocator => |allocator| .{
+                    .array_list = .empty,
+                    .mode = .{ .dynamic = allocator },
+                },
+            };
+        }
+
+        fn deinit(list: *ArrayListManaged) void {
+            switch (list.mode) {
+                .bounded => {},
+                .dynamic => |allocator| list.array_list.deinit(allocator),
+            }
+        }
+
+        fn appendSlice(list: *ArrayListManaged, slice: []const u8) !void {
+            switch (list.mode) {
+                .bounded => try list.array_list.appendSliceBounded(slice),
+                .dynamic => |allocator| try list.array_list.appendSlice(allocator, slice),
+            }
+        }
+
+        fn toOwnedSlice(list: *ArrayListManaged) ![]u8 {
+            switch (list.mode) {
+                .bounded => return list.array_list.items,
+                .dynamic => |allocator| return try list.array_list.toOwnedSlice(allocator),
+            }
+        }
+    };
+
+    fn copyTokenGeneric(iterator: anytype, copy_mode: CopyMode) error{OutOfMemory}![]u8 {
+        var list = ArrayListManaged.init(copy_mode);
+        defer list.deinit();
+
+        var buffer: [4]u8 = undefined;
+        while (iterator.next()) |codepoint| {
+            const len = std.unicode.utf8Encode(codepoint, &buffer) catch unreachable;
+            try list.appendSlice(buffer[0..len]);
+        }
+
+        return try list.toOwnedSlice();
+    }
+
+    /// Asserts that `start` is the location of the start of an ident token.
+    pub fn formatIdentToken(source_code: SourceCode, start: Location) TokenFormatter(identTokenIterator) {
+        return formatTokenGeneric(identTokenIterator, source_code, start);
+    }
+
+    /// Asserts that `start` is the location of the start of an ID hash token.
+    pub fn formatHashIdToken(source_code: SourceCode, start: Location) TokenFormatter(hashIdTokenIterator) {
+        return formatTokenGeneric(hashIdTokenIterator, source_code, start);
+    }
+
+    /// Asserts that `start` is the location of the start of an at-keyword token.
+    pub fn formatAtKeywordToken(source_code: SourceCode, start: Location) TokenFormatter(atKeywordTokenIterator) {
+        return formatTokenGeneric(atKeywordTokenIterator, source_code, start);
+    }
+
+    /// Asserts that `start` is the location of the start of a string token.
+    pub fn formatStringToken(source_code: SourceCode, start: Location) TokenFormatter(stringTokenIterator) {
+        return formatTokenGeneric(stringTokenIterator, source_code, start);
+    }
+
+    /// Asserts that `start` is the location of the start of a url token.
+    pub fn formatUrlToken(source_code: SourceCode, start: Location) TokenFormatter(urlTokenIterator) {
+        return formatTokenGeneric(urlTokenIterator, source_code, start);
+    }
+
+    fn TokenFormatter(comptime createIterator: anytype) type {
+        return struct {
+            source_code: SourceCode,
+            location: Location,
+
+            pub fn format(self: @This(), writer: *std.Io.Writer) !void {
+                var it = createIterator(self.source_code, self.location);
+                while (it.next()) |codepoint| try writer.print("{u}", .{codepoint});
+            }
+        };
+    }
+
+    fn formatTokenGeneric(comptime createIterator: anytype, source_code: SourceCode, location: Location) TokenFormatter(createIterator) {
+        return TokenFormatter(createIterator){ .source_code = source_code, .location = location };
+    }
+
+    // TODO: Make other `*Eql` functions, such as stringEql and urlEql.
+
+    /// Given that `location` is the location of an <ident-token>, check if the identifier is equal to `ascii_string`
+    /// using case-insensitive matching.
+    // TODO: Make it more clear that this only operates on 7-bit ASCII. Alternatively, remove that requirement.
+    pub fn identifierEqlIgnoreCase(source_code: SourceCode, location: Location, ascii_string: []const u8) bool {
+        const toLowercase = zss.unicode.latin1ToLowercase;
+        var it = identTokenIterator(source_code, location);
+        for (ascii_string) |string_codepoint| {
+            assert(string_codepoint <= 0x7F);
+            const it_codepoint = it.next() orelse return false;
+            if (toLowercase(string_codepoint) != toLowercase(it_codepoint)) return false;
+        }
+        return it.next() == null;
+    }
+
+    /// A key-value pair.
+    pub fn KV(comptime Type: type) type {
+        return struct {
+            /// This must be an ASCII string.
+            []const u8,
+            Type,
+        };
+    }
+
+    /// Given that `location` is the location of an <ident-token>, if the identifier matches any of the
+    /// key strings in `kvs` using case-insensitive matching, returns the corresponding value. If there was no match, null is returned.
+    pub fn mapIdentifierValue(source_code: SourceCode, location: Location, comptime Type: type, kvs: []const KV(Type)) ?Type {
+        // TODO: Use a hash map/trie or something
+        for (kvs) |kv| {
+            if (identifierEqlIgnoreCase(source_code, location, kv[0])) return kv[1];
+        }
+        return null;
+    }
+
+    /// Given that `start` is the location of an <ident-token>, if the identifier matches any of the
+    /// fields of `Enum` using case-insensitive matching, returns that enum field. If there was no match, null is returned.
+    pub fn mapIdentifierEnum(source_code: SourceCode, start: Location, comptime Enum: type) ?Enum {
+        var location = start;
+        return tokenize.consumeIdentSequenceWithMatch(source_code, &location, Enum) catch unreachable;
+    }
+};
+
+pub const IdentSequenceIterator = struct {
+    source_code: SourceCode,
+    location: SourceCode.Location,
+
+    pub fn next(it: *IdentSequenceIterator) ?u21 {
+        return tokenize.consumeIdentSequenceCodepoint(it.source_code, &it.location) catch unreachable;
+    }
+};
+
+pub const StringTokenIterator = struct {
+    source_code: SourceCode,
+    location: SourceCode.Location,
+    ending_codepoint: u21,
+
+    pub fn next(it: *StringTokenIterator) ?u21 {
+        return tokenize.consumeStringTokenCodepoint(it.source_code, &it.location, it.ending_codepoint) catch unreachable;
+    }
+};
+
+/// Used to iterate over <url-token>s (and NOT <bad-url-token>s)
+pub const UrlTokenIterator = struct {
+    source_code: SourceCode,
+    location: SourceCode.Location,
+
+    pub fn next(it: *UrlTokenIterator) ?u21 {
+        return tokenize.consumeUrlTokenCodepoint(it.source_code, &it.location) catch unreachable;
+    }
+};
+
+pub const Tokenizer = struct {
+    source_code: SourceCode,
+    location: SourceCode.Location,
+
+    pub fn init(source_code: SourceCode) Tokenizer {
+        return .{ .source_code = source_code, .location = @enumFromInt(0) };
+    }
+
+    /// Returns the next token, or `null` if it was `token_eof`.
+    pub fn next(tokenizer: *Tokenizer) !?struct { Token, SourceCode.Location } {
+        const location = tokenizer.location;
+        const token = try tokenize.nextToken(tokenizer.source_code, &tokenizer.location);
+        if (token == .token_eof) return null;
+        return .{ token, location };
+    }
+};
 
 /// Corresponds to what CSS calls a "component value".
 pub const Component = struct {
+    /// The index of the Component's next sibling component, if it has one.
     next_sibling: Ast.Size,
     tag: Tag,
-    /// The location of the Component in whatever TokenSource it originated from. The meaning of this value depends on `tag`.
-    location: TokenSource.Location,
+    /// The location of the Component in whatever SourceCode it originated from. The meaning of this value depends on `tag`.
+    location: SourceCode.Location,
     /// Additional info about the Component. The meaning of this value depends on `tag`.
     extra: Extra,
 
     // TODO: size goal: 4 bytes (in unsafe builds)
     pub const Extra = union {
+        undef: void,
         index: Ast.Index,
         codepoint: u21,
         integer: ?i32,
         number: ?f32,
         unit: ?Token.Unit,
         at_rule: ?Token.AtRule,
-
-        pub const undef: Extra = .{ .index = @enumFromInt(0) };
     };
 
     /// Each field has the following information:
@@ -160,7 +429,7 @@ pub const Component = struct {
     ///        children: The children that the component is allowed to have.
     ///                  If not specified, then the component cannot have any children.
     ///           extra: What the component's `extra` field represents.
-    ///                  If not specified, then the `extra` field is meaningless.
+    ///                  If not specified, then the `extra` field is `.undef`.
     ///            note: Additional notes
     ///
     /// Components that represent tokens begin with `token_`. More documentation for these can be found by looking at `Token`.
@@ -346,7 +615,6 @@ pub const Component = struct {
     };
 };
 
-// TODO: Rename to "Tree"
 pub const Ast = struct {
     components: MultiArrayList(Component).Slice,
     debug: Debug = .{},
@@ -364,7 +632,7 @@ pub const Ast = struct {
             return ast.components.items(.tag)[@intFromEnum(index)];
         }
 
-        pub fn location(index: Index, ast: Ast) TokenSource.Location {
+        pub fn location(index: Index, ast: Ast) SourceCode.Location {
             return ast.components.items(.location)[@intFromEnum(index)];
         }
 

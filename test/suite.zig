@@ -7,7 +7,7 @@ const zss = @import("zss");
 const Ast = zss.syntax.Ast;
 const ElementTree = zss.ElementTree;
 const Element = ElementTree.Element;
-const TokenSource = zss.syntax.TokenSource;
+const SourceCode = zss.syntax.SourceCode;
 
 const hb = @import("harfbuzz").c;
 const zigimg = @import("zigimg");
@@ -119,10 +119,10 @@ fn getAllTests(
     defer loader.deinit();
 
     const ua_stylesheet = blk: {
-        const token_source = try zss.syntax.TokenSource.init(@embedFile("ua-stylesheet.css"));
-        var parser = zss.syntax.Parser.init(token_source, allocator);
+        const source_code = try SourceCode.init(@embedFile("ua-stylesheet.css"));
+        var parser = zss.syntax.Parser.init(source_code, allocator);
         const ast, const rule_list = try parser.parseCssStylesheet(allocator);
-        break :blk UaStylesheet{ .ast = ast, .rule_list = rule_list, .token_source = token_source };
+        break :blk UaStylesheet{ .ast = ast, .rule_list = rule_list, .source_code = source_code };
     };
 
     var walker = try cases_dir.walk(allocator);
@@ -139,15 +139,15 @@ fn getAllTests(
         }
 
         const source = try cases_dir.readFileAlloc(allocator, entry.path, 100_000);
-        const token_source = try TokenSource.init(source);
+        const source_code = try SourceCode.init(source);
         const ast, const zml_document_index = blk: {
-            var parser = zss.syntax.Parser.init(token_source, allocator);
+            var parser = zss.syntax.Parser.init(source_code, allocator);
             break :blk try parser.parseZmlDocument(allocator);
         };
 
         const name = try allocator.dupe(u8, entry.path[0 .. entry.path.len - ".zml".len]);
 
-        const t = try createTest(arena, name, ast, token_source, zml_document_index, images, fonts, font_handle, &loader, ua_stylesheet);
+        const t = try createTest(arena, name, ast, source_code, zml_document_index, images, fonts, font_handle, &loader, ua_stylesheet);
         try list.append(allocator, t);
     }
 
@@ -157,14 +157,14 @@ fn getAllTests(
 const UaStylesheet = struct {
     ast: zss.syntax.Ast,
     rule_list: zss.syntax.Ast.Index,
-    token_source: zss.syntax.TokenSource,
+    source_code: SourceCode,
 };
 
 fn createTest(
     arena: *ArenaAllocator,
     name: []const u8,
     ast: Ast,
-    token_source: TokenSource,
+    source_code: SourceCode,
     zml_document_index: Ast.Index,
     images: *zss.Images,
     fonts: *const zss.Fonts,
@@ -185,8 +185,8 @@ fn createTest(
         .stylesheet = undefined,
     };
 
-    t.document = try zss.zml.createDocument(allocator, ast, token_source, zml_document_index);
-    t.stylesheet = try zss.Stylesheet.create(allocator, ua_stylesheet.ast, ua_stylesheet.rule_list, ua_stylesheet.token_source, &t.document.env);
+    t.document = try zss.zml.createDocument(allocator, ast, source_code, zml_document_index);
+    t.stylesheet = try zss.Stylesheet.create(allocator, ua_stylesheet.ast, ua_stylesheet.rule_list, ua_stylesheet.source_code, &t.document.env);
 
     const cascade_list = zss.cascade.List{
         .author = &.{&.{ .leaf = &t.document.cascade_source }},
@@ -194,7 +194,7 @@ fn createTest(
     };
     try zss.cascade.run(&cascade_list, &t.document.env, allocator);
 
-    try loader.loadResourcesFromUrls(arena, t, images, token_source);
+    try loader.loadResourcesFromUrls(arena, t, images, source_code);
 
     return t;
 }
@@ -221,14 +221,14 @@ const ResourceLoader = struct {
         arena: *ArenaAllocator,
         t: *Test,
         images: *zss.Images,
-        token_source: TokenSource,
+        source_code: SourceCode,
     ) !void {
         const allocator = arena.allocator();
         for (0..t.document.urls.len) |index| {
             const url = t.document.urls.get(index);
             const string = switch (url.src_loc) {
-                .url_token => |location| try token_source.copyUrl(location, .{ .allocator = allocator }),
-                .string_token => |location| try token_source.copyString(location, .{ .allocator = allocator }),
+                .url_token => |location| try source_code.copyUrl(location, .{ .allocator = allocator }),
+                .string_token => |location| try source_code.copyString(location, .{ .allocator = allocator }),
             };
 
             switch (url.type) {

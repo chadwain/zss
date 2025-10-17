@@ -177,8 +177,8 @@ pub fn main() !void {
     _ = fonts.setFont(font);
 
     // Load the document.
-    const zml_document_token_source = try zss.syntax.TokenSource.init(@embedFile("demo.zml"));
-    var zml_document = try zss.zml.parseAndCreateDocument(allocator, zml_document_token_source);
+    const zml_document_source_code = try zss.syntax.SourceCode.init(@embedFile("demo.zml"));
+    var zml_document = try zss.zml.parseAndCreateDocument(allocator, zml_document_source_code);
     defer zml_document.deinit(allocator);
     const env = &zml_document.env;
 
@@ -203,8 +203,8 @@ pub fn main() !void {
     }
 
     // Load the stylesheet.
-    const stylesheet_token_source = try zss.syntax.TokenSource.init(@embedFile("demo.css"));
-    var stylesheet = try zss.Stylesheet.parseAndCreate(allocator, stylesheet_token_source, env);
+    const stylesheet_source_code = try zss.syntax.SourceCode.init(@embedFile("demo.css"));
+    var stylesheet = try zss.Stylesheet.parseAndCreate(allocator, stylesheet_source_code, env);
     defer stylesheet.deinit(allocator);
 
     // Load the Zig logo image.
@@ -216,11 +216,11 @@ pub fn main() !void {
     // Resolve URLs in both the document and the stylesheet.
     for (0..zml_document.urls.len) |index| {
         const url = zml_document.urls.get(index);
-        try linkResource(resources, env, url.id, url.type, url.src_loc, zml_document_token_source);
+        try linkResource(resources, env, url.id, url.type, url.src_loc, zml_document_source_code);
     }
     var stylesheet_urls_it = stylesheet.decl_urls.iterator();
     while (stylesheet_urls_it.next()) |url| {
-        try linkResource(resources, env, url.id, url.desc.type, url.desc.src_loc, stylesheet_token_source);
+        try linkResource(resources, env, url.id, url.desc.type, url.desc.src_loc, stylesheet_source_code);
     }
 
     // Run the CSS cascade.
@@ -387,12 +387,12 @@ fn linkResource(
     id: zss.Environment.UrlId,
     @"type": zss.values.parse.Urls.Type,
     src_loc: zss.values.parse.Urls.SourceLocation,
-    token_source: zss.syntax.TokenSource,
+    source_code: zss.syntax.SourceCode,
 ) !void {
     var url_buffer: [16]u8 = undefined;
     const url_string = switch (src_loc) {
-        .url_token => |location| token_source.copyUrl(location, .{ .buffer = &url_buffer }) catch return,
-        .string_token => |location| token_source.copyString(location, .{ .buffer = &url_buffer }) catch return,
+        .url_token => |location| source_code.copyUrl(location, .{ .buffer = &url_buffer }) catch return,
+        .string_token => |location| source_code.copyString(location, .{ .buffer = &url_buffer }) catch return,
     };
     switch (@"type") {
         .background_image => {

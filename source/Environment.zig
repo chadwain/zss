@@ -5,7 +5,7 @@ const cascade = zss.cascade;
 const syntax = zss.syntax;
 const Ast = syntax.Ast;
 const Declarations = zss.Declarations;
-const TokenSource = syntax.TokenSource;
+const SourceCode = syntax.SourceCode;
 const Stylesheet = zss.Stylesheet;
 const Utf8StringInterner = zss.Utf8StringInterner;
 
@@ -165,15 +165,15 @@ pub const Namespaces = struct {
 };
 
 pub const NamespaceLocation = union(enum) {
-    string_token: TokenSource.Location,
-    url_token: TokenSource.Location,
+    string_token: SourceCode.Location,
+    url_token: SourceCode.Location,
 };
 
-pub fn addNamespaceFromToken(env: *Environment, ns_location: NamespaceLocation, source: TokenSource) !Namespaces.Id {
+pub fn addNamespaceFromToken(env: *Environment, ns_location: NamespaceLocation, source_code: SourceCode) !Namespaces.Id {
     try env.namespaces.map.ensureUnusedCapacity(env.allocator, 1);
     const namespace = switch (ns_location) {
-        .string_token => |location| try source.copyString(location, .{ .allocator = env.allocator }),
-        .url_token => |location| try source.copyUrl(location, .{ .allocator = env.allocator }),
+        .string_token => |location| try source_code.copyString(location, .{ .allocator = env.allocator }),
+        .url_token => |location| try source_code.copyUrl(location, .{ .allocator = env.allocator }),
     };
     if (namespace.len == 0) {
         env.allocator.free(namespace);
@@ -206,11 +206,11 @@ pub const TypeName = enum(u20) {
 pub fn addTypeName(
     env: *Environment,
     /// The location of an <ident-token>.
-    identifier: TokenSource.Location,
-    source: TokenSource,
+    identifier: SourceCode.Location,
+    source_code: SourceCode,
 ) !TypeName {
     const index = switch (env.case_options.type_names) {
-        inline else => |case| try env.type_names.addFromIdentToken(case, env.allocator, identifier, source),
+        inline else => |case| try env.type_names.addFromIdentToken(case, env.allocator, identifier, source_code),
     };
     const type_name: TypeName = @enumFromInt(index);
     assert(type_name != .anonymous);
@@ -230,11 +230,11 @@ pub const AttributeName = enum(u20) {
 pub fn addAttributeName(
     env: *Environment,
     /// The location of an <ident-token>.
-    identifier: TokenSource.Location,
-    source: TokenSource,
+    identifier: SourceCode.Location,
+    source_code: SourceCode,
 ) !AttributeName {
     const index = switch (env.case_options.type_names) {
-        inline else => |case| try env.attribute_names.addFromIdentToken(case, env.allocator, identifier, source),
+        inline else => |case| try env.attribute_names.addFromIdentToken(case, env.allocator, identifier, source_code),
     };
     const attribute_name: AttributeName = @enumFromInt(index);
     assert(attribute_name != .anonymous);
@@ -250,11 +250,11 @@ pub const IdName = enum(u32) {
 pub fn addIdName(
     env: *Environment,
     /// The location of an ID <hash-token>.
-    hash_id: TokenSource.Location,
-    source: TokenSource,
+    hash_id: SourceCode.Location,
+    source_code: SourceCode,
 ) !IdName {
     const index = switch (env.id_class_sensitivity) {
-        inline else => |case| try env.id_names.addFromHashIdToken(case, env.allocator, hash_id, source),
+        inline else => |case| try env.id_names.addFromHashIdToken(case, env.allocator, hash_id, source_code),
     };
     return @enumFromInt(index);
 }
@@ -268,11 +268,11 @@ pub const ClassName = enum(u32) {
 pub fn addClassName(
     env: *Environment,
     /// The location of an <ident-token>.
-    identifier: TokenSource.Location,
-    source: TokenSource,
+    identifier: SourceCode.Location,
+    source_code: SourceCode,
 ) !ClassName {
     const index = switch (env.id_class_sensitivity) {
-        inline else => |case| try env.class_names.addFromIdentToken(case, env.allocator, identifier, source),
+        inline else => |case| try env.class_names.addFromIdentToken(case, env.allocator, identifier, source_code),
     };
     return @enumFromInt(index);
 }
@@ -285,36 +285,36 @@ pub const AttributeValue = enum(u32) {
 pub fn addAttributeValueFromIdentToken(
     env: *Environment,
     /// The location of an <ident-token>.
-    identifier: TokenSource.Location,
-    source: TokenSource,
+    identifier: SourceCode.Location,
+    source_code: SourceCode,
 ) !AttributeValue {
-    return env.addAttributeValueFromToken(Utf8StringInterner.addFromIdentToken, identifier, source);
+    return env.addAttributeValueFromToken(Utf8StringInterner.addFromIdentToken, identifier, source_code);
 }
 
 pub fn addAttributeValueFromStringToken(
     env: *Environment,
     /// The location of a <string-token>.
-    string: TokenSource.Location,
-    source: TokenSource,
+    string: SourceCode.Location,
+    source_code: SourceCode,
 ) !AttributeValue {
-    return env.addAttributeValueFromToken(Utf8StringInterner.addFromStringToken, string, source);
+    return env.addAttributeValueFromToken(Utf8StringInterner.addFromStringToken, string, source_code);
 }
 
 fn addAttributeValueFromToken(
     env: *Environment,
     comptime addFromToken: anytype,
-    location: TokenSource.Location,
-    token_source: TokenSource,
+    location: SourceCode.Location,
+    source_code: SourceCode,
 ) !AttributeValue {
     switch (env.case_options.attribute_values) {
         .insensitive => {
-            const index = try addFromToken(&env.attribute_values_insensitive, .insensitive, env.allocator, location, token_source);
+            const index = try addFromToken(&env.attribute_values_insensitive, .insensitive, env.allocator, location, source_code);
             return @enumFromInt(index);
         },
         .sensitive => {
-            const index = try addFromToken(&env.attribute_values_sensitive, .sensitive, env.allocator, location, token_source);
+            const index = try addFromToken(&env.attribute_values_sensitive, .sensitive, env.allocator, location, source_code);
             if (index == env.attribute_values_sensitive_to_insensitive.items.len) {
-                const index_insensitive = try addFromToken(&env.attribute_values_insensitive, .insensitive, env.allocator, location, token_source);
+                const index_insensitive = try addFromToken(&env.attribute_values_insensitive, .insensitive, env.allocator, location, source_code);
                 try env.attribute_values_sensitive_to_insensitive.append(env.allocator, index_insensitive);
             }
             return @enumFromInt(index);
@@ -355,15 +355,15 @@ pub const TextId = enum(u32) {
     pub const empty_string: TextId = @enumFromInt(0);
 };
 
-pub fn addTextFromStringToken(env: *Environment, string: TokenSource.Location, source: TokenSource) !TextId {
-    var iterator = source.stringTokenIterator(string);
+pub fn addTextFromStringToken(env: *Environment, string: SourceCode.Location, source_code: SourceCode) !TextId {
+    var iterator = source_code.stringTokenIterator(string);
     if (iterator.next() == null) return .empty_string;
     const id = std.math.cast(std.meta.Tag(TextId), try std.math.add(usize, 1, env.texts.list.items.len)) orelse return error.OutOfTexts;
 
     try env.texts.list.ensureUnusedCapacity(env.allocator, 1);
     var arena = env.texts.arena.promote(env.allocator);
     defer env.texts.arena = arena.state;
-    env.texts.list.appendAssumeCapacity(try source.copyString(string, .{ .allocator = arena.allocator() })); // TODO: Arena allocation wastes memory here
+    env.texts.list.appendAssumeCapacity(try source_code.copyString(string, .{ .allocator = arena.allocator() })); // TODO: Arena allocation wastes memory here
     return @enumFromInt(id);
 }
 

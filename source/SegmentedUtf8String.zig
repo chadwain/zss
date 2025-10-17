@@ -179,6 +179,8 @@ pub const Iterator = struct {
     remaining: Size,
     location: Location,
 
+    /// You may modify the data within the returned slice, but
+    /// it must remain a valid UTF-8 byte sequence.
     pub fn next(it: *Iterator) ?[]u8 {
         if (it.remaining == 0) return null;
         assert(it.location.segment_index != it.string.max_segments_len);

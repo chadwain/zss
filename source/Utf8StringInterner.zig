@@ -5,8 +5,8 @@
 const Utf8StringInterner = @This();
 
 const zss = @import("zss.zig");
-const Location = TokenSource.Location;
-const TokenSource = zss.syntax.TokenSource;
+const Location = SourceCode.Location;
+const SourceCode = zss.syntax.SourceCode;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -133,9 +133,9 @@ pub fn addFromIdentToken(
     allocator: Allocator,
     /// Must be the location of an <ident-token>.
     location: Location,
-    token_source: TokenSource,
+    source_code: SourceCode,
 ) !usize {
-    return addFromTokenIterator(interner, case, allocator, token_source.identTokenIterator(location));
+    return addFromTokenIterator(interner, case, allocator, source_code.identTokenIterator(location));
 }
 
 pub fn addFromStringToken(
@@ -144,9 +144,9 @@ pub fn addFromStringToken(
     allocator: Allocator,
     /// Must be the location of a <string-token>.
     location: Location,
-    token_source: TokenSource,
+    source_code: SourceCode,
 ) !usize {
-    return addFromTokenIterator(interner, case, allocator, token_source.stringTokenIterator(location));
+    return addFromTokenIterator(interner, case, allocator, source_code.stringTokenIterator(location));
 }
 
 pub fn addFromHashIdToken(
@@ -155,9 +155,9 @@ pub fn addFromHashIdToken(
     allocator: Allocator,
     /// Must be the location of an ID <hash-token>.
     location: Location,
-    token_source: TokenSource,
+    source_code: SourceCode,
 ) !usize {
-    return addFromTokenIterator(interner, case, allocator, token_source.hashIdTokenIterator(location));
+    return addFromTokenIterator(interner, case, allocator, source_code.hashIdTokenIterator(location));
 }
 
 pub fn getFromIdentToken(
@@ -165,9 +165,9 @@ pub fn getFromIdentToken(
     comptime case: Case,
     /// Must be the location of an <ident-token>.
     location: Location,
-    token_source: TokenSource,
+    source_code: SourceCode,
 ) ?usize {
-    return getFromTokenIterator(interner, case, token_source.identTokenIterator(location));
+    return getFromTokenIterator(interner, case, source_code.identTokenIterator(location));
 }
 
 fn TokenIteratorAdapter(comptime TokenIterator: type, comptime case: Case) type {
@@ -305,9 +305,9 @@ pub fn addFromString(interner: *Utf8StringInterner, comptime case: Case, allocat
 
 test "Utf8StringInterner" {
     const allocator = std.testing.allocator;
-    const token_source = try TokenSource.init("apple banana cucumber durian \"apple\" CUCUMBER");
+    const source_code = try SourceCode.init("apple banana cucumber durian \"apple\" CUCUMBER");
     var ast, const component_list_index = ast: {
-        var parser = zss.syntax.Parser.init(token_source, allocator);
+        var parser = zss.syntax.Parser.init(source_code, allocator);
         defer parser.deinit();
         break :ast try parser.parseListOfComponentValues(allocator);
     };
@@ -326,16 +326,16 @@ test "Utf8StringInterner" {
         var interner = init(.{ .max_size = 3, .case = .insensitive });
         defer interner.deinit(allocator);
         const indeces = .{
-            .apple_ident = try interner.addFromIdentToken(.insensitive, allocator, ast_nodes.apple_ident.location(ast), token_source),
-            .banana = try interner.addFromIdentToken(.insensitive, allocator, ast_nodes.banana.location(ast), token_source),
-            .cucumber = try interner.addFromIdentToken(.insensitive, allocator, ast_nodes.cucumber.location(ast), token_source),
+            .apple_ident = try interner.addFromIdentToken(.insensitive, allocator, ast_nodes.apple_ident.location(ast), source_code),
+            .banana = try interner.addFromIdentToken(.insensitive, allocator, ast_nodes.banana.location(ast), source_code),
+            .cucumber = try interner.addFromIdentToken(.insensitive, allocator, ast_nodes.cucumber.location(ast), source_code),
             .durian = durian: {
-                try std.testing.expectError(error.MaxSizeExceeded, interner.addFromIdentToken(.insensitive, allocator, ast_nodes.durian.location(ast), token_source));
+                try std.testing.expectError(error.MaxSizeExceeded, interner.addFromIdentToken(.insensitive, allocator, ast_nodes.durian.location(ast), source_code));
                 break :durian undefined;
             },
-            .apple_string = try interner.addFromStringToken(.insensitive, allocator, ast_nodes.apple_string.location(ast), token_source),
+            .apple_string = try interner.addFromStringToken(.insensitive, allocator, ast_nodes.apple_string.location(ast), source_code),
             .banana_string = try interner.addFromString(.insensitive, allocator, "banana"),
-            .cucumber_uppercase = try interner.addFromIdentToken(.insensitive, allocator, ast_nodes.cucumber_uppercase.location(ast), token_source),
+            .cucumber_uppercase = try interner.addFromIdentToken(.insensitive, allocator, ast_nodes.cucumber_uppercase.location(ast), source_code),
         };
         try std.testing.expectEqual(@as(usize, 0), indeces.apple_ident);
         try std.testing.expectEqual(@as(usize, 1), indeces.banana);
@@ -349,8 +349,8 @@ test "Utf8StringInterner" {
         var interner = init(.{ .max_size = 2, .case = .sensitive });
         defer interner.deinit(allocator);
         const indeces = .{
-            .cucumber_lowercase = try interner.addFromIdentToken(.sensitive, allocator, ast_nodes.cucumber.location(ast), token_source),
-            .cucumber_uppercase = try interner.addFromIdentToken(.sensitive, allocator, ast_nodes.cucumber_uppercase.location(ast), token_source),
+            .cucumber_lowercase = try interner.addFromIdentToken(.sensitive, allocator, ast_nodes.cucumber.location(ast), source_code),
+            .cucumber_uppercase = try interner.addFromIdentToken(.sensitive, allocator, ast_nodes.cucumber_uppercase.location(ast), source_code),
         };
         try std.testing.expectEqual(@as(usize, 0), indeces.cucumber_lowercase);
         try std.testing.expectEqual(@as(usize, 1), indeces.cucumber_uppercase);

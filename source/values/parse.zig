@@ -7,12 +7,12 @@ const types = zss.values.types;
 const Ast = zss.syntax.Ast;
 const Component = zss.syntax.Component;
 const Environment = zss.Environment;
-const TokenSource = zss.syntax.TokenSource;
-const Location = TokenSource.Location;
+const Location = SourceCode.Location;
+const SourceCode = zss.syntax.SourceCode;
 
 pub const Context = struct {
     ast: Ast,
-    token_source: TokenSource,
+    source_code: SourceCode,
     state: State,
 
     pub const State = struct {
@@ -29,10 +29,10 @@ pub const Context = struct {
         };
     };
 
-    pub fn init(ast: Ast, token_source: TokenSource) Context {
+    pub fn init(ast: Ast, source_code: SourceCode) Context {
         return .{
             .ast = ast,
-            .token_source = token_source,
+            .source_code = source_code,
             .state = undefined,
         };
     }
@@ -197,9 +197,9 @@ pub const Urls = struct {
 
     pub const SourceLocation = union(enum) {
         /// The location of a `token_url` Ast node.
-        url_token: TokenSource.Location,
+        url_token: SourceCode.Location,
         /// The location of a `token_string` Ast node.
-        string_token: TokenSource.Location,
+        string_token: SourceCode.Location,
     };
 
     pub fn init(env: *const Environment) Urls {
@@ -312,10 +312,10 @@ pub fn identifier(ctx: *Context) ?Location {
     return null;
 }
 
-pub fn keyword(ctx: *Context, comptime Type: type, kvs: []const TokenSource.KV(Type)) ?Type {
+pub fn keyword(ctx: *Context, comptime Type: type, kvs: []const SourceCode.KV(Type)) ?Type {
     const save_point = ctx.savePoint();
     const ident = identifier(ctx) orelse return null;
-    if (ctx.token_source.mapIdentifierValue(ident, Type, kvs)) |result| {
+    if (ctx.source_code.mapIdentifierValue(ident, Type, kvs)) |result| {
         return result;
     } else {
         ctx.resetPoint(save_point);
@@ -408,7 +408,7 @@ pub fn color(ctx: *Context) ?types.Color {
     } else if (hash(ctx)) |location| blk: {
         var digits: @Vector(8, u8) = undefined;
         const len = len: {
-            var iterator = ctx.token_source.hashIdTokenIterator(location);
+            var iterator = ctx.source_code.hashIdTokenIterator(location);
             var index: u4 = 0;
             while (iterator.next()) |codepoint| : (index += 1) {
                 if (index == 8) break :blk;
@@ -457,7 +457,7 @@ pub fn url(ctx: *Context) ?Urls.SourceLocation {
         .token_url => return .{ .url_token = item.index.location(ctx.ast) },
         .function => blk: {
             const location = item.index.location(ctx.ast);
-            _ = ctx.token_source.mapIdentifierValue(location, void, &.{
+            _ = ctx.source_code.mapIdentifierValue(location, void, &.{
                 .{ "url", {} },
                 .{ "src", {} },
             }) orelse break :blk;
@@ -589,15 +589,15 @@ test "value parsers" {
         fn runParser(comptime parser: anytype, input: []const u8) !ExpectedType(parser) {
             const allocator = std.testing.allocator;
 
-            const token_source = try TokenSource.init(input);
+            const source_code = try SourceCode.init(input);
             var ast, const component_list_index = blk: {
-                var syntax_parser = zss.syntax.Parser.init(token_source, allocator);
+                var syntax_parser = zss.syntax.Parser.init(source_code, allocator);
                 defer syntax_parser.deinit();
                 break :blk try syntax_parser.parseListOfComponentValues(allocator);
             };
             defer ast.deinit(allocator);
 
-            var ctx = Context.init(ast, token_source);
+            var ctx = Context.init(ast, source_code);
             _ = ctx.enterSequence(component_list_index);
 
             switch (std.meta.ArgsTuple(@TypeOf(parser))) {
