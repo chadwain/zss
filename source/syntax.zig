@@ -147,38 +147,38 @@ pub const SourceCode = struct {
 
     /// Asserts that `start` is the location of the start of an ident token.
     pub fn identTokenIterator(source_code: SourceCode, start: Location) IdentSequenceIterator {
-        const next_3, _ = tokenize.peekCodepoints(3, source_code, start) catch unreachable;
+        const next_3, _ = tokenize.peekCodepoints(3, source_code.text, @intFromEnum(start)) catch unreachable;
         assert(tokenize.codepointsStartAnIdentSequence(next_3));
-        return IdentSequenceIterator{ .source_code = source_code, .location = start };
+        return IdentSequenceIterator{ .source_code = source_code.text, .location = @intFromEnum(start) };
     }
 
     /// Asserts that `start` is the location of the start of an ID hash token.
     pub fn hashIdTokenIterator(source_code: SourceCode, start: Location) IdentSequenceIterator {
-        const hash, const location = tokenize.peekCodepoint(source_code, start) catch unreachable;
+        const hash, const location = tokenize.peekCodepoint(source_code.text, @intFromEnum(start)) catch unreachable;
         assert(hash == '#');
-        return IdentSequenceIterator{ .source_code = source_code, .location = location };
+        return IdentSequenceIterator{ .source_code = source_code.text, .location = location };
     }
 
     /// Asserts that `start` is the location of the start of an at-keyword token.
     pub fn atKeywordTokenIterator(source_code: SourceCode, start: Location) IdentSequenceIterator {
-        const at, const location = tokenize.peekCodepoint(source_code, start) catch unreachable;
+        const at, const location = tokenize.peekCodepoint(source_code.text, @intFromEnum(start)) catch unreachable;
         assert(at == '@');
-        return identTokenIterator(source_code, location);
+        return identTokenIterator(source_code, @enumFromInt(location));
     }
 
     /// Asserts that `start` is the location of the start of a string token.
     pub fn stringTokenIterator(source_code: SourceCode, start: Location) StringTokenIterator {
-        const quote, const location = tokenize.peekCodepoint(source_code, start) catch unreachable;
+        const quote, const location = tokenize.peekCodepoint(source_code.text, @intFromEnum(start)) catch unreachable;
         assert(quote == '"' or quote == '\'');
-        return StringTokenIterator{ .source_code = source_code, .location = location, .ending_codepoint = quote };
+        return StringTokenIterator{ .source_code = source_code.text, .location = location, .ending_codepoint = quote };
     }
 
     /// Asserts that `start` is the location of the start of a url token.
     pub fn urlTokenIterator(source_code: SourceCode, start: Location) UrlTokenIterator {
-        const url, var location = tokenize.peekCodepoints(4, source_code, start) catch unreachable;
+        const url, var location = tokenize.peekCodepoints(4, source_code.text, @intFromEnum(start)) catch unreachable;
         assert(std.mem.eql(u21, &url, &[4]u21{ 'u', 'r', 'l', '(' }));
-        tokenize.consumeWhitespace(source_code, &location) catch unreachable;
-        return UrlTokenIterator{ .source_code = source_code, .location = location };
+        tokenize.consumeWhitespace(source_code.text, &location) catch unreachable;
+        return UrlTokenIterator{ .source_code = source_code.text, .location = location };
     }
 
     pub const CopyMode = union(enum) {
@@ -351,14 +351,14 @@ pub const SourceCode = struct {
     /// Given that `start` is the location of an <ident-token>, if the identifier matches any of the
     /// fields of `Enum` using case-insensitive matching, returns that enum field. If there was no match, null is returned.
     pub fn mapIdentifierEnum(source_code: SourceCode, start: Location, comptime Enum: type) ?Enum {
-        var location = start;
-        return tokenize.consumeIdentSequenceWithMatch(source_code, &location, Enum) catch unreachable;
+        var location = @intFromEnum(start);
+        return tokenize.consumeIdentSequenceWithMatch(source_code.text, &location, Enum) catch unreachable;
     }
 };
 
 pub const IdentSequenceIterator = struct {
-    source_code: SourceCode,
-    location: SourceCode.Location,
+    source_code: []const u8,
+    location: std.meta.Tag(SourceCode.Location),
 
     pub fn next(it: *IdentSequenceIterator) ?u21 {
         return tokenize.consumeIdentSequenceCodepoint(it.source_code, &it.location) catch unreachable;
@@ -366,8 +366,8 @@ pub const IdentSequenceIterator = struct {
 };
 
 pub const StringTokenIterator = struct {
-    source_code: SourceCode,
-    location: SourceCode.Location,
+    source_code: []const u8,
+    location: std.meta.Tag(SourceCode.Location),
     ending_codepoint: u21,
 
     pub fn next(it: *StringTokenIterator) ?u21 {
@@ -377,8 +377,8 @@ pub const StringTokenIterator = struct {
 
 /// Used to iterate over <url-token>s (and NOT <bad-url-token>s)
 pub const UrlTokenIterator = struct {
-    source_code: SourceCode,
-    location: SourceCode.Location,
+    source_code: []const u8,
+    location: std.meta.Tag(SourceCode.Location),
 
     pub fn next(it: *UrlTokenIterator) ?u21 {
         return tokenize.consumeUrlTokenCodepoint(it.source_code, &it.location) catch unreachable;
@@ -386,19 +386,39 @@ pub const UrlTokenIterator = struct {
 };
 
 pub const Tokenizer = struct {
-    source_code: SourceCode,
-    location: SourceCode.Location,
+    source_code: []const u8,
+    location: std.meta.Tag(SourceCode.Location),
 
     pub fn init(source_code: SourceCode) Tokenizer {
-        return .{ .source_code = source_code, .location = @enumFromInt(0) };
+        return .{ .source_code = source_code.text, .location = 0 };
     }
 
     /// Returns the next token, or `null` if it was `token_eof`.
     pub fn next(tokenizer: *Tokenizer) !?struct { Token, SourceCode.Location } {
-        const location = tokenizer.location;
+        const location: SourceCode.Location = @enumFromInt(tokenizer.location);
         const token = try tokenize.nextToken(tokenizer.source_code, &tokenizer.location);
         if (token == .token_eof) return null;
         return .{ token, location };
+    }
+
+    /// Returns the next token.
+    /// When `token_eof` is reached, this function will continue to return `token_eof` infinitely.
+    pub fn nextAllowEof(tokenizer: *Tokenizer) !struct { Token, SourceCode.Location } {
+        const location: SourceCode.Location = @enumFromInt(tokenizer.location);
+        const token = try tokenize.nextToken(tokenizer.source_code, &tokenizer.location);
+        return .{ token, location };
+    }
+
+    pub fn getSourceCode(tokenizer: Tokenizer) SourceCode {
+        return SourceCode.init(tokenizer.source_code) catch unreachable;
+    }
+
+    pub fn setLocation(tokenizer: *Tokenizer, location: SourceCode.Location) void {
+        tokenizer.location = @intFromEnum(location);
+    }
+
+    pub fn getLocation(tokenizer: Tokenizer) SourceCode.Location {
+        return @enumFromInt(tokenizer.location);
     }
 };
 

@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 const zss = @import("../zss.zig");
 const hexDigitToNumber = zss.unicode.hexDigitToNumber;
 const CheckedInt = zss.math.CheckedInt;
-const SourceCode = zss.syntax.SourceCode;
+const Location = std.meta.Tag(zss.syntax.SourceCode.Location);
 const Token = zss.syntax.Token;
 
 const u21_max = std.math.maxInt(u21);
@@ -22,16 +22,17 @@ pub const Error = error{
     Utf8CodepointTruncated,
 };
 
-pub fn nextCodepoint(source_code: SourceCode, location: *SourceCode.Location) Error!u21 {
-    var location_int = @intFromEnum(location.*);
-    if (location_int == source_code.text.len) return eof_codepoint;
-    defer location.* = @enumFromInt(location_int);
+/// Returns the next "filtered code point" from the source code.
+/// If there are no more codepoints, then `eof_codepoint` is returned.
+/// Reference: https://www.w3.org/TR/css-syntax-3/#css-filter-code-points
+pub fn nextCodepoint(source_code: []const u8, location: *Location) Error!u21 {
+    if (location.* == source_code.len) return eof_codepoint;
 
     const unprocessed_codepoint = blk: {
-        const len = try std.unicode.utf8ByteSequenceLength(source_code.text[location_int]);
-        if (len > source_code.text.len - location_int) return error.Utf8CodepointTruncated;
-        defer location_int += len;
-        break :blk try std.unicode.utf8Decode(source_code.text[location_int..][0..len]);
+        const codepoint_len = try std.unicode.utf8ByteSequenceLength(source_code[location.*]);
+        if (codepoint_len > source_code.len - location.*) return error.Utf8CodepointTruncated;
+        defer location.* += codepoint_len;
+        break :blk try std.unicode.utf8Decode(source_code[location.*..][0..codepoint_len]);
     };
 
     const codepoint: u21 = switch (unprocessed_codepoint) {
@@ -40,8 +41,8 @@ pub fn nextCodepoint(source_code: SourceCode, location: *SourceCode.Location) Er
         0xDC00...0xDFFF,
         => replacement_character,
         '\r' => blk: {
-            if (location_int < source_code.text.len and source_code.text[location_int] == '\n') {
-                location_int += 1;
+            if (location.* < source_code.len and source_code[location.*] == '\n') {
+                location.* += 1;
             }
             break :blk '\n';
         },
@@ -53,12 +54,12 @@ pub fn nextCodepoint(source_code: SourceCode, location: *SourceCode.Location) Er
     return codepoint;
 }
 
-pub fn peekCodepoint(source_code: SourceCode, start: SourceCode.Location) !struct { u21, SourceCode.Location } {
+pub fn peekCodepoint(source_code: []const u8, start: Location) !struct { u21, Location } {
     const codepoint, const location = try peekCodepoints(1, source_code, start);
     return .{ codepoint[0], location };
 }
 
-pub fn peekCodepoints(comptime amount: std.meta.Tag(SourceCode.Location), source_code: SourceCode, start: SourceCode.Location) !struct { [amount]u21, SourceCode.Location } {
+pub fn peekCodepoints(comptime amount: Location, source_code: []const u8, start: Location) !struct { [amount]u21, Location } {
     var buffer: [amount]u21 = undefined;
     var location = start;
     for (&buffer) |*codepoint| {
@@ -67,34 +68,17 @@ pub fn peekCodepoints(comptime amount: std.meta.Tag(SourceCode.Location), source
     return .{ buffer, location };
 }
 
-pub fn moveForwards(location: *SourceCode.Location, amount: std.meta.Tag(SourceCode.Location)) void {
-    const int = @intFromEnum(location.*);
-    location.* = @enumFromInt(int + amount);
-}
-
-pub fn moveBackwards(location: *SourceCode.Location, amount: std.meta.Tag(SourceCode.Location)) void {
-    const int = @intFromEnum(location.*);
-    location.* = @enumFromInt(int - amount);
-}
-
-pub fn moveBackwardsNewline(source_code: SourceCode, location: *SourceCode.Location) void {
-    var int = @intFromEnum(location.*) - 1;
-    assert(source_code.text[int] == '\n');
-    if (int > 0 and source_code.text[int - 1] == '\r') int -= 1;
-    location.* = @enumFromInt(int);
-}
-
 /// Returns the token found at `location` within the source code, and updates `location` to point to the next token.
 /// If `location` points to the end of the source code, then `.token_eof` is returned, and `location` is not updated.
 /// Performs UTF-8 validation on the source code.
-pub fn nextToken(source_code: SourceCode, location: *SourceCode.Location) Error!Token {
+pub fn nextToken(source_code: []const u8, location: *Location) Error!Token {
     const previous_location = location.*;
     const codepoint = try nextCodepoint(source_code, location);
     switch (codepoint) {
         '/' => {
             const asterisk, _ = try peekCodepoint(source_code, location.*);
             if (asterisk == '*') {
-                moveBackwards(location, 1);
+                location.* = previous_location;
                 return consumeComments(source_code, location);
             } else {
                 return .{ .token_delim = codepoint };
@@ -122,7 +106,7 @@ pub fn nextToken(source_code: SourceCode, location: *SourceCode.Location) Error!
             var next_3 = [3]u21{ codepoint, undefined, undefined };
             next_3[1..3].*, _ = try peekCodepoints(2, source_code, location.*);
             if (codepointsStartANumber(next_3)) {
-                moveBackwards(location, 1);
+                location.* = previous_location;
                 return consumeNumericToken(source_code, location);
             } else {
                 return .{ .token_delim = codepoint };
@@ -138,10 +122,10 @@ pub fn nextToken(source_code: SourceCode, location: *SourceCode.Location) Error!
             }
 
             if (codepointsStartANumber(next_3)) {
-                moveBackwards(location, 1);
+                location.* = previous_location;
                 return consumeNumericToken(source_code, location);
             } else if (codepointsStartAnIdentSequence(next_3)) {
-                moveBackwards(location, 1);
+                location.* = previous_location;
                 return consumeIdentLikeToken(source_code, location);
             } else {
                 return .{ .token_delim = codepoint };
@@ -172,7 +156,7 @@ pub fn nextToken(source_code: SourceCode, location: *SourceCode.Location) Error!
         '\\' => {
             const first_escaped, _ = try peekCodepoint(source_code, location.*);
             if (isValidFirstEscapedCodepoint(first_escaped)) {
-                moveBackwards(location, 1);
+                location.* = previous_location;
                 return consumeIdentLikeToken(source_code, location);
             } else {
                 // NOTE: Parse error
@@ -183,7 +167,7 @@ pub fn nextToken(source_code: SourceCode, location: *SourceCode.Location) Error!
         '{' => return .token_left_curly,
         '}' => return .token_right_curly,
         '0'...'9' => {
-            moveBackwards(location, 1);
+            location.* = previous_location;
             return consumeNumericToken(source_code, location);
         },
         'A'...'Z',
@@ -251,7 +235,7 @@ pub fn codepointsStartANumber(codepoints: [3]u21) bool {
     }
 }
 
-pub fn consumeComments(source_code: SourceCode, location: *SourceCode.Location) !Token {
+pub fn consumeComments(source_code: []const u8, location: *Location) !Token {
     outer: while (true) {
         const next_2, _ = try peekCodepoints(2, source_code, location.*);
         if (!std.mem.eql(u21, &next_2, &[2]u21{ '/', '*' })) break;
@@ -277,7 +261,7 @@ pub fn consumeComments(source_code: SourceCode, location: *SourceCode.Location) 
     return .token_comments;
 }
 
-pub fn consumeWhitespace(source_code: SourceCode, location: *SourceCode.Location) !void {
+pub fn consumeWhitespace(source_code: []const u8, location: *Location) !void {
     while (true) {
         const previous_location = location.*;
         const codepoint = try nextCodepoint(source_code, location);
@@ -291,7 +275,7 @@ pub fn consumeWhitespace(source_code: SourceCode, location: *SourceCode.Location
     }
 }
 
-pub fn consumeStringToken(source_code: SourceCode, location: *SourceCode.Location, ending_codepoint: u21) !Token {
+pub fn consumeStringToken(source_code: []const u8, location: *Location, ending_codepoint: u21) !Token {
     while (consumeStringTokenCodepoint(source_code, location, ending_codepoint)) |codepoint| {
         if (codepoint == null) break;
     } else |err| {
@@ -306,12 +290,15 @@ pub fn consumeStringToken(source_code: SourceCode, location: *SourceCode.Locatio
     return .token_string;
 }
 
-pub fn consumeStringTokenCodepoint(source_code: SourceCode, location: *SourceCode.Location, ending_codepoint: u21) !?u21 {
+pub fn consumeStringTokenCodepoint(source_code: []const u8, location: *Location, ending_codepoint: u21) !?u21 {
     const codepoint = try nextCodepoint(source_code, location);
     switch (codepoint) {
         '\n' => {
-            moveBackwardsNewline(source_code, location);
             // NOTE: Parse error
+            location.* -= 1;
+            if (location.* > 0 and source_code[location.* - 1] == '\r') {
+                location.* -= 1;
+            }
             return error.BadStringToken;
         },
         '\\' => {
@@ -332,7 +319,7 @@ pub fn consumeStringTokenCodepoint(source_code: SourceCode, location: *SourceCod
         else => {
             if (codepoint == ending_codepoint) {
                 // Move backwards so that this function can be called repeatedly and always return null.
-                moveBackwards(location, 1);
+                location.* -= 1;
                 return null;
             } else {
                 return codepoint;
@@ -341,7 +328,7 @@ pub fn consumeStringTokenCodepoint(source_code: SourceCode, location: *SourceCod
     }
 }
 
-pub fn consumeEscapedCodepoint(source_code: SourceCode, location: *SourceCode.Location, first_escaped: u21) !u21 {
+pub fn consumeEscapedCodepoint(source_code: []const u8, location: *Location, first_escaped: u21) !u21 {
     return switch (first_escaped) {
         '0'...'9', 'A'...'F', 'a'...'f' => blk: {
             var result: u21 = hexDigitToNumber(first_escaped) catch unreachable;
@@ -380,7 +367,7 @@ pub fn consumeEscapedCodepoint(source_code: SourceCode, location: *SourceCode.Lo
     };
 }
 
-pub fn consumeNumericToken(source_code: SourceCode, location: *SourceCode.Location) !Token {
+pub fn consumeNumericToken(source_code: []const u8, location: *Location) !Token {
     const value = try consumeNumber(source_code, location);
     const next_3, _ = try peekCodepoints(3, source_code, location.*);
 
@@ -394,13 +381,13 @@ pub fn consumeNumericToken(source_code: SourceCode, location: *SourceCode.Locati
                     .number => |number| number,
                 },
                 .unit = unit,
-                .unit_location = unit_location,
+                .unit_location = @enumFromInt(unit_location),
             },
         };
     }
 
     if (next_3[0] == '%') {
-        moveForwards(location, 1);
+        location.* += 1;
         return .{
             .token_percentage = switch (value) {
                 .integer => |integer| if (integer) |int| @as(Token.Float, @floatFromInt(int)) / 100.0 else null,
@@ -439,7 +426,7 @@ const NumberBuffer = struct {
     }
 };
 
-pub fn consumeNumber(source_code: SourceCode, location: *SourceCode.Location) !ConsumeNumber {
+pub fn consumeNumber(source_code: []const u8, location: *Location) !ConsumeNumber {
     var number_type: std.meta.Tag(ConsumeNumber) = .integer;
     var is_negative: bool = undefined;
     var buffer = NumberBuffer{};
@@ -465,7 +452,7 @@ pub fn consumeNumber(source_code: SourceCode, location: *SourceCode.Location) !C
         if (next_2[0] == '.' and next_2[1] >= '0' and next_2[1] <= '9') {
             number_type = .number;
             buffer.append('.');
-            moveForwards(location, 1);
+            location.* += 1;
             // TODO: Skip trailing zeroes
             _ = try consumeDigits(source_code, location, &buffer);
         }
@@ -513,7 +500,7 @@ pub fn consumeNumber(source_code: SourceCode, location: *SourceCode.Location) !C
     }
 }
 
-pub fn consumeZeroes(source_code: SourceCode, location: *SourceCode.Location) !void {
+pub fn consumeZeroes(source_code: []const u8, location: *Location) !void {
     while (true) {
         const previous_location = location.*;
         switch (try nextCodepoint(source_code, location)) {
@@ -526,7 +513,7 @@ pub fn consumeZeroes(source_code: SourceCode, location: *SourceCode.Location) !v
     }
 }
 
-pub fn consumeDigits(source_code: SourceCode, location: *SourceCode.Location, buffer: *NumberBuffer) !CheckedInt(i32) {
+pub fn consumeDigits(source_code: []const u8, location: *Location, buffer: *NumberBuffer) !CheckedInt(i32) {
     var value: CheckedInt(i32) = .init(0);
     while (true) {
         const previous_location = location.*;
@@ -545,7 +532,7 @@ pub fn consumeDigits(source_code: SourceCode, location: *SourceCode.Location, bu
     }
 }
 
-pub fn consumeIdentSequenceCodepoint(source_code: SourceCode, location: *SourceCode.Location) !?u21 {
+pub fn consumeIdentSequenceCodepoint(source_code: []const u8, location: *Location) !?u21 {
     const previous_location = location.*;
     const codepoint = try nextCodepoint(source_code, location);
     switch (codepoint) {
@@ -572,7 +559,7 @@ pub fn consumeIdentSequenceCodepoint(source_code: SourceCode, location: *SourceC
     }
 }
 
-pub fn consumeIdentSequence(source_code: SourceCode, location: *SourceCode.Location) !void {
+pub fn consumeIdentSequence(source_code: []const u8, location: *Location) !void {
     while (try consumeIdentSequenceCodepoint(source_code, location)) |_| {}
 }
 
@@ -730,7 +717,7 @@ pub fn ComptimePrefixTree(comptime Enum: type) type {
     };
 }
 
-pub fn consumeIdentSequenceWithMatch(source_code: SourceCode, location: *SourceCode.Location, comptime Enum: type) !?Enum {
+pub fn consumeIdentSequenceWithMatch(source_code: []const u8, location: *Location, comptime Enum: type) !?Enum {
     var prefix_tree = ComptimePrefixTree(Enum){};
     while (try consumeIdentSequenceCodepoint(source_code, location)) |codepoint| {
         prefix_tree.nextCodepoint(codepoint);
@@ -738,7 +725,7 @@ pub fn consumeIdentSequenceWithMatch(source_code: SourceCode, location: *SourceC
     return prefix_tree.findMatch();
 }
 
-pub fn consumeIdentLikeToken(source_code: SourceCode, location: *SourceCode.Location) !Token {
+pub fn consumeIdentLikeToken(source_code: []const u8, location: *Location) !Token {
     const is_url = try consumeIdentSequenceWithMatch(source_code, location, enum { url });
     const after_ident = location.*;
     const left_paren = try nextCodepoint(source_code, location);
@@ -760,7 +747,7 @@ pub fn consumeIdentLikeToken(source_code: SourceCode, location: *SourceCode.Loca
     }
 }
 
-pub fn consumeUrlToken(source_code: SourceCode, location: *SourceCode.Location) !Token {
+pub fn consumeUrlToken(source_code: []const u8, location: *Location) !Token {
     // Not consuming whitespace - this is handled already by consumeIdentLikeToken.
     // try consumeWhitespace(source_code, location);
 
@@ -780,12 +767,12 @@ pub fn consumeUrlToken(source_code: SourceCode, location: *SourceCode.Location) 
     return .token_url;
 }
 
-pub fn consumeUrlTokenCodepoint(source_code: SourceCode, location: *SourceCode.Location) !?u21 {
+pub fn consumeUrlTokenCodepoint(source_code: []const u8, location: *Location) !?u21 {
     const codepoint = try nextCodepoint(source_code, location);
     switch (codepoint) {
         ')' => {
             // Move backwards so that this function can be called repeatedly and always return null.
-            moveBackwards(location, 1);
+            location.* -= 1;
             return null;
         },
         '\n', '\t', ' ' => {
@@ -823,7 +810,7 @@ pub fn consumeUrlTokenCodepoint(source_code: SourceCode, location: *SourceCode.L
     }
 }
 
-pub fn consumeBadUrl(source_code: SourceCode, location: *SourceCode.Location) !Token {
+pub fn consumeBadUrl(source_code: []const u8, location: *Location) !Token {
     while (true) {
         const codepoint = try nextCodepoint(source_code, location);
         switch (codepoint) {
@@ -871,7 +858,7 @@ test "tokenization" {
         \\/* comments here */
         \\end
     ;
-    const source_code = try SourceCode.init(input);
+    const source_code = try zss.syntax.SourceCode.init(input);
     const expected = [_]Token{
         .{ .token_at_keyword = null },
         .token_whitespace,
