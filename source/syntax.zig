@@ -16,93 +16,35 @@ comptime {
     }
 }
 
-/// Each field has the following information:
-///     description: A basic description of the component
-///        location: Where the component's `location` field points to in the source document
+/// More information on these tokens can be found by looking at the corresponding field of `Component.Tag`.
 pub const Token = union(enum) {
-    /// description: The end of a sequence of tokens
-    ///    location: The end of the source document
     token_eof,
-    /// description: A sequence of one or more consecutive comment blocks
-    ///    location: The opening '/' of the first comment block
     token_comments,
-    /// description: An identifier
-    ///    location: The first codepoint of the identifier
     token_ident,
-    /// description: An identifier + a '(' codepoint
-    ///    location: The first codepoint of the identifier
     token_function,
-    /// description: An '@' codepoint + an identifier
-    ///    location: The '@' codepoint
     token_at_keyword: ?AtRule,
-    /// description: A '#' codepoint + an identifier that does not form a valid ID selector
-    ///    location: The '#' codepoint
     token_hash_unrestricted,
-    /// description: A '#' codepoint + an identifier that forms a valid ID selector
-    ///    location: The '#' codepoint
     token_hash_id,
-    /// description: A quoted string
-    ///    location: The beginning '\'' or '"' codepoint
     token_string,
-    /// description: A quoted string with an unescaped newline in it
-    ///    location: The beginning '\'' or '"' codepoint
     token_bad_string,
-    /// description: The identifier "url" + a '(' codepoint + a sequence of codepoints + a ')' codepoint
-    ///    location: The 'u' of "url"
     token_url,
-    /// description: Identical to `token_url`, but the sequence contains invalid codepoints
-    ///    location: The 'u' of "url"
     token_bad_url,
-    /// description: A single codepoint
-    ///    location: The codepoint
     token_delim: u21,
-    /// description: An optional '+' or '-' codepoint + a sequence of digits
-    ///    location: The +/- sign or the first digit
     token_integer: ?i32,
-    /// description: A numeric value (integral or floating point)
-    ///    location: The first codepoint of the number
     token_number: ?Float,
-    /// description: A numeric value (integral or floating point) + a '%' codepoint
-    ///    location: The first codepoint of the number
     token_percentage: ?Float,
-    /// description: A numeric value (integral or floating point) + an identifier
-    ///    location: The first codepoint of the number
     token_dimension: Dimension,
-    /// description: A series of one or more whitespace codepoints
-    ///    location: The first whitespace codepoint
     token_whitespace,
-    /// description: The sequence "<!--"
-    ///    location: The '<' of the sequence
     token_cdo,
-    /// description: The sequence "-->"
-    ///    location: The first '-' of the sequence
     token_cdc,
-    /// description: A ':' codepoint
-    ///    location: The codepoint
     token_colon,
-    /// description: A ';' codepoint
-    ///    location: The codepoint
     token_semicolon,
-    /// description: A ',' codepoint
-    ///    location: The codepoint
     token_comma,
-    /// description: A '[' codepoint
-    ///    location: The codepoint
     token_left_square,
-    /// description: A ']' codepoint
-    ///    location: The codepoint
     token_right_square,
-    /// description: A '(' codepoint
-    ///    location: The codepoint
     token_left_paren,
-    /// description: A ')' codepoint
-    ///    location: The codepoint
     token_right_paren,
-    /// description: A '{' codepoint
-    ///    location: The codepoint
     token_left_curly,
-    /// description: A '}' codepoint
-    ///    location: The codepoint
     token_right_curly,
 
     pub const Float = f32;
@@ -444,64 +386,119 @@ pub const Component = struct {
     };
 
     /// Each field has the following information:
-    ///     description: A basic description of the component
-    ///        location: Where the component's `location` field points to in the source document
+    ///     description: A basic description of the component.
+    ///        location: Where the component's `location` field points to in the source code.
     ///        children: The children that the component is allowed to have.
     ///                  If not specified, then the component cannot have any children.
     ///           extra: What the component's `extra` field represents.
     ///                  If not specified, then the `extra` field is `.undef`.
-    ///            note: Additional notes
+    ///            note: Additional notes.
     ///
-    /// Components that represent tokens begin with `token_`. More documentation for these can be found by looking at `Token`.
+    /// Components that represent CSS tokens begin with `token_`.
     /// Components that represent constructs from zml begin with `zml_`.
-    /// This enum is derived from `Token`.
     ///
     /// Whitespace (`token_whitespace`) and comments (`token_comments`) are collectively referred to as "space components".
     /// Unless otherwise specified, space components may appear at any position within a sequence of components.
     /// For example, "a sequence of `token_ident`" is really "a sequence of `token_ident`, `token_whitespace`, and `token_comments`".
     pub const Tag = enum {
+        /// description: The end of a sequence of tokens
+        ///    location: The end of the source code
         ///        note: This component never appears within the Ast
         token_eof,
+        /// description: A sequence of one or more consecutive comment blocks
+        ///    location: The opening '/' of the first comment block
         token_comments,
+        /// description: An identifier
+        ///    location: The first codepoint of the identifier
         token_ident,
+        /// description: An identifier + a '(' codepoint
+        ///    location: The first codepoint of the identifier
         ///        note: This component never appears within the Ast, because
         ///              the equivalent token will always create a `function` component instead.
         token_function,
+        /// description: An '@' codepoint + an identifier
+        ///    location: The '@' codepoint
         token_at_keyword,
+        /// description: A '#' codepoint + an identifier that does not form a valid ID selector
+        ///    location: The '#' codepoint
         token_hash_unrestricted,
+        /// description: A '#' codepoint + an identifier that forms a valid ID selector
+        ///    location: The '#' codepoint
         token_hash_id,
+        /// description: A quoted string
+        ///    location: The beginning '\'' or '"' codepoint
         token_string,
+        /// description: A quoted string with an unescaped newline in it
+        ///    location: The beginning '\'' or '"' codepoint
         token_bad_string,
+        /// description: The identifier "url" + a '(' codepoint + a sequence of codepoints + a ')' codepoint
+        ///    location: The 'u' of "url"
         token_url,
+        /// description: Identical to `token_url`, but the sequence contains invalid codepoints
+        ///    location: The 'u' of "url"
         token_bad_url,
+        /// description: A single codepoint
+        ///    location: The codepoint
         ///       extra: Use `extra.codepoint` to get the value of the codepoint as a `u21`
         token_delim,
+        /// description: An optional '+' or '-' codepoint + a sequence of digits
+        ///    location: The +/- sign or the first digit
         ///       extra: Use `extra.integer` to get the integer as a `?i32`
         token_integer,
+        /// description: A numeric value (integral or floating point)
+        ///    location: The first codepoint of the number
         ///       extra: Use `extra.number` to get the number as a `?f32`
         token_number,
+        /// description: A numeric value (integral or floating point) + a '%' codepoint
+        ///    location: The first codepoint of the number
         ///       extra: Use `extra.number` to get the number as a `?f32`
         token_percentage,
+        /// description: A numeric value (integral or floating point) + an identifier
+        ///    location: The first codepoint of the number
         ///    children: The dimension's unit (a `unit`)
         ///       extra: Use `extra.number` to get the number as a `?f32`
         token_dimension,
+        /// description: A sequence of one or more whitespace codepoints
+        ///    location: The first whitespace codepoint
         token_whitespace,
+        /// description: The sequence of codepoints "<!--"
+        ///    location: The '<' of the sequence
         token_cdo,
+        /// description: The sequence of codepoints "-->"
+        ///    location: The first '-' of the sequence
         token_cdc,
+        /// description: A ':' codepoint
+        ///    location: The codepoint
         token_colon,
+        /// description: A ';' codepoint
+        ///    location: The codepoint
         token_semicolon,
+        /// description: A ',' codepoint
+        ///    location: The codepoint
         token_comma,
+        /// description: A '[' codepoint
+        ///    location: The codepoint
         ///        note: This component never appears within the Ast, because
         ///              the equivalent token will always create a `simple_block_square` component instead.
         token_left_square,
+        /// description: A ']' codepoint
+        ///    location: The codepoint
         token_right_square,
+        /// description: A '(' codepoint
+        ///    location: The codepoint
         ///        note: This component never appears within the Ast, because
         ///              the equivalent token will always create a `simple_block_paren` component instead.
         token_left_paren,
+        /// description: A ')' codepoint
+        ///    location: The codepoint
         token_right_paren,
+        /// description: A '{' codepoint
+        ///    location: The codepoint
         ///        note: This component never appears within the Ast, because
         ///              the equivalent token will always create a `simple_block_curly` component instead.
         token_left_curly,
+        /// description: A '}' codepoint
+        ///    location: The codepoint
         token_right_curly,
 
         /// description: A dimension's unit (an identifier)
@@ -676,7 +673,7 @@ pub const Ast = struct {
             return (sequence.start == sequence.end);
         }
 
-        /// Returns `true` if there are no more components in the sequence except for spaces.
+        /// Returns `true` if there are no more components in the sequence, after skipping spaces.
         pub fn emptySkipSpaces(sequence: *Sequence, ast: Ast) bool {
             _ = sequence.skipSpaces(ast);
             return sequence.emptyKeepSpaces();
