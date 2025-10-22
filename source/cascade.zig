@@ -66,9 +66,127 @@ pub const Source = struct {
     }
 };
 
+/// A structure capable of storing the cascaded values of all CSS properties for every document node.
+pub const Database = struct {
+    node_map: std.AutoHashMapUnmanaged(Environment.NodeId, Storage) = .empty,
+    arena: std.heap.ArenaAllocator.State = .{},
+
+    pub fn deinit(db: *Database, allocator: Allocator) void {
+        db.node_map.deinit(allocator);
+
+        var arena = db.arena.promote(allocator);
+        defer db.arena = arena.state;
+        arena.deinit();
+    }
+
+    pub fn addStorage(db: *Database, allocator: Allocator, node: Environment.NodeId) !*Storage {
+        const gop = try db.node_map.getOrPut(allocator, node);
+        if (!gop.found_existing) gop.value_ptr.* = .{};
+        return gop.value_ptr;
+    }
+
+    pub fn getStorage(db: *const Database, node: Environment.NodeId) ?*Storage {
+        return db.node_map.getPtr(node);
+    }
+
+    /// Stores the cascaded values of all CSS properties for a single document node.
+    /// Pointers to cascaded values are not stable.
+    pub const Storage = struct {
+        /// Maps each value group to its cascaded values.
+        group_map: Map = .{},
+        /// The cascaded value for the 'all' CSS property.
+        all: ?CssWideKeyword = null,
+
+        pub const Map = std.EnumMap(groups.Tag, usize);
+
+        const CssWideKeyword = zss.values.types.CssWideKeyword;
+        const groups = zss.values.groups;
+
+        /// The main operation performed during the CSS cascade is "applying a declaration".
+        ///
+        /// To apply a declaration "decl" to a destination value "destValue" means the following:
+        ///     1. If "destValue" is NOT equal to `.undeclared`, do nothing and return.
+        ///     2. If "decl" is affected by the CSS 'all' property, then copy the value of the 'all' property into "destValue" and return.
+        ///     3. Copy "decl" into "destValue".
+        ///
+        /// You can also apply an entire declaration block to a destination storage
+        /// (where "destination storage" is some arbitrary data structure than can hold cascaded values).
+        ///
+        /// To apply a declaration block "block" to a destination storage "destStorage" means the following:
+        ///     1. For each declaration "decl" within "block", apply "decl" to the corresponding value within "destStorage".
+        ///
+        /// Declaration blocks must be passed to this function in cascade order.
+        pub fn applyDeclBlock(
+            storage: *Storage,
+            /// The `Database` that `storage` belongs to.
+            db: *Database,
+            /// The database's allocator.
+            allocator: Allocator,
+            decls: *const zss.Declarations,
+            block: zss.Declarations.Block,
+            importance: Importance,
+        ) !void {
+            // TODO: The 'all' property does not affect some properties
+            if (storage.all != null) return;
+
+            if (decls.getAll(block, importance)) |all| storage.all = all;
+
+            var iterator = decls.groupIterator(block, importance);
+            while (iterator.next()) |group| {
+                const needs_init = !storage.group_map.contains(group);
+                const map_value = if (needs_init) storage.group_map.putUninitialized(group) else storage.group_map.getPtrAssertContains(group);
+
+                switch (group) {
+                    inline else => |comptime_group| {
+                        const CascadedValues = comptime_group.CascadedValues();
+                        const cascaded_values: *CascadedValues = switch (comptime canFitWithinUsize(CascadedValues)) {
+                            true => blk: {
+                                const values: *CascadedValues = @ptrCast(map_value);
+                                if (needs_init) values.* = .{};
+                                break :blk values;
+                            },
+                            false => blk: {
+                                if (needs_init) {
+                                    var arena = db.arena.promote(allocator);
+                                    defer db.arena = arena.state;
+
+                                    const values = try arena.allocator().create(CascadedValues);
+                                    values.* = .{};
+                                    map_value.* = @intFromPtr(values);
+                                }
+                                break :blk @ptrFromInt(map_value.*);
+                            },
+                        };
+                        decls.apply(comptime_group, block, importance, cascaded_values);
+                    },
+                }
+            }
+        }
+
+        /// If there is a cascaded value for the value group `group`, returns a pointer to it. Otherwise returns `null`.
+        pub fn getPtr(storage: *const Storage, comptime group: groups.Tag) ?*const group.CascadedValues() {
+            const map_value_ptr = storage.group_map.getPtrConst(group) orelse return null;
+            const CascadedValues = group.CascadedValues();
+            return switch (comptime canFitWithinUsize(CascadedValues)) {
+                true => @ptrCast(map_value_ptr),
+                false => @ptrFromInt(map_value_ptr.*),
+            };
+        }
+
+        fn canFitWithinUsize(comptime T: type) bool {
+            return (@alignOf(T) <= @alignOf(usize) and @sizeOf(T) <= @sizeOf(usize));
+        }
+
+        pub fn reset(storage: *Storage) void {
+            storage.group_map = .{}; // TODO: Leaks memory (but okay, because of arena allocation)
+            storage.all = null;
+        }
+    };
+};
+
 const RunContext = struct {
     arena: std.heap.ArenaAllocator,
-    element_to_decl_block_list: std.AutoArrayHashMapUnmanaged(zss.Environment.NodeId, std.ArrayListUnmanaged(BlockImportance)) = .empty,
+    element_to_decl_block_list: std.AutoArrayHashMapUnmanaged(Environment.NodeId, std.ArrayListUnmanaged(BlockImportance)) = .empty,
     cascade_node_stack: zss.Stack([]const *const Node) = .{},
     document_node_stack: zss.Stack(?Environment.NodeId) = .{},
 
@@ -88,8 +206,8 @@ const RunContext = struct {
 };
 
 /// Runs the CSS cascade.
-pub fn run(list: *const List, env: *Environment, allocator: Allocator) !void {
-    var ctx = RunContext{ .arena = .init(allocator) };
+pub fn run(list: *const List, env: *Environment, temp_allocator: Allocator) !void {
+    var ctx = RunContext{ .arena = .init(temp_allocator) };
     defer ctx.arena.deinit();
 
     const order: [6]struct { Origin, Importance } = .{
@@ -105,15 +223,13 @@ pub fn run(list: *const List, env: *Environment, allocator: Allocator) !void {
         try traverseList(&ctx, list, env, origin, importance);
     }
 
-    var cascaded_values_arena = env.node_properties.arena.promote(env.allocator);
-    defer env.node_properties.arena = cascaded_values_arena.state;
     var element_iterator = ctx.element_to_decl_block_list.iterator();
     while (element_iterator.next()) |entry| {
         const node = entry.key_ptr.*;
-        const cascaded_values = try env.getNodePropertyPtr(.cascaded_values, node);
-        cascaded_values.clear();
+        const cascaded_values = try env.cascade_db.addStorage(env.allocator, node);
+        cascaded_values.reset();
         for (entry.value_ptr.*.items) |item| {
-            try cascaded_values.applyDeclBlock(&cascaded_values_arena, &env.decls, item.block, item.importance);
+            try cascaded_values.applyDeclBlock(&env.cascade_db, env.allocator, &env.decls, item.block, item.importance);
         }
     }
 }

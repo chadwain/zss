@@ -31,6 +31,7 @@ case_options: CaseOptions,
 id_class_sensitivity: Utf8StringInterner.Case,
 
 decls: Declarations,
+cascade_db: cascade.Database,
 
 document_tree_vtable: *const DocumentTreeVtable,
 next_node_group: ?std.meta.Tag(NodeGroup),
@@ -108,6 +109,7 @@ pub fn init(
         .id_class_sensitivity = id_class_sensitivity,
 
         .decls = .{},
+        .cascade_db = .{},
 
         .document_tree_vtable = document_tree_vtable,
         .next_node_group = 0,
@@ -134,6 +136,7 @@ pub fn deinit(env: *Environment) void {
     env.texts.deinit(env.allocator);
 
     env.decls.deinit(env.allocator);
+    env.cascade_db.deinit(env.allocator);
 
     env.node_properties.deinit(env.allocator);
     env.ids_to_nodes.deinit(env.allocator);
@@ -480,7 +483,6 @@ pub const ElementAttribute = packed struct {
 pub const NodeProperty = struct {
     category: NodeCategory = .text,
     type: ElementType = .{ .namespace = .none, .name = .anonymous },
-    cascaded_values: zss.CascadedValues = .{},
     text: TextId = .empty_string,
 };
 

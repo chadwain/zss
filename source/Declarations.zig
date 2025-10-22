@@ -43,15 +43,13 @@ headers: Headers = .{},
 meta: std.ArrayListUnmanaged(Meta) = .empty,
 arena: ArenaAllocator.State = .{},
 current: struct {
-    block: Block.Tag = 0,
+    block: std.meta.Tag(Block) = 0,
     meta: Meta = undefined,
 } = .{},
 debug: Debug = .{},
 
 pub const Block = enum(u32) {
     _,
-
-    pub const Tag = std.meta.Tag(@This());
 
     pub fn earlierThan(lhs: Block, rhs: Block) bool {
         return @intFromEnum(lhs) < @intFromEnum(rhs);
@@ -61,7 +59,7 @@ pub const Block = enum(u32) {
 const Headers = blk: {
     const ns = struct {
         fn fieldMap(comptime group: groups.Tag) struct { type, ?*const anyopaque } {
-            const T = std.AutoHashMapUnmanaged(Block.Tag, Header(group));
+            const T = std.AutoHashMapUnmanaged(std.meta.Tag(Block), Header(group));
             return .{ T, &T.empty };
         }
     };
@@ -228,17 +226,14 @@ pub fn groupIterator(decls: *const Declarations, block: Block, importance: Impor
     }
 }
 
-/// For each group field, gets the partially cascaded value from the
-/// declaration block and applies it to `dest`.
-///
-/// To "apply a value from src to dest" means the following:
-/// If dest is undeclared, then copy src to dest. Otherwise, do nothing.
+/// Applies a declaration block to "dest".
+/// See `zss.cascade` for info about the "apply" operation.
 pub fn apply(
     decls: *const Declarations,
     comptime group: groups.Tag,
     block: Block,
     importance: Importance,
-    dest: *group.DeclaredValues(),
+    dest: *group.CascadedValues(),
 ) void {
     const default_value = if (decls.getAll(block, importance)) |all|
         zss.meta.coerceEnum(DeclaredValueTag, all)
@@ -334,7 +329,7 @@ fn SingleValueHeader(comptime group: groups.Tag) type {
             }
         }
 
-        fn apply(header: *const @This(), importance: Importance, dest: *group.DeclaredValues(), default_value: DeclaredValueTag) void {
+        fn apply(header: *const @This(), importance: Importance, dest: *group.CascadedValues(), default_value: DeclaredValueTag) void {
             const counts, const values = switch (importance) {
                 .important => .{ header.important_counts, header.important },
                 .normal => .{ header.normal_counts, header.normal },
@@ -410,7 +405,7 @@ fn MultiValueHeader(comptime group: groups.Tag) type {
             }
         }
 
-        fn apply(header: *const @This(), importance: Importance, dest: *group.DeclaredValues(), default_value: DeclaredValueTag) void {
+        fn apply(header: *const @This(), importance: Importance, dest: *group.CascadedValues(), default_value: DeclaredValueTag) void {
             const counts = switch (importance) {
                 .important => header.important_tags,
                 .normal => header.normal_tags,
@@ -509,8 +504,8 @@ test "adding values" {
     decls.closeBlock();
 
     const ns = struct {
-        fn getValues(d: *const Declarations, comptime group: groups.Tag, b: Block, importance: Importance) group.DeclaredValues() {
-            var values: group.DeclaredValues() = .{};
+        fn getValues(d: *const Declarations, comptime group: groups.Tag, b: Block, importance: Importance) group.CascadedValues() {
+            var values: group.CascadedValues() = .{};
             d.apply(group, b, importance, &values);
             return values;
         }

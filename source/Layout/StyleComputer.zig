@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
-const CascadedValues = zss.CascadedValues;
+const CascadeStorage = zss.cascade.Database.Storage;
 const Environment = zss.Environment;
 const NodeId = Environment.NodeId;
 const Stack = zss.Stack;
@@ -54,7 +54,7 @@ const CosmeticComputedValues = struct {
 
 const Current = struct {
     node: NodeId,
-    cascaded_values: CascadedValues,
+    cascaded_values: *const CascadeStorage,
 };
 
 env: *const Environment,
@@ -91,8 +91,8 @@ pub fn deinitStage(sc: *StyleComputer, comptime stage: Stage) void {
 
 // TODO: Setting the current node should not require allocating
 pub fn setCurrentNode(sc: *StyleComputer, comptime stage: Stage, node: NodeId) !void {
-    const cascaded_values = switch (sc.env.getNodeProperty(.category, node)) {
-        .element => sc.env.getNodeProperty(.cascaded_values, node),
+    const cascaded_values: *const CascadeStorage = switch (sc.env.getNodeProperty(.category, node)) {
+        .element => sc.env.cascade_db.getStorage(node) orelse &.{},
         .text => undefined,
     };
     sc.current = .{
@@ -144,7 +144,7 @@ fn getSpecifiedValueForElement(
     comptime stage: Stage,
     comptime group: groups.Tag,
     node: NodeId,
-    cascaded_values: CascadedValues,
+    cascaded_values: *const CascadeStorage,
 ) SpecifiedValues(group) {
     assert(self.env.getNodeProperty(.category, node) == .element);
     const cascaded_value = cascaded_values.getPtr(group);
@@ -218,7 +218,7 @@ fn InheritedValue(comptime group: groups.Tag) type {
                 }
                 // TODO: Cache the parent's computed value for faster access in future calls.
 
-                const cascaded_values = sc.env.getNodeProperty(.cascaded_values, parent);
+                const cascaded_values: *const CascadeStorage = sc.env.cascade_db.getStorage(parent) orelse &.{};
                 // TODO: Recursive call here
                 const specified_value = sc.getSpecifiedValueForElement(stage, group, parent, cascaded_values);
                 break :blk specifiedToComputed(group, specified_value, sc, parent);

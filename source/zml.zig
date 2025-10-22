@@ -449,7 +449,7 @@ test "create a zml document" {
         const node = document.rootNode() orelse return error.TestFailure;
         const zss_node = node.toZssNode(&document);
         assert(Document.Node.fromZssNode(&document, zss_node) == node);
-        const cascaded_values = document.env.getNodeProperty(.cascaded_values, zss_node);
+        const cascaded_values = document.env.cascade_db.getStorage(zss_node) orelse return error.TestFailure;
         const box_style = cascaded_values.getPtr(.box_style) orelse return error.TestFailure;
         try box_style.display.expectEqual(.{ .declared = .block });
     }
@@ -460,7 +460,7 @@ test "create a zml document" {
         assert(Document.Node.fromZssNode(&document, zss_node) == node);
         const type_name = document.env.getNodeProperty(.type, zss_node).name;
         try document.env.testing.expectEqualTypeNames("type1", type_name);
-        const cascaded_values = document.env.getNodeProperty(.cascaded_values, zss_node);
+        const cascaded_values = document.env.cascade_db.getStorage(zss_node) orelse return error.TestFailure;
         const all = cascaded_values.all orelse return error.TestFailure;
         try std.testing.expectEqual(types.CssWideKeyword.unset, all);
     }
@@ -471,7 +471,7 @@ test "create a zml document" {
         assert(Document.Node.fromZssNode(&document, zss_node) == node);
         const type_name = document.env.getNodeProperty(.type, zss_node).name;
         try document.env.testing.expectEqualTypeNames("type2", type_name);
-        const cascaded_values = document.env.getNodeProperty(.cascaded_values, zss_node);
+        const cascaded_values = document.env.cascade_db.getStorage(zss_node) orelse return error.TestFailure;
         const all = cascaded_values.all orelse return error.TestFailure;
         try std.testing.expect(cascaded_values.getPtr(.box_style) == null);
         try std.testing.expectEqual(types.CssWideKeyword.inherit, all);
