@@ -2,6 +2,7 @@
     .name = .zss,
     .version = "0.0.0",
     .fingerprint = 0x6b393e274b72e099,
+    .minimum_zig_version = "0.15.1",
     .paths = .{
         "demo/",
         "docs/",

@@ -255,6 +255,7 @@ fn addFromTokenIterator(
     return gop.index;
 }
 
+/// `string` must be UTF-8 encoded.
 pub fn addFromString(interner: *Utf8StringInterner, comptime case: Case, allocator: Allocator, string: []const u8) !usize {
     switch (case) {
         .sensitive => @compileError("addFromString not implemented for case sensitive strings"),

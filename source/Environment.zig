@@ -370,6 +370,7 @@ pub fn addTextFromStringToken(env: *Environment, string: SourceCode.Location, so
     return @enumFromInt(id);
 }
 
+/// `string` must be UTF-8 encoded.
 pub fn addTextFromString(env: *Environment, string: []const u8) !TextId {
     if (string.len == 0) return .empty_string;
     const id = std.math.cast(std.meta.Tag(TextId), try std.math.add(usize, 1, env.texts.list.items.len)) orelse return error.OutOfTexts;
@@ -397,7 +398,7 @@ pub const UrlId = enum(u16) {
 pub fn addUrl(env: *Environment) !UrlId {
     const int = if (env.next_url_id) |*int| int else return error.OutOfUrls;
     defer env.next_url_id = std.math.add(UrlId.Int, int.*, 1) catch null;
-    return int.*;
+    return @enumFromInt(int.*);
 }
 
 pub fn linkUrlToImage(env: *Environment, url: UrlId, image: zss.Images.Handle) !void {
@@ -469,7 +470,6 @@ pub const NodeId = packed struct {
 // TODO: Consider having a category for uninitialized nodes.
 pub const NodeCategory = enum { element, text };
 
-// TODO: Make this a normal struct
 pub const ElementType = packed struct {
     namespace: Namespaces.Id,
     name: TypeName,

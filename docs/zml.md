@@ -7,7 +7,7 @@
 - Borrows syntax elements from CSS to make for an intuitive syntax
 
 ## Creating a document
-A document is just a tree of nodes. zml has two types of nodes: **element nodes** and **text nodes**.
+A document is just a tree of nodes. zml has two types of nodes: **text nodes** and **element nodes**.
 
 ### Text nodes
 Defining a text node is as simple as typing a quoted string:
