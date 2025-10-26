@@ -62,7 +62,7 @@ pub fn run(tests: []const *Test, output_parent_dir: []const u8) !void {
         var box_tree = try layout.run(allocator);
         defer box_tree.deinit();
 
-        var renderer = try zss.OpenGlRenderer.init(allocator, t.fonts);
+        var renderer = try zss.OpenGlFreetypeRenderer.init(allocator, t.fonts);
         defer renderer.deinit();
         try renderer.updateBoxTree(&box_tree);
 

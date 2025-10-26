@@ -12,13 +12,9 @@ const QuadTree = @import("./QuadTree.zig");
 const BoxTree = zss.BoxTree;
 const Ifc = BoxTree.InlineFormattingContext;
 const GlyphIndex = Ifc.GlyphIndex;
-const StackingContext = BoxTree.StackingContext;
-const StackingContextTree = BoxTree.StackingContextTree;
-const Subtree = BoxTree.Subtree;
-const ZIndex = BoxTree.ZIndex;
 
 const math = zss.math;
-const units_per_pixel = zss.math.units_per_pixel;
+const units_per_pixel = math.units_per_pixel;
 const Color = math.Color;
 const Unit = math.Unit;
 const Range = math.Range;
@@ -33,6 +29,8 @@ const hb = @import("harfbuzz").c;
 // TODO: Check for OpenGL errors
 // TODO: Potentially lossy casts from integers to floats
 
+/// A renderer that uses OpenGL and FreeType.
+/// It assumes that an OpenGL context has already been created, and that all Harfbuzz fonts are backed by FreeType face objects.
 pub const Renderer = struct {
     mode: Mode,
 

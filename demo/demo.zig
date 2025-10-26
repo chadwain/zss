@@ -32,7 +32,7 @@ const ProgramState = struct {
     fonts: *const zss.Fonts,
 
     box_tree: *zss.BoxTree,
-    renderer: *zss.OpenGlRenderer,
+    renderer: *zss.OpenGlFreetypeRenderer,
 
     fn resize(self: *ProgramState) !void {
         if (self.resize_timer.read() < std.time.ns_per_ms * 250) return;
@@ -243,7 +243,7 @@ pub fn main() !void {
     };
     defer box_tree.deinit();
 
-    var renderer = try zss.OpenGlRenderer.init(allocator, &fonts);
+    var renderer = try zss.OpenGlFreetypeRenderer.init(allocator, &fonts);
     defer renderer.deinit();
 
     var resize_timer = try std.time.Timer.start();
