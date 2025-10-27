@@ -234,9 +234,9 @@ fn specifiedToComputed(comptime group: groups.Tag, specified: SpecifiedValues(gr
         .box_style => {
             const parent = node.parent(sc.env);
             const computed_value, _ = if (parent == null) // TODO: Should check for equality with the root node instead
-                solve.boxStyle(specified, .Root)
+                solve.boxStyle(specified, .root)
             else
-                solve.boxStyle(specified, .NonRoot);
+                solve.boxStyle(specified, .not_root);
             return computed_value;
         },
         .font => {

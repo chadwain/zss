@@ -141,6 +141,21 @@ pub const Context = struct {
         ctx.main_object.top.?.depth += 1;
     }
 
+    fn popFlowObject(ctx: *Context, tree: ObjectTree.Slice) ?Size {
+        const this = ctx.object.pop();
+
+        tree.items(.skip)[this.object_index] = this.object_skip;
+        const data = &tree.items(.data)[this.object_index].flow_stf;
+        const width = flow.solveUsedWidth(this.auto_width, data.used.min_inline_size, data.used.max_inline_size);
+        data.width_clamped = width;
+
+        const depth = &ctx.main_object.top.?.depth;
+        depth.* -= 1;
+        if (depth.* == 0) return null;
+
+        return this.object_index;
+    }
+
     fn appendFlowNormalObject(
         ctx: *Context,
         allocator: Allocator,
@@ -189,18 +204,6 @@ pub const Context = struct {
         return index;
     }
 
-    fn popFlowObject(ctx: *Context, tree: ObjectTree.Slice) Size {
-        const this = ctx.object.pop();
-        ctx.main_object.top.?.depth -= 1;
-
-        tree.items(.skip)[this.object_index] = this.object_skip;
-        const data = &tree.items(.data)[this.object_index].flow_stf;
-        const width = flow.solveUsedWidth(this.auto_width, data.used.min_inline_size, data.used.max_inline_size);
-        data.width_clamped = width;
-
-        return this.object_index;
-    }
-
     fn addToParent(ctx: *Context, tree: ObjectTree.Slice, object_index: Size) void {
         const data = &tree.items(.data)[object_index].flow_stf;
         const parent = &ctx.object.top.?;
@@ -231,7 +234,7 @@ pub fn beginMode(layout: *Layout, inner_block: BoxStyle.InnerBlock, used_sizes: 
     }
 }
 
-pub fn endMode(layout: *Layout) !Result {
+fn endMode(layout: *Layout) !Result {
     const ctx = &layout.stf_context;
     const main_object_index = ctx.popMainObject();
     const result = try realizeObjects(layout, main_object_index);
@@ -251,7 +254,7 @@ pub fn blockElement(layout: *Layout, node: NodeId, inner_block: BoxStyle.InnerBl
 
 fn flowObject(layout: *Layout, node: NodeId, inner_block: BoxStyle.InnerBlock, position: BoxStyle.Position) !void {
     const containing_block_size = layout.containingBlockSize();
-    const sizes = flow.solveAllSizes(&layout.computer, position, .ShrinkToFit, containing_block_size.height);
+    const sizes = flow.solveAllSizes(&layout.computer, position, .stf, containing_block_size.height);
     const stacking_context = flow.solveStackingContext(&layout.computer, position);
     layout.computer.commitNode(.box_gen);
 
@@ -263,11 +266,11 @@ fn flowObject(layout: *Layout, node: NodeId, inner_block: BoxStyle.InnerBlock, p
         .flow => {
             if (sizes.get(.inline_size)) |inline_size| {
                 _ = try layout.pushSubtree();
-                const ref = try layout.pushFlowBlock(sizes, .Normal, stacking_context, node);
+                const ref = try layout.pushFlowBlock(sizes, .normal, stacking_context, node);
                 try layout.box_tree.setGeneratedBox(node, .{ .block_ref = ref });
                 try layout.stf_context.appendFlowNormalObject(layout.allocator, ref, node, inline_size + edge_width);
                 try layout.pushNode();
-                return layout.pushFlowMode(.NonRoot);
+                return layout.beginFlowMode(.not_root);
             } else {
                 const available_width = solve.clampSize(containing_block_size.width - edge_width, sizes.min_inline_size, sizes.max_inline_size);
                 try pushFlowObject(layout, node, sizes, available_width, stacking_context);
@@ -276,23 +279,25 @@ fn flowObject(layout: *Layout, node: NodeId, inner_block: BoxStyle.InnerBlock, p
     }
 }
 
-pub fn inlineElement(layout: *Layout) !void {
-    const subtree = try layout.pushSubtree();
-    try layout.stf_context.appendIfcObject(layout.allocator, subtree);
-    return layout.pushInlineMode(.NonRoot, .ShrinkToFit, layout.containingBlockSize());
-}
-
-pub fn nullElement(layout: *Layout) !void {
+pub fn nullNode(layout: *Layout) !?Result {
     const tree = layout.stf_context.tree.slice();
-    const object_index = layout.stf_context.popFlowObject(tree);
-    if (layout.stf_context.main_object.top.?.depth == 0) return layout.popStfMode();
+    const object_index = layout.stf_context.popFlowObject(tree) orelse {
+        return try endMode(layout);
+    };
     popFlowObject(layout, tree, object_index);
+    return null;
 }
 
 pub fn afterFlowMode(layout: *Layout) void {
-    layout.popFlowBlock(.Normal);
+    layout.popFlowBlock(.normal);
     layout.popSubtree();
     layout.popNode();
+}
+
+pub fn beforeInlineMode(layout: *Layout) !Layout.SizeMode {
+    const subtree = try layout.pushSubtree();
+    try layout.stf_context.appendIfcObject(layout.allocator, subtree);
+    return .stf;
 }
 
 pub fn afterInlineMode(layout: *Layout, result: @"inline".Result) void {

@@ -98,7 +98,7 @@ pub fn boxStyle(specified: SpecifiedValues(.box_style), comptime is_root: zss.La
 
     var position: BoxTree.BoxStyle.Position = undefined;
     switch (is_root) {
-        .NonRoot => {
+        .not_root => {
             switch (specified.position) {
                 .absolute => {
                     computed.display = blockify(specified.display);
@@ -125,7 +125,7 @@ pub fn boxStyle(specified: SpecifiedValues(.box_style), comptime is_root: zss.La
                 .absolute, .fixed => unreachable,
             };
         },
-        .Root => {
+        .root => {
             computed.display = blockify(specified.display);
             computed.position = .static;
             computed.float = .none;

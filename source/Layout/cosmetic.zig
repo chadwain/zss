@@ -65,7 +65,7 @@ pub fn run(layout: *Layout) !void {
         const box_type = layout.box_tree.ptr.node_to_generated_box.get(root_node) orelse return;
         switch (box_type) {
             .block_ref => |ref| {
-                try blockBoxCosmeticLayout(layout, context, ref, .Root);
+                try blockBoxCosmeticLayout(layout, context, ref, .root);
                 layout.computer.commitNode(.cosmetic);
 
                 if (root_node.firstChild(layout.inputs.env)) |_| {
@@ -93,7 +93,7 @@ pub fn run(layout: *Layout) !void {
             switch (box_type) {
                 .text => layout.advanceNode(),
                 .block_ref => |ref| {
-                    try blockBoxCosmeticLayout(layout, context, ref, .NonRoot);
+                    try blockBoxCosmeticLayout(layout, context, ref, .not_root);
                     layout.computer.commitNode(.cosmetic);
 
                     const has_children = node.firstChild(layout.inputs.env) != null;
@@ -156,7 +156,7 @@ fn blockBoxCosmeticLayout(layout: *Layout, context: Context, ref: BlockRef, comp
     const computed_color, const used_color = solve.colorProperty(specified.color);
 
     // TODO: Temporary jank to set the text color for IFCs.
-    if (is_root == .Root) {
+    if (is_root == .root) {
         for (layout.box_tree.ptr.ifcs.items) |ifc| {
             ifc.font_color = used_color;
         }
@@ -417,7 +417,7 @@ fn inlineBoxCosmeticLayout(
         .insets = layout.computer.getSpecifiedValue(.cosmetic, .insets),
     };
 
-    const computed_box_style, _ = solve.boxStyle(specified.box_style, .NonRoot);
+    const computed_box_style, _ = solve.boxStyle(specified.box_style, .not_root);
 
     var computed_insets: ComputedValues(.insets) = undefined;
     {

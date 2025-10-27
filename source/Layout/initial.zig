@@ -13,37 +13,41 @@ pub fn beginMode(layout: *Layout) !void {
     layout.box_tree.ptr.initial_containing_block = ref;
 }
 
-pub fn endMode(layout: *Layout) void {
+fn endMode(layout: *Layout) void {
     layout.popInitialContainingBlock();
     layout.popSubtree();
 }
 
 pub fn blockElement(layout: *Layout, element: NodeId, inner_block: BoxTree.BoxStyle.InnerBlock, position: BoxTree.BoxStyle.Position) !void {
-    const sizes = flow.solveAllSizes(&layout.computer, position, .{ .Normal = layout.viewport.w }, layout.viewport.h);
+    const sizes = flow.solveAllSizes(&layout.computer, position, .{ .normal = layout.viewport.w }, layout.viewport.h);
     const stacking_context = rootBlockSolveStackingContext(&layout.computer);
     layout.computer.commitNode(.box_gen);
 
     switch (inner_block) {
         .flow => {
-            const ref = try layout.pushFlowBlock(sizes, .Normal, stacking_context, element);
+            const ref = try layout.pushFlowBlock(sizes, .normal, stacking_context, element);
             try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
             try layout.pushNode();
-            return layout.pushFlowMode(.Root);
+            return layout.beginFlowMode(.root);
         },
     }
 }
 
-pub fn inlineElement(layout: *Layout) !void {
-    return layout.pushInlineMode(.Root, .Normal, .{ .width = layout.viewport.w, .height = layout.viewport.h });
+pub fn nullNode(layout: *Layout) void {
+    endMode(layout);
 }
 
 pub fn afterFlowMode(layout: *Layout) void {
-    layout.popFlowBlock(.Normal);
+    layout.popFlowBlock(.normal);
     layout.popNode();
 }
 
 pub fn afterStfMode() noreturn {
     unreachable;
+}
+
+pub fn beforeInlineMode() Layout.SizeMode {
+    return .normal;
 }
 
 pub fn afterInlineMode() void {}

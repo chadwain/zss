@@ -47,7 +47,7 @@ pub fn beginMode(layout: *Layout, size_mode: Layout.SizeMode, containing_block_s
     try pushRootInlineBox(layout);
 }
 
-pub fn endMode(layout: *Layout) !Result {
+fn endMode(layout: *Layout) !Result {
     _ = try popInlineBox(layout);
 
     const ifc = layout.inline_context.ifc.top.?;
@@ -93,8 +93,8 @@ pub const Context = struct {
         containing_block_size: Layout.ContainingBlockSize,
     ) !void {
         const percentage_base_unit: Unit = switch (size_mode) {
-            .Normal => containing_block_size.width,
-            .ShrinkToFit => 0,
+            .normal => containing_block_size.width,
+            .stf => 0,
         };
         try ctx.ifc.push(allocator, .{
             .ptr = ptr,
@@ -188,11 +188,11 @@ pub fn inlineElement(layout: *Layout, node: NodeId, inner_inline: BoxStyle.Inner
                 layout.computer.commitNode(.box_gen);
 
                 if (sizes.get(.inline_size)) |_| {
-                    const ref = try layout.pushFlowBlock(sizes, .Normal, stacking_context, node);
+                    const ref = try layout.pushFlowBlock(sizes, .normal, stacking_context, node);
                     try layout.box_tree.setGeneratedBox(node, .{ .block_ref = ref });
                     try ifcAddInlineBlock(layout.box_tree, ifc.ptr, ref.index);
                     try layout.pushNode();
-                    return layout.pushFlowMode(.NonRoot);
+                    return layout.beginFlowMode(.not_root);
                 } else {
                     const available_width_unclamped = ifc.containing_block_size.width -
                         (sizes.margin_inline_start_untagged + sizes.margin_inline_end_untagged +
@@ -200,36 +200,39 @@ pub fn inlineElement(layout: *Layout, node: NodeId, inner_inline: BoxStyle.Inner
                             sizes.padding_inline_start + sizes.padding_inline_end);
                     const available_width = solve.clampSize(available_width_unclamped, sizes.min_inline_size, sizes.max_inline_size);
 
-                    const ref = try layout.pushFlowBlock(sizes, .{ .ShrinkToFit = available_width }, stacking_context, node);
+                    const ref = try layout.pushFlowBlock(sizes, .{ .stf = available_width }, stacking_context, node);
                     try layout.box_tree.setGeneratedBox(node, .{ .block_ref = ref });
                     try ifcAddInlineBlock(layout.box_tree, ifc.ptr, ref.index);
                     try layout.pushNode();
-                    return layout.pushStfMode(.flow, sizes);
+                    return layout.beginStfMode(.flow, sizes);
                 }
             },
         },
     }
 }
 
-pub fn blockElement(layout: *Layout) !void {
+pub fn blockElement(layout: *Layout) !Result {
     if (layout.inline_context.ifc.top.?.depth == 1) {
-        try layout.popInlineMode();
+        return try endMode(layout);
     } else {
         std.debug.panic("TODO: Block boxes within IFCs", .{});
     }
 }
 
-pub fn nullElement(layout: *Layout) !void {
+pub fn nullNode(layout: *Layout) !?Result {
     const ctx = &layout.inline_context;
     const ifc = ctx.ifc.top.?;
-    if (ifc.depth == 1) return layout.popInlineMode();
+    if (ifc.depth == 1) {
+        return try endMode(layout);
+    }
     const skip = try popInlineBox(layout);
     layout.popNode();
     ctx.accumulateSkip(skip);
+    return null;
 }
 
 pub fn afterFlowMode(layout: *Layout) void {
-    layout.popFlowBlock(.Normal);
+    layout.popFlowBlock(.normal);
     layout.popNode();
 }
 
@@ -238,7 +241,7 @@ pub fn afterInlineMode() noreturn {
 }
 
 pub fn afterStfMode(layout: *Layout, layout_result: stf.Result) void {
-    layout.popFlowBlock(.{ .ShrinkToFit = layout_result.auto_width });
+    layout.popFlowBlock(.{ .stf = layout_result.auto_width });
     layout.popNode();
 }
 

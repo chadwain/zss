@@ -4,13 +4,11 @@ const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
-const IsAutoOrPercentage = BlockUsedSizes.IsAutoOrPercentage;
 const BlockComputedSizes = zss.Layout.BlockComputedSizes;
 const BlockUsedSizes = zss.Layout.BlockUsedSizes;
 const Layout = zss.Layout;
 const NodeId = zss.Environment.NodeId;
 const SctBuilder = Layout.StackingContextTreeBuilder;
-const Stack = zss.Stack;
 const StyleComputer = Layout.StyleComputer;
 const Unit = zss.math.Unit;
 
@@ -27,15 +25,15 @@ const Subtree = BoxTree.Subtree;
 
 pub fn beginMode(layout: *Layout) !void {
     try layout.flow_context.pushContext(layout.allocator);
-    pushMainBlock(layout);
+    layout.flow_context.pushFlowBlock();
 }
 
-pub fn endMode(layout: *Layout) void {
+fn endMode(layout: *Layout) void {
     layout.flow_context.popContext();
 }
 
 pub const Context = struct {
-    depth: Stack(usize) = .init(undefined),
+    depth: zss.Stack(usize) = .init(undefined),
 
     pub fn deinit(ctx: *Context, allocator: Allocator) void {
         ctx.depth.deinit(allocator);
@@ -54,8 +52,11 @@ pub const Context = struct {
         ctx.depth.top.? += 1;
     }
 
-    fn popFlowBlock(ctx: *Context) void {
-        ctx.depth.top.? -= 1;
+    /// `null` means to pop this flow context off the stack.
+    fn popFlowBlock(ctx: *Context) ?void {
+        const depth = &ctx.depth.top.?;
+        depth.* -= 1;
+        if (depth.* == 0) return null;
     }
 };
 
@@ -63,40 +64,35 @@ pub fn blockElement(layout: *Layout, node: NodeId, inner_block: BoxStyle.InnerBl
     switch (inner_block) {
         .flow => {
             const containing_block_size = layout.containingBlockSize();
-            const sizes = solveAllSizes(&layout.computer, position, .{ .Normal = containing_block_size.width }, containing_block_size.height);
+            const sizes = solveAllSizes(&layout.computer, position, .{ .normal = containing_block_size.width }, containing_block_size.height);
             const stacking_context = solveStackingContext(&layout.computer, position);
             layout.computer.commitNode(.box_gen);
 
-            layout.flow_context.pushFlowBlock();
             try pushBlock(layout, node, sizes, stacking_context);
         },
     }
 }
 
-pub fn inlineElement(layout: *Layout) !void {
-    return layout.pushInlineMode(.NonRoot, .Normal, layout.containingBlockSize());
-}
-
-pub fn nullElement(layout: *Layout) void {
-    layout.flow_context.popFlowBlock();
-    if (layout.flow_context.depth.top.? == 0) {
-        return layout.popFlowMode();
-    }
-    popBlock(layout);
+pub fn nullNode(layout: *Layout) ?void {
+    popBlock(layout) orelse {
+        endMode(layout);
+        return {};
+    };
+    return null;
 }
 
 pub fn afterFlowMode() noreturn {
     unreachable;
 }
 
+pub fn beforeInlineMode() Layout.SizeMode {
+    return .normal;
+}
+
 pub fn afterInlineMode() void {}
 
 pub fn afterStfMode() noreturn {
     unreachable;
-}
-
-fn pushMainBlock(layout: *Layout) void {
-    layout.flow_context.pushFlowBlock();
 }
 
 fn pushBlock(
@@ -106,20 +102,22 @@ fn pushBlock(
     stacking_context: SctBuilder.Type,
 ) !void {
     // The allocations here must have corresponding deallocations in popBlock.
-    const ref = try layout.pushFlowBlock(sizes, .Normal, stacking_context, node);
+    layout.flow_context.pushFlowBlock();
+    const ref = try layout.pushFlowBlock(sizes, .normal, stacking_context, node);
     try layout.box_tree.setGeneratedBox(node, .{ .block_ref = ref });
     try layout.pushNode();
 }
 
-fn popBlock(layout: *Layout) void {
+fn popBlock(layout: *Layout) ?void {
     // The deallocations here must correspond to allocations in pushBlock.
-    layout.popFlowBlock(.Normal);
+    layout.flow_context.popFlowBlock() orelse return null;
+    layout.popFlowBlock(.normal);
     layout.popNode();
 }
 
 pub const ContainingBlockWidth = union(Layout.SizeMode) {
-    Normal: Unit,
-    ShrinkToFit,
+    normal: Unit,
+    stf,
 };
 
 pub fn solveAllSizes(
@@ -137,8 +135,8 @@ pub fn solveAllSizes(
         .insets = computer.getSpecifiedValue(.box_gen, .insets),
     };
     const percentage_base_unit = switch (containing_block_width) {
-        .Normal => |value| value,
-        .ShrinkToFit => 0,
+        .normal => |value| value,
+        .stf => 0,
     };
 
     var computed_sizes: BlockComputedSizes = undefined;
@@ -148,12 +146,12 @@ pub fn solveAllSizes(
     solveHeight(specified_sizes.content_height, containing_block_height, &computed_sizes.content_height, &sizes);
     solveVerticalEdges(specified_sizes.vertical_edges, percentage_base_unit, border_styles, &computed_sizes.vertical_edges, &sizes);
     switch (containing_block_width) {
-        .Normal => {
+        .normal => {
             adjustWidthAndMargins(&sizes, percentage_base_unit);
             // TODO: Do this in adjustWidthAndMargins
             sizes.inline_size_untagged = solve.clampSize(sizes.get(.inline_size).?, sizes.min_inline_size, sizes.max_inline_size);
         },
-        .ShrinkToFit => {},
+        .stf => {},
     }
     if (sizes.get(.block_size)) |block_size| {
         sizes.block_size_untagged = solve.clampSize(block_size, sizes.min_block_size, sizes.max_block_size);
@@ -183,8 +181,8 @@ fn solveWidthAndHorizontalMargins(
     // TODO: Also use the logical properties ('inline-size', 'border-inline-start', etc.) to determine lengths.
 
     switch (containing_block_width) {
-        .Normal => |cbw| assert(cbw >= 0),
-        .ShrinkToFit => {},
+        .normal => |cbw| assert(cbw >= 0),
+        .stf => {},
     }
 
     switch (specified.content_width.min_width) {
@@ -195,8 +193,8 @@ fn solveWidthAndHorizontalMargins(
         .percentage => |value| {
             computed.content_width.min_width = .{ .percentage = value };
             sizes.min_inline_size = switch (containing_block_width) {
-                .Normal => |cbw| solve.positivePercentage(value, cbw),
-                .ShrinkToFit => 0,
+                .normal => |cbw| solve.positivePercentage(value, cbw),
+                .stf => 0,
             };
         },
     }
@@ -208,8 +206,8 @@ fn solveWidthAndHorizontalMargins(
         .percentage => |value| {
             computed.content_width.max_width = .{ .percentage = value };
             sizes.max_inline_size = switch (containing_block_width) {
-                .Normal => |cbw| solve.positivePercentage(value, cbw),
-                .ShrinkToFit => std.math.maxInt(Unit),
+                .normal => |cbw| solve.positivePercentage(value, cbw),
+                .stf => std.math.maxInt(Unit),
             };
         },
         .none => {
@@ -226,8 +224,8 @@ fn solveWidthAndHorizontalMargins(
         .percentage => |value| {
             computed.content_width.width = .{ .percentage = value };
             switch (containing_block_width) {
-                .Normal => |cbw| sizes.setValue(.inline_size, solve.positivePercentage(value, cbw)),
-                .ShrinkToFit => sizes.setAuto(.inline_size),
+                .normal => |cbw| sizes.setValue(.inline_size, solve.positivePercentage(value, cbw)),
+                .stf => sizes.setAuto(.inline_size),
             }
         },
         .auto => {
@@ -243,8 +241,8 @@ fn solveWidthAndHorizontalMargins(
         .percentage => |value| {
             computed.horizontal_edges.margin_left = .{ .percentage = value };
             switch (containing_block_width) {
-                .Normal => |cbw| sizes.setValue(.margin_inline_start, solve.percentage(value, cbw)),
-                .ShrinkToFit => sizes.setAuto(.margin_inline_start),
+                .normal => |cbw| sizes.setValue(.margin_inline_start, solve.percentage(value, cbw)),
+                .stf => sizes.setAuto(.margin_inline_start),
             }
         },
         .auto => {
@@ -260,8 +258,8 @@ fn solveWidthAndHorizontalMargins(
         .percentage => |value| {
             computed.horizontal_edges.margin_right = .{ .percentage = value };
             switch (containing_block_width) {
-                .Normal => |cbw| sizes.setValue(.margin_inline_end, solve.percentage(value, cbw)),
-                .ShrinkToFit => sizes.setAuto(.margin_inline_end),
+                .normal => |cbw| sizes.setValue(.margin_inline_end, solve.percentage(value, cbw)),
+                .stf => sizes.setAuto(.margin_inline_end),
             }
         },
         .auto => {
