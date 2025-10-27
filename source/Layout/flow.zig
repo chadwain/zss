@@ -1,16 +1,17 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const MultiArrayList = std.MultiArrayList;
 
 const zss = @import("../zss.zig");
-const BlockComputedSizes = zss.Layout.BlockComputedSizes;
-const BlockUsedSizes = zss.Layout.BlockUsedSizes;
-const Layout = zss.Layout;
 const NodeId = zss.Environment.NodeId;
-const SctBuilder = Layout.StackingContextTreeBuilder;
-const StyleComputer = Layout.StyleComputer;
+const StyleComputer = zss.Layout.StyleComputer;
 const Unit = zss.math.Unit;
+
+const BoxGen = zss.Layout.BoxGen;
+const BlockComputedSizes = BoxGen.BlockComputedSizes;
+const BlockUsedSizes = BoxGen.BlockUsedSizes;
+const SctBuilder = BoxGen.StackingContextTreeBuilder;
+const SizeMode = BoxGen.SizeMode;
 
 const solve = @import("./solve.zig");
 const @"inline" = @import("./inline.zig");
@@ -23,59 +24,33 @@ const BoxTree = zss.BoxTree;
 const BoxStyle = BoxTree.BoxStyle;
 const Subtree = BoxTree.Subtree;
 
-pub fn beginMode(layout: *Layout) !void {
-    try layout.flow_context.pushContext(layout.allocator);
-    layout.flow_context.pushFlowBlock();
+pub fn beginMode(box_gen: *BoxGen) !void {
+    const allocator = box_gen.getLayout().allocator;
+    try box_gen.bfc_stack.push(allocator, 1);
 }
 
-fn endMode(layout: *Layout) void {
-    layout.flow_context.popContext();
+fn endMode(box_gen: *BoxGen) void {
+    const depth = box_gen.bfc_stack.pop();
+    assert(depth == 0);
 }
 
-pub const Context = struct {
-    depth: zss.Stack(usize) = .init(undefined),
-
-    pub fn deinit(ctx: *Context, allocator: Allocator) void {
-        ctx.depth.deinit(allocator);
-    }
-
-    fn pushContext(ctx: *Context, allocator: Allocator) !void {
-        try ctx.depth.push(allocator, 0);
-    }
-
-    fn popContext(ctx: *Context) void {
-        const depth = ctx.depth.pop();
-        assert(depth == 0);
-    }
-
-    fn pushFlowBlock(ctx: *Context) void {
-        ctx.depth.top.? += 1;
-    }
-
-    /// `null` means to pop this flow context off the stack.
-    fn popFlowBlock(ctx: *Context) ?void {
-        const depth = &ctx.depth.top.?;
-        depth.* -= 1;
-        if (depth.* == 0) return null;
-    }
-};
-
-pub fn blockElement(layout: *Layout, node: NodeId, inner_block: BoxStyle.InnerBlock, position: BoxStyle.Position) !void {
+pub fn blockElement(box_gen: *BoxGen, node: NodeId, inner_block: BoxStyle.InnerBlock, position: BoxStyle.Position) !void {
+    const computer = &box_gen.getLayout().computer;
     switch (inner_block) {
         .flow => {
-            const containing_block_size = layout.containingBlockSize();
-            const sizes = solveAllSizes(&layout.computer, position, .{ .normal = containing_block_size.width }, containing_block_size.height);
-            const stacking_context = solveStackingContext(&layout.computer, position);
-            layout.computer.commitNode(.box_gen);
+            const containing_block_size = box_gen.containingBlockSize();
+            const sizes = solveAllSizes(computer, position, .{ .normal = containing_block_size.width }, containing_block_size.height);
+            const stacking_context = solveStackingContext(computer, position);
+            computer.commitNode(.box_gen);
 
-            try pushBlock(layout, node, sizes, stacking_context);
+            try pushBlock(box_gen, node, sizes, stacking_context);
         },
     }
 }
 
-pub fn nullNode(layout: *Layout) ?void {
-    popBlock(layout) orelse {
-        endMode(layout);
+pub fn nullNode(box_gen: *BoxGen) ?void {
+    popBlock(box_gen) orelse {
+        endMode(box_gen);
         return {};
     };
     return null;
@@ -85,7 +60,7 @@ pub fn afterFlowMode() noreturn {
     unreachable;
 }
 
-pub fn beforeInlineMode() Layout.SizeMode {
+pub fn beforeInlineMode() SizeMode {
     return .normal;
 }
 
@@ -96,26 +71,28 @@ pub fn afterStfMode() noreturn {
 }
 
 fn pushBlock(
-    layout: *Layout,
+    box_gen: *BoxGen,
     node: NodeId,
     sizes: BlockUsedSizes,
     stacking_context: SctBuilder.Type,
 ) !void {
-    // The allocations here must have corresponding deallocations in popBlock.
-    layout.flow_context.pushFlowBlock();
-    const ref = try layout.pushFlowBlock(sizes, .normal, stacking_context, node);
-    try layout.box_tree.setGeneratedBox(node, .{ .block_ref = ref });
-    try layout.pushNode();
+    // The operations here must have corresponding reverse operations in `popBlock`.
+    box_gen.bfc_stack.top.? += 1;
+    const ref = try box_gen.pushFlowBlock(sizes, .normal, stacking_context, node);
+    try box_gen.getLayout().box_tree.setGeneratedBox(node, .{ .block_ref = ref });
+    try box_gen.getLayout().pushNode();
 }
 
-fn popBlock(layout: *Layout) ?void {
-    // The deallocations here must correspond to allocations in pushBlock.
-    layout.flow_context.popFlowBlock() orelse return null;
-    layout.popFlowBlock(.normal);
-    layout.popNode();
+fn popBlock(box_gen: *BoxGen) ?void {
+    // The operations here must be the reverse of the ones in `pushBlock`.
+    const bfc_depth = &box_gen.bfc_stack.top.?;
+    bfc_depth.* -= 1;
+    if (bfc_depth.* == 0) return null;
+    box_gen.popFlowBlock(.normal);
+    box_gen.getLayout().popNode();
 }
 
-pub const ContainingBlockWidth = union(Layout.SizeMode) {
+pub const ContainingBlockWidth = union(SizeMode) {
     normal: Unit,
     stf,
 };

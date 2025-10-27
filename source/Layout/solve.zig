@@ -166,7 +166,7 @@ fn innerBlockType(computed_display: types.Display) BoxTree.BoxStyle.InnerBlock {
 
 pub fn insets(specified: SpecifiedValues(.insets)) ComputedValues(.insets) {
     var computed: ComputedValues(.insets) = undefined;
-    inline for (std.meta.fields(groups.Insets)) |field_info| {
+    inline for (std.meta.fields(ComputedValues(.insets))) |field_info| {
         @field(computed, field_info.name) = switch (@field(specified, field_info.name)) {
             .px => |value| .{ .px = value },
             .percentage => |value| .{ .percentage = value },
@@ -186,8 +186,8 @@ pub fn borderColors(border_colors: SpecifiedValues(.border_colors), current_colo
 }
 
 pub fn borderStyles(border_styles: SpecifiedValues(.border_styles)) void {
-    const solveOne = struct {
-        fn f(border_style: types.BorderStyle) void {
+    const ns = struct {
+        fn solveOne(border_style: types.BorderStyle) void {
             switch (border_style) {
                 .none, .hidden, .solid => {},
                 .dotted,
@@ -200,10 +200,10 @@ pub fn borderStyles(border_styles: SpecifiedValues(.border_styles)) void {
                 => std.debug.panic("TODO: border-style: {s}", .{@tagName(border_style)}),
             }
         }
-    }.f;
+    };
 
     inline for (std.meta.fields(groups.BorderStyles)) |field_info| {
-        solveOne(@field(border_styles, field_info.name));
+        ns.solveOne(@field(border_styles, field_info.name));
     }
 }
 

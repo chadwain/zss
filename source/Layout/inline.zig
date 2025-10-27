@@ -1,20 +1,23 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zss = @import("../zss.zig");
-const BlockComputedSizes = zss.Layout.BlockComputedSizes;
-const BlockUsedSizes = zss.Layout.BlockUsedSizes;
-const BoxTreeManaged = Layout.BoxTreeManaged;
 const Fonts = zss.Fonts;
-const Layout = zss.Layout;
 const NodeId = zss.Environment.NodeId;
-const SctBuilder = Layout.StackingContextTreeBuilder;
-const Stack = zss.Stack;
-const StyleComputer = Layout.StyleComputer;
 const Unit = zss.math.Unit;
 const units_per_pixel = zss.math.units_per_pixel;
+
+const Layout = zss.Layout;
+const BoxTreeManaged = Layout.BoxTreeManaged;
+const StyleComputer = Layout.StyleComputer;
+
+const BoxGen = Layout.BoxGen;
+const BlockComputedSizes = BoxGen.BlockComputedSizes;
+const BlockUsedSizes = BoxGen.BlockUsedSizes;
+const ContainingBlockSize = BoxGen.ContainingBlockSize;
+const SctBuilder = BoxGen.StackingContextTreeBuilder;
+const SizeMode = BoxGen.SizeMode;
 
 const flow = @import("./flow.zig");
 const stf = @import("./shrink_to_fit.zig");
@@ -37,28 +40,29 @@ pub const Result = struct {
     min_width: Unit,
 };
 
-pub fn beginMode(layout: *Layout, size_mode: Layout.SizeMode, containing_block_size: Layout.ContainingBlockSize) !void {
+pub fn beginMode(box_gen: *BoxGen, size_mode: SizeMode, containing_block_size: ContainingBlockSize) !void {
     assert(containing_block_size.width >= 0);
     if (containing_block_size.height) |h| assert(h >= 0);
 
-    const ifc = try layout.pushIfc();
-    try layout.inline_context.pushIfc(layout.allocator, ifc, size_mode, containing_block_size);
+    const ifc = try box_gen.pushIfc();
+    try box_gen.inline_context.pushIfc(box_gen.getLayout().allocator, ifc, size_mode, containing_block_size);
 
-    try pushRootInlineBox(layout);
+    try pushRootInlineBox(box_gen);
 }
 
-fn endMode(layout: *Layout) !Result {
-    _ = try popInlineBox(layout);
+fn endMode(box_gen: *BoxGen) !Result {
+    _ = try popInlineBox(box_gen);
 
-    const ifc = layout.inline_context.ifc.top.?;
+    const ifc = box_gen.inline_context.ifc.top.?;
     const containing_block_width = ifc.containing_block_size.width;
 
-    const subtree = layout.box_tree.ptr.getSubtree(layout.currentSubtree()).view();
+    const layout = box_gen.getLayout();
+    const subtree = layout.box_tree.ptr.getSubtree(box_gen.currentSubtree()).view();
     ifcSolveMetrics(ifc.ptr, subtree, layout.inputs.fonts);
     const line_split_result = try splitIntoLineBoxes(layout, subtree, ifc.ptr, containing_block_width);
 
-    layout.inline_context.popIfc();
-    layout.popIfc(ifc.ptr.id, containing_block_width, line_split_result.height);
+    box_gen.inline_context.popIfc();
+    box_gen.popIfc(ifc.ptr.id, containing_block_width, line_split_result.height);
 
     return .{
         .min_width = line_split_result.longest_line_box_length,
@@ -66,14 +70,14 @@ fn endMode(layout: *Layout) !Result {
 }
 
 pub const Context = struct {
-    ifc: Stack(struct {
+    ifc: zss.Stack(struct {
         ptr: *Ifc,
         depth: Ifc.Size,
-        containing_block_size: Layout.ContainingBlockSize,
+        containing_block_size: ContainingBlockSize,
         percentage_base_unit: Unit,
         font_handle: ?Fonts.Handle,
     }) = .init(undefined),
-    inline_box: Stack(InlineBox) = .init(undefined),
+    inline_box: zss.Stack(InlineBox) = .init(undefined),
 
     const InlineBox = struct {
         index: Ifc.Size,
@@ -89,8 +93,8 @@ pub const Context = struct {
         ctx: *Context,
         allocator: Allocator,
         ptr: *Ifc,
-        size_mode: Layout.SizeMode,
-        containing_block_size: Layout.ContainingBlockSize,
+        size_mode: SizeMode,
+        containing_block_size: ContainingBlockSize,
     ) !void {
         const percentage_base_unit: Unit = switch (size_mode) {
             .normal => containing_block_size.width,
@@ -138,9 +142,10 @@ pub const Context = struct {
     }
 };
 
-pub fn inlineElement(layout: *Layout, node: NodeId, inner_inline: BoxStyle.InnerInline, position: BoxStyle.Position) !void {
-    const ctx = &layout.inline_context;
+pub fn inlineElement(box_gen: *BoxGen, node: NodeId, inner_inline: BoxStyle.InnerInline, position: BoxStyle.Position) !void {
+    const ctx = &box_gen.inline_context;
     const ifc = ctx.ifc.top.?;
+    const layout = box_gen.getLayout();
 
     // TODO: Check position and float properties
     switch (inner_inline) {
@@ -154,7 +159,7 @@ pub fn inlineElement(layout: *Layout, node: NodeId, inner_inline: BoxStyle.Inner
                 .default => layout.inputs.fonts.query(),
                 .none => .invalid,
             };
-            layout.inline_context.setFont(handle);
+            box_gen.inline_context.setFont(handle);
             if (layout.inputs.fonts.get(handle)) |hb_font| {
                 const text = layout.computer.getText();
                 try ifcAddText(layout.box_tree, ifc.ptr, text, hb_font);
@@ -176,7 +181,7 @@ pub fn inlineElement(layout: *Layout, node: NodeId, inner_inline: BoxStyle.Inner
                 layout.computer.commitNode(.box_gen);
             }
 
-            const inline_box_index = try pushInlineBox(layout, node);
+            const inline_box_index = try pushInlineBox(box_gen, node);
             const generated_box = GeneratedBox{ .inline_box = .{ .ifc_id = ifc.ptr.id, .index = inline_box_index } };
             try layout.box_tree.setGeneratedBox(node, generated_box);
             try layout.pushNode();
@@ -188,11 +193,11 @@ pub fn inlineElement(layout: *Layout, node: NodeId, inner_inline: BoxStyle.Inner
                 layout.computer.commitNode(.box_gen);
 
                 if (sizes.get(.inline_size)) |_| {
-                    const ref = try layout.pushFlowBlock(sizes, .normal, stacking_context, node);
+                    const ref = try box_gen.pushFlowBlock(sizes, .normal, stacking_context, node);
                     try layout.box_tree.setGeneratedBox(node, .{ .block_ref = ref });
                     try ifcAddInlineBlock(layout.box_tree, ifc.ptr, ref.index);
                     try layout.pushNode();
-                    return layout.beginFlowMode(.not_root);
+                    return box_gen.beginFlowMode(.not_root);
                 } else {
                     const available_width_unclamped = ifc.containing_block_size.width -
                         (sizes.margin_inline_start_untagged + sizes.margin_inline_end_untagged +
@@ -200,63 +205,67 @@ pub fn inlineElement(layout: *Layout, node: NodeId, inner_inline: BoxStyle.Inner
                             sizes.padding_inline_start + sizes.padding_inline_end);
                     const available_width = solve.clampSize(available_width_unclamped, sizes.min_inline_size, sizes.max_inline_size);
 
-                    const ref = try layout.pushFlowBlock(sizes, .{ .stf = available_width }, stacking_context, node);
+                    const ref = try box_gen.pushFlowBlock(sizes, .{ .stf = available_width }, stacking_context, node);
                     try layout.box_tree.setGeneratedBox(node, .{ .block_ref = ref });
                     try ifcAddInlineBlock(layout.box_tree, ifc.ptr, ref.index);
                     try layout.pushNode();
-                    return layout.beginStfMode(.flow, sizes);
+                    return box_gen.beginStfMode(.flow, sizes);
                 }
             },
         },
     }
 }
 
-pub fn blockElement(layout: *Layout) !Result {
-    if (layout.inline_context.ifc.top.?.depth == 1) {
-        return try endMode(layout);
+pub fn blockElement(box_gen: *BoxGen) !Result {
+    if (box_gen.inline_context.ifc.top.?.depth == 1) {
+        return try endMode(box_gen);
     } else {
         std.debug.panic("TODO: Block boxes within IFCs", .{});
     }
 }
 
-pub fn nullNode(layout: *Layout) !?Result {
-    const ctx = &layout.inline_context;
+pub fn nullNode(box_gen: *BoxGen) !?Result {
+    const ctx = &box_gen.inline_context;
     const ifc = ctx.ifc.top.?;
     if (ifc.depth == 1) {
-        return try endMode(layout);
+        return try endMode(box_gen);
     }
-    const skip = try popInlineBox(layout);
-    layout.popNode();
+    const skip = try popInlineBox(box_gen);
+    box_gen.getLayout().popNode();
     ctx.accumulateSkip(skip);
     return null;
 }
 
-pub fn afterFlowMode(layout: *Layout) void {
-    layout.popFlowBlock(.normal);
-    layout.popNode();
+pub fn afterFlowMode(box_gen: *BoxGen) void {
+    box_gen.popFlowBlock(.normal);
+    box_gen.getLayout().popNode();
 }
 
 pub fn afterInlineMode() noreturn {
     unreachable;
 }
 
-pub fn afterStfMode(layout: *Layout, layout_result: stf.Result) void {
-    layout.popFlowBlock(.{ .stf = layout_result.auto_width });
-    layout.popNode();
+pub fn afterStfMode(box_gen: *BoxGen, result: stf.Result) void {
+    box_gen.popFlowBlock(.{ .stf = result.auto_width });
+    box_gen.getLayout().popNode();
 }
 
-fn pushRootInlineBox(layout: *Layout) !void {
-    const ctx = &layout.inline_context;
+fn pushRootInlineBox(box_gen: *BoxGen) !void {
+    const ctx = &box_gen.inline_context;
     const ifc = &ctx.ifc.top.?;
+    const layout = box_gen.getLayout();
+
     const index = try layout.box_tree.appendInlineBox(ifc.ptr);
     setDataRootInlineBox(ifc.ptr, index);
     try ifcAddBoxStart(layout.box_tree, ifc.ptr, index);
     try ctx.pushInlineBox(layout.allocator, index);
 }
 
-fn pushInlineBox(layout: *Layout, node: NodeId) !Ifc.Size {
-    const ctx = &layout.inline_context;
+fn pushInlineBox(box_gen: *BoxGen, node: NodeId) !Ifc.Size {
+    const ctx = &box_gen.inline_context;
     const ifc = &ctx.ifc.top.?;
+    const layout = box_gen.getLayout();
+
     const index = try layout.box_tree.appendInlineBox(ifc.ptr);
     setDataInlineBox(&layout.computer, ifc.ptr.slice(), index, node, ifc.percentage_base_unit);
     try ifcAddBoxStart(layout.box_tree, ifc.ptr, index);
@@ -264,12 +273,12 @@ fn pushInlineBox(layout: *Layout, node: NodeId) !Ifc.Size {
     return index;
 }
 
-fn popInlineBox(layout: *Layout) !Ifc.Size {
-    const ctx = &layout.inline_context;
+fn popInlineBox(box_gen: *BoxGen) !Ifc.Size {
+    const ctx = &box_gen.inline_context;
     const ifc = ctx.ifc.top.?;
     const inline_box = ctx.popInlineBox();
     ifc.ptr.slice().items(.skip)[inline_box.index] = inline_box.skip;
-    try ifcAddBoxEnd(layout.box_tree, ifc.ptr, inline_box.index);
+    try ifcAddBoxEnd(box_gen.getLayout().box_tree, ifc.ptr, inline_box.index);
     return inline_box.skip;
 }
 
@@ -542,7 +551,7 @@ fn setDataInlineBox(computer: *StyleComputer, ifc: Ifc.Slice, inline_box_index: 
 fn inlineBlockSolveSizes(
     computer: *StyleComputer,
     position: BoxTree.BoxStyle.Position,
-    containing_block_size: Layout.ContainingBlockSize,
+    containing_block_size: ContainingBlockSize,
 ) BlockUsedSizes {
     const specified = BlockComputedSizes{
         .content_width = computer.getSpecifiedValue(.box_gen, .content_width),
@@ -914,12 +923,12 @@ fn setMetricsInlineBlock(metrics: *Ifc.Metrics, subtree: Subtree.View, block_box
 const IFCLineSplitState = struct {
     cursor: Unit,
     line_box: Ifc.LineBox,
-    inline_blocks_in_this_line_box: ArrayListUnmanaged(InlineBlockInfo),
+    inline_blocks_in_this_line_box: std.ArrayListUnmanaged(InlineBlockInfo),
     top_height: Unit,
     max_top_height: Unit,
     bottom_height: Unit,
     longest_line_box_length: Unit,
-    inline_box_stack: ArrayListUnmanaged(Ifc.Size) = .{},
+    inline_box_stack: std.ArrayListUnmanaged(Ifc.Size) = .{},
     current_inline_box: Ifc.Size = undefined,
 
     const InlineBlockInfo = struct {
@@ -990,7 +999,7 @@ pub const IFCLineSplitResult = struct {
     longest_line_box_length: Unit,
 };
 
-pub fn splitIntoLineBoxes(
+fn splitIntoLineBoxes(
     layout: *Layout,
     subtree: Subtree.View,
     ifc: *Ifc,

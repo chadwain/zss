@@ -1,52 +1,55 @@
 const zss = @import("../zss.zig");
 const BoxTree = zss.BoxTree;
-const Layout = zss.Layout;
 const NodeId = zss.Environment.NodeId;
-const SctBuilder = Layout.StackingContextTreeBuilder;
-const StyleComputer = Layout.StyleComputer;
+const StyleComputer = zss.Layout.StyleComputer;
+
+const BoxGen = zss.Layout.BoxGen;
+const SctBuilder = BoxGen.StackingContextTreeBuilder;
 
 const flow = @import("./flow.zig");
 
-pub fn beginMode(layout: *Layout) !void {
-    try layout.pushInitialSubtree();
-    const ref = try layout.pushInitialContainingBlock(layout.viewport);
+pub fn beginMode(box_gen: *BoxGen) !void {
+    const layout = box_gen.getLayout();
+    try box_gen.pushInitialSubtree();
+    const ref = try box_gen.pushInitialContainingBlock(layout.viewport);
     layout.box_tree.ptr.initial_containing_block = ref;
 }
 
-fn endMode(layout: *Layout) void {
-    layout.popInitialContainingBlock();
-    layout.popSubtree();
+fn endMode(box_gen: *BoxGen) void {
+    box_gen.popInitialContainingBlock();
+    box_gen.popSubtree();
 }
 
-pub fn blockElement(layout: *Layout, element: NodeId, inner_block: BoxTree.BoxStyle.InnerBlock, position: BoxTree.BoxStyle.Position) !void {
+pub fn blockElement(box_gen: *BoxGen, node: NodeId, inner_block: BoxTree.BoxStyle.InnerBlock, position: BoxTree.BoxStyle.Position) !void {
+    const layout = box_gen.getLayout();
     const sizes = flow.solveAllSizes(&layout.computer, position, .{ .normal = layout.viewport.w }, layout.viewport.h);
     const stacking_context = rootBlockSolveStackingContext(&layout.computer);
     layout.computer.commitNode(.box_gen);
 
     switch (inner_block) {
         .flow => {
-            const ref = try layout.pushFlowBlock(sizes, .normal, stacking_context, element);
-            try layout.box_tree.setGeneratedBox(element, .{ .block_ref = ref });
+            const ref = try box_gen.pushFlowBlock(sizes, .normal, stacking_context, node);
+            try layout.box_tree.setGeneratedBox(node, .{ .block_ref = ref });
             try layout.pushNode();
-            return layout.beginFlowMode(.root);
+            return box_gen.beginFlowMode(.root);
         },
     }
 }
 
-pub fn nullNode(layout: *Layout) void {
-    endMode(layout);
+pub fn nullNode(box_gen: *BoxGen) void {
+    endMode(box_gen);
 }
 
-pub fn afterFlowMode(layout: *Layout) void {
-    layout.popFlowBlock(.normal);
-    layout.popNode();
+pub fn afterFlowMode(box_gen: *BoxGen) void {
+    box_gen.popFlowBlock(.normal);
+    box_gen.getLayout().popNode();
 }
 
 pub fn afterStfMode() noreturn {
     unreachable;
 }
 
-pub fn beforeInlineMode() Layout.SizeMode {
+pub fn beforeInlineMode() BoxGen.SizeMode {
     return .normal;
 }
 
