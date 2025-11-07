@@ -181,12 +181,13 @@ pub const Renderer = struct {
         const buffer_rows = max_height_px * glyphs_per_column;
         const buffer = try renderer.allocator.alloc(u8, buffer_stride * buffer_rows);
         defer renderer.allocator.free(buffer);
+        @memset(buffer, 0);
 
         const texture = zgl.genTexture();
         errdefer zgl.deleteTexture(texture);
         zgl.bindTexture(texture, .@"2d");
-        zgl.texParameter(.@"2d", .min_filter, .nearest);
-        zgl.texParameter(.@"2d", .mag_filter, .nearest);
+        zgl.texParameter(.@"2d", .min_filter, .linear);
+        zgl.texParameter(.@"2d", .mag_filter, .linear);
         zgl.texParameter(.@"2d", .wrap_s, .repeat);
         zgl.texParameter(.@"2d", .wrap_t, .repeat);
         zgl.texParameter(.@"2d", .swizzle_r, .one);
