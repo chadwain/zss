@@ -7,8 +7,6 @@ pub const CssWideKeyword = enum(u2) {
     unset = 3,
 };
 
-pub const Text = []const u8;
-
 pub const Display = enum {
     block,
     @"inline",

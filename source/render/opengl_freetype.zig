@@ -42,7 +42,7 @@ pub const Renderer = struct {
     fragment_shader: zgl.Shader,
     one_pixel_texture: zgl.Texture,
 
-    glyphs: Glyphs,
+    glyph_cache: ?GlyphCache,
     draw_list: ?DrawList, // TODO: instead of null, have a default value
 
     textures: std.AutoHashMapUnmanaged(Images.Handle, zgl.Texture),
@@ -52,6 +52,8 @@ pub const Renderer = struct {
 
     allocator: Allocator,
 
+    debug: Debug,
+
     const Mode = enum { init, flat_color, textured };
 
     const Vertex = extern struct {
@@ -60,26 +62,139 @@ pub const Renderer = struct {
         tex_coords: [2]zgl.Float,
     };
 
-    const glyphs_per_row = 16;
-    const glyphs_per_column = 16;
-    const max_glyphs = glyphs_per_row * glyphs_per_column;
-
-    const Glyphs = struct {
-        font_exists: bool,
-        texture: zgl.Texture,
-        max_width_px: u32,
-        max_height_px: u32,
-        exists: [max_glyphs]bool,
-        metrics: [max_glyphs]GlyphMetrics,
-    };
-
     const GlyphMetrics = struct {
         width_px: u32,
         height_px: u32,
         ascender_px: i32,
     };
 
+    /// A cache capable of storing glyph atlas textures for a single font face at a single font size.
+    const GlyphCache = struct {
+        face: hb.FT_Face,
+        glyph_max_width_px: u32,
+        glyph_max_height_px: u32,
+        /// Used as a bitmap for glyphs before they are sent to the GPU.
+        scratch_buffer: []u8,
+        pages: std.AutoHashMapUnmanaged(PageIndex, Page),
+
+        const PageIndex = hb.hb_codepoint_t;
+        const page_bit_mask_size = 8;
+        const glyphs_per_page = 1 << page_bit_mask_size;
+        const glyphs_per_axis = 1 << (page_bit_mask_size / 2);
+
+        /// A page is a collection of `glyphs_per_page` glyphs from the font face.
+        /// It covers the range of glyph indeces [N * glyphs_per_page, (N + 1) * glyphs_per_page) for some N.
+        const Page = struct {
+            texture: zgl.Texture,
+            metrics: [glyphs_per_page]GlyphMetrics,
+        };
+
+        fn init(face: hb.FT_Face, allocator: Allocator) !GlyphCache {
+            const max_width_px, const max_height_px = blk: {
+                const max_bbox = face.*.bbox;
+                const metrics = face.*.size.*.metrics;
+                break :blk .{
+                    @as(u32, @intCast(max_bbox.xMax - max_bbox.xMin)) * metrics.x_ppem / face.*.units_per_EM,
+                    @as(u32, @intCast(max_bbox.yMax - max_bbox.yMin)) * metrics.y_ppem / face.*.units_per_EM,
+                };
+            };
+            const buffer_width = max_width_px * glyphs_per_axis;
+            const buffer_rows = max_height_px * glyphs_per_axis;
+            const buffer = try allocator.alloc(u8, buffer_width * buffer_rows);
+            errdefer allocator.free(buffer);
+
+            return .{
+                .face = face,
+                .glyph_max_width_px = max_width_px,
+                .glyph_max_height_px = max_height_px,
+                .scratch_buffer = buffer,
+                .pages = .empty,
+            };
+        }
+
+        fn deinit(gc: *GlyphCache, allocator: Allocator) void {
+            allocator.free(gc.scratch_buffer);
+            var pages_iterator = gc.pages.valueIterator();
+            while (pages_iterator.next()) |page| {
+                zgl.deleteTexture(page.texture);
+            }
+            gc.pages.deinit(allocator);
+        }
+
+        fn initPage(gc: *GlyphCache, page: *Page, index: PageIndex) void {
+            zgl.activeTexture(.texture_1);
+            defer zgl.activeTexture(.texture_0);
+
+            page.texture = zgl.genTexture();
+            errdefer zgl.deleteTexture(page.texture);
+
+            const scratch_buffer_width = gc.glyph_max_width_px * glyphs_per_axis;
+            const scratch_buffer_height = gc.glyph_max_height_px * glyphs_per_axis;
+
+            zgl.bindTexture(page.texture, .@"2d");
+            zgl.texParameter(.@"2d", .min_filter, .linear);
+            zgl.texParameter(.@"2d", .mag_filter, .linear);
+            zgl.texParameter(.@"2d", .wrap_s, .repeat);
+            zgl.texParameter(.@"2d", .wrap_t, .repeat);
+            zgl.texParameter(.@"2d", .swizzle_r, .one);
+            zgl.texParameter(.@"2d", .swizzle_g, .one);
+            zgl.texParameter(.@"2d", .swizzle_b, .one);
+            zgl.texParameter(.@"2d", .swizzle_a, .red);
+            zgl.textureImage2D(.@"2d", 0, .red, scratch_buffer_width, scratch_buffer_height, .red, .unsigned_byte, null);
+
+            // TODO: Pack glyphs
+
+            @memset(gc.scratch_buffer, 0);
+            for (0..glyphs_per_page) |i| {
+                const glyph_index = index * glyphs_per_page + i;
+                const glyph = blk: {
+                    if (hb.FT_Load_Glyph(gc.face, @intCast(glyph_index), 0) != hb.FT_Err_Ok) break :blk null;
+                    if (hb.FT_Render_Glyph(gc.face.*.glyph, hb.FT_RENDER_MODE_NORMAL) != hb.FT_Err_Ok) break :blk null;
+                    break :blk gc.face.*.glyph;
+                } orelse {
+                    page.metrics[i] = .{
+                        .width_px = 0,
+                        .height_px = 0,
+                        .ascender_px = 0,
+                    };
+                    continue;
+                };
+
+                const glyph_x = i % glyphs_per_axis;
+                const glyph_y = i / glyphs_per_axis;
+                const dest_index = (glyph_x * gc.glyph_max_width_px) + (glyph_y * gc.glyph_max_height_px * scratch_buffer_width);
+
+                const bitmap = glyph.*.bitmap;
+                // The bitmap stride can be negative, which means going backwards in memory for every scan line.
+                var src, const src_width, const src_height, const src_stride: c_uint =
+                    if (bitmap.buffer) |buffer|
+                        .{ buffer, bitmap.width, bitmap.rows, @bitCast(bitmap.pitch) }
+                    else
+                        .{ undefined, 0, 0, 0 };
+                assert(src_width <= gc.glyph_max_width_px);
+                assert(src_height <= gc.glyph_max_height_px);
+
+                for (0..src_height) |y| {
+                    @memcpy(
+                        gc.scratch_buffer[dest_index + y * scratch_buffer_width ..][0..src_width],
+                        src[0..src_width],
+                    );
+                    src = @ptrFromInt(@intFromPtr(src) +% src_stride);
+                }
+
+                page.metrics[i] = .{
+                    .width_px = src_width,
+                    .height_px = src_height,
+                    .ascender_px = glyph.*.bitmap_top,
+                };
+            }
+
+            zgl.texSubImage2D(.@"2d", 0, 0, 0, scratch_buffer_width, scratch_buffer_height, .red, .unsigned_byte, gc.scratch_buffer.ptr);
+        }
+    };
+
     pub fn init(allocator: Allocator, fonts: *const Fonts) !Renderer {
+        // TODO: add errdefers
         var renderer: Renderer = .{
             .mode = .init,
 
@@ -91,13 +206,15 @@ pub const Renderer = struct {
             .fragment_shader = undefined,
             .one_pixel_texture = undefined,
 
-            .glyphs = undefined,
+            .glyph_cache = null,
             .draw_list = null,
 
             .textures = .empty,
             .vertices = .empty,
             .indeces = .empty,
             .allocator = allocator,
+
+            .debug = .{},
         };
 
         renderer.vao = zgl.genVertexArray();
@@ -122,7 +239,11 @@ pub const Renderer = struct {
 
         renderer.one_pixel_texture = createOnePixelTexture();
 
-        try createGlyphs(&renderer, fonts);
+        if (fonts.get(fonts.query())) |font| {
+            const face = hb.hb_ft_font_get_face(font);
+            renderer.glyph_cache = try GlyphCache.init(face, allocator);
+        }
+        errdefer if (renderer.glyph_cache) |*gc| gc.deinit(allocator);
 
         return renderer;
     }
@@ -152,96 +273,6 @@ pub const Renderer = struct {
         return texture;
     }
 
-    fn createGlyphs(renderer: *Renderer, fonts: *const Fonts) !void {
-        const font = fonts.get(fonts.query()) orelse {
-            renderer.glyphs = .{
-                .font_exists = false,
-                .texture = renderer.one_pixel_texture,
-                .max_width_px = 1,
-                .max_height_px = 1,
-                .exists = @splat(false),
-                .metrics = undefined,
-            };
-            return;
-        };
-        const face = hb.hb_ft_font_get_face(font);
-        if (hb.FT_Select_Charmap(face, hb.FT_ENCODING_UNICODE) != hb.FT_Err_Ok) return error.SelectCharmapFail;
-
-        const max_width_px, const max_height_px = blk: {
-            const max_bbox = face.*.bbox;
-            const metrics = face.*.size.*.metrics;
-            break :blk .{
-                @as(u32, @intCast(max_bbox.xMax - max_bbox.xMin)) * metrics.x_ppem / face.*.units_per_EM,
-                @as(u32, @intCast(max_bbox.yMax - max_bbox.yMin)) * metrics.y_ppem / face.*.units_per_EM,
-            };
-        };
-
-        const buffer_width = max_width_px * glyphs_per_row;
-        const buffer_stride = buffer_width;
-        const buffer_rows = max_height_px * glyphs_per_column;
-        const buffer = try renderer.allocator.alloc(u8, buffer_stride * buffer_rows);
-        defer renderer.allocator.free(buffer);
-        @memset(buffer, 0);
-
-        const texture = zgl.genTexture();
-        errdefer zgl.deleteTexture(texture);
-        zgl.bindTexture(texture, .@"2d");
-        zgl.texParameter(.@"2d", .min_filter, .linear);
-        zgl.texParameter(.@"2d", .mag_filter, .linear);
-        zgl.texParameter(.@"2d", .wrap_s, .repeat);
-        zgl.texParameter(.@"2d", .wrap_t, .repeat);
-        zgl.texParameter(.@"2d", .swizzle_r, .one);
-        zgl.texParameter(.@"2d", .swizzle_g, .one);
-        zgl.texParameter(.@"2d", .swizzle_b, .one);
-        zgl.texParameter(.@"2d", .swizzle_a, .red);
-        zgl.textureImage2D(.@"2d", 0, .red, buffer_width, buffer_rows, .red, .unsigned_byte, null);
-
-        var exists: [max_glyphs]bool = @splat(false);
-        var metrics: [max_glyphs]GlyphMetrics = undefined;
-        for (0..max_glyphs) |glyph_index| {
-            if (hb.FT_Load_Glyph(face, @intCast(glyph_index), 0) != hb.FT_Err_Ok) return error.LoadGlyphFail;
-            const glyph = face.*.glyph;
-            if (hb.FT_Render_Glyph(glyph, hb.FT_RENDER_MODE_NORMAL) != hb.FT_Err_Ok) return error.RenderGlyphFail;
-
-            const bitmap = glyph.*.bitmap;
-            if (bitmap.buffer != null) {
-                const src = bitmap.buffer[0 .. @abs(bitmap.pitch) * bitmap.rows];
-                const glyph_x = glyph_index % glyphs_per_row;
-                const glyph_y = glyph_index / glyphs_per_row;
-
-                const dest_index = (glyph_x * max_width_px) + (glyph_y * max_height_px * buffer_stride);
-
-                const src_width = bitmap.width;
-                const src_height = bitmap.rows;
-                const src_stride: u32 = @abs(bitmap.pitch);
-                for (0..src_height) |y| {
-                    @memcpy(
-                        buffer[dest_index + y * buffer_stride ..][0..src_width],
-                        src[y * src_stride ..][0..src_width],
-                    );
-                }
-
-                exists[glyph_index] = true;
-                metrics[glyph_index] = .{
-                    .width_px = src_width,
-                    .height_px = src_height,
-                    .ascender_px = glyph.*.bitmap_top,
-                };
-            }
-        }
-
-        zgl.texSubImage2D(.@"2d", 0, 0, 0, buffer_width, buffer_rows, .red, .unsigned_byte, buffer.ptr);
-
-        renderer.glyphs = .{
-            .font_exists = true,
-            .texture = texture,
-            .max_width_px = max_width_px,
-            .max_height_px = max_height_px,
-            .exists = exists,
-            .metrics = metrics,
-        };
-    }
-
     pub fn deinit(renderer: *Renderer) void {
         zgl.deleteBuffers(&.{ renderer.ib, renderer.vb });
         zgl.deleteVertexArray(renderer.vao);
@@ -250,8 +281,8 @@ pub const Renderer = struct {
         zgl.deleteProgram(renderer.program);
         zgl.deleteTexture(renderer.one_pixel_texture);
 
-        if (renderer.glyphs.font_exists) {
-            zgl.deleteTexture(renderer.glyphs.texture);
+        if (renderer.glyph_cache) |*gc| {
+            gc.deinit(renderer.allocator);
         }
 
         if (renderer.draw_list) |*draw_list| {
@@ -316,48 +347,72 @@ pub const Renderer = struct {
         }
     }
 
-    // pub fn displayAllGlyphs(renderer: *Renderer, viewport: Rect) !void {
-    //     try renderer.beginDraw(viewport, 1);
-    //     defer renderer.endDraw();
-    //     renderer.setMode(.textured, renderer.glyphs.texture);
+    pub const Debug = struct {
+        pub fn getPageList(debug: *Debug, allocator: Allocator) ![]GlyphCache.PageIndex {
+            const renderer: *Renderer = @alignCast(@fieldParentPtr("debug", debug));
+            var list: std.ArrayList(GlyphCache.PageIndex) = .empty;
+            defer list.deinit(allocator);
+            var it = renderer.glyph_cache.?.pages.keyIterator();
+            while (it.next()) |page_index| try list.append(allocator, page_index.*);
+            return try list.toOwnedSlice(allocator);
+        }
 
-    //     var rect = Rect{ .x = 0, .y = 0, .w = undefined, .h = undefined };
-    //     const texture_width: i32 = @intCast(renderer.glyphs.max_width_px * glyphs_per_row);
-    //     const texture_height: i32 = @intCast(renderer.glyphs.max_height_px * glyphs_per_column);
-    //     if (texture_width >= texture_height) {
-    //         rect.w = viewport.w;
-    //         rect.h = @divFloor(texture_height * viewport.w, texture_width);
-    //     } else {
-    //         rect.w = @divFloor(texture_width * viewport.h, texture_height);
-    //         rect.h = viewport.h;
-    //     }
-    //     try renderer.addTexturedRect(rect, Color.white, .{ 0.0, 1.0 }, .{ 0.0, 1.0 });
-    // }
+        pub fn drawGlyphCachePage(debug: *Debug, viewport: Rect, page_index: GlyphCache.PageIndex) !void {
+            const renderer: *Renderer = @alignCast(@fieldParentPtr("debug", debug));
+            try renderer.beginDraw(viewport, 1);
+            defer renderer.endDraw();
+
+            const glyph_cache = &renderer.glyph_cache.?;
+            const page = glyph_cache.pages.get(page_index).?;
+            renderer.setMode(.textured, page.texture);
+
+            var rect = Rect{ .x = 0, .y = 0, .w = undefined, .h = undefined };
+            const texture_width: i32 = @intCast(glyph_cache.glyph_max_width_px * GlyphCache.glyphs_per_axis);
+            const texture_height: i32 = @intCast(glyph_cache.glyph_max_height_px * GlyphCache.glyphs_per_axis);
+            if (texture_width >= texture_height) {
+                rect.w = viewport.w;
+                rect.h = @divFloor(texture_height * viewport.w, texture_width);
+            } else {
+                rect.w = @divFloor(texture_width * viewport.h, texture_height);
+                rect.h = viewport.h;
+            }
+            try renderer.addTexturedRect(rect, Color.white, .{ 0.0, 1.0 }, .{ 0.0, 1.0 });
+        }
+    };
 
     const GlyphInfo = struct {
+        texture: zgl.Texture,
         metrics: GlyphMetrics,
         tex_coords_x: [2]f32,
         tex_coords_y: [2]f32,
     };
 
-    fn getGlyphInfo(renderer: *const Renderer, glyph_index: u32) ?GlyphInfo {
-        if (glyph_index >= max_glyphs) return null;
-        if (!renderer.glyphs.exists[glyph_index]) return null;
+    fn getGlyphInfo(renderer: *Renderer, glyph_index: u32) !GlyphInfo {
+        const page_index: GlyphCache.PageIndex = glyph_index / GlyphCache.glyphs_per_page;
+        const glyph_cache = &renderer.glyph_cache.?;
+        const gop = try glyph_cache.pages.getOrPut(renderer.allocator, page_index);
+        if (!gop.found_existing) {
+            errdefer glyph_cache.pages.removeByPtr(gop.key_ptr);
+            glyph_cache.initPage(gop.value_ptr, page_index);
+        }
 
-        const metrics = renderer.glyphs.metrics[glyph_index];
+        const page = gop.value_ptr;
+        const glyph_index_in_page = glyph_index % GlyphCache.glyphs_per_page;
+        const metrics = page.metrics[glyph_index_in_page];
 
-        const glyph_x = glyph_index % glyphs_per_row;
-        const glyph_y = glyph_index / glyphs_per_row;
+        const glyph_x = glyph_index_in_page % GlyphCache.glyphs_per_axis;
+        const glyph_y = glyph_index_in_page / GlyphCache.glyphs_per_axis;
 
-        const x_min: f32 = @floatFromInt(glyph_x * renderer.glyphs.max_width_px);
-        const x_max: f32 = @floatFromInt(glyph_x * renderer.glyphs.max_width_px + metrics.width_px);
-        const y_min: f32 = @floatFromInt(glyph_y * renderer.glyphs.max_height_px);
-        const y_max: f32 = @floatFromInt(glyph_y * renderer.glyphs.max_height_px + metrics.height_px);
+        const x_min: f32 = @floatFromInt(glyph_x * glyph_cache.glyph_max_width_px);
+        const x_max: f32 = @floatFromInt(glyph_x * glyph_cache.glyph_max_width_px + metrics.width_px);
+        const y_min: f32 = @floatFromInt(glyph_y * glyph_cache.glyph_max_height_px);
+        const y_max: f32 = @floatFromInt(glyph_y * glyph_cache.glyph_max_height_px + metrics.height_px);
 
-        const texture_width: f32 = @floatFromInt(renderer.glyphs.max_width_px * glyphs_per_row);
-        const texture_height: f32 = @floatFromInt(renderer.glyphs.max_height_px * glyphs_per_column);
+        const texture_width: f32 = @floatFromInt(glyph_cache.glyph_max_width_px * GlyphCache.glyphs_per_axis);
+        const texture_height: f32 = @floatFromInt(glyph_cache.glyph_max_height_px * GlyphCache.glyphs_per_axis);
 
         return .{
+            .texture = page.texture,
             .metrics = metrics,
             .tex_coords_x = .{ x_min / texture_width, x_max / texture_width },
             .tex_coords_y = .{ y_min / texture_height, y_max / texture_height },
@@ -939,11 +994,13 @@ fn drawLineBox(
         }
     }
 
-    renderer.setMode(.textured, renderer.glyphs.texture);
+    renderer.endMode();
     defer renderer.setMode(.flat_color, {});
 
     var cursor: Unit = 0;
     var i: usize = 0;
+    var must_set_mode = true;
+    var current_texture: ?zgl.Texture = null;
     while (i < all_glyphs.len) : (i += 1) {
         const glyph_index = all_glyphs[i];
         const metrics = all_metrics[i];
@@ -956,7 +1013,8 @@ fn drawLineBox(
                 .ZeroGlyphIndex => break :blk,
                 .BoxStart => {
                     renderer.setMode(.flat_color, {});
-                    defer renderer.setMode(.textured, renderer.glyphs.texture);
+                    defer renderer.endMode();
+                    must_set_mode = true;
 
                     const match_info = findMatchingBoxEnd(all_glyphs[i + 1 ..], all_metrics[i + 1 ..], special.data);
                     const insets = slice.items(.insets)[special.data];
@@ -984,15 +1042,23 @@ fn drawLineBox(
             continue;
         }
 
-        if (renderer.getGlyphInfo(glyph_index)) |info| {
-            const rect = Rect{
-                .x = offset.x + cursor + metrics.offset,
-                .y = offset.y + line_box.baseline - (info.metrics.ascender_px * units_per_pixel),
-                .w = @intCast(info.metrics.width_px * units_per_pixel),
-                .h = @intCast(info.metrics.height_px * units_per_pixel),
-            };
-            try renderer.addTexturedRect(rect, ifc.font_color, info.tex_coords_x, info.tex_coords_y);
+        if (renderer.glyph_cache == null) continue;
+        const info = try renderer.getGlyphInfo(glyph_index);
+        if (info.texture != current_texture) must_set_mode = true;
+
+        if (must_set_mode) {
+            must_set_mode = false;
+            current_texture = info.texture;
+            renderer.setMode(.textured, info.texture);
         }
+
+        const rect = Rect{
+            .x = offset.x + cursor + metrics.offset,
+            .y = offset.y + line_box.baseline - (info.metrics.ascender_px * units_per_pixel),
+            .w = @intCast(info.metrics.width_px * units_per_pixel),
+            .h = @intCast(info.metrics.height_px * units_per_pixel),
+        };
+        try renderer.addTexturedRect(rect, ifc.font_color, info.tex_coords_x, info.tex_coords_y);
     }
 }
 

@@ -153,6 +153,8 @@ pub fn main() !void {
     try checkFtError(hb.FT_New_Memory_Face(library, font_file.ptr, font_file.len, 0, &face));
     defer _ = hb.FT_Done_Face(face);
 
+    try checkFtError(hb.FT_Select_Charmap(face, hb.FT_ENCODING_UNICODE));
+
     const font_size = 12;
     const dpi: struct { x: c_uint, y: c_uint } = blk: {
         const content_scale = window.getContentScale();
@@ -295,7 +297,10 @@ pub fn main() !void {
 
         // zgl.clearColor(0, 0, 0, 0);
         // zgl.clear(.{ .color = true });
-        // try renderer.displayAllGlyphs(viewport_rect);
+        // const pages = try renderer.debug.getPageList(program_state.allocator);
+        // defer program_state.allocator.free(pages);
+        // std.debug.print("{any}\n", .{pages});
+        // try renderer.debug.drawGlyphCachePage(viewport_rect, 0);
 
         zgl.flush();
 

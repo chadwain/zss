@@ -298,9 +298,10 @@ fn ifcAddLineBreak(box_tree: BoxTreeManaged, ifc: *Ifc) !void {
     try box_tree.appendSpecialGlyph(ifc, .LineBreak, {});
 }
 
-fn ifcAddText(box_tree: BoxTreeManaged, ifc: *Ifc, text: zss.values.types.Text, font: *hb.hb_font_t) !void {
+fn ifcAddText(box_tree: BoxTreeManaged, ifc: *Ifc, text: []const u8, font: *hb.hb_font_t) !void {
     const buffer = hb.hb_buffer_create() orelse unreachable;
     defer hb.hb_buffer_destroy(buffer);
+    // TODO: Need to put a limit on the length of text
     _ = hb.hb_buffer_pre_allocate(buffer, @intCast(text.len));
     // TODO direction, script, and language must be determined by examining the text itself
     hb.hb_buffer_set_direction(buffer, hb.HB_DIRECTION_LTR);
@@ -340,7 +341,7 @@ fn ifcAddText(box_tree: BoxTreeManaged, ifc: *Ifc, text: zss.values.types.Text, 
     try ifcEndTextRun(box_tree, ifc, text, buffer, font, run_begin, run_end);
 }
 
-fn ifcEndTextRun(box_tree: BoxTreeManaged, ifc: *Ifc, text: zss.values.types.Text, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
+fn ifcEndTextRun(box_tree: BoxTreeManaged, ifc: *Ifc, text: []const u8, buffer: *hb.hb_buffer_t, font: *hb.hb_font_t, run_begin: usize, run_end: usize) !void {
     if (run_end > run_begin) {
         hb.hb_buffer_add_latin1(buffer, text.ptr, @intCast(text.len), @intCast(run_begin), @intCast(run_end - run_begin));
         if (hb.hb_buffer_allocation_successful(buffer) == 0) return error.OutOfMemory;

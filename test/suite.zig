@@ -67,15 +67,16 @@ pub fn main() !void {
     const args = try Args.init(&arena);
 
     var library: hb.FT_Library = undefined;
-    if (hb.FT_Init_FreeType(&library) != 0) return error.FreeTypeError;
+    if (hb.FT_Init_FreeType(&library) != hb.FT_Err_Ok) return error.FreeTypeError;
     defer _ = hb.FT_Done_FreeType(library);
 
     const font_name = try std.fs.path.joinZ(arena.allocator(), &.{ args.resources_path, "NotoSans-Regular.ttf" });
     const font_size = 12;
     var face: hb.FT_Face = undefined;
-    if (hb.FT_New_Face(library, font_name.ptr, 0, &face) != 0) return error.FreeTypeError;
+    if (hb.FT_New_Face(library, font_name.ptr, 0, &face) != hb.FT_Err_Ok) return error.FreeTypeError;
     defer _ = hb.FT_Done_Face(face);
-    if (hb.FT_Set_Char_Size(face, 0, font_size * 64, 96, 96) != 0) return error.FreeTypeError;
+    if (hb.FT_Select_Charmap(face, hb.FT_ENCODING_UNICODE) != hb.FT_Err_Ok) return error.FreeTypeError;
+    if (hb.FT_Set_Char_Size(face, 0, font_size * 64, 96, 96) != hb.FT_Err_Ok) return error.FreeTypeError;
 
     const font = hb.hb_ft_font_create_referenced(face).?;
     hb.hb_ft_font_set_funcs(font);
